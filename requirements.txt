@@ -1,0 +1,7 @@
+# Mock mode (and the CLI core) needs nothing beyond the Python stdlib.
+# Live mode (--live) needs the Anthropic SDK:
+anthropic>=0.40.0
+
+# HTTP API (api.py) — the backend a web frontend talks to:
+fastapi>=0.110
+uvicorn[standard]>=0.29

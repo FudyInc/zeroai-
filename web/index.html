@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ZeroAI · Dashboard</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  body{font-family:'Inter',-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif}
+  .scroll::-webkit-scrollbar{height:8px;width:8px}.scroll::-webkit-scrollbar-thumb{background:#e4e4e7;border-radius:4px}
+  [data-lucide]{width:18px;height:18px}
+  .nav{color:#52525b;cursor:pointer}.nav:hover{background:#f4f4f5}.nav.active{background:#f4f4f5;color:#18181b;font-weight:600}
+  .view{display:none}.view.show{display:block}
+</style>
+</head>
+<body class="bg-zinc-50 text-zinc-900 antialiased">
+<div class="flex min-h-screen">
+
+  <!-- SIDEBAR -->
+  <aside class="w-60 shrink-0 bg-white border-r border-zinc-200 flex flex-col fixed h-screen">
+    <div class="h-[68px] flex items-center gap-3 px-5 border-b border-zinc-100">
+      <svg width="34" height="34" viewBox="0 0 48 48"><rect width="48" height="48" rx="12" fill="#173d33"/><ellipse cx="24" cy="24" rx="8.5" ry="12.5" fill="none" stroke="#f4efe3" stroke-width="4"/><line x1="16.5" y1="33" x2="31.5" y2="15" stroke="#f4efe3" stroke-width="4" stroke-linecap="round"/></svg>
+      <div><div class="font-extrabold leading-tight text-[17px]"><span style="color:#173d33">Zero</span><span style="color:#2f8f78">AI</span></div><div class="text-xs text-zinc-400">Lead-gen B2B</div></div>
+    </div>
+    <nav class="p-3 flex-1 text-sm" id="nav">
+      <a data-view="dashboard" class="nav flex items-center gap-3 px-3 py-2 rounded-lg mb-0.5"><i data-lucide="layout-dashboard"></i>Dashboard</a>
+      <a data-view="leads" class="nav flex items-center gap-3 px-3 py-2 rounded-lg mb-0.5"><i data-lucide="users"></i>Leads</a>
+      <a data-view="pipeline" class="nav flex items-center gap-3 px-3 py-2 rounded-lg mb-0.5"><i data-lucide="git-branch"></i>Pipeline</a>
+      <a data-view="outreach" class="nav flex items-center gap-3 px-3 py-2 rounded-lg mb-0.5"><i data-lucide="mail"></i>Outreach</a>
+      <a data-view="seguimientos" class="nav flex items-center gap-3 px-3 py-2 rounded-lg mb-0.5"><i data-lucide="send"></i>Seguimientos</a>
+      <a data-view="llamadas" class="nav flex items-center gap-3 px-3 py-2 rounded-lg mb-0.5"><i data-lucide="phone"></i>Llamadas</a>
+      <a data-view="forecast" class="nav flex items-center gap-3 px-3 py-2 rounded-lg mb-0.5"><i data-lucide="trending-up"></i>Forecast</a>
+      <a data-view="clientes" class="nav flex items-center gap-3 px-3 py-2 rounded-lg mb-0.5"><i data-lucide="briefcase"></i>Clientes</a>
+      <a data-view="configuracion" class="nav flex items-center gap-3 px-3 py-2 rounded-lg mb-0.5"><i data-lucide="settings"></i>Configuración</a>
+    </nav>
+    <div class="p-3 border-t border-zinc-100 text-xs text-zinc-400">v0.1 · local · mock</div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="flex-1 ml-60">
+    <div class="h-[68px] border-b border-zinc-200 bg-white/80 backdrop-blur flex items-center px-8 gap-3 sticky top-0 z-10">
+      <div><div id="title" class="text-lg font-bold leading-tight">Dashboard</div>
+        <div id="subtitle" class="text-xs text-zinc-400">Tu embudo de leads B2B en vivo</div></div>
+      <div class="ml-auto flex items-center gap-2">
+        <select id="client" class="text-sm border border-zinc-200 rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200"></select>
+        <button id="newBtn" class="text-sm font-medium bg-zinc-900 text-white rounded-lg px-3.5 py-1.5 hover:bg-zinc-800 transition flex items-center gap-1.5"><i data-lucide="plus" style="width:15px;height:15px"></i>Buscar leads</button>
+      </div>
+    </div>
+
+    <div id="runPanel" class="hidden border-b border-zinc-200 bg-white">
+      <div class="px-8 py-4 flex flex-wrap items-end gap-3">
+        <div><label class="block text-xs text-zinc-500 mb-1">Cliente</label><input id="f_client" class="border border-zinc-200 rounded-lg px-3 py-1.5 text-sm w-36" placeholder="acme"></div>
+        <div><label class="block text-xs text-zinc-500 mb-1">Plan</label><select id="f_tier" class="border border-zinc-200 rounded-lg px-3 py-1.5 text-sm"><option>STARTER</option><option selected>GROWTH</option><option>SCALE</option><option>ENTERPRISE</option></select></div>
+        <div class="flex-1 min-w-[220px]"><label class="block text-xs text-zinc-500 mb-1">Búsqueda</label><input id="f_query" class="border border-zinc-200 rounded-lg px-3 py-1.5 text-sm w-full" placeholder="agencias de marketing en Santiago"></div>
+        <div><label class="block text-xs text-zinc-500 mb-1">Cantidad</label><input id="f_count" type="number" value="8" class="border border-zinc-200 rounded-lg px-3 py-1.5 text-sm w-20"></div>
+        <button id="runBtn" class="bg-indigo-600 text-white text-sm font-medium rounded-lg px-4 py-1.5 hover:bg-indigo-700 transition">Correr</button>
+      </div>
+    </div>
+
+    <div class="p-8">
+      <!-- DASHBOARD -->
+      <section id="v-dashboard" class="view space-y-6">
+        <div id="kpis" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5"></div>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          <div class="lg:col-span-2 bg-white border border-zinc-200 rounded-2xl p-5">
+            <div class="font-semibold">Leads por etapa</div><div class="text-xs text-zinc-400 mb-4">Distribución del embudo</div>
+            <div style="height:300px"><canvas id="chart"></canvas></div></div>
+          <div class="bg-white border border-zinc-200 rounded-2xl p-5">
+            <div class="font-semibold">Salud del embudo</div><div class="text-xs text-zinc-400">% de leads que pasó el filtro</div>
+            <div id="healthPct" class="text-4xl font-extrabold text-emerald-600 text-center mt-4">—</div>
+            <div class="w-full h-2 bg-zinc-100 rounded-full mt-3 overflow-hidden"><div id="healthBar" class="h-full bg-zinc-900 rounded-full" style="width:0%"></div></div>
+            <div id="healthBreak" class="mt-5 space-y-3 text-sm"></div></div>
+        </div>
+      </section>
+
+      <!-- LEADS (table) -->
+      <section id="v-leads" class="view">
+        <div class="bg-white border border-zinc-200 rounded-2xl overflow-hidden">
+          <table class="w-full text-sm"><thead class="bg-zinc-50 text-zinc-500 text-left text-xs uppercase tracking-wide">
+            <tr><th class="px-5 py-3">Empresa</th><th class="px-5 py-3">Cargo</th><th class="px-5 py-3">Contacto</th><th class="px-5 py-3">Score</th><th class="px-5 py-3">Etapa</th></tr>
+          </thead><tbody id="leadsBody"></tbody></table>
+        </div>
+      </section>
+
+      <!-- PIPELINE (board) -->
+      <section id="v-pipeline" class="view">
+        <div class="bg-white border border-zinc-200 rounded-2xl p-5">
+          <div class="text-xs text-zinc-400 mb-4">Mové un lead de etapa con el menú de cada tarjeta</div>
+          <div id="board" class="flex gap-4 overflow-x-auto scroll pb-2"></div>
+        </div>
+      </section>
+
+      <!-- FORECAST -->
+      <section id="v-forecast" class="view"><div id="forecastBox"></div></section>
+
+      <!-- CLIENTES -->
+      <section id="v-clientes" class="view"><div id="clientesBox" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"></div></section>
+
+      <!-- LLAMADAS -->
+      <section id="v-llamadas" class="view"></section>
+
+      <!-- placeholders -->
+      <section id="v-outreach" class="view"></section>
+      <section id="v-seguimientos" class="view"></section>
+      <section id="v-configuracion" class="view"></section>
+
+      <div id="empty" class="hidden text-zinc-400 py-16 text-center">Aún no hay datos. Usá <b>Buscar leads</b> para correr una pipeline.</div>
+    </div>
+  </main>
+</div>
+
+<!-- lead detail modal -->
+<div id="leadModal" class="hidden fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+  <div class="bg-white rounded-2xl max-w-lg w-full max-h-[85vh] overflow-auto p-6" id="leadModalBody"></div>
+</div>
+
+<script>
+const STAGES={new:{l:'Nuevos',c:'#64748b'},qualified:{l:'Calificados',c:'#0284c7'},disqualified:{l:'Descartados',c:'#e11d48'},
+  contacted:{l:'Contactados',c:'#d97706'},nurturing:{l:'En seguimiento',c:'#db2777'},replied:{l:'Respondieron',c:'#2563eb'},
+  meeting:{l:'Reunión',c:'#059669'},won:{l:'Ganados',c:'#16a34a'},lost:{l:'Perdidos',c:'#94a3b8'}};
+const ORDER=['new','qualified','disqualified','contacted','nurturing','replied','meeting','won','lost'];
+const TITLES={dashboard:['Dashboard','Tu embudo de leads B2B en vivo'],leads:['Leads','Todos los leads del cliente'],
+  pipeline:['Pipeline','El tablero por etapas'],outreach:['Outreach','Mensajes de primer toque'],
+  seguimientos:['Seguimientos','Secuencias de follow-up'],llamadas:['Llamadas','Llamá a un prospecto con Fernanda (IA)'],
+  forecast:['Forecast','Proyección de pipeline'],clientes:['Clientes','Tus cuentas'],configuracion:['Configuración','Ajustes']};
+let client=null, chart=null, view='dashboard';
+
+const esc=s=>(s==null?'':String(s)).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+const scColor=s=>s==null?'#94a3b8':(s>=80?'#16a34a':s>=70?'#d97706':'#dc2626');
+async function j(u,o){const r=await fetch(u,o);if(!r.ok)throw new Error(await r.text());return r.json();}
+function stageOptions(cur){return ORDER.map(s=>`<option value="${s}" ${s===cur?'selected':''}>${STAGES[s].l}</option>`).join('');}
+function badge(s){return `<span class="font-extrabold" style="color:${scColor(s)}">${s==null?'—':s}</span>`;}
+function bindMoves(){document.querySelectorAll('.mvSel').forEach(sel=>sel.addEventListener('change',async e=>{
+  await j(`/api/leads/${encodeURIComponent(e.target.dataset.key)}/stage?client=${encodeURIComponent(client)}`,
+    {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stage:e.target.value})});load();}));}
+function placeholder(icon,txt){return `<div class="bg-white border border-zinc-200 rounded-2xl py-20 text-center text-zinc-400">
+  <i data-lucide="${icon}" style="width:34px;height:34px" class="mx-auto mb-3 text-zinc-300"></i><div class="font-medium text-zinc-500">${txt}</div>
+  <div class="text-sm">Próximamente — le asignamos contenido pronto.</div></div>`;}
+
+function kpiCard(label,value,icon,bg,fg){return `<div class="bg-white border border-zinc-200 rounded-2xl p-5 flex items-start justify-between">
+  <div><div class="text-sm text-zinc-500">${label}</div><div class="text-3xl font-extrabold mt-1">${value}</div></div>
+  <div class="w-11 h-11 rounded-xl grid place-items-center" style="background:${bg};color:${fg}"><i data-lucide="${icon}"></i></div></div>`;}
+function card(r){const contact=r.email||r.phone||'—';
+  return `<div class="leadCard cursor-pointer bg-white border border-zinc-200 rounded-xl p-3.5 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition" data-key="${esc(r.key)}">
+    <div class="flex justify-between items-start gap-2"><div class="font-semibold">${esc(r.company)||'—'}</div>${badge(r.score)}</div>
+    <div class="text-[13px] text-zinc-500 mt-1">${esc(r.role)||'—'}</div><div class="text-[13px] text-zinc-500">${esc(contact)}</div>
+    <select data-key="${esc(r.key)}" class="mvSel mt-2.5 w-full text-xs border border-zinc-200 rounded-lg px-2 py-1 bg-zinc-50 text-zinc-600">${stageOptions(r.stage)}</select></div>`;}
+
+/* ---- loaders per view ---- */
+async function loadDashboard(){
+  const [k,b]=await Promise.all([j('/api/kpis?client='+encodeURIComponent(client)),j('/api/board?client='+encodeURIComponent(client))]);
+  document.getElementById('kpis').innerHTML=
+    kpiCard('Leads totales',k.total,'users','#eef2ff','#6366f1')+kpiCard('En pipeline',k.in_pipeline,'git-branch','#ecfdf5','#10b981')+
+    kpiCard('Ganados',k.won,'trophy','#faf5ff','#a855f7')+kpiCard('Pipeline ganado','$'+k.pipeline_usd.toLocaleString(),'dollar-sign','#fff7ed','#f59e0b');
+  // health
+  const counts={};let total=0;b.stages.forEach(s=>{counts[s.stage]=s.leads.length;total+=s.leads.length;});
+  const disq=counts.disqualified||0,won=counts.won||0,open=['new','qualified','contacted','nurturing','replied','meeting'].reduce((a,s)=>a+(counts[s]||0),0);
+  const pct=total?Math.round(100*(total-disq)/total):0;
+  document.getElementById('healthPct').textContent=pct+'%';document.getElementById('healthBar').style.width=pct+'%';
+  const row=(c,l,v)=>`<div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full" style="background:${c}"></span><span class="text-zinc-600">${l}</span><span class="ml-auto font-semibold">${v}</span></div>`;
+  document.getElementById('healthBreak').innerHTML=row('#10b981','En proceso',open)+row('#16a34a','Ganados',won)+row('#e11d48','Descartados',disq);
+  // chart
+  const used=b.stages.filter(s=>s.leads.length);
+  if(chart)chart.destroy();
+  if(window.Chart)chart=new Chart(document.getElementById('chart'),{type:'bar',
+    data:{labels:used.map(s=>STAGES[s.stage]?.l||s.stage),datasets:[{data:used.map(s=>s.leads.length),backgroundColor:used.map(s=>STAGES[s.stage]?.c||'#94a3b8'),borderRadius:8,maxBarThickness:46}]},
+    options:{plugins:{legend:{display:false}},maintainAspectRatio:false,scales:{y:{beginAtZero:true,ticks:{precision:0},grid:{color:'#f1f5f9'}},x:{grid:{display:false}}}}});
+  lucide.createIcons();
+}
+async function loadPipeline(){const b=await j('/api/board?client='+encodeURIComponent(client));
+  document.getElementById('board').innerHTML=b.stages.filter(s=>s.leads.length).map(s=>{const m=STAGES[s.stage];
+    return `<div class="shrink-0 w-64"><div class="flex items-center gap-2 mb-3 text-xs font-semibold uppercase tracking-wide" style="color:${m.c}">
+      <span class="w-2 h-2 rounded-full" style="background:${m.c}"></span>${m.l}<span class="ml-auto bg-zinc-100 text-zinc-500 rounded-full px-2 py-0.5 text-[11px]">${s.leads.length}</span></div>
+      ${s.leads.map(card).join('')}</div>`;}).join('');bindMoves();bindCards('#board');}
+function bindCards(scope){document.querySelectorAll(scope+' [data-key]').forEach(el=>el.addEventListener('click',e=>{if(e.target.closest('select'))return;openLead(el.dataset.key);}));}
+async function openLead(key){
+  const r=await j('/api/leads/'+encodeURIComponent(key)+'?client='+encodeURIComponent(client));
+  const stg=STAGES[r.stage]||{l:r.stage,c:'#94a3b8'};const o=r.outreach;
+  document.getElementById('leadModalBody').innerHTML=`
+    <div class="flex justify-between items-start gap-3">
+      <div><div class="text-lg font-bold">${esc(r.company)}</div><div class="text-sm text-zinc-500">${esc(r.role)||'—'}</div></div>
+      <button onclick="closeLead()" class="text-zinc-400 hover:text-zinc-700 text-xl leading-none">&times;</button></div>
+    <div class="flex items-center gap-2 mt-2">
+      <span class="px-2 py-0.5 rounded-full text-xs font-medium" style="background:${stg.c}22;color:${stg.c}">${stg.l}</span>
+      <span class="text-sm font-extrabold" style="color:${scColor(r.score)}">score ${r.score==null?'—':r.score}</span></div>
+    <div class="text-sm text-zinc-600 mt-3">${esc(r.email||r.phone||'—')} · canal ${esc(r.channel||'—')}</div>
+    ${(r.icp_reasons&&r.icp_reasons.length)?`<div class="mt-3"><div class="text-xs uppercase tracking-wide text-zinc-400 mb-1">Por qué calificó</div><ul class="text-sm text-zinc-600 list-disc pl-5 space-y-0.5">${r.icp_reasons.map(x=>'<li>'+esc(x)+'</li>').join('')}</ul></div>`:''}
+    ${o?`<div class="mt-4 border border-zinc-200 rounded-xl p-3 bg-zinc-50"><div class="text-xs uppercase tracking-wide text-zinc-400 mb-1">Primer mensaje · ${esc(o.channel||'')}</div>${o.subject?`<div class="text-sm font-medium">${esc(o.subject)}</div>`:''}<div class="text-sm text-zinc-600 mt-1" style="white-space:pre-wrap">${esc(o.body||'')}</div></div>`:''}
+    <div class="mt-4"><div class="text-xs uppercase tracking-wide text-zinc-400 mb-2">Historial</div>
+      <div class="space-y-1.5">${(r.history||[]).map(h=>`<div class="text-sm flex gap-2"><span class="text-zinc-400 tabular-nums">${(h.ts||'').slice(11,16)}</span><span class="text-zinc-600">${esc(h.event)}${h.detail?' · '+esc(h.detail):''}</span></div>`).join('')}</div></div>`;
+  document.getElementById('leadModal').classList.remove('hidden');
+}
+function closeLead(){document.getElementById('leadModal').classList.add('hidden');}
+async function loadLeads(){const {leads}=await j('/api/leads?client='+encodeURIComponent(client));
+  document.getElementById('leadsBody').innerHTML=leads.map(r=>`<tr data-key="${esc(r.key)}" class="border-t border-zinc-100 hover:bg-zinc-50 cursor-pointer">
+    <td class="px-5 py-3 font-medium">${esc(r.company)}</td><td class="px-5 py-3 text-zinc-500">${esc(r.role)||'—'}</td>
+    <td class="px-5 py-3 text-zinc-500">${esc(r.email||r.phone||'—')}</td><td class="px-5 py-3">${badge(r.score)}</td>
+    <td class="px-5 py-3"><select data-key="${esc(r.key)}" class="mvSel text-xs border border-zinc-200 rounded-lg px-2 py-1 bg-zinc-50 text-zinc-600">${stageOptions(r.stage)}</select></td></tr>`).join('')
+    ||`<tr><td colspan="5" class="px-5 py-10 text-center text-zinc-400">Sin leads. Usá Buscar leads.</td></tr>`;bindMoves();bindCards('#leadsBody');}
+async function loadForecast(){const f=(await j('/api/forecast?client='+encodeURIComponent(client))).forecast;const p=f.projection,a=f.assumptions,i=f.inputs;
+  const stat=(l,v)=>`<div class="bg-white border border-zinc-200 rounded-2xl p-5"><div class="text-sm text-zinc-500">${l}</div><div class="text-2xl font-extrabold mt-1">${v}</div></div>`;
+  document.getElementById('forecastBox').innerHTML=`<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+    ${stat('Respuestas esperadas','~'+p.expected_replies)}${stat('Reuniones','~'+p.expected_meetings)}${stat('Cierres','~'+p.expected_wins)}${stat('Pipeline','$'+Math.round(p.expected_pipeline_usd).toLocaleString())}</div>
+    <div class="bg-white border border-zinc-200 rounded-2xl p-5 text-sm text-zinc-600">
+      <div class="font-semibold text-zinc-900 mb-2">Supuestos</div>
+      Embudo: descubiertos ${i.discovered} → calificados ${i.qualified} → contactados ${i.contacted}.<br>
+      Tasas: respuesta ${a.reply_rate} · reunión ${a.meeting_rate} · cierre ${a.win_rate} · ticket $${a.avg_deal_value_usd}.
+      ${f.commentary?`<div class="mt-3 text-zinc-500 italic">${esc(f.commentary)}</div>`:''}</div>`;}
+async function loadClientes(){const {clients}=await j('/api/clients');
+  document.getElementById('clientesBox').innerHTML=clients.map(c=>`<div data-c="${esc(c)}" class="cl cursor-pointer bg-white border border-zinc-200 rounded-2xl p-5 hover:shadow-md transition">
+    <div class="font-semibold">${esc(c)}</div><div class="text-sm text-indigo-600 mt-1">Ver dashboard →</div></div>`).join('')||`<div class="text-zinc-400">Sin clientes aún.</div>`;
+  document.querySelectorAll('.cl').forEach(el=>el.onclick=()=>{client=el.dataset.c;document.getElementById('client').value=client;go('dashboard');});}
+
+async function loadConfig(){
+  const c=await j('/api/config');
+  const st=v=>v?'<span class="text-emerald-600 font-medium">configurada ✓</span>':'<span class="text-zinc-400">no configurada</span>';
+  document.getElementById('v-configuracion').innerHTML=`<div class="max-w-xl space-y-4">
+    <div class="bg-white border border-zinc-200 rounded-2xl p-6">
+      <div class="font-semibold">ElevenLabs (voz)</div>
+      <div class="text-xs text-zinc-400 mt-0.5 mb-3">Estado: ${st(c.elevenlabs)} · se guarda en <code>.env</code> (local, no se sube a git)</div>
+      <div class="flex gap-2"><input id="cfg_eleven" type="password" placeholder="sk_..." class="flex-1 border border-zinc-200 rounded-lg px-3 py-2 text-sm">
+        <button data-k="elevenlabs_api_key" data-i="cfg_eleven" class="cfgSave bg-zinc-900 text-white text-sm font-medium rounded-lg px-4">Guardar</button></div>
+    </div>
+    <div class="bg-white border border-zinc-200 rounded-2xl p-6">
+      <div class="font-semibold">Anthropic (modo --live, opcional)</div>
+      <div class="text-xs text-zinc-400 mt-0.5 mb-3">Estado: ${st(c.anthropic)}</div>
+      <div class="flex gap-2"><input id="cfg_anth" type="password" placeholder="sk-ant-..." class="flex-1 border border-zinc-200 rounded-lg px-3 py-2 text-sm">
+        <button data-k="anthropic_api_key" data-i="cfg_anth" class="cfgSave bg-zinc-900 text-white text-sm font-medium rounded-lg px-4">Guardar</button></div>
+    </div></div>`;
+  // Vapi card (3 campos juntos)
+  document.getElementById('v-configuracion').insertAdjacentHTML('beforeend',`
+    <div class="max-w-xl mt-4"><div class="bg-white border border-zinc-200 rounded-2xl p-6">
+      <div class="font-semibold">Vapi (llamadas)</div>
+      <div class="text-xs text-zinc-400 mt-0.5 mb-3">Estado: ${st(c.vapi)} · para llamar con Fernanda desde el dashboard</div>
+      <div class="space-y-2">
+        <input id="vp_key" type="password" placeholder="Vapi API key" class="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm">
+        <input id="vp_assist" placeholder="Assistant ID (Fernanda)" class="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm">
+        <input id="vp_phone" placeholder="Phone Number ID" class="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm">
+        <button id="vpSave" class="bg-zinc-900 text-white text-sm font-medium rounded-lg px-4 py-2">Guardar Vapi</button>
+      </div>
+    </div></div>`);
+  document.querySelectorAll('.cfgSave').forEach(b=>b.onclick=async()=>{
+    const v=document.getElementById(b.dataset.i).value.trim();if(!v){alert('Pegá la key');return;}
+    await j('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({[b.dataset.k]:v})});
+    alert('✓ Guardada');loadConfig();});
+  document.getElementById('vpSave').onclick=async()=>{
+    const payload={};const k=document.getElementById('vp_key').value.trim();const a=document.getElementById('vp_assist').value.trim();const p=document.getElementById('vp_phone').value.trim();
+    if(k)payload.vapi_api_key=k;if(a)payload.vapi_assistant_id=a;if(p)payload.vapi_phone_number_id=p;
+    if(!Object.keys(payload).length){alert('Completá al menos un campo');return;}
+    await j('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    alert('✓ Guardado');loadConfig();};
+}
+
+async function loadLlamadas(){
+  const box=document.getElementById('v-llamadas');
+  let agents=[], numbers=[];
+  try{
+    [agents,numbers]=await Promise.all([j('/api/assistants').then(r=>r.assistants),j('/api/vapi/numbers').then(r=>r.numbers)]);
+  }catch(e){
+    box.innerHTML=`<div class="bg-white border border-zinc-200 rounded-2xl p-6 max-w-xl">
+      <div class="font-semibold mb-1">Llamadas con IA</div>
+      <div class="text-sm text-zinc-500 mb-3">Falta tu <b>VAPI_API_KEY</b>. Pégala en <b>Configuración → Vapi</b> y vuelve aquí.</div>
+      <div class="text-xs text-zinc-400 mb-3">(${esc(e.message)})</div>
+      <a href="#configuracion" class="text-emerald-700 text-sm font-medium">Ir a Configuración →</a></div>`;return;}
+  const opts=(arr,lab,val)=>arr.map(x=>`<option value="${esc(x[val])}">${esc(x[lab])}</option>`).join('');
+  const agentSel=agents.length?`<select id="agentSel" class="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm">${opts(agents,'name','id')}</select>`
+    :`<div class="text-sm text-rose-600">No tienes agentes en Vapi. Crea uno primero.</div>`;
+  const numSel=numbers.length?`<select id="numSel" class="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm">${opts(numbers,'number','id')}</select>`
+    :`<div class="text-sm text-rose-600">No tienes números en Vapi. Crea/importa uno (Phone Numbers).</div>`;
+  box.innerHTML=`<div class="bg-white border border-zinc-200 rounded-2xl p-6 max-w-xl space-y-4">
+    <div><div class="font-semibold">Llamar con un agente</div><div class="text-sm text-zinc-500">Elegí el agente de voz y llamá. Probá con tu celular primero.</div></div>
+    <div><label class="block text-xs text-zinc-500 mb-1">Agente de voz</label>${agentSel}</div>
+    <div><label class="block text-xs text-zinc-500 mb-1">Número de origen</label>${numSel}</div>
+    <div><label class="block text-xs text-zinc-500 mb-1">Llamar a</label>
+      <div class="flex gap-2">
+        <span class="inline-flex items-center gap-1.5 border border-zinc-200 rounded-lg px-3 py-2 text-sm bg-zinc-50 whitespace-nowrap">🇨🇱 +56</span>
+        <input id="callNum" inputmode="numeric" maxlength="11" placeholder="9 1234 5678" class="flex-1 border border-zinc-200 rounded-lg px-3 py-2 text-sm">
+        <button id="callBtn" class="bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-medium rounded-lg px-4 flex items-center gap-1.5"><i data-lucide="phone" style="width:15px;height:15px"></i>Llamar</button>
+      </div></div>
+    <div id="callMsg" class="text-sm"></div></div>`;
+  lucide.createIcons();
+  const btn=document.getElementById('callBtn');
+  if(btn) btn.onclick=async()=>{
+    const digits=document.getElementById('callNum').value.replace(/\\D/g,'');const msg=document.getElementById('callMsg');
+    if(digits.length!==9){msg.innerHTML='<span class="text-rose-600">Escribe los 9 dígitos (el 9 + 8 más).</span>';return;}
+    const body={number:'+56'+digits};
+    if(document.getElementById('agentSel'))body.assistant_id=document.getElementById('agentSel').value;
+    if(document.getElementById('numSel'))body.phone_number_id=document.getElementById('numSel').value;
+    btn.disabled=true;btn.textContent='Llamando…';
+    try{await j('/api/call',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      msg.innerHTML='<span class="text-emerald-700">✓ Llamada iniciada a '+body.number+'. Te debería sonar el teléfono.</span>';
+    }catch(e){msg.innerHTML='<span class="text-rose-600">Error: '+e.message+'</span>';}
+    finally{btn.disabled=false;btn.innerHTML='<i data-lucide="phone" style="width:15px;height:15px"></i>Llamar';lucide.createIcons();}};
+}
+const LOADERS={dashboard:loadDashboard,leads:loadLeads,pipeline:loadPipeline,forecast:loadForecast,clientes:loadClientes,configuracion:loadConfig,llamadas:loadLlamadas,
+  outreach:async()=>document.getElementById('v-outreach').innerHTML=placeholder('mail','Outreach'),
+  seguimientos:async()=>document.getElementById('v-seguimientos').innerHTML=placeholder('send','Seguimientos')};
+
+async function load(){
+  const needsClient=['dashboard','leads','pipeline','forecast'].includes(view);
+  if(needsClient&&!client){document.getElementById('empty').classList.remove('hidden');return;}
+  document.getElementById('empty').classList.add('hidden');
+  try{await LOADERS[view]();lucide.createIcons();}catch(e){console.error(e);}
+}
+function go(v){
+  view=LOADERS[v]?v:'dashboard';
+  document.querySelectorAll('#nav .nav').forEach(a=>a.classList.toggle('active',a.dataset.view===view));
+  document.querySelectorAll('.view').forEach(s=>s.classList.toggle('show',s.id==='v-'+view));
+  document.getElementById('title').textContent=TITLES[view][0];
+  document.getElementById('subtitle').textContent=TITLES[view][1];
+  if(location.hash.slice(1)!==view)location.hash=view;
+  load();
+}
+document.querySelectorAll('#nav .nav').forEach(a=>a.onclick=()=>go(a.dataset.view));
+window.addEventListener('hashchange',()=>{const v=location.hash.slice(1);if(v&&v!==view)go(v);});
+
+async function loadClients(){const {clients}=await j('/api/clients');const sel=document.getElementById('client');
+  sel.innerHTML=clients.map(c=>`<option>${esc(c)}</option>`).join('')||'<option value="">(sin datos)</option>';
+  client=clients[0]||null;if(client)sel.value=client;sel.onchange=()=>{client=sel.value;load();};}
+document.getElementById('newBtn').onclick=()=>document.getElementById('runPanel').classList.toggle('hidden');
+document.getElementById('runBtn').onclick=async()=>{
+  const body={client:document.getElementById('f_client').value.trim()||'demo',tier:document.getElementById('f_tier').value,
+    query:document.getElementById('f_query').value.trim()||'leads B2B',count:parseInt(document.getElementById('f_count').value)||8};
+  const btn=document.getElementById('runBtn');btn.textContent='Corriendo…';btn.disabled=true;
+  try{await j('/api/pipeline',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    document.getElementById('runPanel').classList.add('hidden');await loadClients();
+    document.getElementById('client').value=body.client;client=body.client;go('dashboard');
+  }catch(e){alert('Error: '+e.message);}finally{btn.textContent='Correr';btn.disabled=false;}};
+
+document.getElementById('leadModal').addEventListener('click',e=>{if(e.target.id==='leadModal')closeLead();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeLead();});
+(async()=>{await loadClients();go(location.hash.slice(1)||'dashboard');lucide.createIcons();})();
+</script>
+</body>
+</html>

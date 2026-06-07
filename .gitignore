@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.env
+state.json
+crm.json
+.venv/
+venv/
+
+# frontend
+frontend/node_modules/
+frontend/dist/
+node_modules/
+
+# otros
+*.mp3
+.DS_Store
