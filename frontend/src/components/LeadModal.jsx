@@ -3,11 +3,11 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { X } from 'lucide-react'
 import { api } from '../lib/api'
 import { STAGES, scoreColor } from '../lib/util'
-import { Badge, Spinner } from './ui'
+import { Badge, Skeleton, Button } from './ui'
 
 export default function LeadModal({ client, leadKey, onClose }) {
   const open = !!leadKey
-  const { data: r, isLoading } = useQuery({
+  const { data: r, isLoading, error, refetch } = useQuery({
     queryKey: ['lead', client, leadKey],
     queryFn: () => api.lead(client, leadKey),
     enabled: open,
@@ -29,11 +29,21 @@ export default function LeadModal({ client, leadKey, onClose }) {
             transition={{ type: 'spring', stiffness: 320, damping: 28 }}
             onClick={(e) => e.stopPropagation()}
           >
-            {isLoading || !r ? (
-              <div className="py-16 grid place-items-center text-zinc-400"><Spinner /></div>
-            ) : (
+            {isLoading ? (
+              <div className="space-y-3">
+                <Skeleton className="h-6 w-40" />
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-20 w-full" />
+                <Skeleton className="h-24 w-full" />
+              </div>
+            ) : error ? (
+              <div className="py-12 text-center">
+                <p className="text-rose-600 font-medium">No se pudo cargar el lead.</p>
+                <Button variant="soft" className="mt-3" onClick={() => refetch()}>Reintentar</Button>
+              </div>
+            ) : r ? (
               <LeadBody r={r} onClose={onClose} />
-            )}
+            ) : null}
           </motion.div>
         </motion.div>
       )}

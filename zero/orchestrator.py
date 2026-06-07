@@ -20,6 +20,7 @@ from .config import (
     tier_config,
 )
 from .contracts import AgentResponse, Constraints, Lead, TaskPayload
+from .icp import describe_icp, is_empty, normalize_icp
 from .memory import SessionMemory
 
 
@@ -91,9 +92,13 @@ class Zero:
         cfg = tier_config(tier)
         channels = cfg["channels"]
         exclusions = exclusions or []
-        icp = icp or {}
+        # ICP: usa el provisto o el guardado del cliente; normaliza y persiste,
+        # así cada corrida se adapta al negocio del cliente sin re-enviarlo.
+        icp = normalize_icp(icp or self.memory.get_client_icp(client_id))
 
         self.memory.register_client(client_id, tier)
+        if not is_empty(icp):
+            self.memory.set_client_icp(client_id, icp)
 
         # Respect the monthly tier cap on a single run.
         cap = cfg["leads_per_mo"]
@@ -156,7 +161,7 @@ class Zero:
             out = self.dispatch("OUTREACH", TaskPayload(
                 agent="OUTREACH", client_id=client_id, client_tier=tier,
                 instructions="Redacta el primer mensaje para cada lead calificado.",
-                data={"leads": [l.to_dict() for l in qualified]},
+                data={"leads": [l.to_dict() for l in qualified], "icp": icp},
                 constraints=Constraints(channels=channels),
             ))
             if out.status != "error":
@@ -199,6 +204,7 @@ class Zero:
                 "sequences_opened": sequences_opened,
                 "channels": channels,
                 "scoring_model": cfg["scoring"],
+                "icp": describe_icp(icp),
             },
             "qualified_leads": [l.to_dict() for l in qualified],
             "rejected": rejected,

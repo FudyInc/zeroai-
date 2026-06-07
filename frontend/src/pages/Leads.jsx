@@ -1,42 +1,90 @@
+import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
+import { Search } from 'lucide-react'
 import { api } from '../lib/api'
 import { STAGES, ORDER, scoreColor } from '../lib/util'
-import { Card } from '../components/ui'
+import { Card, Skeleton, Button, Input, Select } from '../components/ui'
 import { useApp } from '../App'
 import { NoClient } from './Dashboard'
 
 export default function Leads() {
   const { client, openLead } = useApp()
   const qc = useQueryClient()
-  const { data: leads = [] } = useQuery({ queryKey: ['leads', client], queryFn: () => api.leads(client), enabled: !!client })
+  const { data: leads = [], isLoading, error, refetch } = useQuery({
+    queryKey: ['leads', client], queryFn: () => api.leads(client), enabled: !!client,
+  })
+  const [q, setQ] = useState('')
+  const [stage, setStage] = useState('')
   if (!client) return <NoClient />
 
-  const move = async (k, stage) => { await api.moveStage(client, k, stage); qc.invalidateQueries() }
+  const move = async (k, s) => {
+    try { await api.moveStage(client, k, s); qc.invalidateQueries(); toast.success('Lead movido a ' + STAGES[s].l) }
+    catch (e) { toast.error('No se pudo mover: ' + e.message) }
+  }
+
+  const needle = q.trim().toLowerCase()
+  const filtered = leads.filter((r) => {
+    if (stage && r.stage !== stage) return false
+    if (!needle) return true
+    return [r.company, r.role, r.email, r.phone].some((x) => (x || '').toLowerCase().includes(needle))
+  })
 
   return (
-    <Card className="overflow-hidden">
-      <table className="w-full text-sm">
-        <thead className="bg-zinc-50 text-zinc-500 text-left text-xs uppercase tracking-wide">
-          <tr>{['Empresa', 'Cargo', 'Contacto', 'Score', 'Etapa'].map((h) => <th key={h} className="px-5 py-3 font-medium">{h}</th>)}</tr>
-        </thead>
-        <tbody>
-          {leads.map((r) => (
-            <tr key={r.key} onClick={() => openLead(r.key)} className="border-t border-zinc-100 hover:bg-zinc-50 cursor-pointer transition-colors">
-              <td className="px-5 py-3 font-medium">{r.company}</td>
-              <td className="px-5 py-3 text-zinc-500">{r.role || '—'}</td>
-              <td className="px-5 py-3 text-zinc-500">{r.email || r.phone || '—'}</td>
-              <td className="px-5 py-3 font-extrabold tabular-nums" style={{ color: scoreColor(r.score) }}>{r.score ?? '—'}</td>
-              <td className="px-5 py-3" onClick={(e) => e.stopPropagation()}>
-                <select value={r.stage} onChange={(e) => move(r.key, e.target.value)}
-                  className="text-xs border border-zinc-200 rounded-lg px-2 py-1 bg-zinc-50 text-zinc-600 outline-none focus:ring-2 focus:ring-emerald-200">
-                  {ORDER.map((s) => <option key={s} value={s}>{STAGES[s].l}</option>)}
-                </select>
-              </td>
-            </tr>
-          ))}
-          {leads.length === 0 && <tr><td colSpan={5} className="px-5 py-10 text-center text-zinc-400">Sin leads. Usá “Buscar leads”.</td></tr>}
-        </tbody>
-      </table>
-    </Card>
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-[220px]">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+          <Input className="pl-9" placeholder="Buscar empresa, cargo o contacto…" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+        <Select value={stage} onChange={(e) => setStage(e.target.value)}>
+          <option value="">Todas las etapas</option>
+          {ORDER.map((s) => <option key={s} value={s}>{STAGES[s].l}</option>)}
+        </Select>
+        {!isLoading && <span className="text-xs text-zinc-400">{filtered.length} de {leads.length}</span>}
+      </div>
+
+      <Card className="overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-zinc-50 text-zinc-500 text-left text-xs uppercase tracking-wide">
+            <tr>{['Empresa', 'Cargo', 'Contacto', 'Score', 'Etapa'].map((h) => <th key={h} className="px-5 py-3 font-medium">{h}</th>)}</tr>
+          </thead>
+          <tbody>
+            {isLoading && [0, 1, 2, 3, 4].map((i) => (
+              <tr key={i} className="border-t border-zinc-100">
+                {[0, 1, 2, 3, 4].map((j) => <td key={j} className="px-5 py-3"><Skeleton className="h-4 w-24" /></td>)}
+              </tr>
+            ))}
+
+            {!isLoading && !error && filtered.map((r) => (
+              <tr key={r.key} onClick={() => openLead(r.key)} className="border-t border-zinc-100 hover:bg-zinc-50 cursor-pointer transition-colors">
+                <td className="px-5 py-3 font-medium">{r.company}</td>
+                <td className="px-5 py-3 text-zinc-500">{r.role || '—'}</td>
+                <td className="px-5 py-3 text-zinc-500">{r.email || r.phone || '—'}</td>
+                <td className="px-5 py-3 font-extrabold tabular-nums" style={{ color: scoreColor(r.score) }}>{r.score ?? '—'}</td>
+                <td className="px-5 py-3" onClick={(e) => e.stopPropagation()}>
+                  <select value={r.stage} onChange={(e) => move(r.key, e.target.value)}
+                    className="text-xs border border-zinc-200 rounded-lg px-2 py-1 bg-zinc-50 text-zinc-600 outline-none focus:ring-2 focus:ring-emerald-200">
+                    {ORDER.map((s) => <option key={s} value={s}>{STAGES[s].l}</option>)}
+                  </select>
+                </td>
+              </tr>
+            ))}
+
+            {!isLoading && error && (
+              <tr><td colSpan={5} className="px-5 py-12 text-center">
+                <p className="text-rose-600 font-medium">No se pudieron cargar los leads.</p>
+                <Button variant="soft" className="mt-3" onClick={() => refetch()}>Reintentar</Button>
+              </td></tr>
+            )}
+            {!isLoading && !error && filtered.length === 0 && (
+              <tr><td colSpan={5} className="px-5 py-10 text-center text-zinc-400">
+                {leads.length ? 'Ningún lead coincide con el filtro.' : 'Sin leads. Usá “Buscar leads”.'}
+              </td></tr>
+            )}
+          </tbody>
+        </table>
+      </Card>
+    </div>
   )
 }

@@ -99,32 +99,85 @@ class LocalBackend:
 
 
 def extract_json(text: str) -> Optional[Dict[str, Any]]:
-    """Best-effort: pull the first JSON object out of a model's text reply."""
+    """Best-effort: pull a JSON object out of a model's text reply.
+
+    Real models (especially small local ones) wrap JSON in prose, code fences, or
+    return a bare array instead of the response envelope. This is deliberately
+    liberal so a slightly messy reply never crashes the pipeline:
+      - strips ```json fences,
+      - tolerates text before/after the JSON,
+      - accepts a top-level array (wrapped as {"leads": [...]}),
+      - falls back to brace/bracket matching when a plain parse fails.
+    Returns a dict (arrays are wrapped) or None if nothing usable is found.
+    """
     if not text:
         return None
     text = text.strip()
 
-    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.S)
+    # 1) Strip a code fence if present (```json ... ``` or ``` ... ```).
+    fenced = re.search(r"```(?:json)?\s*(.+?)\s*```", text, re.S)
     if fenced:
-        text = fenced.group(1)
+        text = fenced.group(1).strip()
 
+    # 2) Straight parse.
+    obj = _try_load(text)
+    if obj is not None:
+        return obj
+
+    # 3) Balanced-delimiter scan. Try whichever delimiter appears *first* in the
+    #    text, so prose before a bare array doesn't make us grab its first inner
+    #    object instead of the whole array.
+    pos_obj, pos_arr = text.find("{"), text.find("[")
+    spans = sorted(
+        (p, o, c) for p, (o, c) in ((pos_obj, ("{", "}")), (pos_arr, ("[", "]"))) if p != -1
+    )
+    for _, open_ch, close_ch in spans:
+        snippet = _balanced(text, open_ch, close_ch)
+        if snippet is not None:
+            obj = _try_load(snippet)
+            if obj is not None:
+                return obj
+    return None
+
+
+def _try_load(text: str) -> Optional[Dict[str, Any]]:
+    """json.loads, wrapping a top-level array as {"leads": [...]}."""
     try:
-        return json.loads(text)
+        data = json.loads(text)
     except Exception:
-        pass
+        return None
+    if isinstance(data, dict):
+        return data
+    if isinstance(data, list):
+        return {"leads": data}
+    return None
 
-    start = text.find("{")
+
+def _balanced(text: str, open_ch: str, close_ch: str) -> Optional[str]:
+    """Return the first balanced open_ch..close_ch span, ignoring delimiters
+    inside JSON strings. None if there is no complete span."""
+    start = text.find(open_ch)
     if start == -1:
         return None
     depth = 0
+    in_str = False
+    esc = False
     for i in range(start, len(text)):
-        if text[i] == "{":
+        ch = text[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == open_ch:
             depth += 1
-        elif text[i] == "}":
+        elif ch == close_ch:
             depth -= 1
             if depth == 0:
-                try:
-                    return json.loads(text[start : i + 1])
-                except Exception:
-                    return None
+                return text[start : i + 1]
     return None

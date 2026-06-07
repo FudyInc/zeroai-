@@ -69,6 +69,8 @@ class AgentResponse:
     def ok(self) -> bool:
         return self.status == "done"
 
+    _RESULT_KEYS = ("leads", "messages", "rates")
+
     @classmethod
     def from_dict(
         cls,
@@ -76,11 +78,38 @@ class AgentResponse:
         task_id: Optional[str] = None,
         agent: Optional[str] = None,
     ) -> "AgentResponse":
+        """Build a response from a model's (possibly messy) JSON.
+
+        Defensive on purpose — real models drift from the contract:
+        - `result` may be a bare list (→ wrap as {"leads": [...]}) or missing
+          entirely while the payload itself holds leads/messages/rates (→ lift
+          those up as the result);
+        - `status` may be absent or invalid (→ infer from whether we got a result).
+        """
+        if not isinstance(d, dict):
+            return cls(task_id or "", agent or "", "error", {}, "respuesta no es un objeto")
+
+        result = d.get("result")
+        if isinstance(result, list):
+            result = {"leads": result}
+        elif not isinstance(result, dict):
+            result = {}
+
+        # Envelope missing but the body carries the payload directly.
+        if not result:
+            lifted = {k: d[k] for k in cls._RESULT_KEYS if k in d}
+            if lifted:
+                result = lifted
+
+        status = d.get("status")
+        if status not in ("done", "partial", "error"):
+            status = "done" if result else "error"
+
         return cls(
             task_id=d.get("task_id") or task_id or "",
             agent=d.get("agent") or agent or "",
-            status=d.get("status", "error"),
-            result=d.get("result") or {},
+            status=status,
+            result=result,
             notes=d.get("notes"),
         )
 

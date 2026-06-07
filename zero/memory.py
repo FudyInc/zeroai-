@@ -43,6 +43,13 @@ class SessionMemory:
     def set_stage(self, client_id: str, stage: str) -> None:
         self.clients.setdefault(client_id, {})["stage"] = stage
 
+    def set_client_icp(self, client_id: str, icp: Dict[str, Any]) -> None:
+        """Persist the client's ICP so later runs reuse it without re-sending."""
+        self.clients.setdefault(client_id, {})["icp"] = icp
+
+    def get_client_icp(self, client_id: str) -> Dict[str, Any]:
+        return self.clients.get(client_id, {}).get("icp") or {}
+
     def set_agent_status(self, agent: str, status: str) -> None:
         self.agent_status[agent] = status
 

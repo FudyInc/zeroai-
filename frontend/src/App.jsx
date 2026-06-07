@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState } from 'react'
 import { Routes, Route, useLocation } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
+import { Toaster } from 'sonner'
 import { Plus } from 'lucide-react'
 import { api } from './lib/api'
 import { Button, Input, Select } from './components/ui'
@@ -47,7 +48,7 @@ export default function App() {
 
   return (
     <AppCtx.Provider value={{ client, setClient, clients, openLead: setLeadKey }}>
-      <div className="min-h-screen bg-zinc-50 text-zinc-900">
+      <div className="min-h-screen text-zinc-900 bg-[radial-gradient(120%_120%_at_100%_0%,#f4f7f5_0%,#fafafa_45%,#f7f8fa_100%)]">
         <Sidebar />
         <div className="ml-60">
           <header className="h-[68px] sticky top-0 z-20 bg-white/80 backdrop-blur border-b border-zinc-200 flex items-center px-8 gap-3">
@@ -68,23 +69,31 @@ export default function App() {
           </header>
 
           <main className="p-8">
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/leads" element={<Leads />} />
-              <Route path="/pipeline" element={<Pipeline />} />
-              <Route path="/forecast" element={<Forecast />} />
-              <Route path="/clientes" element={<Clientes />} />
-              <Route path="/agentes" element={<Agentes />} />
-              <Route path="/llamadas" element={<Llamadas />} />
-              <Route path="/config" element={<Config />} />
-              <Route path="/outreach" element={<Placeholder icon="mail" title="Outreach" />} />
-              <Route path="/seguimientos" element={<Placeholder icon="send" title="Seguimientos" />} />
-            </Routes>
+            <motion.div
+              key={pathname}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+            >
+              <Routes>
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/leads" element={<Leads />} />
+                <Route path="/pipeline" element={<Pipeline />} />
+                <Route path="/forecast" element={<Forecast />} />
+                <Route path="/clientes" element={<Clientes />} />
+                <Route path="/agentes" element={<Agentes />} />
+                <Route path="/llamadas" element={<Llamadas />} />
+                <Route path="/config" element={<Config />} />
+                <Route path="/outreach" element={<Placeholder icon="mail" title="Outreach" />} />
+                <Route path="/seguimientos" element={<Placeholder icon="send" title="Seguimientos" />} />
+              </Routes>
+            </motion.div>
           </main>
         </div>
 
         <LeadModal client={client} leadKey={leadKey} onClose={() => setLeadKey(null)} />
         <RunModal open={runOpen} onClose={() => setRunOpen(false)} />
+        <Toaster richColors position="top-right" toastOptions={{ style: { borderRadius: '12px' } }} />
       </div>
     </AppCtx.Provider>
   )
@@ -93,18 +102,25 @@ export default function App() {
 function RunModal({ open, onClose }) {
   const { setClient } = useApp()
   const qc = useQueryClient()
-  const [form, setForm] = useState({ client: 'demo', tier: 'GROWTH', query: '', count: 8 })
+  const [form, setForm] = useState({ client: 'demo', tier: 'GROWTH', query: '', count: 8, sells: '', roles: '', regions: '', mustHave: '' })
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [showIcp, setShowIcp] = useState(false)
 
   const run = async () => {
     setBusy(true); setErr('')
     try {
+      const icp = {}
+      if (form.sells.trim()) icp.sells = form.sells.trim()
+      if (form.roles.trim()) icp.buyer_roles = form.roles.trim()
+      if (form.regions.trim()) icp.regions = form.regions.trim()
+      if (form.mustHave.trim()) icp.must_have = form.mustHave.trim()
       await api.runPipeline({
         client: form.client.trim() || 'demo',
         tier: form.tier,
         query: form.query.trim() || 'leads B2B',
         count: Number(form.count) || 8,
+        ...(Object.keys(icp).length ? { icp } : {}),
       })
       qc.invalidateQueries()
       setClient(form.client.trim() || 'demo')
@@ -134,6 +150,27 @@ function RunModal({ open, onClose }) {
               <Input value={form.query} onChange={(e) => setForm({ ...form, query: e.target.value })} placeholder="agencias de marketing en Santiago" /></div>
             <div><label className="block text-xs text-zinc-500 mb-1">Cantidad</label>
               <Input type="number" value={form.count} onChange={(e) => setForm({ ...form, count: e.target.value })} className="w-28" /></div>
+
+            <div className="border-t border-zinc-100 pt-3">
+              <button type="button" onClick={() => setShowIcp((v) => !v)}
+                className="text-xs font-medium text-emerald-700 hover:underline">
+                {showIcp ? '− Ocultar' : '+ Definir'} perfil del cliente (ICP) — adaptación a medida
+              </button>
+              {showIcp && (
+                <div className="grid grid-cols-2 gap-3 mt-3">
+                  <div className="col-span-2"><label className="block text-xs text-zinc-500 mb-1">Qué vende el cliente</label>
+                    <Input value={form.sells} onChange={(e) => setForm({ ...form, sells: e.target.value })} placeholder="pallets de madera" /></div>
+                  <div><label className="block text-xs text-zinc-500 mb-1">Decisor (roles)</label>
+                    <Input value={form.roles} onChange={(e) => setForm({ ...form, roles: e.target.value })} placeholder="Jefe de Logística" /></div>
+                  <div><label className="block text-xs text-zinc-500 mb-1">Zonas</label>
+                    <Input value={form.regions} onChange={(e) => setForm({ ...form, regions: e.target.value })} placeholder="RM, Valparaíso" /></div>
+                  <div className="col-span-2"><label className="block text-xs text-zinc-500 mb-1">Requisitos (must-have)</label>
+                    <Input value={form.mustHave} onChange={(e) => setForm({ ...form, mustHave: e.target.value })} placeholder="camión >12m, frío" /></div>
+                  <div className="col-span-2 text-[11px] text-zinc-400">Separá varios con coma. Esto se guarda por cliente y adapta el scoring y los mensajes.</div>
+                </div>
+              )}
+            </div>
+
             {err && <div className="text-sm text-rose-600">{err}</div>}
             <div className="flex justify-end gap-2 pt-1">
               <Button variant="ghost" onClick={onClose}>Cancelar</Button>

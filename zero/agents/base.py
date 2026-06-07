@@ -40,11 +40,15 @@ class BaseAgent:
             result, status, notes = self._mock_result(task)
             return AgentResponse(task.task_id, self.name, status, result, notes)
 
-        raw = self.backend.complete(self.system_prompt(), task.to_json(), self.model)
+        try:
+            raw = self.backend.complete(self.system_prompt(), task.to_json(), self.model)
+        except Exception as e:  # backend down / timeout / API error → degrade, don't crash
+            return AgentResponse(task.task_id, self.name, "error", {}, f"backend falló: {e}")
+
         data = extract_json(raw)
         if data is None:
             return AgentResponse(
-                task.task_id, self.name, "error", {}, "model returned no parseable JSON"
+                task.task_id, self.name, "error", {}, "el modelo no devolvió JSON parseable"
             )
         return AgentResponse.from_dict(data, task.task_id, self.name)
 

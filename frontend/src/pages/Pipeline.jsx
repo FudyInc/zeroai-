@@ -1,37 +1,76 @@
+import { useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
+import { toast } from 'sonner'
 import { api } from '../lib/api'
 import { STAGES, ORDER, scoreColor } from '../lib/util'
-import { Card } from '../components/ui'
+import { Card, Skeleton } from '../components/ui'
 import { useApp } from '../App'
 import { NoClient } from './Dashboard'
 
 export default function Pipeline() {
   const { client, openLead } = useApp()
   const qc = useQueryClient()
-  const { data: board } = useQuery({ queryKey: ['board', client], queryFn: () => api.board(client), enabled: !!client })
+  const { data: board, isLoading } = useQuery({ queryKey: ['board', client], queryFn: () => api.board(client), enabled: !!client })
+  const drag = useRef(null)           // { key, from }
+  const [over, setOver] = useState(null)
+
   if (!client) return <NoClient />
 
-  const move = async (k, s) => { await api.moveStage(client, k, s); qc.invalidateQueries() }
-  const cols = (board?.stages || []).filter((s) => s.leads.length)
+  const move = async (k, s) => {
+    try { await api.moveStage(client, k, s); qc.invalidateQueries(); toast.success('Lead movido a ' + STAGES[s].l) }
+    catch (e) { toast.error('No se pudo mover: ' + e.message) }
+  }
+
+  const onDrop = (stage) => {
+    const d = drag.current
+    setOver(null); drag.current = null
+    if (d && d.from !== stage) move(d.key, stage)
+  }
+
+  // Mapa etapa → leads, y mostramos TODAS las etapas como columnas (para poder
+  // soltar incluso en una vacía). El orden lo da ORDER.
+  const byStage = Object.fromEntries((board?.stages || []).map((s) => [s.stage, s.leads]))
+
+  if (isLoading) return (
+    <div className="flex gap-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-64 w-64 shrink-0" />)}</div>
+  )
 
   return (
-    <Card className="p-5">
-      <div className="text-xs text-zinc-400 mb-4">Mové un lead con el menú, o tocá la tarjeta para ver el detalle.</div>
+    <div>
+      <div className="text-xs text-zinc-400 mb-4">Arrastrá una tarjeta entre columnas para cambiar su etapa — o usá el menú. Tocala para ver el detalle.</div>
       <div className="flex gap-4 overflow-x-auto pb-2">
-        {cols.map((s) => {
-          const m = STAGES[s.stage] || { l: s.stage, c: '#94a3b8' }
+        {ORDER.map((stage) => {
+          const m = STAGES[stage] || { l: stage, c: '#94a3b8' }
+          const leads = byStage[stage] || []
+          const isOver = over === stage
           return (
-            <div key={s.stage} className="shrink-0 w-64">
-              <div className="flex items-center gap-2 mb-3 text-xs font-semibold uppercase tracking-wide" style={{ color: m.c }}>
+            <div
+              key={stage}
+              onDragOver={(e) => { e.preventDefault(); if (over !== stage) setOver(stage) }}
+              onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setOver((s) => (s === stage ? null : s)) }}
+              onDrop={(e) => { e.preventDefault(); onDrop(stage) }}
+              className={
+                'shrink-0 w-64 rounded-2xl p-2 transition-colors ' +
+                (isOver ? 'bg-emerald-50 ring-2 ring-emerald-300' : 'bg-transparent')
+              }
+            >
+              <div className="flex items-center gap-2 mb-3 px-1 text-xs font-semibold uppercase tracking-wide" style={{ color: m.c }}>
                 <span className="w-2 h-2 rounded-full" style={{ background: m.c }} />{m.l}
-                <span className="ml-auto bg-zinc-100 text-zinc-500 rounded-full px-2 py-0.5 text-[11px]">{s.leads.length}</span>
+                <span className="ml-auto bg-zinc-100 text-zinc-500 rounded-full px-2 py-0.5 text-[11px]">{leads.length}</span>
               </div>
-              <div className="space-y-2.5">
-                {s.leads.map((r, i) => (
-                  <motion.div key={r.key} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}
+              <div className="space-y-2.5 min-h-[60px]">
+                {leads.map((r, i) => (
+                  <motion.div
+                    key={r.key}
+                    layout
+                    initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}
+                    draggable
+                    onDragStart={() => { drag.current = { key: r.key, from: stage } }}
+                    onDragEnd={() => { drag.current = null; setOver(null) }}
                     onClick={() => openLead(r.key)}
-                    className="cursor-pointer bg-white border border-zinc-200 rounded-xl p-3.5 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all">
+                    className="cursor-grab active:cursor-grabbing bg-white border border-zinc-200 rounded-xl p-3.5 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all"
+                  >
                     <div className="flex justify-between items-start gap-2">
                       <div className="font-semibold">{r.company}</div>
                       <span className="font-extrabold tabular-nums" style={{ color: scoreColor(r.score) }}>{r.score ?? '—'}</span>
@@ -44,12 +83,16 @@ export default function Pipeline() {
                     </select>
                   </motion.div>
                 ))}
+                {leads.length === 0 && (
+                  <div className="text-[12px] text-zinc-300 text-center py-6 border border-dashed border-zinc-200 rounded-xl">
+                    soltá aquí
+                  </div>
+                )}
               </div>
             </div>
           )
         })}
-        {cols.length === 0 && <div className="text-zinc-400 py-10">Sin leads. Usá “Buscar leads”.</div>}
       </div>
-    </Card>
+    </div>
   )
 }

@@ -122,6 +122,7 @@ class RunRequest(BaseModel):
     query: str
     tier: str = "GROWTH"
     count: int = 8
+    icp: Optional[dict] = None   # perfil del cliente ideal (adaptación por cliente)
 
 
 @app.post("/api/pipeline")
@@ -131,7 +132,7 @@ def run_pipeline(req: RunRequest):
     memory.register_client(req.client, req.tier)
     zero = Zero(build_agents(mock=True), memory=memory, crm=crm)
     try:
-        return zero.run_pipeline(req.client, req.tier, req.query, count=req.count)
+        return zero.run_pipeline(req.client, req.tier, req.query, count=req.count, icp=req.icp)
     except ValueError as e:   # e.g. unknown tier
         raise HTTPException(status_code=400, detail=str(e))
 
