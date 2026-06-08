@@ -65,6 +65,18 @@ en `state.json` (local) — pasarlo a la nube es parte de multi-tenant (#6).
 
 ---
 
+## Escalabilidad + multi-tenant (track combinado, 2026-06-07) · 🟡 EN CURSO
+Modelo decidido: **agencia, un solo dueño** (tú entras; los "clientes" son cuentas
+internas aisladas en datos, no entran ellos).
+1. **Lectura escalable** — ✅ `SupabaseCRM` ya no hace `SELECT *`: carga **por cliente**
+   (`_ensure`), `client_ids()` por proyección, `find_by_contact` server-side; `crm.list`
+   con `limit/offset`. `/clients` y `/kpis` scoped. 53/53 tests.
+2. **Auth (un login de agencia)** — ❌ pendiente: gate simple (un password) sobre API+dashboard.
+3. **Estado a la nube** — ❌ pendiente: ICP/secuencias salen de `state.json` a la DB
+   (hoy siguen locales → no sobreviven multi-instancia).
+4. **Paginación de un cliente enorme** — ⏳ siguiente afinamiento: empujar `limit/offset`
+   al query de Supabase y paginar la tabla de Leads en el frontend.
+
 ## Lo que sigue (recomendación)
 La verdadera prueba pendiente es la **calidad real** (#2/#3): correr con tu key o el
 modelo local y evaluar si los leads/mensajes son buenos. Después: **canal email que

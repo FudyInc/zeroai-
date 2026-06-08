@@ -2,9 +2,20 @@
 // En prod (Vercel): definí VITE_API_URL con la URL del backend en Render.
 const BASE = import.meta.env.VITE_API_URL || ''
 
-async function req(path, opts) {
-  const url = BASE + path
-  const r = await fetch(url, opts)
+const TOKEN_KEY = 'zero_token'
+export const getToken = () => localStorage.getItem(TOKEN_KEY)
+export const setToken = (t) => (t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY))
+
+async function req(path, opts = {}) {
+  const headers = { ...(opts.headers || {}) }
+  const t = getToken()
+  if (t) headers.Authorization = 'Bearer ' + t
+  const r = await fetch(BASE + path, { ...opts, headers })
+  if (r.status === 401) {
+    setToken(null)
+    window.dispatchEvent(new Event('zero-unauth'))
+    throw new Error('Sesión no autorizada')
+  }
   if (!r.ok) {
     let msg
     try { msg = (await r.json()).detail } catch { msg = r.statusText }
@@ -40,6 +51,11 @@ export const api = {
     req('/api/pitch/compose', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   pitchSend: (body) =>
     req('/api/pitch/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  authStatus: () => req('/api/auth/status'),
+  login: (password) =>
+    req('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) })
+      .then((d) => { setToken(d.token); return d }),
+  logout: () => { setToken(null); window.location.reload() },
   config: () => req('/api/config'),
   setConfig: (body) =>
     req('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),

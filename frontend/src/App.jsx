@@ -8,6 +8,7 @@ import { api } from './lib/api'
 import { Button, Input, Select } from './components/ui'
 import { Glow } from './components/Glow'
 import Sidebar from './components/Sidebar'
+import Login from './components/Login'
 import LeadModal from './components/LeadModal'
 import Dashboard from './pages/Dashboard'
 import Vender from './pages/Vender'
@@ -45,11 +46,23 @@ export default function App() {
   const [runOpen, setRunOpen] = useState(false)
   const { pathname } = useLocation()
   const [title, sub] = TITLES[pathname] || ['ZeroAI', '']
+  const [authed, setAuthed] = useState(null)   // null=checking · false=login · true=in
 
-  const { data: clients = [] } = useQuery({ queryKey: ['clients'], queryFn: api.clients })
+  useEffect(() => {
+    let alive = true
+    api.authStatus().then((s) => alive && setAuthed(s.authenticated)).catch(() => alive && setAuthed(true))
+    const onUnauth = () => setAuthed(false)
+    window.addEventListener('zero-unauth', onUnauth)
+    return () => { alive = false; window.removeEventListener('zero-unauth', onUnauth) }
+  }, [])
+
+  const { data: clients = [] } = useQuery({ queryKey: ['clients'], queryFn: api.clients, enabled: authed === true })
   useEffect(() => {
     if (!client && clients.length) setClient(clients[0])
   }, [clients, client])
+
+  if (authed === null) return <div className="min-h-screen grid place-items-center text-zinc-400">Cargando…</div>
+  if (authed === false) return <Login onSuccess={() => setAuthed(true)} />
 
   return (
     <AppCtx.Provider value={{ client, setClient, clients, openLead: setLeadKey }}>

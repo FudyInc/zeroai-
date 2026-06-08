@@ -470,5 +470,46 @@ class ScalabilityTest(unittest.TestCase):
         self.assertIn("globex", seen)
 
 
+class AuthTest(unittest.TestCase):
+    """Single-password agency gate: tokens signed by the password itself."""
+
+    def setUp(self):
+        import os
+        self._prev = os.environ.get("AUTH_PASSWORD")
+        os.environ["AUTH_PASSWORD"] = "s3cret"
+
+    def tearDown(self):
+        import os
+        if self._prev is None:
+            os.environ.pop("AUTH_PASSWORD", None)
+        else:
+            os.environ["AUTH_PASSWORD"] = self._prev
+
+    def test_password_and_token_roundtrip(self):
+        from zero import auth
+        self.assertTrue(auth.auth_enabled())
+        self.assertTrue(auth.verify_password("s3cret"))
+        self.assertFalse(auth.verify_password("nope"))
+        tok = auth.make_token()
+        self.assertTrue(auth.valid_token(tok))
+        self.assertFalse(auth.valid_token(tok + "x"))      # tampered
+        self.assertFalse(auth.valid_token("garbage"))
+
+    def test_expired_and_password_change_invalidate(self):
+        from zero import auth
+        import os
+        self.assertFalse(auth.valid_token(auth.make_token(ttl=-1)))   # expired
+        tok = auth.make_token()
+        os.environ["AUTH_PASSWORD"] = "rotated"                       # rotate
+        self.assertFalse(auth.valid_token(tok))                       # old token dies
+
+    def test_disabled_when_no_password(self):
+        from zero import auth
+        import os
+        os.environ.pop("AUTH_PASSWORD", None)
+        self.assertFalse(auth.auth_enabled())
+        self.assertFalse(auth.valid_token(auth.make_token()))
+
+
 if __name__ == "__main__":
     unittest.main()

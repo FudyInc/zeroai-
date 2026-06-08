@@ -25,6 +25,13 @@ export default function Config() {
 
   return (
     <div className="max-w-xl space-y-4">
+      <IntegrationCard title="Acceso (login de agencia)" ok={cfg?.auth} hint="protege el dashboard con una contraseña · vacío = abierto (solo local)">
+        <div className="flex gap-2">
+          <Input type="password" placeholder="Nueva contraseña" value={vals.pw || ''} onChange={(e) => set('pw', e.target.value)} />
+          <Button onClick={() => vals.pw && save({ auth_password: vals.pw }, ['pw'])}>{cfg?.auth ? 'Cambiar' : 'Activar login'}</Button>
+        </div>
+      </IntegrationCard>
+
       <IntegrationCard title="ElevenLabs (voz)" ok={cfg?.elevenlabs} hint="se guarda en .env (local)">
         <div className="flex gap-2">
           <Input type="password" placeholder="sk_..." value={vals.el || ''} onChange={(e) => set('el', e.target.value)} />

@@ -2,9 +2,10 @@ import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
-  LayoutDashboard, Users, GitBranch, Bot, TrendingUp, Briefcase, Settings, Mail, Network,
+  LayoutDashboard, Users, GitBranch, Bot, TrendingUp, Briefcase, Settings, Mail, Network, LogOut,
 } from 'lucide-react'
 import { cn } from '../lib/util'
+import { api } from '../lib/api'
 
 const NAV = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
@@ -82,13 +83,20 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      <motion.div
-        animate={{ opacity: open ? 1 : 0 }}
-        transition={{ duration: 0.2 }}
-        className="p-3 border-t border-zinc-100 text-xs text-zinc-400 whitespace-nowrap overflow-hidden"
-      >
-        v0.1 · local · mock
-      </motion.div>
+      <div className="p-3 border-t border-zinc-100 space-y-1">
+        <button
+          onClick={() => api.logout()}
+          title="Cerrar sesión"
+          className="flex items-center gap-3 px-3 py-2 rounded-xl text-sm text-zinc-500 hover:bg-zinc-50 hover:text-zinc-800 transition-colors w-full"
+        >
+          <LogOut size={18} className="shrink-0" />
+          {label('Cerrar sesión')}
+        </button>
+        <motion.div animate={{ opacity: open ? 1 : 0 }} transition={{ duration: 0.2 }}
+          className="text-[11px] text-zinc-400 px-3 whitespace-nowrap overflow-hidden">
+          v0.1 · local
+        </motion.div>
+      </div>
     </motion.aside>
   )
 }

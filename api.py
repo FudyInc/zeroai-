@@ -15,7 +15,7 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from pydantic import BaseModel
 
 from zero._env import load_env, set_env
@@ -39,6 +39,47 @@ app = FastAPI(title="ZERO API", version="0.1.0",
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
 )
+
+# Endpoints reachable without a token: login, health, auth status, and the Meta
+# webhook (Meta calls it with its own verify token, not ours).
+_OPEN_PATHS = {"/api/login", "/api/health", "/api/auth/status"}
+
+
+@app.middleware("http")
+async def auth_guard(request: Request, call_next):
+    """Single-password gate. No password set → open (dev). Set one → token required."""
+    from zero.auth import auth_enabled, valid_token
+    path = request.url.path
+    needs = (
+        auth_enabled() and path.startswith("/api")
+        and path not in _OPEN_PATHS and not path.startswith("/api/webhooks/")
+        and request.method != "OPTIONS"     # let CORS preflight through
+    )
+    if needs:
+        token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+        if not valid_token(token):
+            return JSONResponse({"detail": "no autorizado"}, status_code=401)
+    return await call_next(request)
+
+
+class Login(BaseModel):
+    password: str
+
+
+@app.post("/api/login")
+def login(body: Login):
+    from zero.auth import make_token, verify_password
+    if not verify_password(body.password):
+        raise HTTPException(status_code=401, detail="Contraseña incorrecta")
+    return {"token": make_token()}
+
+
+@app.get("/api/auth/status")
+def auth_status(request: Request):
+    from zero.auth import auth_enabled, valid_token
+    token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    enabled = auth_enabled()
+    return {"enabled": enabled, "authenticated": (not enabled) or valid_token(token)}
 
 
 def _crm():
@@ -316,6 +357,7 @@ def get_config():
         "whatsapp": bool(os.environ.get("WHATSAPP_TOKEN") and os.environ.get("WHATSAPP_PHONE_ID")),
         # whether drafted messages are actually sent (vs mock-recorded)
         "outbox_live": os.environ.get("OUTBOX_LIVE") == "1",
+        "auth": bool(os.environ.get("AUTH_PASSWORD")),
     }
 
 
@@ -335,6 +377,7 @@ class ConfigBody(BaseModel):
     whatsapp_token: Optional[str] = None
     whatsapp_phone_id: Optional[str] = None
     whatsapp_verify_token: Optional[str] = None
+    auth_password: Optional[str] = None
     outbox_live: Optional[bool] = None
 
 
@@ -357,6 +400,7 @@ def set_config(body: ConfigBody):
         "WHATSAPP_TOKEN": body.whatsapp_token,
         "WHATSAPP_PHONE_ID": body.whatsapp_phone_id,
         "WHATSAPP_VERIFY_TOKEN": body.whatsapp_verify_token,
+        "AUTH_PASSWORD": body.auth_password,
     }
     if body.outbox_live is not None:   # explicit on/off toggle for real sending
         set_env("OUTBOX_LIVE", "1" if body.outbox_live else "0")
