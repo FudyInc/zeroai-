@@ -117,6 +117,8 @@ export default function Config() {
         </div>
       </IntegrationCard>
 
+      <MetaAdsAccounts />
+
       <AgentTester />
 
       <Card className="p-6">
@@ -136,6 +138,38 @@ export default function Config() {
         </div>
       </Card>
     </div>
+  )
+}
+
+/* Prueba el token de Meta y lista las cuentas publicitarias para elegir el act_. */
+function MetaAdsAccounts() {
+  const [accs, setAccs] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const probe = async () => {
+    setBusy(true)
+    try { setAccs(await api.metaadsAccounts()); toast.success('Conexión con Meta OK') }
+    catch (e) { toast.error('Conexión falló: ' + e.message); setAccs(null) }
+    finally { setBusy(false) }
+  }
+  return (
+    <Card className="p-4 -mt-2 border-dashed">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-xs text-zinc-500">Prueba el token y lista tus cuentas publicitarias</div>
+        <Button variant="soft" onClick={probe} disabled={busy}>{busy ? 'Probando…' : 'Probar conexión'}</Button>
+      </div>
+      {accs && (
+        <div className="mt-3 space-y-1">
+          {accs.length === 0 && <div className="text-xs text-zinc-400">El token no ve cuentas publicitarias.</div>}
+          {accs.map((a) => (
+            <div key={a.id} className="text-xs flex items-center gap-2 bg-zinc-50 rounded-lg px-2 py-1">
+              <code className="text-emerald-700 font-semibold">{a.id}</code>
+              <span className="text-zinc-500">{a.name}</span>
+            </div>
+          ))}
+          {accs.length > 0 && <div className="text-[11px] text-zinc-400 mt-1">Copia el <code>act_…</code> de la cuenta que quieras al campo de arriba y guarda.</div>}
+        </div>
+      )}
+    </Card>
   )
 }
 

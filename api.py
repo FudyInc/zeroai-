@@ -183,6 +183,19 @@ def campaigns(client: str):
     }
 
 
+@app.get("/api/metaads/accounts")
+def metaads_accounts():
+    """Prueba el token de Meta y lista las cuentas publicitarias que puede gestionar."""
+    token = os.environ.get("META_ADS_TOKEN")
+    if not token:
+        raise HTTPException(status_code=400, detail="Configura primero el token de Meta Ads.")
+    from zero.metaads import list_ad_accounts
+    try:
+        return {"accounts": list_ad_accounts(token)}
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @app.get("/api/campaigns/optimize")
 def optimize_campaigns(client: str):
     """Claude gestiona: analiza las campañas del cliente y propone un plan (no gasta)."""

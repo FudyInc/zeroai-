@@ -62,6 +62,7 @@ export const api = {
     req('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) })
       .then((d) => { setToken(d.token); return d }),
   logout: () => { setToken(null); window.location.reload() },
+  metaadsAccounts: () => req('/api/metaads/accounts').then((d) => d.accounts),
   config: () => req('/api/config'),
   setConfig: (body) =>
     req('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),

@@ -92,6 +92,33 @@ class MetaAds:
         return out
 
 
+_API = "https://graph.facebook.com/v20.0"
+
+
+def _graph(path: str, token: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    q = {"access_token": token, **(params or {})}
+    url = f"{_API}/{path}?{urllib.parse.urlencode(q)}"
+    try:
+        with urllib.request.urlopen(url, timeout=20) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "replace")
+        try:
+            msg = json.loads(detail).get("error", {}).get("message", detail)
+        except Exception:
+            msg = detail
+        raise RuntimeError(f"Meta: {msg[:200]}") from e
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"no pude contactar a Meta: {e}") from e
+
+
+def list_ad_accounts(token: str) -> List[Dict[str, Any]]:
+    """Cuentas publicitarias que el token puede ver — para elegir el act_ correcto."""
+    d = _graph("me/adaccounts", token, {"fields": "id,name,account_status", "limit": 100})
+    return [{"id": a.get("id"), "name": a.get("name"), "status": a.get("account_status")}
+            for a in d.get("data", [])]
+
+
 def make_metaads(cfg: Optional[Dict[str, Any]] = None):
     """Real si hay token de agencia + cuenta del cliente (o cuenta global); si no, mock."""
     cfg = cfg or {}
