@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2 } from 'lucide-react'
+import { CheckCircle2, MessageSquare } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
 import { Card, Button, Input, Skeleton } from '../components/ui'
@@ -62,7 +62,141 @@ export default function Config() {
           <Button onClick={() => vals.an && save({ anthropic_api_key: vals.an }, ['an'])}>Guardar</Button>
         </div>
       </IntegrationCard>
+
+      <div className="pt-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">Canales de envío</div>
+
+      <IntegrationCard title="Email (SMTP · email marketing)" ok={cfg?.email} hint="con esto el primer toque y los follow-ups salen por correo de verdad">
+        <div className="space-y-2">
+          <Input placeholder="SMTP host (smtp.gmail.com)" value={vals.sh || ''} onChange={(e) => set('sh', e.target.value)} />
+          <div className="flex gap-2">
+            <Input placeholder="Puerto (587)" value={vals.sp || ''} onChange={(e) => set('sp', e.target.value)} className="w-28" />
+            <Input placeholder="From (hola@tudominio.com)" value={vals.sfrom || ''} onChange={(e) => set('sfrom', e.target.value)} />
+          </div>
+          <Input placeholder="Usuario" value={vals.suser || ''} onChange={(e) => set('suser', e.target.value)} />
+          <Input type="password" placeholder="Contraseña / app password" value={vals.spass || ''} onChange={(e) => set('spass', e.target.value)} />
+          <Button onClick={() => save({
+            ...(vals.sh && { smtp_host: vals.sh }),
+            ...(vals.sp && { smtp_port: vals.sp }),
+            ...(vals.sfrom && { smtp_from: vals.sfrom }),
+            ...(vals.suser && { smtp_user: vals.suser }),
+            ...(vals.spass && { smtp_pass: vals.spass }),
+          }, ['sh', 'sp', 'sfrom', 'suser', 'spass'])}>Guardar SMTP</Button>
+        </div>
+      </IntegrationCard>
+
+      {cfg?.email && <TestEmailRow />}
+
+      <IntegrationCard title="WhatsApp (Meta Cloud API)" ok={cfg?.whatsapp} hint="token + phone number ID de tu app de WhatsApp Business · el agente responde dentro de la ventana de 24h">
+        <div className="space-y-2">
+          <Input type="password" placeholder="WhatsApp token" value={vals.wt || ''} onChange={(e) => set('wt', e.target.value)} />
+          <Input placeholder="Phone Number ID" value={vals.wp || ''} onChange={(e) => set('wp', e.target.value)} />
+          <Input placeholder="Verify token (lo inventas tú, p/ el webhook)" value={vals.wv || ''} onChange={(e) => set('wv', e.target.value)} />
+          <Button onClick={() => save({
+            ...(vals.wt && { whatsapp_token: vals.wt }),
+            ...(vals.wp && { whatsapp_phone_id: vals.wp }),
+            ...(vals.wv && { whatsapp_verify_token: vals.wv }),
+          }, ['wt', 'wp', 'wv'])}>Guardar WhatsApp</Button>
+        </div>
+      </IntegrationCard>
+
+      <AgentTester />
+
+      <Card className="p-6">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <div className="font-semibold">Envío real {cfg?.outbox_live ? '· activado' : '· en mock'}</div>
+            <div className="text-xs text-zinc-400 mt-0.5">
+              {cfg?.outbox_live
+                ? 'Los mensajes se ENVÍAN de verdad por los canales conectados.'
+                : 'Seguro: los mensajes se simulan (mock). Actívalo solo cuando quieras enviar de verdad.'}
+            </div>
+          </div>
+          <Button variant={cfg?.outbox_live ? 'soft' : 'accent'}
+            onClick={() => save({ outbox_live: !cfg?.outbox_live }, [])}>
+            {cfg?.outbox_live ? 'Volver a mock' : 'Activar envío real'}
+          </Button>
+        </div>
+      </Card>
     </div>
+  )
+}
+
+/* Prueba el agente conversacional: escribe como si fueras un lead y mira cómo responde
+   usando el negocio del cliente (su ICP guardado). En mock da respuestas por intención;
+   con Anthropic key responde el modelo real. */
+function AgentTester() {
+  const [client, setClient] = useState('demo')
+  const [msg, setMsg] = useState('')
+  const [chat, setChat] = useState([])
+  const [busy, setBusy] = useState(false)
+  const send = async () => {
+    const text = msg.trim()
+    if (!text) return
+    setMsg(''); setBusy(true)
+    setChat((c) => [...c, { who: 'lead', text }])
+    try {
+      const { reply, mode } = await api.simulateAgent({ client: client.trim() || 'demo', message: text })
+      setChat((c) => [...c, { who: 'agent', text: reply, mode }])
+    } catch (e) {
+      setChat((c) => [...c, { who: 'agent', text: 'Error: ' + e.message, mode: 'error' }])
+    } finally { setBusy(false) }
+  }
+  return (
+    <Card className="p-6">
+      <div className="font-semibold flex items-center gap-2">
+        <MessageSquare size={16} /> Probar el agente de respuestas
+      </div>
+      <div className="text-xs text-zinc-400 mt-0.5 mb-3">
+        Escribe como si fueras un lead. Responde con el negocio del cliente (su ICP). Mock por intención · con Anthropic key, modelo real.
+      </div>
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-xs text-zinc-500">Cliente:</span>
+        <Input value={client} onChange={(e) => setClient(e.target.value)} className="w-40" placeholder="demo" />
+      </div>
+      {chat.length > 0 && (
+        <div className="space-y-2 mb-3 max-h-72 overflow-auto rounded-xl bg-zinc-50 p-3">
+          {chat.map((m, i) => (
+            <div key={i} className={m.who === 'lead' ? 'text-right' : 'text-left'}>
+              <span className={'inline-block rounded-2xl px-3 py-1.5 text-sm ' +
+                (m.who === 'lead' ? 'bg-emerald-600 text-white' : 'bg-white border border-zinc-200 text-zinc-700')}>
+                {m.text}
+              </span>
+              {m.who === 'agent' && m.mode && <div className="text-[10px] text-zinc-400 mt-0.5">{m.mode}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="flex gap-2">
+        <Input value={msg} onChange={(e) => setMsg(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && send()}
+          placeholder="¿cuánto cuesta? / ¿qué hacen? / ¿eres un bot?" />
+        <Button variant="accent" onClick={send} disabled={busy}>{busy ? '…' : 'Enviar'}</Button>
+      </div>
+    </Card>
+  )
+}
+
+/* Manda un correo de prueba a tu propia dirección para verificar que el SMTP envía. */
+function TestEmailRow() {
+  const [to, setTo] = useState('')
+  const [busy, setBusy] = useState(false)
+  const send = async () => {
+    if (!to.trim()) return
+    setBusy(true)
+    try {
+      await api.testEmail(to.trim())
+      toast.success('Correo de prueba enviado — revisa tu inbox (y spam)')
+    } catch (e) { toast.error('No se pudo enviar: ' + e.message) }
+    finally { setBusy(false) }
+  }
+  return (
+    <Card className="p-4 -mt-2 border-dashed">
+      <div className="text-xs text-zinc-500 mb-2">Probar envío — te llega un correo a esta dirección</div>
+      <div className="flex gap-2">
+        <Input type="email" placeholder="tu-correo@gmail.com" value={to} onChange={(e) => setTo(e.target.value)} />
+        <Button variant="soft" onClick={send} disabled={busy}>{busy ? 'Enviando…' : 'Probar envío'}</Button>
+      </div>
+    </Card>
   )
 }
 

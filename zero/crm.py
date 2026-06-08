@@ -117,6 +117,20 @@ class CRM:
     def get(self, client_id: str, key: str) -> Optional[Dict[str, Any]]:
         return self.leads.get(self._rid(client_id, key))
 
+    def find_by_contact(self, phone: Optional[str] = None,
+                        email: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Locate a lead by phone or email — how an inbound message (WhatsApp reply,
+        email reply) is matched back to its lead. Phones compare by digits only."""
+        pd = "".join(c for c in str(phone or "") if c.isdigit())
+        em = (email or "").strip().lower()
+        for rec in self.leads.values():
+            rp = "".join(c for c in str(rec.get("phone") or "") if c.isdigit())
+            if pd and rp and rp == pd:
+                return rec
+            if em and (rec.get("email") or "").lower() == em:
+                return rec
+        return None
+
     def list(self, client_id: Optional[str] = None, stage: Optional[str] = None) -> List[Dict[str, Any]]:
         out = [r for r in self.leads.values()
                if (client_id is None or r["client_id"] == client_id)

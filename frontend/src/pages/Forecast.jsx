@@ -1,12 +1,22 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { api } from '../lib/api'
 import { Card, CountUp, Skeleton, Button } from '../components/ui'
+import { Segmented } from '../components/Segmented'
 import { useApp } from '../App'
 import { NoClient } from './Dashboard'
 
+const SCENARIOS = [
+  { value: 'conservador', label: 'Conservador' },
+  { value: 'base', label: 'Base' },
+  { value: 'optimista', label: 'Optimista' },
+]
+const FACTOR = { conservador: 0.8, base: 1, optimista: 1.25 }
+
 export default function Forecast() {
   const { client } = useApp()
+  const [scen, setScen] = useState('base')
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['forecast', client], queryFn: () => api.forecast(client), enabled: !!client,
   })
@@ -26,14 +36,21 @@ export default function Forecast() {
   )
 
   const f = data.forecast, p = f.projection, a = f.assumptions, i = f.inputs
+  const k = FACTOR[scen]
   const stats = [
-    { l: 'Respuestas esperadas', v: p.expected_replies, prefix: '~' },
-    { l: 'Reuniones', v: p.expected_meetings, prefix: '~' },
-    { l: 'Cierres', v: p.expected_wins, prefix: '~' },
-    { l: 'Pipeline', v: Math.round(p.expected_pipeline_usd), prefix: '$' },
+    { l: 'Respuestas esperadas', v: Math.round(p.expected_replies * k), prefix: '~' },
+    { l: 'Reuniones', v: Math.round(p.expected_meetings * k), prefix: '~' },
+    { l: 'Cierres', v: Math.round(p.expected_wins * k), prefix: '~' },
+    { l: 'Pipeline', v: Math.round(p.expected_pipeline_usd * k), prefix: '$' },
   ]
   return (
     <div className="space-y-5">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <Segmented options={SCENARIOS} value={scen} onChange={setScen} />
+        <span className="text-xs text-zinc-400">
+          {scen === 'base' ? 'Tasas estimadas por el ANALYST' : `Escenario what-if: ×${k} sobre la base`}
+        </span>
+      </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {stats.map((s, idx) => (
           <motion.div key={s.l} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.06 }}>

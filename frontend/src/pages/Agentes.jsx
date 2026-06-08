@@ -19,9 +19,9 @@ export default function Agentes() {
   const agents = [
     {
       key: 'email', name: 'Email', icon: Mail, bg: '#eef2ff', fg: '#6366f1',
-      desc: 'Redacta el primer toque y los seguimientos por correo.',
-      status: { t: 'Borradores vía Gmail', tone: 'ok' },
-      onClick: null,
+      desc: 'Envía un pitch con demo a un prospecto y los seguimientos por correo.',
+      status: cfg?.email ? { t: 'Conectado', tone: 'ok' } : { t: 'Configurar', tone: 'warn' },
+      onClick: () => nav(cfg?.email ? '/vender' : '/config'),
     },
     {
       key: 'call', name: 'Llamadas', icon: Phone, bg: '#ecfdf5', fg: '#10b981',
@@ -31,9 +31,9 @@ export default function Agentes() {
     },
     {
       key: 'wa', name: 'WhatsApp', icon: MessageCircle, bg: '#f0fdf4', fg: '#16a34a',
-      desc: 'Mensajería 1:1 vía WhatsApp Business API (Meta).',
-      status: { t: 'Próximamente', tone: 'soon' },
-      onClick: null,
+      desc: 'Agente que responde dudas del lead y agenda (ventana de 24h).',
+      status: cfg?.whatsapp ? { t: 'Activo', tone: 'ok' } : { t: 'Configurar / probar', tone: 'warn' },
+      onClick: () => nav('/config'),
     },
     {
       key: 'ig', name: 'Instagram', icon: Instagram, bg: '#fdf2f8', fg: '#db2777',

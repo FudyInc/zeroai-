@@ -24,9 +24,22 @@ export const api = {
     req('/api/leads/' + q(k) + '/stage?client=' + q(c), {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stage }),
     }),
+  reply: (c, k, body) =>
+    req('/api/leads/' + q(k) + '/reply?client=' + q(c), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}),
+    }),
+  icp: (c) => req('/api/icp?client=' + q(c)).then((d) => d.icp),
   forecast: (c) => req('/api/forecast?client=' + q(c)),
   runPipeline: (body) =>
     req('/api/pipeline', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  testEmail: (to) =>
+    req('/api/test-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to }) }),
+  simulateAgent: (body) =>
+    req('/api/whatsapp/simulate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  pitchCompose: (body) =>
+    req('/api/pitch/compose', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  pitchSend: (body) =>
+    req('/api/pitch/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   config: () => req('/api/config'),
   setConfig: (body) =>
     req('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),

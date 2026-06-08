@@ -13,9 +13,9 @@ from __future__ import annotations
 import os
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
 from pydantic import BaseModel
 
 from zero._env import load_env, set_env
@@ -23,6 +23,8 @@ from zero.agents import build_agents
 
 load_env()   # load secrets from .env (ELEVENLABS_API_KEY, ANTHROPIC_API_KEY, …)
 from zero.config import AVG_DEAL_VALUE_USD, CRM_OPEN_STAGES, CRM_STAGES
+from zero.channels import make_outbox
+from zero.icp import normalize_icp
 from zero.memory import SessionMemory
 from zero.orchestrator import Zero
 from zero.store import make_crm
@@ -43,9 +45,14 @@ def _crm():
     return make_crm(CRM_PATH)   # Supabase if configured, else local crm.json
 
 
+# The live app is the Vite dev server (one URL, hot-reload). Anyone landing on the
+# API port gets redirected there so there's a single place to work and see changes.
+APP_URL = os.environ.get("APP_URL", "http://localhost:5173")
+
+
 @app.get("/")
 def index():
-    return FileResponse("web/index.html")   # the dashboard frontend (talks to /api/*)
+    return RedirectResponse(APP_URL)
 
 
 @app.get("/favicon.svg")
@@ -117,6 +124,80 @@ def move_stage(key: str, client: str, body: StageMove):
     return rec
 
 
+class Reply(BaseModel):
+    text: Optional[str] = None
+    channel: Optional[str] = None
+
+
+@app.post("/api/leads/{key}/reply")
+def register_reply(key: str, client: str, body: Reply):
+    """A lead replied: close its follow-up sequence and move it to `replied`."""
+    crm = make_crm(CRM_PATH)
+    memory = SessionMemory(STATE_PATH)
+    if crm.get(client, key.lower()) is None:
+        raise HTTPException(status_code=404, detail="lead no encontrado")
+    zero = Zero(build_agents(mock=True), memory=memory, crm=crm)
+    zero.register_reply(client, key.lower(), text=body.text, channel=body.channel)
+    return crm.get(client, key.lower())
+
+
+# --- WhatsApp conversational agent (CONCIERGE) -------------------------------
+def _agents_best():
+    """Live Anthropic backend if a key is set (real agent reactions), else mock."""
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if key:
+        try:
+            from zero.backends import AnthropicBackend
+            return build_agents(backend=AnthropicBackend(api_key=key), mock=False), "live"
+        except Exception:
+            pass
+    return build_agents(mock=True), "mock"
+
+
+@app.get("/api/webhooks/whatsapp")
+def whatsapp_verify(mode: Optional[str] = Query(None, alias="hub.mode"),
+                    token: Optional[str] = Query(None, alias="hub.verify_token"),
+                    challenge: Optional[str] = Query(None, alias="hub.challenge")):
+    """Meta webhook verification handshake — echoes the challenge if the token matches."""
+    if mode == "subscribe" and token and token == os.environ.get("WHATSAPP_VERIFY_TOKEN"):
+        return PlainTextResponse(challenge or "")
+    raise HTTPException(status_code=403, detail="verificación fallida")
+
+
+@app.post("/api/webhooks/whatsapp")
+async def whatsapp_inbound(req: Request):
+    """Receive inbound WhatsApp messages from Meta → match to lead → reply via CONCIERGE."""
+    from zero.whatsapp_inbound import parse_inbound
+    payload = await req.json()
+    msgs = parse_inbound(payload)
+    crm = make_crm(CRM_PATH)
+    memory = SessionMemory(STATE_PATH)
+    agents, _ = _agents_best()
+    zero = Zero(agents, memory=memory, crm=crm, outbox=make_outbox())
+    results = [zero.handle_inbound(m["from"], m["text"]) for m in msgs]
+    return {"received": len(msgs), "results": results}
+
+
+class Simulate(BaseModel):
+    message: str
+    client: Optional[str] = None
+    lead: Optional[dict] = None
+
+
+@app.post("/api/whatsapp/simulate")
+def whatsapp_simulate(body: Simulate):
+    """Try the agent without WhatsApp: draft (don't send) a reply to a message, to
+    evaluate how it answers business questions. Uses the client's saved ICP."""
+    memory = SessionMemory(STATE_PATH)
+    agents, mode = _agents_best()
+    zero = Zero(agents, memory=memory)
+    try:
+        reply = zero.converse(body.client or "", body.message, lead=body.lead or {})
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"el agente falló: {e}")
+    return {"reply": reply, "mode": mode}
+
+
 class RunRequest(BaseModel):
     client: str
     query: str
@@ -130,11 +211,79 @@ def run_pipeline(req: RunRequest):
     crm = make_crm(CRM_PATH)
     memory = SessionMemory(STATE_PATH)
     memory.register_client(req.client, req.tier)
-    zero = Zero(build_agents(mock=True), memory=memory, crm=crm)
+    zero = Zero(build_agents(mock=True), memory=memory, crm=crm, outbox=make_outbox())
     try:
         return zero.run_pipeline(req.client, req.tier, req.query, count=req.count, icp=req.icp)
     except ValueError as e:   # e.g. unknown tier
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# --- sales pitch (offer the service by email, demo included) ------------------
+class PitchCompose(BaseModel):
+    name: Optional[str] = None
+    company: Optional[str] = None
+
+
+@app.post("/api/pitch/compose")
+def pitch_compose(body: PitchCompose):
+    """Generate an editable sales pitch (subject + body) with a demo sample."""
+    from zero.sales import compose_pitch
+    return compose_pitch(name=body.name, company=body.company)
+
+
+class PitchSend(BaseModel):
+    to: str
+    subject: str
+    body: str
+
+
+@app.post("/api/pitch/send")
+def pitch_send(body: PitchSend):
+    """Send the (possibly edited) pitch to a prospect via SMTP."""
+    if not os.environ.get("SMTP_HOST"):
+        raise HTTPException(status_code=400, detail="Configura primero el SMTP en Configuración → Email.")
+    from zero.channels import EmailSender
+    try:
+        res = EmailSender().send({"channel": "email", "to": body.to.strip(),
+                                  "subject": body.subject, "body": body.body})
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"SMTP falló: {e}")
+    if res["status"] != "sent":
+        raise HTTPException(status_code=400, detail=res.get("error") or "no se pudo enviar")
+    return res
+
+
+class TestEmail(BaseModel):
+    to: str
+
+
+@app.post("/api/test-email")
+def test_email(body: TestEmail):
+    """Send one real test email so you can verify SMTP against your own inbox.
+
+    Works regardless of OUTBOX_LIVE (it's a deliberate test), but needs SMTP set.
+    """
+    if not os.environ.get("SMTP_HOST"):
+        raise HTTPException(status_code=400, detail="Configura primero el SMTP (host, usuario, contraseña).")
+    from zero.channels import EmailSender
+    try:
+        res = EmailSender().send({
+            "channel": "email", "to": body.to.strip(),
+            "subject": "Prueba de ZeroAI ✅",
+            "body": "Si lees esto, tu envío por email quedó funcionando. — ZeroAI",
+        })
+    except Exception as e:   # SMTP auth/connection errors → readable message
+        raise HTTPException(status_code=400, detail=f"SMTP falló: {e}")
+    if res["status"] != "sent":
+        raise HTTPException(status_code=400, detail=res.get("error") or "no se pudo enviar")
+    return res
+
+
+@app.get("/api/icp")
+def get_icp(client: str):
+    """The client's saved ICP, so the dashboard can show and edit it (not write-only)."""
+    memory = SessionMemory(STATE_PATH)
+    return {"client": client, "icp": normalize_icp(memory.get_client_icp(client))}
 
 
 @app.get("/api/forecast")
@@ -157,6 +306,10 @@ def get_config():
         "vapi": all(os.environ.get(k) for k in
                     ("VAPI_API_KEY", "VAPI_ASSISTANT_ID", "VAPI_PHONE_NUMBER_ID")),
         "supabase": bool(os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_KEY")),
+        "email": bool(os.environ.get("SMTP_HOST")),
+        "whatsapp": bool(os.environ.get("WHATSAPP_TOKEN") and os.environ.get("WHATSAPP_PHONE_ID")),
+        # whether drafted messages are actually sent (vs mock-recorded)
+        "outbox_live": os.environ.get("OUTBOX_LIVE") == "1",
     }
 
 
@@ -168,6 +321,15 @@ class ConfigBody(BaseModel):
     vapi_phone_number_id: Optional[str] = None
     supabase_url: Optional[str] = None
     supabase_key: Optional[str] = None
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[str] = None
+    smtp_user: Optional[str] = None
+    smtp_pass: Optional[str] = None
+    smtp_from: Optional[str] = None
+    whatsapp_token: Optional[str] = None
+    whatsapp_phone_id: Optional[str] = None
+    whatsapp_verify_token: Optional[str] = None
+    outbox_live: Optional[bool] = None
 
 
 @app.post("/api/config")
@@ -181,7 +343,18 @@ def set_config(body: ConfigBody):
         "VAPI_PHONE_NUMBER_ID": body.vapi_phone_number_id,
         "SUPABASE_URL": body.supabase_url,
         "SUPABASE_KEY": body.supabase_key,
+        "SMTP_HOST": body.smtp_host,
+        "SMTP_PORT": body.smtp_port,
+        "SMTP_USER": body.smtp_user,
+        "SMTP_PASS": body.smtp_pass,
+        "SMTP_FROM": body.smtp_from,
+        "WHATSAPP_TOKEN": body.whatsapp_token,
+        "WHATSAPP_PHONE_ID": body.whatsapp_phone_id,
+        "WHATSAPP_VERIFY_TOKEN": body.whatsapp_verify_token,
     }
+    if body.outbox_live is not None:   # explicit on/off toggle for real sending
+        set_env("OUTBOX_LIVE", "1" if body.outbox_live else "0")
+        saved.append("OUTBOX_LIVE")
     for env_key, value in fields.items():
         if value:
             set_env(env_key, value.strip())

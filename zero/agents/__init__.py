@@ -7,6 +7,7 @@ from .qualifier import Qualifier
 from .outreach import Outreach
 from .tracker import Tracker
 from .analyst import Analyst
+from .concierge import Concierge
 
 AGENT_CLASSES = {
     "PROSPECTOR": Prospector,
@@ -14,6 +15,7 @@ AGENT_CLASSES = {
     "OUTREACH": Outreach,
     "TRACKER": Tracker,
     "ANALYST": Analyst,
+    "CONCIERGE": Concierge,
 }
 
 
@@ -27,5 +29,5 @@ def build_agents(backend=None, mock: bool = False, source=None):
 
 __all__ = [
     "BaseAgent", "Prospector", "Qualifier", "Outreach", "Tracker", "Analyst",
-    "AGENT_CLASSES", "build_agents",
+    "Concierge", "AGENT_CLASSES", "build_agents",
 ]

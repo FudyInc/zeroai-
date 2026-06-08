@@ -5,8 +5,11 @@ import { toast } from 'sonner'
 import { api } from '../lib/api'
 import { STAGES, ORDER, scoreColor } from '../lib/util'
 import { Card, Skeleton } from '../components/ui'
+import { Segmented } from '../components/Segmented'
 import { useApp } from '../App'
 import { NoClient } from './Dashboard'
+
+const DENSITY = [{ value: 'comodo', label: 'Cómodo' }, { value: 'compacto', label: 'Compacto' }]
 
 export default function Pipeline() {
   const { client, openLead } = useApp()
@@ -14,6 +17,8 @@ export default function Pipeline() {
   const { data: board, isLoading } = useQuery({ queryKey: ['board', client], queryFn: () => api.board(client), enabled: !!client })
   const drag = useRef(null)           // { key, from }
   const [over, setOver] = useState(null)
+  const [dense, setDense] = useState('comodo')
+  const compact = dense === 'compacto'
 
   if (!client) return <NoClient />
 
@@ -38,7 +43,10 @@ export default function Pipeline() {
 
   return (
     <div>
-      <div className="text-xs text-zinc-400 mb-4">Arrastrá una tarjeta entre columnas para cambiar su etapa — o usá el menú. Tocala para ver el detalle.</div>
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <div className="text-xs text-zinc-400">Arrastrá una tarjeta entre columnas para cambiar su etapa — o usá el menú. Tocala para ver el detalle.</div>
+        <Segmented options={DENSITY} value={dense} onChange={setDense} />
+      </div>
       <div className="flex gap-4 overflow-x-auto pb-2">
         {ORDER.map((stage) => {
           const m = STAGES[stage] || { l: stage, c: '#94a3b8' }
@@ -51,7 +59,7 @@ export default function Pipeline() {
               onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setOver((s) => (s === stage ? null : s)) }}
               onDrop={(e) => { e.preventDefault(); onDrop(stage) }}
               className={
-                'shrink-0 w-64 rounded-2xl p-2 transition-colors ' +
+                'shrink-0 rounded-2xl p-2 transition-colors ' + (compact ? 'w-52 ' : 'w-64 ') +
                 (isOver ? 'bg-emerald-50 ring-2 ring-emerald-300' : 'bg-transparent')
               }
             >
@@ -69,18 +77,22 @@ export default function Pipeline() {
                     onDragStart={() => { drag.current = { key: r.key, from: stage } }}
                     onDragEnd={() => { drag.current = null; setOver(null) }}
                     onClick={() => openLead(r.key)}
-                    className="cursor-grab active:cursor-grabbing bg-white border border-zinc-200 rounded-xl p-3.5 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all"
+                    className={'cursor-grab active:cursor-grabbing bg-white border border-zinc-200 rounded-xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all ' + (compact ? 'p-2.5' : 'p-3.5')}
                   >
                     <div className="flex justify-between items-start gap-2">
-                      <div className="font-semibold">{r.company}</div>
+                      <div className={'font-semibold ' + (compact ? 'text-sm' : '')}>{r.company}</div>
                       <span className="font-extrabold tabular-nums" style={{ color: scoreColor(r.score) }}>{r.score ?? '—'}</span>
                     </div>
-                    <div className="text-[13px] text-zinc-500 mt-1">{r.role || '—'}</div>
-                    <div className="text-[13px] text-zinc-500">{r.email || r.phone || '—'}</div>
-                    <select value={r.stage} onClick={(e) => e.stopPropagation()} onChange={(e) => move(r.key, e.target.value)}
-                      className="mt-2.5 w-full text-xs border border-zinc-200 rounded-lg px-2 py-1 bg-zinc-50 text-zinc-600 outline-none focus:ring-2 focus:ring-emerald-200">
-                      {ORDER.map((st) => <option key={st} value={st}>{STAGES[st].l}</option>)}
-                    </select>
+                    {!compact && (
+                      <>
+                        <div className="text-[13px] text-zinc-500 mt-1">{r.role || '—'}</div>
+                        <div className="text-[13px] text-zinc-500">{r.email || r.phone || '—'}</div>
+                        <select value={r.stage} onClick={(e) => e.stopPropagation()} onChange={(e) => move(r.key, e.target.value)}
+                          className="mt-2.5 w-full text-xs border border-zinc-200 rounded-lg px-2 py-1 bg-zinc-50 text-zinc-600 outline-none focus:ring-2 focus:ring-emerald-200">
+                          {ORDER.map((st) => <option key={st} value={st}>{STAGES[st].l}</option>)}
+                        </select>
+                      </>
+                    )}
                   </motion.div>
                 ))}
                 {leads.length === 0 && (

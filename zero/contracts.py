@@ -69,7 +69,7 @@ class AgentResponse:
     def ok(self) -> bool:
         return self.status == "done"
 
-    _RESULT_KEYS = ("leads", "messages", "rates")
+    _RESULT_KEYS = ("leads", "messages", "rates", "reply")
 
     @classmethod
     def from_dict(

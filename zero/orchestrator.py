@@ -19,16 +19,31 @@ from .config import (
     project_funnel,
     tier_config,
 )
+from .channels import Outbox
 from .contracts import AgentResponse, Constraints, Lead, TaskPayload
 from .icp import describe_icp, is_empty, normalize_icp
 from .memory import SessionMemory
 
 
 class Zero:
-    def __init__(self, agents: Dict[str, Any], memory: Optional[SessionMemory] = None, crm: Any = None):
+    def __init__(self, agents: Dict[str, Any], memory: Optional[SessionMemory] = None,
+                 crm: Any = None, outbox: Optional[Outbox] = None):
         self.agents = agents
         self.memory = memory or SessionMemory()
         self.crm = crm   # optional system of record; pipeline updates it when present
+        self.outbox = outbox or Outbox()   # mock by default; sends what gets drafted
+
+    # --- sending (OUTREACH/TRACKER draft; the outbox delivers) ---------------
+    def _deliver(self, client_id: str, lead_key: str, to: Optional[str],
+                 msg: Dict[str, Any]) -> Dict[str, Any]:
+        """Send one drafted message and record the outcome on the CRM record."""
+        res = self.outbox.send({**msg, "to": to})
+        if self.crm:
+            detail = f"{res['channel']} → {to or '—'} [{res['status']}/{res['via']}]"
+            if res.get("error"):
+                detail += f" · {res['error']}"
+            self.crm.log(client_id, lead_key, "send", detail)
+        return res
 
     # --- dispatch protocol ---------------------------------------------------
     def dispatch(self, agent_name: str, task: TaskPayload) -> AgentResponse:
@@ -167,23 +182,26 @@ class Zero:
             if out.status != "error":
                 messages = out.result.get("messages", [])
 
-        # 4b) OPEN FOLLOW-UP SEQUENCES (TRACKER hands off to here) -----------
+        # 4b) SEND first touch + OPEN FOLLOW-UP SEQUENCES --------------------
         sequences_opened = 0
+        sent = 0
         if write_outreach and messages:
             by_company = {m.get("company"): m for m in messages}
             for lead in qualified:
                 self.memory.mark_contacted(lead.key())
+                msg = by_company.get(lead.company)
                 if self.crm:
                     self.crm.advance(client_id, lead.key(), "contacted")
-                    msg = by_company.get(lead.company)
                     if msg:
                         self.crm.set_outreach(client_id, lead.key(), {
                             "channel": msg.get("channel"),
                             "subject": msg.get("subject"),
                             "body": msg.get("body"),
                         })
-                    else:
-                        self.crm.log(client_id, lead.key(), "outreach", "primer toque enviado")
+                if msg:
+                    res = self._deliver(client_id, lead.key(), lead.email or lead.phone, msg)
+                    if res["status"] == "sent":
+                        sent += 1
                 seq = self.memory.open_sequence(client_id, {**lead.to_dict(), "key": lead.key()})
                 if seq["step"] == 0:
                     sequences_opened += 1
@@ -202,6 +220,8 @@ class Zero:
                 "qualified": len(qualified),
                 "rejected": len(rejected),
                 "sequences_opened": sequences_opened,
+                "sent": sent,
+                "delivery": "live" if self.outbox.live else "mock",
                 "channels": channels,
                 "scoring_model": cfg["scoring"],
                 "icp": describe_icp(icp),
@@ -243,14 +263,23 @@ class Zero:
             return self._fail(client_id, "followup", resp)
 
         messages = resp.result.get("messages", [])
+        by_lead = {m.get("lead_key"): m for m in messages}
+        sent = 0
         for s in due:
             self.memory.mark_contacted(s["lead_key"])
             if self.crm:
                 cadence = followup_step(s["step"]) or {}
                 self.crm.log(client_id, s["lead_key"], "followup",
                              f"paso {s['step']} ({cadence.get('kind', '')})")
+            msg = by_lead.get(s["lead_key"])
+            if msg:
+                rec = self.crm.get(client_id, s["lead_key"]) if self.crm else None
+                to = (rec or {}).get("email") or (rec or {}).get("phone")
+                res = self._deliver(client_id, s["lead_key"], to, msg)
+                if res["status"] == "sent":
+                    sent += 1
             self.memory.advance_sequence(s)
-        self.memory.log("followup", client=client_id, advanced=len(due), sent=len(messages))
+        self.memory.log("followup", client=client_id, advanced=len(due), sent=sent)
         self.memory.set_stage(client_id, "delivered")
         self.memory.save()
         if self.crm:
@@ -262,9 +291,88 @@ class Zero:
         return {
             "client_id": client_id,
             "advanced": len(due),
+            "sent": sent,
+            "delivery": "live" if self.outbox.live else "mock",
             "open_remaining": open_remaining,
             "followups": messages,
         }
+
+    # --- inbound reply (closes the loop) -------------------------------------
+    def register_reply(self, client_id: str, lead_key: str,
+                       text: Optional[str] = None,
+                       channel: Optional[str] = None) -> Dict[str, Any]:
+        """A lead replied: stop chasing it and hand it to a human.
+
+        Closes the follow-up sequence (TRACKER stops nudging someone who already
+        answered) and moves the CRM record forward to `replied`. Forward-only:
+        a lead already at `meeting`/`won` isn't dragged back. This is the seam an
+        inbox/webhook plugs into later; the logic here is pure and testable.
+        """
+        lead_key = str(lead_key).lower()
+        closed = self.memory.close_sequence_for_lead(client_id, lead_key, reason="replied")
+
+        moved = None
+        if self.crm:
+            detail = (text.strip()[:120] if text and text.strip() else "respuesta recibida")
+            moved = self.crm.advance(client_id, lead_key, "replied", detail=detail)
+
+        self.memory.log("reply", client=client_id, lead=lead_key,
+                        channel=channel, sequence_closed=bool(closed),
+                        text=(text or "")[:500])
+        self.memory.save()
+        if self.crm:
+            self.crm.save()
+
+        open_remaining = sum(
+            1 for s in self.memory.sequences
+            if s["client_id"] == client_id and s["status"] == "open"
+        )
+        return {
+            "client_id": client_id,
+            "lead_key": lead_key,
+            "stage": moved["stage"] if moved else None,
+            "sequence_closed": bool(closed),
+            "open_remaining": open_remaining,
+        }
+
+    def converse(self, client_id: str, message: str,
+                 lead: Optional[Dict[str, Any]] = None,
+                 channel: str = "whatsapp") -> str:
+        """Draft a reply to an inbound message using the client's business context
+        (ICP). Pure drafting — doesn't send. Used both by `handle_inbound` and the
+        'try the agent' tester so its answers can be evaluated on real questions."""
+        icp = self.memory.get_client_icp(client_id) if client_id else {}
+        resp = self.dispatch("CONCIERGE", TaskPayload(
+            agent="CONCIERGE", client_id=client_id or "", client_tier="",
+            instructions="Responde el mensaje entrante del lead, en su idioma, breve y útil.",
+            data={"message": message, "lead": lead or {}, "icp": icp},
+            constraints=Constraints(channels=[channel]),
+        ))
+        return resp.result.get("reply") or ""
+
+    def handle_inbound(self, from_contact: str, text: str,
+                       channel: str = "whatsapp") -> Dict[str, Any]:
+        """An inbound message arrived (e.g. a WhatsApp reply). Match it to its lead,
+        close the loop (`register_reply`), then draft + send a reply with CONCIERGE.
+        Unmatched senders are logged (a number we never contacted), not an error."""
+        rec = self.crm.find_by_contact(phone=from_contact, email=from_contact) if self.crm else None
+        if not rec:
+            self.memory.log("inbound_unmatched", channel=channel,
+                            sender=from_contact, text=(text or "")[:200])
+            self.memory.save()
+            return {"matched": False, "sender": from_contact}
+
+        client_id, key = rec["client_id"], rec["key"]
+        out = self.register_reply(client_id, key, text=text, channel=channel)
+
+        reply = self.converse(client_id, text, lead=rec, channel=channel)
+        if reply:
+            self._deliver(client_id, key, rec.get("phone") or rec.get("email"),
+                          {"channel": channel, "subject": None, "body": reply})
+            if self.crm:
+                self.crm.log(client_id, key, "auto_reply", reply[:140])
+                self.crm.save()
+        return {"matched": True, "company": rec.get("company"), "reply": reply, **out}
 
     # --- forecasting (ANALYST proposes rates; ZERO does the math) ------------
     def forecast(self, client_id: str) -> Dict[str, Any]:

@@ -1,16 +1,18 @@
 import { NavLink } from 'react-router-dom'
 import {
-  LayoutDashboard, Users, GitBranch, Bot, TrendingUp, Briefcase, Settings,
+  LayoutDashboard, Users, GitBranch, Bot, TrendingUp, Briefcase, Settings, Mail, Network,
 } from 'lucide-react'
 import { cn } from '../lib/util'
 
 const NAV = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
+  { to: '/vender', label: 'Vender', icon: Mail },
   { to: '/leads', label: 'Leads', icon: Users },
   { to: '/pipeline', label: 'Pipeline', icon: GitBranch },
   { to: '/agentes', label: 'Agentes', icon: Bot },
   { to: '/forecast', label: 'Forecast', icon: TrendingUp },
   { to: '/clientes', label: 'Clientes', icon: Briefcase },
+  { to: '/arquitectura', label: 'Arquitectura', icon: Network },
   { to: '/config', label: 'Configuración', icon: Settings },
 ]
 

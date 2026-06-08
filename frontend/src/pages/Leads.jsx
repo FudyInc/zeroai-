@@ -4,9 +4,23 @@ import { toast } from 'sonner'
 import { Search } from 'lucide-react'
 import { api } from '../lib/api'
 import { STAGES, ORDER, scoreColor } from '../lib/util'
-import { Card, Skeleton, Button, Input, Select } from '../components/ui'
+import { Card, Skeleton, Button, Input } from '../components/ui'
+import { Segmented } from '../components/Segmented'
 import { useApp } from '../App'
 import { NoClient } from './Dashboard'
+
+const GROUPS = [
+  { value: 'todos', label: 'Todos' },
+  { value: 'activos', label: 'Activos' },
+  { value: 'ganados', label: 'Ganados' },
+  { value: 'perdidos', label: 'Perdidos' },
+]
+const CLOSED = ['won', 'lost', 'disqualified']
+const inGroup = (g, st) =>
+  g === 'todos' ? true
+    : g === 'ganados' ? st === 'won'
+      : g === 'perdidos' ? (st === 'lost' || st === 'disqualified')
+        : !CLOSED.includes(st) // activos
 
 export default function Leads() {
   const { client, openLead } = useApp()
@@ -15,7 +29,7 @@ export default function Leads() {
     queryKey: ['leads', client], queryFn: () => api.leads(client), enabled: !!client,
   })
   const [q, setQ] = useState('')
-  const [stage, setStage] = useState('')
+  const [group, setGroup] = useState('todos')
   if (!client) return <NoClient />
 
   const move = async (k, s) => {
@@ -25,7 +39,7 @@ export default function Leads() {
 
   const needle = q.trim().toLowerCase()
   const filtered = leads.filter((r) => {
-    if (stage && r.stage !== stage) return false
+    if (!inGroup(group, r.stage)) return false
     if (!needle) return true
     return [r.company, r.role, r.email, r.phone].some((x) => (x || '').toLowerCase().includes(needle))
   })
@@ -37,10 +51,7 @@ export default function Leads() {
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
           <Input className="pl-9" placeholder="Buscar empresa, cargo o contacto…" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
-        <Select value={stage} onChange={(e) => setStage(e.target.value)}>
-          <option value="">Todas las etapas</option>
-          {ORDER.map((s) => <option key={s} value={s}>{STAGES[s].l}</option>)}
-        </Select>
+        <Segmented options={GROUPS} value={group} onChange={setGroup} />
         {!isLoading && <span className="text-xs text-zinc-400">{filtered.length} de {leads.length}</span>}
       </div>
 

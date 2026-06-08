@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1060" height="780" viewBox="0 0 1060 780" font-family="Inter, Helvetica, Arial, sans-serif">
+  <rect width="1060" height="780" fill="#fafaf8"/>
+  <text x="40" y="46" font-size="24" font-weight="800" fill="#173d33">ZeroAI</text>
+  <text x="128" y="46" font-size="14" fill="#7a8a82">— árbol genealógico (orquestador + ramas)</text>
+
+  <!-- connectors -->
+  <g stroke="#bcd2c8" stroke-width="2" fill="none">
+    <path d="M530,110 V140"/>
+    <!-- bus from ZERO down to agents -->
+    <path d="M530,206 V232 M105,232 H955 M105,232 V262 M275,232 V262 M445,232 V262 M615,232 V262 M785,232 V262 M955,232 V262"/>
+    <!-- ZERO down to support layers -->
+    <path d="M530,206 V470 M180,470 H880 M180,470 V500 M530,470 V500 M880,470 V500"/>
+  </g>
+
+  <!-- ZeroAI product -->
+  <g>
+    <rect x="430" y="64" width="200" height="48" rx="12" fill="#173d33"/>
+    <text x="530" y="86" font-size="15" font-weight="700" fill="#f4efe3" text-anchor="middle">ZeroAI · producto</text>
+    <text x="530" y="103" font-size="11" fill="#bcd2c8" text-anchor="middle">lead-gen B2B calificado</text>
+  </g>
+
+  <!-- ZERO orchestrator -->
+  <g>
+    <rect x="410" y="140" width="240" height="66" rx="14" fill="#2f8f78"/>
+    <text x="530" y="167" font-size="16" font-weight="800" fill="#ffffff" text-anchor="middle">ZERO — orquestador</text>
+    <text x="530" y="186" font-size="11" fill="#eafaf3" text-anchor="middle">el cerebro · lógica Python (no LLM)</text>
+    <text x="530" y="200" font-size="11" fill="#eafaf3" text-anchor="middle">reparte tareas · gate · arma la entrega</text>
+  </g>
+
+  <!-- agents (the LLM branches) -->
+  <g font-size="13" font-weight="800" text-anchor="middle">
+    <g>
+      <rect x="30" y="262" width="150" height="74" rx="12" fill="#ffffff" stroke="#173d33" stroke-width="1.5"/>
+      <text x="105" y="288" fill="#173d33">PROSPECTOR</text>
+      <text x="105" y="308" font-size="10.5" font-weight="500" fill="#5a6b63">descubre +</text>
+      <text x="105" y="322" font-size="10.5" font-weight="500" fill="#5a6b63">enriquece leads</text>
+    </g>
+    <g>
+      <rect x="200" y="262" width="150" height="74" rx="12" fill="#ffffff" stroke="#173d33" stroke-width="1.5"/>
+      <text x="275" y="288" fill="#173d33">QUALIFIER</text>
+      <text x="275" y="308" font-size="10.5" font-weight="500" fill="#5a6b63">califica vs ICP</text>
+      <text x="275" y="322" font-size="10.5" font-weight="500" fill="#5a6b63">(score 0–100)</text>
+    </g>
+    <g>
+      <rect x="370" y="262" width="150" height="74" rx="12" fill="#ffffff" stroke="#173d33" stroke-width="1.5"/>
+      <text x="445" y="288" fill="#173d33">OUTREACH</text>
+      <text x="445" y="308" font-size="10.5" font-weight="500" fill="#5a6b63">primer toque</text>
+      <text x="445" y="322" font-size="10.5" font-weight="500" fill="#5a6b63">por canal</text>
+    </g>
+    <g>
+      <rect x="540" y="262" width="150" height="74" rx="12" fill="#ffffff" stroke="#173d33" stroke-width="1.5"/>
+      <text x="615" y="288" fill="#173d33">TRACKER</text>
+      <text x="615" y="308" font-size="10.5" font-weight="500" fill="#5a6b63">follow-up</text>
+      <text x="615" y="322" font-size="10.5" font-weight="500" fill="#5a6b63">nudge→value→bye</text>
+    </g>
+    <g>
+      <rect x="710" y="262" width="150" height="74" rx="12" fill="#ffffff" stroke="#173d33" stroke-width="1.5"/>
+      <text x="785" y="288" fill="#173d33">ANALYST</text>
+      <text x="785" y="308" font-size="10.5" font-weight="500" fill="#5a6b63">forecast</text>
+      <text x="785" y="322" font-size="10.5" font-weight="500" fill="#5a6b63">(propone tasas)</text>
+    </g>
+    <g>
+      <rect x="880" y="262" width="150" height="74" rx="12" fill="#eafaf3" stroke="#2f8f78" stroke-width="2"/>
+      <text x="955" y="288" fill="#2f8f78">CONCIERGE</text>
+      <text x="955" y="308" font-size="10.5" font-weight="500" fill="#4a7a6c">responde dudas</text>
+      <text x="955" y="322" font-size="10.5" font-weight="500" fill="#4a7a6c">+ agenda · NEW</text>
+    </g>
+  </g>
+
+  <!-- contract band -->
+  <g>
+    <rect x="30" y="356" width="1000" height="30" rx="8" fill="#f0f4f1" stroke="#dce7e1"/>
+    <text x="530" y="376" font-size="12" font-weight="600" fill="#3f574e" text-anchor="middle">cada agente habla el MISMO contrato JSON · corre en MOCK ⇄ REAL sin cambiar prompts</text>
+  </g>
+
+  <!-- support layers -->
+  <g font-size="13" font-weight="800" text-anchor="middle">
+    <g>
+      <rect x="60" y="500" width="240" height="86" rx="12" fill="#ffffff" stroke="#9bb3a9" stroke-width="1.5"/>
+      <text x="180" y="525" fill="#173d33">Backends (LLM)</text>
+      <text x="180" y="546" font-size="11" font-weight="500" fill="#5a6b63">Mock · Local (Ollama/vLLM)</text>
+      <text x="180" y="562" font-size="11" font-weight="500" fill="#5a6b63">Anthropic (--live)</text>
+      <text x="180" y="578" font-size="10" font-weight="500" fill="#8a9a92">intercambiable</text>
+    </g>
+    <g>
+      <rect x="410" y="500" width="240" height="86" rx="12" fill="#ffffff" stroke="#9bb3a9" stroke-width="1.5"/>
+      <text x="530" y="525" fill="#173d33">Canales (Outbox)</text>
+      <text x="530" y="546" font-size="11" font-weight="500" fill="#5a6b63">Mock · Email (SMTP)</text>
+      <text x="530" y="562" font-size="11" font-weight="500" fill="#5a6b63">WhatsApp (Meta) · NEW</text>
+      <text x="530" y="578" font-size="10" font-weight="500" fill="#8a9a92">envía / recibe (webhook)</text>
+    </g>
+    <g>
+      <rect x="760" y="500" width="240" height="86" rx="12" fill="#ffffff" stroke="#9bb3a9" stroke-width="1.5"/>
+      <text x="880" y="525" fill="#173d33">Datos</text>
+      <text x="880" y="546" font-size="11" font-weight="500" fill="#5a6b63">CRM (crm.json / Supabase)</text>
+      <text x="880" y="562" font-size="11" font-weight="500" fill="#5a6b63">Memoria (ICP, secuencias)</text>
+      <text x="880" y="578" font-size="10" font-weight="500" fill="#8a9a92">durable</text>
+    </g>
+  </g>
+
+  <!-- surfaces -->
+  <g>
+    <text x="530" y="630" font-size="11" font-weight="700" fill="#7a8a82" text-anchor="middle" letter-spacing="1">SUPERFICIES (cómo lo usas)</text>
+    <g font-size="12" font-weight="700" text-anchor="middle" fill="#173d33">
+      <rect x="190" y="646" width="160" height="40" rx="10" fill="#f0f4f1" stroke="#dce7e1"/>
+      <text x="270" y="671">CLI (main.py)</text>
+      <rect x="450" y="646" width="160" height="40" rx="10" fill="#f0f4f1" stroke="#dce7e1"/>
+      <text x="530" y="671">API (FastAPI)</text>
+      <rect x="710" y="646" width="160" height="40" rx="10" fill="#f0f4f1" stroke="#dce7e1"/>
+      <text x="790" y="671">Dashboard React</text>
+    </g>
+  </g>
+
+  <text x="530" y="724" font-size="11" fill="#9aa8a1" text-anchor="middle">Pipeline: discover → qualify → validate → outreach → follow-up → (responde) → forecast — todo registrado en el CRM</text>
+</svg>

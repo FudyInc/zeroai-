@@ -107,6 +107,22 @@ class SessionMemory:
             seq["next_due"] = self._due_at(seq["started"], seq["step"])
         return seq
 
+    def close_sequence_for_lead(self, client_id: str, lead_key: str,
+                                reason: str = "replied") -> Optional[Dict[str, Any]]:
+        """Stop chasing a lead: close its open follow-up sequence (e.g. it replied).
+
+        Returns the closed sequence, or None if there was no open one (the lead
+        may have replied to the first touch before any follow-up opened).
+        """
+        lead_key = str(lead_key).lower()
+        for s in self.sequences:
+            if s["client_id"] == client_id and s["lead_key"] == lead_key and s["status"] == "open":
+                s["status"] = "closed"
+                s["next_due"] = None
+                s["closed_reason"] = reason
+                return s
+        return None
+
     @staticmethod
     def _due_at(started: str, step: int) -> Optional[str]:
         cadence = followup_step(step)

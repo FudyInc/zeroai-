@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { Users, GitBranch, Trophy, DollarSign } from 'lucide-react'
@@ -5,12 +6,20 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Cell, 
 import { api } from '../lib/api'
 import { STAGES } from '../lib/util'
 import { Card, CountUp, Skeleton } from '../components/ui'
+import { Segmented } from '../components/Segmented'
 import { useApp } from '../App'
 
 const OPEN = ['new', 'qualified', 'contacted', 'nurturing', 'replied', 'meeting']
+const CLOSED = ['won', 'lost', 'disqualified']
+const CHART_GROUPS = [
+  { value: 'todas', label: 'Todas' },
+  { value: 'activas', label: 'Activas' },
+  { value: 'cerradas', label: 'Cerradas' },
+]
 
 export default function Dashboard() {
   const { client } = useApp()
+  const [chartG, setChartG] = useState('todas')
   const kpisQ = useQuery({ queryKey: ['kpis', client], queryFn: () => api.kpis(client), enabled: !!client })
   const boardQ = useQuery({ queryKey: ['board', client], queryFn: () => api.board(client), enabled: !!client })
   const kpis = kpisQ.data, board = boardQ.data
@@ -24,7 +33,8 @@ export default function Dashboard() {
     { label: 'Pipeline ganado', value: kpis?.pipeline_usd, prefix: '$', icon: DollarSign, bg: '#fff7ed', fg: '#f59e0b' },
   ]
 
-  const used = (board?.stages || []).filter((s) => s.leads.length)
+  const inChart = (st) => chartG === 'todas' ? true : chartG === 'cerradas' ? CLOSED.includes(st) : OPEN.includes(st)
+  const used = (board?.stages || []).filter((s) => s.leads.length && inChart(s.stage))
   const chartData = used.map((s) => ({ name: STAGES[s.stage]?.l || s.stage, value: s.leads.length, c: STAGES[s.stage]?.c || '#94a3b8' }))
   const counts = Object.fromEntries((board?.stages || []).map((s) => [s.stage, s.leads.length]))
   const total = Object.values(counts).reduce((a, b) => a + b, 0)
@@ -55,8 +65,13 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <motion.div className="lg:col-span-2" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12 }}>
           <Card className="p-5">
-            <div className="font-semibold">Leads por etapa</div>
-            <div className="text-xs text-zinc-400 mb-4">Distribución del embudo</div>
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div>
+                <div className="font-semibold">Leads por etapa</div>
+                <div className="text-xs text-zinc-400">Distribución del embudo</div>
+              </div>
+              <Segmented options={CHART_GROUPS} value={chartG} onChange={setChartG} />
+            </div>
             <div style={{ height: 300 }}>
               {boardQ.isLoading ? (
                 <Skeleton className="h-full w-full" />

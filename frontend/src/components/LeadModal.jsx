@@ -1,9 +1,13 @@
-import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X } from 'lucide-react'
+import { X, MessageSquareReply } from 'lucide-react'
 import { api } from '../lib/api'
 import { STAGES, scoreColor } from '../lib/util'
-import { Badge, Skeleton, Button } from './ui'
+import { Badge, Skeleton, Button, Input } from './ui'
+
+// Stages where the lead has been contacted but hasn't replied yet → offer to log a reply.
+const REPLYABLE = new Set(['contacted', 'nurturing'])
 
 export default function LeadModal({ client, leadKey, onClose }) {
   const open = !!leadKey
@@ -42,7 +46,7 @@ export default function LeadModal({ client, leadKey, onClose }) {
                 <Button variant="soft" className="mt-3" onClick={() => refetch()}>Reintentar</Button>
               </div>
             ) : r ? (
-              <LeadBody r={r} onClose={onClose} />
+              <LeadBody r={r} client={client} onClose={onClose} />
             ) : null}
           </motion.div>
         </motion.div>
@@ -51,7 +55,7 @@ export default function LeadModal({ client, leadKey, onClose }) {
   )
 }
 
-function LeadBody({ r, onClose }) {
+function LeadBody({ r, client, onClose }) {
   const stg = STAGES[r.stage] || { l: r.stage, c: '#94a3b8' }
   const o = r.outreach
   return (
@@ -90,6 +94,8 @@ function LeadBody({ r, onClose }) {
         </div>
       )}
 
+      {REPLYABLE.has(r.stage) && <ReplyAction r={r} client={client} />}
+
       <div className="mt-4">
         <div className="text-xs uppercase tracking-wide text-zinc-400 mb-2">Historial</div>
         <div className="space-y-1.5">
@@ -102,5 +108,34 @@ function LeadBody({ r, onClose }) {
         </div>
       </div>
     </>
+  )
+}
+
+// Closes the loop: the lead replied → stop follow-ups and move it to `replied`.
+function ReplyAction({ r, client }) {
+  const qc = useQueryClient()
+  const [text, setText] = useState('')
+  const m = useMutation({
+    mutationFn: () => api.reply(client, r.key, { text: text.trim() || undefined }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['lead', client, r.key] })
+      qc.invalidateQueries({ queryKey: ['board'] })
+      qc.invalidateQueries({ queryKey: ['leads'] })
+      qc.invalidateQueries({ queryKey: ['kpis'] })
+    },
+  })
+  return (
+    <div className="mt-4 border border-emerald-200 bg-emerald-50/60 rounded-xl p-3">
+      <div className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-emerald-700 mb-1.5">
+        <MessageSquareReply size={13} /> El lead respondió
+      </div>
+      <p className="text-xs text-zinc-500 mb-2">Lo movemos a <b>respondió</b> y detenemos los seguimientos automáticos.</p>
+      <Input value={text} onChange={(e) => setText(e.target.value)}
+        placeholder="Nota de la respuesta (opcional)" className="mb-2 w-full" />
+      {m.isError && <div className="text-sm text-rose-600 mb-2">{m.error.message}</div>}
+      <Button variant="accent" onClick={() => m.mutate()} disabled={m.isPending}>
+        {m.isPending ? 'Registrando…' : 'Registrar respuesta'}
+      </Button>
+    </div>
   )
 }

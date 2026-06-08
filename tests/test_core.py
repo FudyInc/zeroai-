@@ -10,6 +10,7 @@ the whole pipeline). They don't judge lead quality — that's the real model's j
 from __future__ import annotations
 
 import unittest
+from datetime import datetime, timedelta, timezone
 
 from zero.agents import build_agents
 from zero.config import MIN_ICP_SCORE, RECONTACT_BLACKOUT_DAYS
@@ -292,6 +293,143 @@ class LifecycleTest(unittest.TestCase):
         # 4) the book exports
         path = os.path.join(tempfile.mkdtemp(), "book.csv")
         self.assertGreaterEqual(crm_to_csv(crm, "acme", path), 1)
+
+
+class ReplyLoopTest(unittest.TestCase):
+    """When a lead replies, ZERO stops chasing it and moves it to `replied`."""
+
+    def _run(self):
+        crm = CRM(None)
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=crm)
+        z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8)
+        return z, crm
+
+    def test_reply_closes_sequence_and_advances_stage(self):
+        z, crm = self._run()
+        key = crm.list("acme", "nurturing")[0]["key"]
+        # the lead has an open follow-up sequence before it replies
+        self.assertTrue(any(s["lead_key"] == key and s["status"] == "open"
+                            for s in z.memory.sequences))
+
+        res = z.register_reply("acme", key, text="me interesa, llámenme")
+
+        self.assertEqual(res["stage"], "replied")
+        self.assertTrue(res["sequence_closed"])
+        self.assertEqual(crm.get("acme", key)["stage"], "replied")
+        # the sequence is closed → TRACKER never nudges this lead again
+        self.assertFalse(any(s["lead_key"] == key and s["status"] == "open"
+                             for s in z.memory.sequences))
+        # and a far-future follow-up sweep won't pick it up
+        future = (datetime.now(timezone.utc) + timedelta(days=999)).isoformat()
+        self.assertFalse(any(s["lead_key"] == key
+                             for s in z.memory.due_sequences("acme", as_of=future)))
+
+    def test_reply_without_open_sequence_still_advances(self):
+        z, crm = self._run()
+        key = crm.list("acme", "nurturing")[0]["key"]
+        z.memory.close_sequence_for_lead("acme", key)   # no open sequence anymore
+        res = z.register_reply("acme", key)
+        self.assertFalse(res["sequence_closed"])
+        self.assertEqual(res["stage"], "replied")
+
+    def test_reply_is_forward_only(self):
+        z, crm = self._run()
+        key = crm.list("acme", "nurturing")[0]["key"]
+        crm.set_stage("acme", key, "won", detail="cerró")
+        z.register_reply("acme", key)
+        self.assertEqual(crm.get("acme", key)["stage"], "won")  # not dragged back
+
+
+class ChannelTest(unittest.TestCase):
+    """The outbox delivers what gets drafted — mock-first, faithful contract."""
+
+    def test_mock_sender_contract(self):
+        from zero.channels import MockSender
+        res = MockSender().send({"channel": "email", "to": "a@b.com", "body": "hola"})
+        for k in ("channel", "to", "status", "id", "error", "via"):
+            self.assertIn(k, res)
+        self.assertEqual(res["status"], "sent")
+        # no recipient → skipped, not crash
+        self.assertEqual(MockSender().send({"channel": "whatsapp", "body": "x"})["status"], "skipped")
+
+    def test_outbox_default_is_mock_and_never_raises(self):
+        from zero.channels import Outbox
+        box = Outbox()
+        self.assertFalse(box.live)
+
+        class Boom:
+            name = "email"
+            def send(self, msg):
+                raise RuntimeError("smtp caído")
+        box = Outbox({"email": Boom()})
+        self.assertTrue(box.live)
+        res = box.send({"channel": "email", "to": "a@b.com", "body": "x"})
+        self.assertEqual(res["status"], "error")          # degraded, not crashed
+        self.assertIn("smtp caído", res["error"])
+
+    def test_pipeline_sends_first_touch_via_mock(self):
+        from zero.channels import Outbox
+        crm = CRM(None)
+        box = Outbox()
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=crm, outbox=box)
+        d = z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8)
+
+        self.assertEqual(d["summary"]["delivery"], "mock")
+        self.assertGreater(d["summary"]["sent"], 0)
+        self.assertEqual(d["summary"]["sent"], len(box.log))
+        # every send is recorded on the lead's CRM history
+        key = crm.list("acme", "nurturing")[0]["key"]
+        self.assertTrue(any(h["event"] == "send" for h in crm.get("acme", key)["history"]))
+
+
+class ConciergeTest(unittest.TestCase):
+    """The conversational agent answers inbound questions about the business."""
+
+    def _zero(self):
+        crm = CRM(None)
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=crm)
+        z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8)
+        return z, crm
+
+    def test_concierge_intents(self):
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None))
+        z.memory.set_client_icp("acme", {"sells": "pallets de madera"})
+        self.assertIn("plan", z.converse("acme", "¿cuánto cuesta?").lower())
+        self.assertIn("pallets", z.converse("acme", "¿qué hacen exactamente?").lower())
+        self.assertTrue(z.converse("acme", "¿podemos agendar una llamada?"))
+        # transparency: admits it's an AI if asked
+        self.assertIn("ia", z.converse("acme", "¿eres un robot?").lower())
+
+    def test_parse_inbound(self):
+        from zero.whatsapp_inbound import parse_inbound
+        payload = {"entry": [{"changes": [{"value": {"messages": [
+            {"from": "56999111222", "type": "text", "text": {"body": "hola, precio?"}},
+            {"from": "56999333444", "type": "image"},
+        ]}}]}]}
+        msgs = parse_inbound(payload)
+        self.assertEqual(len(msgs), 2)
+        self.assertEqual(msgs[0], {"from": "56999111222", "text": "hola, precio?"})
+        self.assertEqual(msgs[1]["text"], "[image]")
+        self.assertEqual(parse_inbound({}), [])      # malformed → empty, no crash
+
+    def test_inbound_matches_lead_and_replies(self):
+        z, crm = self._zero()
+        lead = crm.list("acme", "nurturing")[0]
+        phone = lead.get("phone")
+        if not phone:   # a contacted lead always has email or phone; use email then
+            res = z.handle_inbound(lead["email"], "¿qué hacen?")
+        else:
+            res = z.handle_inbound("".join(c for c in phone if c.isdigit()), "¿qué hacen?")
+        self.assertTrue(res["matched"])
+        self.assertTrue(res["reply"])                      # the agent answered
+        self.assertEqual(crm.get("acme", lead["key"])["stage"], "replied")
+        self.assertTrue(any(h["event"] == "auto_reply"
+                            for h in crm.get("acme", lead["key"])["history"]))
+
+    def test_inbound_unmatched_is_not_an_error(self):
+        z, _ = self._zero()
+        res = z.handle_inbound("000000000", "hola?")
+        self.assertFalse(res["matched"])
 
 
 if __name__ == "__main__":
