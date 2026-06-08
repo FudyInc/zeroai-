@@ -150,25 +150,59 @@ def leads(client: str, group: str = "todos", limit: int = 50, offset: int = 0):
     return {"leads": rows, "total": total, "limit": limit, "offset": offset}
 
 
+def _client_meta_cfg(client: str) -> dict:
+    """Marketing config del cliente (Meta), con fallback de zonas al ICP."""
+    memory = make_memory(STATE_PATH)
+    cfg = dict(memory.get_client_meta(client))
+    if not cfg.get("regions"):
+        regions = memory.get_client_icp(client).get("regions")
+        if regions:
+            cfg["regions"] = regions
+    return cfg
+
+
 @app.get("/api/campaigns")
 def campaigns(client: str):
-    """Campañas de Meta Ads del cliente (mock si no hay credenciales de Meta)."""
-    from zero.metaads import make_metaads
-    src = make_metaads()
-    items = src.campaigns(client)
-    spent = sum(c["spent_usd"] for c in items)
+    """Campañas de Meta Ads del cliente, en CLP (mock si no hay credenciales de Meta)."""
+    from zero.metaads import CHILE, make_metaads
+    cfg = _client_meta_cfg(client)
+    src = make_metaads(cfg)
+    items = src.campaigns(client, cfg)
+    spent = sum(c["spent_clp"] for c in items)
     leads = sum(c["leads"] for c in items)
     return {
         "client": client,
         "campaigns": items,
         "summary": {
-            "spent_usd": round(spent, 2),
-            "leads": leads,
-            "cpl_usd": round(spent / leads, 2) if leads else 0.0,
+            "spent_clp": spent, "leads": leads,
+            "cpl_clp": round(spent / leads) if leads else 0,
             "active": sum(1 for c in items if c["status"] == "active"),
+            "currency": "CLP", "good_cpl_clp": CHILE["good_cpl_clp"],
             "source": "live" if src.live else "mock",
         },
     }
+
+
+class Marketing(BaseModel):
+    ad_account: Optional[str] = None
+    monthly_budget_clp: Optional[int] = None
+    regions: Optional[list] = None
+    objective: Optional[str] = None
+
+
+@app.get("/api/marketing")
+def get_marketing(client: str):
+    return {"client": client, "config": make_memory(STATE_PATH).get_client_meta(client)}
+
+
+@app.post("/api/marketing")
+def set_marketing(client: str, body: Marketing):
+    memory = make_memory(STATE_PATH)
+    cfg = dict(memory.get_client_meta(client))
+    cfg.update({k: v for k, v in body.dict().items() if v is not None})
+    memory.set_client_meta(client, cfg)
+    memory.save()
+    return {"client": client, "config": cfg}
 
 
 @app.get("/api/leads/{key}")

@@ -529,15 +529,21 @@ class MetaAdsTest(unittest.TestCase):
         camps = MockMetaAds().campaigns("acme")
         self.assertTrue(camps)
         for c in camps:
-            for k in ("id", "name", "objective", "status", "budget_usd", "spent_usd", "leads", "cpl_usd"):
+            for k in ("id", "name", "objective", "status", "region", "budget_clp", "spent_clp", "leads", "cpl_clp"):
                 self.assertIn(k, c)
             self.assertIn(c["status"], ("active", "paused"))
         # determinista por cliente
         self.assertEqual([c["name"] for c in MockMetaAds().campaigns("acme")],
                          [c["name"] for c in MockMetaAds().campaigns("acme")])
-        # distinto cliente → cifras distintas (semilla por nombre)
-        self.assertNotEqual(MockMetaAds().campaigns("acme")[0]["budget_usd"],
-                            MockMetaAds().campaigns("globex")[0]["budget_usd"])
+
+    def test_per_client_config_personalizes(self):
+        from zero.metaads import MockMetaAds
+        cfg = {"monthly_budget_clp": 1_000_000, "regions": ["Valparaíso"]}
+        camps = MockMetaAds().campaigns("acme", cfg)
+        self.assertEqual(camps[0]["region"], "Valparaíso")          # zona del cliente
+        # presupuesto mayor → montos mayores que el default
+        base = MockMetaAds().campaigns("acme")[0]["budget_clp"]
+        self.assertGreater(camps[0]["budget_clp"], base)
 
     def test_make_metaads_defaults_to_mock(self):
         from zero.metaads import make_metaads, MockMetaAds

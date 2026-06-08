@@ -50,6 +50,13 @@ class SessionMemory:
     def get_client_icp(self, client_id: str) -> Dict[str, Any]:
         return self.clients.get(client_id, {}).get("icp") or {}
 
+    def set_client_meta(self, client_id: str, meta: Dict[str, Any]) -> None:
+        """Per-client marketing config (Meta ad account, presupuesto, zonas)."""
+        self.clients.setdefault(client_id, {})["meta"] = meta
+
+    def get_client_meta(self, client_id: str) -> Dict[str, Any]:
+        return self.clients.get(client_id, {}).get("meta") or {}
+
     def set_agent_status(self, agent: str, status: str) -> None:
         self.agent_status[agent] = status
 

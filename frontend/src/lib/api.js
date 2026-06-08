@@ -42,6 +42,9 @@ export const api = {
     }),
   icp: (c) => req('/api/icp?client=' + q(c)).then((d) => d.icp),
   campaigns: (c) => req('/api/campaigns?client=' + q(c)),
+  marketing: (c) => req('/api/marketing?client=' + q(c)),
+  setMarketing: (c, body) =>
+    req('/api/marketing?client=' + q(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   forecast: (c) => req('/api/forecast?client=' + q(c)),
   runPipeline: (body) =>
     req('/api/pipeline', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
