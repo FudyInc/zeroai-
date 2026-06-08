@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
+import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { Search } from 'lucide-react'
 import { api } from '../lib/api'
@@ -73,7 +74,8 @@ export default function Leads() {
             ))}
 
             {!isLoading && !error && rows.map((r) => (
-              <tr key={r.key} onClick={() => openLead(r.key)} className="border-t border-zinc-100 hover:bg-zinc-50 cursor-pointer transition-colors">
+              <motion.tr key={r.key} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }}
+                onClick={() => openLead(r.key)} className="border-t border-zinc-100 hover:bg-zinc-50 cursor-pointer transition-colors">
                 <td className="px-5 py-3 font-medium">{r.company}</td>
                 <td className="px-5 py-3 text-zinc-500">{r.role || '—'}</td>
                 <td className="px-5 py-3 text-zinc-500">{r.email || r.phone || '—'}</td>
@@ -84,7 +86,7 @@ export default function Leads() {
                     {ORDER.map((s) => <option key={s} value={s}>{STAGES[s].l}</option>)}
                   </select>
                 </td>
-              </tr>
+              </motion.tr>
             ))}
 
             {!isLoading && error && (

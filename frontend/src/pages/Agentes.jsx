@@ -59,11 +59,9 @@ export default function Agentes() {
         {agents.map((a, i) => (
           <motion.div key={a.key} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
             <Card
+              interactive={!a.disabled && !!a.onClick}
               onClick={a.disabled ? undefined : a.onClick}
-              className={
-                'p-5 h-full ' +
-                (a.disabled ? 'opacity-60' : a.onClick ? 'cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all' : '')
-              }
+              className={'p-5 h-full ' + (a.disabled ? 'opacity-60' : a.onClick ? 'cursor-pointer' : '')}
             >
               <div className="flex items-start justify-between">
                 <div className="w-11 h-11 rounded-xl grid place-items-center" style={{ background: a.bg, color: a.fg }}>

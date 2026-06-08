@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '../lib/util'
 
-export function Card({ className, ...p }) {
+export function Card({ className, interactive, ...p }) {
   return (
     <div
       className={cn(
         'bg-white border border-zinc-200/70 rounded-2xl shadow-[0_1px_3px_rgba(16,24,40,0.04),0_8px_24px_-12px_rgba(16,24,40,0.08)]',
+        interactive && 'transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_2px_6px_rgba(16,24,40,0.06),0_18px_44px_-16px_rgba(16,24,40,0.16)]',
         className,
       )}
       {...p}

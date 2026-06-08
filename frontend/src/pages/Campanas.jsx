@@ -71,7 +71,7 @@ export default function Campanas() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {cards.map((c, i) => (
           <motion.div key={c.l} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }}>
-            <Card className="p-5 flex items-start justify-between">
+            <Card interactive className="p-5 flex items-start justify-between">
               <div>
                 <div className="text-sm text-zinc-500">{c.l}</div>
                 <div className="text-2xl font-extrabold mt-1 tabular-nums">{typeof c.v === 'number' ? <CountUp value={c.v} /> : c.v}</div>
@@ -113,7 +113,7 @@ export default function Campanas() {
           </thead>
           <tbody>
             {rows.map((c) => (
-              <tr key={c.id} className="border-t border-zinc-100">
+              <tr key={c.id} className="border-t border-zinc-100 hover:bg-zinc-50 transition-colors">
                 <td className="px-5 py-3 font-medium">{c.name}</td>
                 <td className="px-5 py-3 text-zinc-500">{OBJ[c.objective] || c.objective}</td>
                 <td className="px-5 py-3 text-zinc-500"><span className="inline-flex items-center gap-1"><MapPin size={12} />{c.region}</span></td>

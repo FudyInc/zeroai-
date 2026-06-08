@@ -49,7 +49,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
         {cards.map((c, i) => (
           <motion.div key={c.label} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06, ease: [0.22, 1, 0.36, 1] }}>
-            <Card className="p-5 flex items-start justify-between transition-shadow hover:shadow-[0_2px_6px_rgba(16,24,40,0.06),0_16px_40px_-16px_rgba(16,24,40,0.14)]">
+            <Card interactive className="p-5 flex items-start justify-between">
               <div>
                 <div className="text-sm text-zinc-500">{c.label}</div>
                 <div className="text-3xl font-extrabold mt-1 tabular-nums">

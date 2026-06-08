@@ -50,7 +50,7 @@ export default function Clientes() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {accounts.map((a, i) => (
           <motion.div key={a.client} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
-            <Card className="p-5">
+            <Card interactive className="p-5">
               <div className="flex items-start justify-between">
                 <div className="font-semibold capitalize">{a.client}</div>
                 <div className="text-sm font-extrabold text-emerald-700 tabular-nums">{a.price_clp ? clp(a.price_clp) : 'Custom'}</div>
