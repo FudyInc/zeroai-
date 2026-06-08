@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { api } from '../lib/api'
-import { Card, CountUp, Skeleton, Button } from '../components/ui'
+import { Card, CountUp, Skeleton, pageState } from '../components/ui'
 import { Segmented } from '../components/Segmented'
 import { useApp } from '../App'
 import { NoClient } from './Dashboard'
@@ -22,18 +22,16 @@ export default function Forecast() {
   })
   if (!client) return <NoClient />
 
-  if (isLoading) return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-24 w-full" />)}</div>
-      <Skeleton className="h-28 w-full" />
-    </div>
-  )
-  if (error) return (
-    <div className="py-16 text-center">
-      <p className="text-rose-600 font-medium">No se pudo calcular el forecast.</p>
-      <Button variant="soft" className="mt-3" onClick={() => refetch()}>Reintentar</Button>
-    </div>
-  )
+  const gate = pageState({
+    isLoading, error, onRetry: refetch,
+    skeleton: (
+      <div className="space-y-5">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-24 w-full" />)}</div>
+        <Skeleton className="h-28 w-full" />
+      </div>
+    ),
+  })
+  if (gate) return gate
 
   const f = data.forecast, p = f.projection, a = f.assumptions, i = f.inputs
   const k = FACTOR[scen]

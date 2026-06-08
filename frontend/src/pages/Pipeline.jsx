@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
 import { STAGES, ORDER, scoreColor } from '../lib/util'
-import { Card, Skeleton, Button } from '../components/ui'
+import { Card, Skeleton, pageState } from '../components/ui'
 import { Segmented } from '../components/Segmented'
 import { useApp } from '../App'
 import { NoClient } from './Dashboard'
@@ -37,15 +37,11 @@ export default function Pipeline() {
   // soltar incluso en una vacía). El orden lo da ORDER.
   const byStage = Object.fromEntries((board?.stages || []).map((s) => [s.stage, s.leads]))
 
-  if (isLoading) return (
-    <div className="flex gap-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-64 w-64 shrink-0" />)}</div>
-  )
-  if (error) return (
-    <div className="py-16 text-center">
-      <p className="text-rose-600 font-medium">No se pudo cargar el tablero.</p>
-      <Button variant="soft" className="mt-3" onClick={() => refetch()}>Reintentar</Button>
-    </div>
-  )
+  const gate = pageState({
+    isLoading, error, onRetry: refetch,
+    skeleton: <div className="flex gap-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-64 w-64 shrink-0" />)}</div>,
+  })
+  if (gate) return gate
 
   return (
     <div>

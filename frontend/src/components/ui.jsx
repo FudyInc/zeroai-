@@ -96,8 +96,12 @@ export function CountUp({ value, prefix = '', duration = 850 }) {
   return <span>{prefix}{Math.round(n).toLocaleString()}</span>
 }
 
-/* Maneja carga / error / vacío de forma robusta y consistente. */
-export function DataState({ isLoading, error, isEmpty, skeleton, onRetry, emptyText = 'Sin datos.', children }) {
+/* Estado de carga/error/vacío unificado. Devuelve el elemento del estado, o null si
+   los datos están listos. Úsalo como compuerta con early-return (seguro, no crashea):
+     const gate = pageState({ isLoading, error, isEmpty, onRetry, skeleton, emptyText })
+     if (gate) return gate
+*/
+export function pageState({ isLoading, error, isEmpty, skeleton, onRetry, emptyText = 'Sin datos.' }) {
   if (isLoading) return skeleton || <div className="py-16 grid place-items-center text-zinc-400"><Spinner /></div>
   if (error) return (
     <div className="py-16 text-center">
@@ -107,5 +111,5 @@ export function DataState({ isLoading, error, isEmpty, skeleton, onRetry, emptyT
     </div>
   )
   if (isEmpty) return <div className="py-16 text-center text-zinc-400">{emptyText}</div>
-  return children
+  return null
 }

@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 import { ArrowRight, Wallet } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
-import { Card, Skeleton, Button, Select, CountUp } from '../components/ui'
+import { Card, Skeleton, Select, CountUp, pageState } from '../components/ui'
 import { useApp } from '../App'
 
 const clp = (n) => '$' + Math.round(n || 0).toLocaleString('es-CL')
@@ -23,21 +23,18 @@ export default function Clientes() {
     } catch (e) { toast.error('No se pudo cambiar el plan: ' + e.message) }
   }
 
-  if (isLoading) return (
-    <div className="space-y-4">
-      <Skeleton className="h-24 w-full max-w-xs" />
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-36 w-full" />)}</div>
-    </div>
-  )
-  if (error) return (
-    <div className="py-16 text-center">
-      <p className="text-rose-600 font-medium">No se pudieron cargar los clientes.</p>
-      <Button variant="soft" className="mt-3" onClick={() => refetch()}>Reintentar</Button>
-    </div>
-  )
-
+  const gate = pageState({
+    isLoading, error, onRetry: refetch,
+    isEmpty: !data?.accounts?.length, emptyText: 'Sin clientes aún. Usá “Buscar leads”.',
+    skeleton: (
+      <div className="space-y-4">
+        <Skeleton className="h-24 w-full max-w-xs" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-36 w-full" />)}</div>
+      </div>
+    ),
+  })
+  if (gate) return gate
   const { accounts, mrr_clp, plans } = data
-  if (!accounts.length) return <div className="text-zinc-400 py-16 text-center">Sin clientes aún. Usá “Buscar leads”.</div>
 
   return (
     <div className="space-y-5">

@@ -5,7 +5,7 @@ import { Users, GitBranch, Trophy, DollarSign } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Cell, Tooltip } from 'recharts'
 import { api } from '../lib/api'
 import { STAGES } from '../lib/util'
-import { Card, CountUp, Skeleton, Button } from '../components/ui'
+import { Card, CountUp, Skeleton, pageState } from '../components/ui'
 import { Segmented } from '../components/Segmented'
 import { useApp } from '../App'
 
@@ -25,12 +25,8 @@ export default function Dashboard() {
   const kpis = kpisQ.data, board = boardQ.data
 
   if (!client) return <NoClient />
-  if (kpisQ.isError || boardQ.isError) return (
-    <div className="py-16 text-center">
-      <p className="text-rose-600 font-medium">No se pudo cargar el dashboard.</p>
-      <Button variant="soft" className="mt-3" onClick={() => { kpisQ.refetch(); boardQ.refetch() }}>Reintentar</Button>
-    </div>
-  )
+  const gate = pageState({ error: kpisQ.error || boardQ.error, onRetry: () => { kpisQ.refetch(); boardQ.refetch() } })
+  if (gate) return gate
 
   const cards = [
     { label: 'Leads totales', value: kpis?.total, icon: Users, bg: '#eef2ff', fg: '#6366f1' },

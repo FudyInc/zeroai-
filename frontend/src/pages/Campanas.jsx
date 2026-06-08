@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 import { DollarSign, Users, Target, Activity, Settings2, MapPin, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
-import { Card, CountUp, Skeleton, Button, Badge, Input } from '../components/ui'
+import { Card, CountUp, Skeleton, Button, Badge, Input, pageState } from '../components/ui'
 import { Segmented } from '../components/Segmented'
 import { useApp } from '../App'
 import { NoClient } from './Dashboard'
@@ -47,19 +47,16 @@ export default function Campanas() {
   })
   if (!client) return <NoClient />
 
-  if (isLoading) return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-24 w-full" />)}</div>
-      <Skeleton className="h-64 w-full" />
-    </div>
-  )
-  if (error) return (
-    <div className="py-16 text-center">
-      <p className="text-rose-600 font-medium">No se pudieron cargar las campañas.</p>
-      <Button variant="soft" className="mt-3" onClick={() => refetch()}>Reintentar</Button>
-    </div>
-  )
-
+  const gate = pageState({
+    isLoading, error, onRetry: refetch,
+    skeleton: (
+      <div className="space-y-5">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-24 w-full" />)}</div>
+        <Skeleton className="h-64 w-full" />
+      </div>
+    ),
+  })
+  if (gate) return gate
   const { campaigns, summary } = data
   const rows = filter === 'todas' ? campaigns : campaigns.filter((c) => c.status === filter)
   const cards = [
