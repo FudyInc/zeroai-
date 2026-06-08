@@ -21,7 +21,6 @@ import Arquitectura from './pages/Arquitectura'
 import Llamadas from './pages/Llamadas'
 import Agentes from './pages/Agentes'
 import Config from './pages/Config'
-import Placeholder from './pages/Placeholder'
 
 const AppCtx = createContext(null)
 export const useApp = () => useContext(AppCtx)
@@ -33,8 +32,6 @@ const TITLES = {
   '/leads': ['Leads', 'Todos los leads del cliente'],
   '/pipeline': ['Pipeline', 'El tablero por etapas'],
   '/agentes': ['Agentes', 'Tus canales de contacto, un agente por cada uno'],
-  '/outreach': ['Outreach', 'Mensajes de primer toque'],
-  '/seguimientos': ['Seguimientos', 'Secuencias de follow-up'],
   '/llamadas': ['Llamadas', 'Llamá a un prospecto con un agente de voz'],
   '/forecast': ['Forecast', 'Proyección de pipeline'],
   '/clientes': ['Clientes', 'Tus cuentas'],
@@ -67,7 +64,7 @@ export default function App() {
   if (authed === false) return <Login onSuccess={() => setAuthed(true)} />
 
   return (
-    <AppCtx.Provider value={{ client, setClient, clients, openLead: setLeadKey }}>
+    <AppCtx.Provider value={{ client, setClient, clients, openLead: setLeadKey, openRun: () => setRunOpen(true) }}>
       <div className="min-h-screen flex text-zinc-900 bg-[radial-gradient(120%_120%_at_100%_0%,#f4f7f5_0%,#fafafa_45%,#f7f8fa_100%)]">
         <Sidebar />
         <div className="flex-1 min-w-0">
@@ -109,8 +106,6 @@ export default function App() {
                 <Route path="/agentes" element={<Agentes />} />
                 <Route path="/llamadas" element={<Llamadas />} />
                 <Route path="/config" element={<Config />} />
-                <Route path="/outreach" element={<Placeholder icon="mail" title="Outreach" />} />
-                <Route path="/seguimientos" element={<Placeholder icon="send" title="Seguimientos" />} />
               </Routes>
             </motion.div>
           </main>

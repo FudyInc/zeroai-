@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { Users, GitBranch, Trophy, DollarSign } from 'lucide-react'
+import { Users, GitBranch, Trophy, DollarSign, Plus, Rocket } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Cell, Tooltip } from 'recharts'
 import { api } from '../lib/api'
 import { STAGES } from '../lib/util'
-import { Card, CountUp, Skeleton, pageState } from '../components/ui'
+import { Card, CountUp, Skeleton, Button, pageState } from '../components/ui'
 import { Segmented } from '../components/Segmented'
 import { useApp } from '../App'
 
@@ -127,9 +127,29 @@ function Row({ c, l, v }) {
 }
 
 export function NoClient() {
+  const { openRun } = useApp()
+  const steps = [
+    ['Define tu cliente', 'Dile a ZeroAI qué vende y a quién (su ICP).'],
+    ['Busca leads', 'Descubre, califica y deja listos para contactar.'],
+    ['Contacta y sigue', 'Primer mensaje + follow-ups que corren solos.'],
+  ]
   return (
-    <div className="text-zinc-400 py-20 text-center">
-      Aún no hay datos. Usá <b className="text-zinc-600">Buscar leads</b> para correr una pipeline.
+    <div className="max-w-lg mx-auto py-16 text-center">
+      <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 grid place-items-center mx-auto mb-4"><Rocket size={26} /></div>
+      <h2 className="text-xl font-bold">Empieza con tu primer cliente</h2>
+      <p className="text-zinc-500 mt-1 mb-6">En un clic, ZeroAI descubre, califica y prepara leads B2B listos para contactar.</p>
+      <div className="text-left space-y-3 mb-7">
+        {steps.map(([t, d], i) => (
+          <div key={i} className="flex gap-3">
+            <span className="w-6 h-6 shrink-0 rounded-full bg-[#173d33] text-white text-xs font-bold grid place-items-center">{i + 1}</span>
+            <div>
+              <div className="text-sm font-semibold">{t}</div>
+              <div className="text-xs text-zinc-500">{d}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {openRun && <Button variant="accent" onClick={openRun}><Plus size={16} /> Buscar leads</Button>}
     </div>
   )
 }
