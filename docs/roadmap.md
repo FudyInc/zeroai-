@@ -74,8 +74,18 @@ internas aisladas en datos, no entran ellos).
 2. **Auth (un login de agencia)** — ❌ pendiente: gate simple (un password) sobre API+dashboard.
 3. **Estado a la nube** — ❌ pendiente: ICP/secuencias salen de `state.json` a la DB
    (hoy siguen locales → no sobreviven multi-instancia).
-4. **Paginación de un cliente enorme** — ⏳ siguiente afinamiento: empujar `limit/offset`
-   al query de Supabase y paginar la tabla de Leads en el frontend.
+4. **Paginación fina** — ✅ (2026-06-08): `CRM.query(client, stages, limit, offset)` empuja
+   filtro+orden+slice a PostgREST; `/api/leads?group&limit&offset` → `{leads,total}`;
+   frontend con `useInfiniteQuery` + "Cargar más". Orden con desempate único (lead_key)
+   para páginas estables.
+5. **ICP en la nube** — ✅ verificado (2026-06-08): tabla `app_state` creada, `SupabaseMemory`
+   activo, roundtrip de ICP confirmado.
+
+## Meta Ads / Campañas (2026-06-08) · 🟡 mock-first
+`zero/metaads.py` (MockMetaAds + MetaAds real vía Graph + `make_metaads`), `/api/campaigns`,
+pestaña **Campañas** (KPIs gasto/leads/CPL + tabla + filtro), card en Config. Mock por
+defecto; real con `META_ADS_TOKEN` + `META_AD_ACCOUNT_ID`. Falta: insights reales
+(gasto/leads del endpoint de Meta) y atar leads de ads → CRM.
 
 ## Lo que sigue (recomendación)
 La verdadera prueba pendiente es la **calidad real** (#2/#3): correr con tu key o el
