@@ -287,12 +287,21 @@ def register_reply(key: str, client: str, body: Reply):
 
 # --- WhatsApp conversational agent (CONCIERGE) -------------------------------
 def _agents_best():
-    """Live Anthropic backend if a key is set (real agent reactions), else mock."""
+    """El mejor cerebro disponible: Anthropic (pago) → modelo local (gratis, Ollama) →
+    mock. El local se activa con LOCAL_MODEL en el entorno (sin costo por token)."""
     key = os.environ.get("ANTHROPIC_API_KEY")
     if key:
         try:
             from zero.backends import AnthropicBackend
             return build_agents(backend=AnthropicBackend(api_key=key), mock=False), "live"
+        except Exception:
+            pass
+    local = os.environ.get("LOCAL_MODEL")
+    if local:
+        try:
+            from zero.backends import LocalBackend
+            url = os.environ.get("LOCAL_MODEL_URL", "http://localhost:11434/v1")
+            return build_agents(backend=LocalBackend(model=local, base_url=url), mock=False), "live"
         except Exception:
             pass
     return build_agents(mock=True), "mock"

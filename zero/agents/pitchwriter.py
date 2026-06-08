@@ -57,9 +57,14 @@ class PitchWriter(BaseAgent):
             "Te paso clientes, no listas frías",
         ]
 
-        cuerpo = [hi, "", random.choice(hooks), "", random.choice(value)]
         if notes:
-            cuerpo += ["", notes]           # el ángulo/contexto que pasó el usuario
-        cuerpo += ["", random.choice(ctas), "", "Saludos,"]
+            # El correo ARRANCA desde la idea/contexto que dio el usuario (es la base);
+            # el modelo real la reescribe creativa, el mock la enmarca tal cual.
+            opener = notes[0].upper() + notes[1:]
+            if opener[-1] not in ".!?":
+                opener += "."
+            cuerpo = [hi, "", opener, "", random.choice(value), "", random.choice(ctas), "", "Saludos,"]
+        else:
+            cuerpo = [hi, "", random.choice(hooks), "", random.choice(value), "", random.choice(ctas), "", "Saludos,"]
         body = "\n".join(cuerpo)
         return {"subject": random.choice(subjects), "body": body}, "done", "pitch generado (mock variado)"

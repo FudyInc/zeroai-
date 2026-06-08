@@ -598,7 +598,8 @@ class PitchWriterTest(unittest.TestCase):
         self.assertGreater(len(bodies), 1)      # no es el mismo mensaje siempre
 
     def test_uses_notes(self):
-        self.assertIn("mencionar su web nueva", self._gen("mencionar su web nueva")["body"])
+        # el contexto es la base del correo (arranca desde ahí)
+        self.assertIn("mencionar su web nueva", self._gen("mencionar su web nueva")["body"].lower())
 
 
 if __name__ == "__main__":
