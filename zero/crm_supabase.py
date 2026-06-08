@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from ._env import load_env
 from ._supabase import sb_request
+from .config import CRM_STAGES
 from .crm import CRM
 
 load_env()
@@ -59,6 +60,20 @@ class SupabaseCRM(CRM):
         """Distinct client ids via a tiny projection — never pulls full rows."""
         rows = self._req("GET", f"{self.TABLE}?select=client_id") or []
         return sorted({r["client_id"] for r in rows if r.get("client_id")})
+
+    def counts(self, client_id: Optional[str] = None) -> Dict[str, int]:
+        """Stage counts via a `stage`-only projection — for KPIs we don't pull full
+        rows. `client_id=None` aggregates across accounts (agency overview)."""
+        path = f"{self.TABLE}?select=stage"
+        if client_id is not None:
+            path += f"&client_id=eq.{urllib.parse.quote(str(client_id), safe='')}"
+        rows = self._req("GET", path) or []
+        out = {s: 0 for s in CRM_STAGES}
+        for r in rows:
+            st = r.get("stage")
+            if st in out:
+                out[st] += 1
+        return out
 
     def find_by_contact(self, phone: Optional[str] = None,
                         email: Optional[str] = None) -> Optional[Dict[str, Any]]:

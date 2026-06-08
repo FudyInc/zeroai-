@@ -113,14 +113,7 @@ def clients():
 
 @app.get("/api/kpis")
 def kpis(client: Optional[str] = None):
-    crm = _crm()
-    if client is None:                       # agency overview: aggregate per account
-        counts = {}
-        for c in crm.client_ids():
-            for st, n in crm.counts(c).items():
-                counts[st] = counts.get(st, 0) + n
-    else:
-        counts = crm.counts(client)          # scoped: pulls only this client
+    counts = _crm().counts(client)           # one query · None = resumen de agencia
     won = counts.get("won", 0)
     return {
         "total": sum(counts.values()),
