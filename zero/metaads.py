@@ -58,6 +58,37 @@ class MockMetaAds:
             })
         return out
 
+    def lead_ads(self, client_id: str, cfg: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        """Leads que dejaron sus datos en un formulario de Meta (Lead Ads)."""
+        return _ad_leads_mock(client_id, cfg)
+
+
+_LEAD_NOMBRES = ["Camila Rojas", "Diego Soto", "Valentina Pérez", "Matías Fuentes",
+                 "Fernanda Díaz", "Joaquín Reyes", "Antonia Muñoz", "Tomás Vega"]
+_LEAD_EMPRESAS = ["Comercial Andes", "Importadora Sur", "Distribuidora Maipo",
+                  "Servicios Cordillera", "Agro Pacífico", "Logística Biobío"]
+_LEAD_ROLES = ["Gerente Comercial", "Jefe de Compras", "Dueño", "Encargado de Operaciones"]
+
+
+def _ad_leads_mock(client_id: str, cfg: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    cfg = cfg or {}
+    regions = cfg.get("regions") or [CHILE["default_region"]]
+    seed = sum(ord(c) for c in (client_id or "demo"))
+    out: List[Dict[str, Any]] = []
+    for i in range(3 + seed % 4):                      # 3–6 leads
+        nombre = _LEAD_NOMBRES[(seed + i) % len(_LEAD_NOMBRES)]
+        empresa = _LEAD_EMPRESAS[(seed + i * 3) % len(_LEAD_EMPRESAS)]
+        first = nombre.split()[0].lower()
+        out.append({
+            "company": empresa, "name": nombre,
+            "role": _LEAD_ROLES[(seed + i) % len(_LEAD_ROLES)],
+            "email": f"{first}.{i}@{empresa.lower().replace(' ', '')}.cl",
+            "phone": f"+56 9 {3000 + (seed + i * 131) % 6000} {1000 + (seed * 7 + i) % 8999}",
+            "channel": "whatsapp", "source": "meta_ads",
+            "campaign": "Leads B2B - Búsqueda", "region": regions[i % len(regions)],
+        })
+    return out
+
 
 class MetaAds:
     """Campañas reales vía Meta Marketing API (Graph). Lectura de campañas; gasto/
@@ -90,6 +121,10 @@ class MetaAds:
                 "spent_clp": 0, "leads": 0, "cpl_clp": 0,
             })
         return out
+
+    def lead_ads(self, client_id: str, cfg: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        # Lead Ads real (Graph: /{form}/leads) — pendiente de pago/token. Por ahora vacío.
+        return []
 
 
 _API = "https://graph.facebook.com/v20.0"

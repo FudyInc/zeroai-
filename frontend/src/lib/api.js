@@ -43,6 +43,7 @@ export const api = {
   icp: (c) => req('/api/icp?client=' + q(c)).then((d) => d.icp),
   campaigns: (c) => req('/api/campaigns?client=' + q(c)),
   optimizeCampaigns: (c) => req('/api/campaigns/optimize?client=' + q(c)),
+  syncAdLeads: (c) => req('/api/campaigns/sync-leads?client=' + q(c), { method: 'POST' }),
   marketing: (c) => req('/api/marketing?client=' + q(c)),
   setMarketing: (c, body) =>
     req('/api/marketing?client=' + q(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),

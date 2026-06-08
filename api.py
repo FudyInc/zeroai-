@@ -183,6 +183,18 @@ def campaigns(client: str):
     }
 
 
+@app.post("/api/campaigns/sync-leads")
+def sync_ad_leads(client: str):
+    """Trae los leads de Meta Lead Ads y los mete al CRM (el 'producto único')."""
+    from zero.metaads import make_metaads
+    cfg = _client_meta_cfg(client)
+    leads = make_metaads(cfg).lead_ads(client, cfg)
+    crm = make_crm(CRM_PATH)
+    memory = make_memory(STATE_PATH)
+    zero = Zero(build_agents(mock=True), memory=memory, crm=crm)
+    return zero.import_ad_leads(client, leads)
+
+
 @app.get("/api/metaads/accounts")
 def metaads_accounts():
     """Prueba el token de Meta y lista las cuentas publicitarias que puede gestionar."""

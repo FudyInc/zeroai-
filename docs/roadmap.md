@@ -87,7 +87,18 @@ pestaña **Campañas** (KPIs gasto/leads/CPL + tabla + filtro), card en Config. 
 defecto; real con `META_ADS_TOKEN` + `META_AD_ACCOUNT_ID`. Falta: insights reales
 (gasto/leads del endpoint de Meta) y atar leads de ads → CRM.
 
+## ⏸️ Pendientes de PAGO (hacer cuando Diego pueda pagar — ver [[zero-cost-policy]])
+Cero gasto por ahora. Estos están construidos **mock-first / con seam listo**; solo falta
+enchufar la cuenta/key de pago para que funcionen de verdad:
+- **Motor real con Anthropic** — calidad real de scoring/mensajes/agentes. (Alternativa
+  gratis: modelo local Ollama). 
+- **Meta Ads real**: insights (gasto/leads/CPL reales), gestión que **aplica** el plan de
+  Claude (pausar/presupuesto), y leads de Meta Lead Ads → CRM por API. (La cuenta de Meta
+  nueva además tiene cooldown inicial.)
+- **Discovery con proveedor con key** — cobertura real de prospección.
+- **ElevenLabs** (clonación de voz) y **Vapi** (llamadas) — el agente de voz real.
+- **Envío email/WhatsApp a volumen** (deliverability / proveedor dedicado tipo SES).
+
 ## Lo que sigue (recomendación)
-La verdadera prueba pendiente es la **calidad real** (#2/#3): correr con tu key o el
-modelo local y evaluar si los leads/mensajes son buenos. Después: **canal email que
-envíe** (#4). Auth/multi-tenant (#6) y el loop (#7) cuando el motor esté impecable.
+Mientras no haya pagos: perfeccionar lo gratis. En curso: atar leads de ads → CRM
+(mock), probar email real (SMTP ya configurado), y pulir el dashboard.

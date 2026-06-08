@@ -362,6 +362,24 @@ class Zero:
         ))
         return resp.result if resp.status != "error" else {"recommendations": [], "plan": resp.notes or ""}
 
+    def import_ad_leads(self, client_id: str, leads: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Mete los leads de Meta Lead Ads al CRM (etapa qualified, tag 'Meta Ads') —
+        así un lead de un anuncio entra al mismo pipeline que el resto."""
+        if not self.crm:
+            return {"imported": 0, "client_id": client_id}
+        imported = 0
+        for ld in leads:
+            rec = self.crm.upsert(client_id, ld, stage="qualified")
+            tags = rec.setdefault("tags", [])
+            if "Meta Ads" not in tags:
+                tags.append("Meta Ads")
+            self.crm.log(client_id, rec["key"], "ad_lead", f"Meta Ads · {ld.get('campaign', '')}")
+            imported += 1
+        self.crm.save()
+        self.memory.log("ad_leads_import", client=client_id, count=imported)
+        self.memory.save()
+        return {"imported": imported, "client_id": client_id}
+
     def handle_inbound(self, from_contact: str, text: str,
                        channel: str = "whatsapp") -> Dict[str, Any]:
         """An inbound message arrived (e.g. a WhatsApp reply). Match it to its lead,

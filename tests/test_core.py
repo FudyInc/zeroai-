@@ -549,6 +549,19 @@ class MetaAdsTest(unittest.TestCase):
         from zero.metaads import make_metaads, MockMetaAds
         self.assertIsInstance(make_metaads(), MockMetaAds)   # sin credenciales → mock
 
+    def test_ad_leads_flow_into_crm(self):
+        from zero.metaads import MockMetaAds
+        crm = CRM(None)
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=crm)
+        leads = MockMetaAds().lead_ads("acme")
+        self.assertTrue(leads)
+        res = z.import_ad_leads("acme", leads)
+        self.assertEqual(res["imported"], len(leads))
+        recs = crm.list("acme")
+        self.assertEqual(len(recs), len(leads))
+        self.assertTrue(all("Meta Ads" in (r.get("tags") or []) for r in recs))
+        self.assertTrue(all(r["stage"] == "qualified" for r in recs))
+
     def test_mediabuyer_recommends_actions(self):
         a = build_agents(mock=True)["MEDIABUYER"]
         camps = [

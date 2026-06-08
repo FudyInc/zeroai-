@@ -19,15 +19,28 @@ const clp = (n) => '$' + Math.round(n || 0).toLocaleString('es-CL')
 
 export default function Campanas() {
   const { client } = useApp()
+  const qc = useQueryClient()
   const [filter, setFilter] = useState('todas')
   const [showCfg, setShowCfg] = useState(false)
   const [opt, setOpt] = useState(null)
   const [optBusy, setOptBusy] = useState(false)
+  const [syncBusy, setSyncBusy] = useState(false)
   const optimize = async () => {
     setOptBusy(true)
     try { setOpt(await api.optimizeCampaigns(client)) }
     catch (e) { toast.error('No se pudo optimizar: ' + e.message) }
     finally { setOptBusy(false) }
+  }
+  const syncLeads = async () => {
+    setSyncBusy(true)
+    try {
+      const r = await api.syncAdLeads(client)
+      toast.success(`${r.imported} leads de ads importados al CRM`)
+      qc.invalidateQueries({ queryKey: ['leads'] })
+      qc.invalidateQueries({ queryKey: ['board'] })
+      qc.invalidateQueries({ queryKey: ['kpis'] })
+    } catch (e) { toast.error('No se pudo importar: ' + e.message) }
+    finally { setSyncBusy(false) }
   }
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['campaigns', client], queryFn: () => api.campaigns(client), enabled: !!client,
@@ -84,6 +97,9 @@ export default function Campanas() {
             {summary.source === 'live' ? 'Meta conectado' : 'datos mock'}
           </Badge>
           <Button variant="soft" onClick={() => setShowCfg((v) => !v)}><Settings2 size={15} /> Config del cliente</Button>
+          <Button variant="soft" onClick={syncLeads} disabled={syncBusy}>
+            <Users size={15} /> {syncBusy ? 'Importando…' : 'Importar leads de ads'}
+          </Button>
           <Button variant="accent" onClick={optimize} disabled={optBusy}>
             <Sparkles size={15} /> {optBusy ? 'Analizando…' : 'Gestionar con Claude'}
           </Button>
