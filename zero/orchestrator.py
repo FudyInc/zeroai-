@@ -362,6 +362,15 @@ class Zero:
         ))
         return resp.result if resp.status != "error" else {"recommendations": [], "plan": resp.notes or ""}
 
+    def write_pitch(self, prospect: Dict[str, Any], notes: str = "") -> Dict[str, Any]:
+        """PITCHWRITER redacta un pitch de venta creativo y personalizado (anti-plantilla)."""
+        resp = self.dispatch("PITCHWRITER", TaskPayload(
+            agent="PITCHWRITER", client_id="", client_tier="",
+            instructions="Escribe un pitch de venta creativo, personalizado y distinto cada vez.",
+            data={"prospect": prospect or {}, "notes": notes or ""},
+        ))
+        return resp.result if resp.status != "error" else {"subject": "", "body": ""}
+
     def import_ad_leads(self, client_id: str, leads: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Mete los leads de Meta Lead Ads al CRM (etapa qualified, tag 'Meta Ads') —
         así un lead de un anuncio entra al mismo pipeline que el resto."""

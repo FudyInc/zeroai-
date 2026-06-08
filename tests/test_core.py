@@ -578,5 +578,28 @@ class MetaAdsTest(unittest.TestCase):
         self.assertTrue(resp.result["plan"])
 
 
+class PitchWriterTest(unittest.TestCase):
+    """El pitch se personaliza, usa el contexto y NO es el mismo cada vez."""
+
+    def _gen(self, notes=""):
+        a = build_agents(mock=True)["PITCHWRITER"]
+        return a.run(TaskPayload(agent="PITCHWRITER", client_id="", client_tier="",
+                                 instructions="x",
+                                 data={"prospect": {"name": "Diego", "company": "Acme"}, "notes": notes})).result
+
+    def test_personalizes_and_has_contract(self):
+        r = self._gen()
+        self.assertIn("subject", r)
+        self.assertIn("body", r)
+        self.assertIn("Diego", r["body"])      # personaliza con el nombre
+
+    def test_varies_across_generations(self):
+        bodies = {self._gen()["body"] for _ in range(10)}
+        self.assertGreater(len(bodies), 1)      # no es el mismo mensaje siempre
+
+    def test_uses_notes(self):
+        self.assertIn("mencionar su web nueva", self._gen("mencionar su web nueva")["body"])
+
+
 if __name__ == "__main__":
     unittest.main()

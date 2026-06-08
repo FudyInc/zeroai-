@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Mail, Sparkles, Send } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
-import { Card, Button, Input } from '../components/ui'
+import { Card, Button, Input, Badge } from '../components/ui'
 import { Glow } from '../components/Glow'
 
 // Pon el mail de un prospecto → genera el pitch (editable) → envíalo por tu SMTP.
@@ -12,15 +12,20 @@ export default function Vender() {
   const [to, setTo] = useState('')
   const [name, setName] = useState('')
   const [company, setCompany] = useState('')
+  const [notes, setNotes] = useState('')
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
   const [busy, setBusy] = useState(false)
+  const [genBusy, setGenBusy] = useState(false)
+  const [mode, setMode] = useState(null)
 
   const generate = async () => {
+    setGenBusy(true)
     try {
-      const p = await api.pitchCompose({ name, company })
-      setSubject(p.subject); setBody(p.body)
+      const p = await api.pitchGenerate({ name, company, notes })
+      setSubject(p.subject); setBody(p.body); setMode(p.mode)
     } catch (e) { toast.error('No se pudo generar: ' + e.message) }
+    finally { setGenBusy(false) }
   }
 
   const send = async () => {
@@ -57,8 +62,20 @@ export default function Vender() {
             <label className="block text-xs text-zinc-500 mb-1">Empresa (opcional)</label>
             <Input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Acme" />
           </div>
+          <div className="col-span-2">
+            <label className="block text-xs text-zinc-500 mb-1">Contexto / ángulo (opcional) — qué sabes del prospecto, qué tono</label>
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3}
+              placeholder="Ej: agencia de marketing en Providencia, vi su web nueva; tono cercano y directo."
+              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30" />
+          </div>
         </div>
-        <Button variant="soft" onClick={generate}><Sparkles size={15} /> Generar pitch</Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="accent" onClick={generate} disabled={genBusy}>
+            <Sparkles size={15} /> {genBusy ? 'Escribiendo…' : (subject ? 'Regenerar con IA' : 'Generar con IA')}
+          </Button>
+          {mode && <Badge color={mode === 'live' ? '#16a34a' : '#94a3b8'}>{mode === 'live' ? 'IA real' : 'mock (varía)'}</Badge>}
+          <span className="text-xs text-zinc-400">Cada generación es distinta — con modelo (Anthropic o local) es de verdad creativa.</span>
+        </div>
       </Card>
 
       <Card className="p-6 space-y-3">

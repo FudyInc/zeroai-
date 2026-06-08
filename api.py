@@ -375,6 +375,22 @@ def pitch_compose(body: PitchCompose):
     return compose_pitch(name=body.name, company=body.company)
 
 
+class PitchGen(BaseModel):
+    name: Optional[str] = None
+    company: Optional[str] = None
+    notes: Optional[str] = None
+
+
+@app.post("/api/pitch/generate")
+def pitch_generate(body: PitchGen):
+    """Genera un pitch con IA (creativo, distinto cada vez). Mock varía; con modelo
+    (Anthropic o local) es de verdad creativo."""
+    agents, mode = _agents_best()
+    zero = Zero(agents)
+    res = zero.write_pitch({"name": body.name, "company": body.company}, body.notes or "")
+    return {"subject": res.get("subject", ""), "body": res.get("body", ""), "mode": mode}
+
+
 class PitchSend(BaseModel):
     to: str
     subject: str
