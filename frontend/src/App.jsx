@@ -6,6 +6,7 @@ import { Toaster } from 'sonner'
 import { Plus } from 'lucide-react'
 import { api } from './lib/api'
 import { Button, Input, Select } from './components/ui'
+import { Glow } from './components/Glow'
 import Sidebar from './components/Sidebar'
 import LeadModal from './components/LeadModal'
 import Dashboard from './pages/Dashboard'
@@ -52,9 +53,9 @@ export default function App() {
 
   return (
     <AppCtx.Provider value={{ client, setClient, clients, openLead: setLeadKey }}>
-      <div className="min-h-screen text-zinc-900 bg-[radial-gradient(120%_120%_at_100%_0%,#f4f7f5_0%,#fafafa_45%,#f7f8fa_100%)]">
+      <div className="min-h-screen flex text-zinc-900 bg-[radial-gradient(120%_120%_at_100%_0%,#f4f7f5_0%,#fafafa_45%,#f7f8fa_100%)]">
         <Sidebar />
-        <div className="ml-60">
+        <div className="flex-1 min-w-0">
           <header className="h-[68px] sticky top-0 z-20 bg-white/80 backdrop-blur border-b border-zinc-200 flex items-center px-8 gap-3">
             <div>
               <div className="text-lg font-bold leading-tight">{title}</div>
@@ -66,9 +67,11 @@ export default function App() {
                   {clients.map((c) => <option key={c} value={c}>{c}</option>)}
                 </Select>
               )}
-              <Button variant="primary" onClick={() => setRunOpen(true)}>
-                <Plus size={15} /> Buscar leads
-              </Button>
+              <Glow>
+                <Button variant="primary" onClick={() => setRunOpen(true)}>
+                  <Plus size={15} /> Buscar leads
+                </Button>
+              </Glow>
             </div>
           </header>
 

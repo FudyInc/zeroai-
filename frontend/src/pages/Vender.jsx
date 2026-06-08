@@ -4,6 +4,7 @@ import { Mail, Sparkles, Send } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
 import { Card, Button, Input } from '../components/ui'
+import { Glow } from '../components/Glow'
 
 // Pon el mail de un prospecto → genera el pitch (editable) → envíalo por tu SMTP.
 export default function Vender() {
@@ -73,9 +74,11 @@ export default function Vender() {
             className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-emerald-500/30" />
         </div>
         <div className="flex justify-end">
-          <Button variant="accent" onClick={send} disabled={busy}>
-            <Send size={15} /> {busy ? 'Enviando…' : 'Enviar pitch'}
-          </Button>
+          <Glow>
+            <Button variant="accent" onClick={send} disabled={busy}>
+              <Send size={15} /> {busy ? 'Enviando…' : 'Enviar pitch'}
+            </Button>
+          </Glow>
         </div>
       </Card>
     </div>

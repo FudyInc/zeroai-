@@ -16,7 +16,7 @@ export function Card({ className, ...p }) {
 export function Button({ className, variant = 'primary', ...p }) {
   const variants = {
     primary: 'bg-zinc-900 text-white hover:bg-zinc-800 shadow-sm',
-    accent: 'bg-emerald-700 text-white hover:bg-emerald-800 shadow-sm',
+    accent: 'bg-brand-grad text-white shadow-sm hover:brightness-105',
     soft: 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200',
     ghost: 'text-zinc-600 hover:bg-zinc-100',
   }
