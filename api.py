@@ -25,9 +25,8 @@ load_env()   # load secrets from .env (ELEVENLABS_API_KEY, ANTHROPIC_API_KEY, â€
 from zero.config import AVG_DEAL_VALUE_USD, CRM_OPEN_STAGES, CRM_STAGES
 from zero.channels import make_outbox
 from zero.icp import normalize_icp
-from zero.memory import SessionMemory
 from zero.orchestrator import Zero
-from zero.store import make_crm
+from zero.store import make_crm, make_memory
 
 CRM_PATH = "crm.json"
 STATE_PATH = "state.json"
@@ -180,7 +179,7 @@ class Reply(BaseModel):
 def register_reply(key: str, client: str, body: Reply):
     """A lead replied: close its follow-up sequence and move it to `replied`."""
     crm = make_crm(CRM_PATH)
-    memory = SessionMemory(STATE_PATH)
+    memory = make_memory(STATE_PATH)
     if crm.get(client, key.lower()) is None:
         raise HTTPException(status_code=404, detail="lead no encontrado")
     zero = Zero(build_agents(mock=True), memory=memory, crm=crm)
@@ -218,7 +217,7 @@ async def whatsapp_inbound(req: Request):
     payload = await req.json()
     msgs = parse_inbound(payload)
     crm = make_crm(CRM_PATH)
-    memory = SessionMemory(STATE_PATH)
+    memory = make_memory(STATE_PATH)
     agents, _ = _agents_best()
     zero = Zero(agents, memory=memory, crm=crm, outbox=make_outbox())
     results = [zero.handle_inbound(m["from"], m["text"]) for m in msgs]
@@ -235,7 +234,7 @@ class Simulate(BaseModel):
 def whatsapp_simulate(body: Simulate):
     """Try the agent without WhatsApp: draft (don't send) a reply to a message, to
     evaluate how it answers business questions. Uses the client's saved ICP."""
-    memory = SessionMemory(STATE_PATH)
+    memory = make_memory(STATE_PATH)
     agents, mode = _agents_best()
     zero = Zero(agents, memory=memory)
     try:
@@ -256,7 +255,7 @@ class RunRequest(BaseModel):
 @app.post("/api/pipeline")
 def run_pipeline(req: RunRequest):
     crm = make_crm(CRM_PATH)
-    memory = SessionMemory(STATE_PATH)
+    memory = make_memory(STATE_PATH)
     memory.register_client(req.client, req.tier)
     zero = Zero(build_agents(mock=True), memory=memory, crm=crm, outbox=make_outbox())
     try:
@@ -329,14 +328,14 @@ def test_email(body: TestEmail):
 @app.get("/api/icp")
 def get_icp(client: str):
     """The client's saved ICP, so the dashboard can show and edit it (not write-only)."""
-    memory = SessionMemory(STATE_PATH)
+    memory = make_memory(STATE_PATH)
     return {"client": client, "icp": normalize_icp(memory.get_client_icp(client))}
 
 
 @app.get("/api/forecast")
 def forecast(client: str):
     crm = make_crm(CRM_PATH)
-    memory = SessionMemory(STATE_PATH)
+    memory = make_memory(STATE_PATH)
     tier = memory.clients.get(client, {}).get("tier", "GROWTH")
     memory.register_client(client, tier)
     zero = Zero(build_agents(mock=True), memory=memory, crm=crm)
