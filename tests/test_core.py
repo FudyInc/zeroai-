@@ -432,5 +432,43 @@ class ConciergeTest(unittest.TestCase):
         self.assertFalse(res["matched"])
 
 
+class ScalabilityTest(unittest.TestCase):
+    """Reads are scoped by client and paginated — no full-table scans."""
+
+    def _crm(self):
+        crm = CRM(None)
+        for c in ("acme", "globex"):
+            for n in range(5):
+                crm.upsert(c, {"company": f"{c}-{n}", "role": "CEO",
+                               "email": f"{n}@{c}.com", "score": 90 - n}, stage="qualified")
+        return crm
+
+    def test_client_ids_and_scoped_list(self):
+        crm = self._crm()
+        self.assertEqual(crm.client_ids(), ["acme", "globex"])
+        acme = crm.list("acme")
+        self.assertEqual(len(acme), 5)
+        self.assertTrue(all(r["client_id"] == "acme" for r in acme))
+
+    def test_list_pagination(self):
+        crm = self._crm()
+        page1 = crm.list("acme", limit=2, offset=0)
+        page2 = crm.list("acme", limit=2, offset=2)
+        self.assertEqual(len(page1), 2)
+        self.assertEqual(len(page2), 2)
+        self.assertNotEqual(page1[0]["key"], page2[0]["key"])   # different slice
+        # sorted by score desc → highest first
+        self.assertGreaterEqual(page1[0]["score"], page1[1]["score"])
+
+    def test_ensure_hook_is_called_per_client(self):
+        # SupabaseCRM uses this hook to lazy-load; the base must invoke it on reads.
+        crm = CRM(None)
+        seen = []
+        crm._ensure = lambda cid: seen.append(cid)   # noqa
+        crm.list("acme"); crm.counts("globex"); crm.get("acme", "x")
+        self.assertIn("acme", seen)
+        self.assertIn("globex", seen)
+
+
 if __name__ == "__main__":
     unittest.main()

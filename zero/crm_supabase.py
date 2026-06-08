@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any, Dict, List, Optional
 
@@ -36,9 +37,10 @@ class SupabaseCRM(CRM):
             raise RuntimeError("Faltan SUPABASE_URL y/o SUPABASE_KEY")
         self.url = url.rstrip("/")
         self.key = key
-        self.leads: Dict[str, Dict[str, Any]] = {}
+        self.leads: Dict[str, Dict[str, Any]] = {}   # cache of the clients touched this request
+        self._loaded: set = set()                    # client_ids already pulled
         self.path = None
-        self._load()
+        # No eager load: each request pulls only the client(s) it touches.
 
     # --- storage (the only thing that differs from the file CRM) -------------
     def _req(self, method: str, path: str, body=None, prefer: Optional[str] = None):
@@ -56,12 +58,41 @@ class SupabaseCRM(CRM):
         except urllib.error.URLError as e:
             raise RuntimeError(f"No pude contactar a Supabase: {e}") from e
 
-    def _load(self) -> None:
-        rows = self._req("GET", f"{self.TABLE}?select=*") or []
-        self.leads = {}
+    def _ensure(self, client_id: Optional[str]) -> None:
+        """Pull just this client's rows on first touch (instead of the whole table)."""
+        if client_id is None or client_id in self._loaded:
+            return
+        c = urllib.parse.quote(str(client_id), safe="")
+        rows = self._req("GET", f"{self.TABLE}?client_id=eq.{c}&select=*") or []
         for row in rows:
             rec = self._row_to_rec(row)
             self.leads[f"{rec['client_id']}::{rec['key']}"] = rec
+        self._loaded.add(client_id)
+
+    def client_ids(self) -> List[str]:
+        """Distinct client ids via a tiny projection — never pulls full rows."""
+        rows = self._req("GET", f"{self.TABLE}?select=client_id") or []
+        return sorted({r["client_id"] for r in rows if r.get("client_id")})
+
+    def find_by_contact(self, phone: Optional[str] = None,
+                        email: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Match an inbound (WhatsApp/email reply) to its lead without a full scan.
+        Email matches server-side; phone scans a bounded window of recent leads
+        (the one that replies was contacted recently) and compares by digits."""
+        em = (email or "").strip().lower()
+        if em and "@" in em:
+            q = urllib.parse.quote(em, safe="")
+            rows = self._req("GET", f"{self.TABLE}?email=ilike.{q}&limit=1") or []
+            if rows:
+                return self._row_to_rec(rows[0])
+        pd = "".join(c for c in str(phone or "") if c.isdigit())
+        if pd:
+            rows = self._req("GET", f"{self.TABLE}?select=*&order=updated.desc&limit=500") or []
+            for row in rows:
+                rp = "".join(c for c in str(row.get("phone") or "") if c.isdigit())
+                if rp and rp == pd:
+                    return self._row_to_rec(row)
+        return None
 
     def save(self) -> None:
         if not self.leads:

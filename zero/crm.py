@@ -47,8 +47,18 @@ class CRM:
     def _rid(self, client_id: str, key: str) -> str:
         return f"{client_id}::{key}"
 
+    def _ensure(self, client_id: Optional[str]) -> None:
+        """Hook for scoped backends to lazily load a client's rows on demand.
+        No-op for the in-memory/file CRM — everything is already in `self.leads`."""
+        pass
+
+    def client_ids(self) -> List[str]:
+        """Distinct client ids — so listing accounts never needs a full scan."""
+        return sorted({r["client_id"] for r in self.leads.values()})
+
     def upsert(self, client_id: str, lead: Dict[str, Any], stage: Optional[str] = None) -> Dict[str, Any]:
         """Create or update a lead record; optionally move it to `stage`."""
+        self._ensure(client_id)
         key = lead_key(lead)
         rid = self._rid(client_id, key)
         rec = self.leads.get(rid)
@@ -76,6 +86,7 @@ class CRM:
         Used for automatic pipeline transitions so re-running never drags a lead
         backwards. Manual moves should call `set_stage`, which is unconditional.
         """
+        self._ensure(client_id)
         rec = self.leads.get(self._rid(client_id, key))
         if rec is None:
             return None
@@ -86,6 +97,7 @@ class CRM:
     def set_stage(self, client_id: str, key: str, stage: str, detail: Optional[str] = None) -> Optional[Dict[str, Any]]:
         if stage not in CRM_STAGES:
             raise ValueError(f"etapa inválida: {stage!r}. Válidas: {list(CRM_STAGES)}")
+        self._ensure(client_id)
         rec = self.leads.get(self._rid(client_id, key))
         if rec is None:
             return None
@@ -96,12 +108,14 @@ class CRM:
         return rec
 
     def log(self, client_id: str, key: str, event: str, detail: Optional[str] = None) -> None:
+        self._ensure(client_id)
         rec = self.leads.get(self._rid(client_id, key))
         if rec is not None:
             self._event(rec, event, detail)
 
     def set_outreach(self, client_id: str, key: str, message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Store the first-touch message on the lead (the 'ready to contact' part)."""
+        self._ensure(client_id)
         rec = self.leads.get(self._rid(client_id, key))
         if rec is None:
             return None
@@ -115,6 +129,7 @@ class CRM:
 
     # --- queries -------------------------------------------------------------
     def get(self, client_id: str, key: str) -> Optional[Dict[str, Any]]:
+        self._ensure(client_id)
         return self.leads.get(self._rid(client_id, key))
 
     def find_by_contact(self, phone: Optional[str] = None,
@@ -131,11 +146,16 @@ class CRM:
                 return rec
         return None
 
-    def list(self, client_id: Optional[str] = None, stage: Optional[str] = None) -> List[Dict[str, Any]]:
+    def list(self, client_id: Optional[str] = None, stage: Optional[str] = None,
+             limit: Optional[int] = None, offset: int = 0) -> List[Dict[str, Any]]:
+        self._ensure(client_id)
         out = [r for r in self.leads.values()
                if (client_id is None or r["client_id"] == client_id)
                and (stage is None or r["stage"] == stage)]
-        return sorted(out, key=lambda r: (-(r.get("score") or 0), r.get("company") or ""))
+        out.sort(key=lambda r: (-(r.get("score") or 0), r.get("company") or ""))
+        if limit is not None:
+            return out[offset:offset + limit]
+        return out[offset:] if offset else out
 
     def board(self, client_id: Optional[str] = None) -> Dict[str, List[Dict[str, Any]]]:
         """Leads grouped by stage, in pipeline order."""

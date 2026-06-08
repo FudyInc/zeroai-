@@ -68,17 +68,23 @@ def health():
 
 @app.get("/api/clients")
 def clients():
-    crm = _crm()
-    return {"clients": sorted({r["client_id"] for r in crm.leads.values()})}
+    return {"clients": _crm().client_ids()}
 
 
 @app.get("/api/kpis")
 def kpis(client: Optional[str] = None):
-    leads = [r for r in _crm().leads.values() if client is None or r["client_id"] == client]
-    won = sum(1 for r in leads if r["stage"] == "won")
+    crm = _crm()
+    if client is None:                       # agency overview: aggregate per account
+        counts = {}
+        for c in crm.client_ids():
+            for st, n in crm.counts(c).items():
+                counts[st] = counts.get(st, 0) + n
+    else:
+        counts = crm.counts(client)          # scoped: pulls only this client
+    won = counts.get("won", 0)
     return {
-        "total": len(leads),
-        "in_pipeline": sum(1 for r in leads if r["stage"] in CRM_OPEN_STAGES),
+        "total": sum(counts.values()),
+        "in_pipeline": sum(counts.get(s, 0) for s in CRM_OPEN_STAGES),
         "won": won,
         "pipeline_usd": won * AVG_DEAL_VALUE_USD,
     }
