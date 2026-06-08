@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
 import { STAGES, ORDER, scoreColor } from '../lib/util'
-import { Card, Skeleton } from '../components/ui'
+import { Card, Skeleton, Button } from '../components/ui'
 import { Segmented } from '../components/Segmented'
 import { useApp } from '../App'
 import { NoClient } from './Dashboard'
@@ -14,7 +14,7 @@ const DENSITY = [{ value: 'comodo', label: 'Cómodo' }, { value: 'compacto', lab
 export default function Pipeline() {
   const { client, openLead } = useApp()
   const qc = useQueryClient()
-  const { data: board, isLoading } = useQuery({ queryKey: ['board', client], queryFn: () => api.board(client), enabled: !!client })
+  const { data: board, isLoading, error, refetch } = useQuery({ queryKey: ['board', client], queryFn: () => api.board(client), enabled: !!client })
   const drag = useRef(null)           // { key, from }
   const [over, setOver] = useState(null)
   const [dense, setDense] = useState('comodo')
@@ -39,6 +39,12 @@ export default function Pipeline() {
 
   if (isLoading) return (
     <div className="flex gap-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-64 w-64 shrink-0" />)}</div>
+  )
+  if (error) return (
+    <div className="py-16 text-center">
+      <p className="text-rose-600 font-medium">No se pudo cargar el tablero.</p>
+      <Button variant="soft" className="mt-3" onClick={() => refetch()}>Reintentar</Button>
+    </div>
   )
 
   return (

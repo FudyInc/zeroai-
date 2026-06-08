@@ -109,8 +109,8 @@ export default function Campanas() {
       {showCfg && <ClientConfig client={client} onClose={() => setShowCfg(false)} />}
       {opt && <OptimizePanel opt={opt} onClose={() => setOpt(null)} />}
 
-      <Card className="overflow-hidden">
-        <table className="w-full text-sm">
+      <Card className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[760px]">
           <thead className="bg-zinc-50 text-zinc-500 text-left text-xs uppercase tracking-wide">
             <tr>{['Campaña', 'Objetivo', 'Zona', 'Estado', 'Presupuesto', 'Gastado', 'Leads', 'CPL'].map((h) => <th key={h} className="px-5 py-3 font-medium">{h}</th>)}</tr>
           </thead>
