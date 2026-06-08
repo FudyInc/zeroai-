@@ -22,7 +22,7 @@ from zero._env import load_env, set_env
 from zero.agents import build_agents
 
 load_env()   # load secrets from .env (ELEVENLABS_API_KEY, ANTHROPIC_API_KEY, …)
-from zero.config import AVG_DEAL_VALUE_CLP, CRM_OPEN_STAGES, CRM_STAGES
+from zero.config import AVG_DEAL_VALUE_CLP, CRM_OPEN_STAGES, CRM_STAGES, TIERS
 from zero.channels import make_outbox
 from zero.icp import normalize_icp
 from zero.orchestrator import Zero
@@ -109,6 +109,39 @@ def health():
 @app.get("/api/clients")
 def clients():
     return {"clients": _crm().client_ids()}
+
+
+_PLANS = {k: {"segment": v["segment"], "price_clp": v.get("price_clp"),
+              "leads_per_mo": v.get("leads_per_mo")} for k, v in TIERS.items()}
+
+
+@app.get("/api/accounts")
+def accounts():
+    """Clientes con su plan y precio + MRR de la agencia (lo que facturas al mes)."""
+    memory = make_memory(STATE_PATH)
+    out, mrr = [], 0
+    for c in _crm().client_ids():
+        tier = memory.clients.get(c, {}).get("tier") or "GROWTH"
+        price = TIERS.get(tier, {}).get("price_clp")
+        if price:
+            mrr += price
+        out.append({"client": c, "tier": tier, "price_clp": price,
+                    "leads_per_mo": TIERS.get(tier, {}).get("leads_per_mo")})
+    return {"accounts": out, "mrr_clp": mrr, "plans": _PLANS}
+
+
+class PlanChange(BaseModel):
+    tier: str
+
+
+@app.post("/api/accounts/{client}/plan")
+def set_plan(client: str, body: PlanChange):
+    if body.tier not in TIERS:
+        raise HTTPException(status_code=400, detail=f"plan inválido: {body.tier}")
+    memory = make_memory(STATE_PATH)
+    memory.register_client(client, body.tier)
+    memory.save()
+    return {"client": client, "tier": body.tier, "price_clp": TIERS[body.tier].get("price_clp")}
 
 
 @app.get("/api/kpis")

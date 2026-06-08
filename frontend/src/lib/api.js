@@ -27,6 +27,9 @@ const q = encodeURIComponent
 
 export const api = {
   clients: () => req('/api/clients').then((d) => d.clients),
+  accounts: () => req('/api/accounts'),
+  setPlan: (c, tier) =>
+    req('/api/accounts/' + q(c) + '/plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tier }) }),
   kpis: (c) => req('/api/kpis?client=' + q(c)),
   board: (c) => req('/api/board?client=' + q(c)),
   leads: (c, { group = 'todos', limit = 50, offset = 0 } = {}) =>

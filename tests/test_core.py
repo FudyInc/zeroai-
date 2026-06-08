@@ -578,6 +578,17 @@ class MetaAdsTest(unittest.TestCase):
         self.assertTrue(resp.result["plan"])
 
 
+class PricingTest(unittest.TestCase):
+    """Los planes tienen precio en CLP (el MRR de la agencia)."""
+
+    def test_plans_priced(self):
+        from zero.config import TIERS
+        self.assertEqual(TIERS["STARTER"]["price_clp"], 50_000)
+        self.assertEqual(TIERS["GROWTH"]["price_clp"], 100_000)
+        self.assertEqual(TIERS["SCALE"]["price_clp"], 500_000)
+        self.assertIsNone(TIERS["ENTERPRISE"]["price_clp"])   # custom
+
+
 class PitchWriterTest(unittest.TestCase):
     """El pitch se personaliza, usa el contexto y NO es el mismo cada vez."""
 

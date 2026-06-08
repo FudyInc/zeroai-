@@ -13,27 +13,32 @@ ZERO_MODEL = OPUS
 
 # --- Client tiers ------------------------------------------------------------
 # leads_per_mo = None means "custom / negotiated".
+# price_clp = lo que el cliente paga por mes (el MRR de la agencia). ENTERPRISE = custom.
 TIERS = {
     "STARTER": {
-        "segment": "Startups & micro",
+        "segment": "Básico",
+        "price_clp": 50_000,
         "leads_per_mo": 50,
         "scoring": "basic",        # generic ICP
         "channels": ["email", "whatsapp"],
     },
     "GROWTH": {
-        "segment": "PyMEs",
+        "segment": "Pro",
+        "price_clp": 100_000,
         "leads_per_mo": 200,
         "scoring": "advanced",     # client-specific ICP
         "channels": ["email", "whatsapp", "cold_call"],
     },
     "SCALE": {
-        "segment": "Medianas",
+        "segment": "Full",
+        "price_clp": 500_000,
         "leads_per_mo": 500,
         "scoring": "intent",       # ICP + buying intent
         "channels": ["email", "whatsapp", "cold_call", "linkedin"],
     },
     "ENTERPRISE": {
-        "segment": "Grandes",
+        "segment": "Custom",
+        "price_clp": None,         # negociado
         "leads_per_mo": None,
         "scoring": "vertical",     # per-vertical model
         "channels": ["email", "whatsapp", "cold_call", "linkedin", "sdr_ai"],
