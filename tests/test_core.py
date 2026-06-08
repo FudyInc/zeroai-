@@ -521,5 +521,28 @@ class AuthTest(unittest.TestCase):
         self.assertFalse(auth.valid_token(auth.make_token()))
 
 
+class MetaAdsTest(unittest.TestCase):
+    """Mock de campañas fiel al contrato y determinista por cliente."""
+
+    def test_mock_campaigns_contract(self):
+        from zero.metaads import MockMetaAds
+        camps = MockMetaAds().campaigns("acme")
+        self.assertTrue(camps)
+        for c in camps:
+            for k in ("id", "name", "objective", "status", "budget_usd", "spent_usd", "leads", "cpl_usd"):
+                self.assertIn(k, c)
+            self.assertIn(c["status"], ("active", "paused"))
+        # determinista por cliente
+        self.assertEqual([c["name"] for c in MockMetaAds().campaigns("acme")],
+                         [c["name"] for c in MockMetaAds().campaigns("acme")])
+        # distinto cliente → cifras distintas (semilla por nombre)
+        self.assertNotEqual(MockMetaAds().campaigns("acme")[0]["budget_usd"],
+                            MockMetaAds().campaigns("globex")[0]["budget_usd"])
+
+    def test_make_metaads_defaults_to_mock(self):
+        from zero.metaads import make_metaads, MockMetaAds
+        self.assertIsInstance(make_metaads(), MockMetaAds)   # sin credenciales → mock
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
-  LayoutDashboard, Users, GitBranch, Bot, TrendingUp, Briefcase, Settings, Mail, Network, LogOut,
+  LayoutDashboard, Users, GitBranch, Bot, TrendingUp, Briefcase, Settings, Mail, Network, LogOut, Megaphone,
 } from 'lucide-react'
 import { cn } from '../lib/util'
 import { api } from '../lib/api'
@@ -10,6 +10,7 @@ import { api } from '../lib/api'
 const NAV = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/vender', label: 'Vender', icon: Mail },
+  { to: '/campanas', label: 'Campañas', icon: Megaphone },
   { to: '/leads', label: 'Leads', icon: Users },
   { to: '/pipeline', label: 'Pipeline', icon: GitBranch },
   { to: '/agentes', label: 'Agentes', icon: Bot },

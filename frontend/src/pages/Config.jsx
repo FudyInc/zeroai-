@@ -106,6 +106,17 @@ export default function Config() {
         </div>
       </IntegrationCard>
 
+      <IntegrationCard title="Meta Ads (campañas)" ok={cfg?.metaads} hint="access token + Ad Account ID (act_…) de tu Meta Business · sin esto, datos mock">
+        <div className="space-y-2">
+          <Input type="password" placeholder="Access token" value={vals.mt || ''} onChange={(e) => set('mt', e.target.value)} />
+          <Input placeholder="Ad Account ID (act_123…)" value={vals.ma || ''} onChange={(e) => set('ma', e.target.value)} />
+          <Button onClick={() => save({
+            ...(vals.mt && { meta_ads_token: vals.mt }),
+            ...(vals.ma && { meta_ad_account_id: vals.ma }),
+          }, ['mt', 'ma'])}>Conectar Meta Ads</Button>
+        </div>
+      </IntegrationCard>
+
       <AgentTester />
 
       <Card className="p-6">

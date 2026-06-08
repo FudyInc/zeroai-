@@ -150,6 +150,27 @@ def leads(client: str, group: str = "todos", limit: int = 50, offset: int = 0):
     return {"leads": rows, "total": total, "limit": limit, "offset": offset}
 
 
+@app.get("/api/campaigns")
+def campaigns(client: str):
+    """Campañas de Meta Ads del cliente (mock si no hay credenciales de Meta)."""
+    from zero.metaads import make_metaads
+    src = make_metaads()
+    items = src.campaigns(client)
+    spent = sum(c["spent_usd"] for c in items)
+    leads = sum(c["leads"] for c in items)
+    return {
+        "client": client,
+        "campaigns": items,
+        "summary": {
+            "spent_usd": round(spent, 2),
+            "leads": leads,
+            "cpl_usd": round(spent / leads, 2) if leads else 0.0,
+            "active": sum(1 for c in items if c["status"] == "active"),
+            "source": "live" if src.live else "mock",
+        },
+    }
+
+
 @app.get("/api/leads/{key}")
 def lead(key: str, client: str):
     rec = _crm().get(client, key.lower())
@@ -363,6 +384,7 @@ def get_config():
         # whether drafted messages are actually sent (vs mock-recorded)
         "outbox_live": os.environ.get("OUTBOX_LIVE") == "1",
         "auth": bool(os.environ.get("AUTH_PASSWORD")),
+        "metaads": bool(os.environ.get("META_ADS_TOKEN") and os.environ.get("META_AD_ACCOUNT_ID")),
     }
 
 
@@ -383,6 +405,8 @@ class ConfigBody(BaseModel):
     whatsapp_phone_id: Optional[str] = None
     whatsapp_verify_token: Optional[str] = None
     auth_password: Optional[str] = None
+    meta_ads_token: Optional[str] = None
+    meta_ad_account_id: Optional[str] = None
     outbox_live: Optional[bool] = None
 
 
@@ -406,6 +430,8 @@ def set_config(body: ConfigBody):
         "WHATSAPP_PHONE_ID": body.whatsapp_phone_id,
         "WHATSAPP_VERIFY_TOKEN": body.whatsapp_verify_token,
         "AUTH_PASSWORD": body.auth_password,
+        "META_ADS_TOKEN": body.meta_ads_token,
+        "META_AD_ACCOUNT_ID": body.meta_ad_account_id,
     }
     if body.outbox_live is not None:   # explicit on/off toggle for real sending
         set_env("OUTBOX_LIVE", "1" if body.outbox_live else "0")

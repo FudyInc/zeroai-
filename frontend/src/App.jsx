@@ -12,6 +12,7 @@ import Login from './components/Login'
 import LeadModal from './components/LeadModal'
 import Dashboard from './pages/Dashboard'
 import Vender from './pages/Vender'
+import Campanas from './pages/Campanas'
 import Leads from './pages/Leads'
 import Pipeline from './pages/Pipeline'
 import Forecast from './pages/Forecast'
@@ -28,6 +29,7 @@ export const useApp = () => useContext(AppCtx)
 const TITLES = {
   '/': ['Dashboard', 'Tu embudo de leads B2B en vivo'],
   '/vender': ['Vender', 'Envía un pitch con demo a un prospecto'],
+  '/campanas': ['Campañas', 'Tus campañas de Meta Ads y su rendimiento'],
   '/leads': ['Leads', 'Todos los leads del cliente'],
   '/pipeline': ['Pipeline', 'El tablero por etapas'],
   '/agentes': ['Agentes', 'Tus canales de contacto, un agente por cada uno'],
@@ -98,6 +100,7 @@ export default function App() {
               <Routes>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/vender" element={<Vender />} />
+                <Route path="/campanas" element={<Campanas />} />
                 <Route path="/leads" element={<Leads />} />
                 <Route path="/pipeline" element={<Pipeline />} />
                 <Route path="/forecast" element={<Forecast />} />

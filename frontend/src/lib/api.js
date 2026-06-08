@@ -41,6 +41,7 @@ export const api = {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}),
     }),
   icp: (c) => req('/api/icp?client=' + q(c)).then((d) => d.icp),
+  campaigns: (c) => req('/api/campaigns?client=' + q(c)),
   forecast: (c) => req('/api/forecast?client=' + q(c)),
   runPipeline: (body) =>
     req('/api/pipeline', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
