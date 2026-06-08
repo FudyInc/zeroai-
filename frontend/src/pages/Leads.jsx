@@ -50,7 +50,7 @@ export default function Leads() {
     : leads
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[220px]">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />

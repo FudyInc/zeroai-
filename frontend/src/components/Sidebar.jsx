@@ -7,17 +7,29 @@ import {
 import { cn } from '../lib/util'
 import { api } from '../lib/api'
 
-const NAV = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
-  { to: '/vender', label: 'Vender', icon: Mail },
-  { to: '/campanas', label: 'Campañas', icon: Megaphone },
-  { to: '/leads', label: 'Leads', icon: Users },
-  { to: '/pipeline', label: 'Pipeline', icon: GitBranch },
-  { to: '/agentes', label: 'Agentes', icon: Bot },
-  { to: '/forecast', label: 'Forecast', icon: TrendingUp },
-  { to: '/clientes', label: 'Clientes', icon: Briefcase },
-  { to: '/arquitectura', label: 'Arquitectura', icon: Network },
-  { to: '/config', label: 'Configuración', icon: Settings },
+const SECTIONS = [
+  {
+    title: 'Operación', items: [
+      { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
+      { to: '/leads', label: 'Leads', icon: Users },
+      { to: '/pipeline', label: 'Pipeline', icon: GitBranch },
+      { to: '/forecast', label: 'Forecast', icon: TrendingUp },
+    ],
+  },
+  {
+    title: 'Crecimiento', items: [
+      { to: '/vender', label: 'Vender', icon: Mail },
+      { to: '/campanas', label: 'Campañas', icon: Megaphone },
+      { to: '/agentes', label: 'Agentes', icon: Bot },
+    ],
+  },
+  {
+    title: 'Cuenta', items: [
+      { to: '/clientes', label: 'Clientes', icon: Briefcase },
+      { to: '/arquitectura', label: 'Arquitectura', icon: Network },
+      { to: '/config', label: 'Configuración', icon: Settings },
+    ],
+  },
 ]
 
 function Mark() {
@@ -30,17 +42,12 @@ function Mark() {
   )
 }
 
-// Colapsado muestra solo íconos; al pasar el mouse se expande y aparecen las etiquetas.
+// Colapsado muestra solo íconos; al pasar el mouse se expande y aparecen etiquetas + secciones.
 export default function Sidebar() {
   const [open, setOpen] = useState(false)
-  const label = (text) => (
-    <motion.span
-      animate={{ opacity: open ? 1 : 0, width: open ? 'auto' : 0 }}
-      transition={{ duration: 0.2 }}
-      className="whitespace-nowrap overflow-hidden"
-    >
-      {text}
-    </motion.span>
+  const reveal = (text) => (
+    <motion.span animate={{ opacity: open ? 1 : 0, width: open ? 'auto' : 0 }} transition={{ duration: 0.2 }}
+      className="whitespace-nowrap overflow-hidden">{text}</motion.span>
   )
   return (
     <motion.aside
@@ -52,11 +59,7 @@ export default function Sidebar() {
     >
       <div className="h-[68px] flex items-center gap-3 px-[20px] border-b border-zinc-100 shrink-0">
         <Mark />
-        <motion.div
-          animate={{ opacity: open ? 1 : 0 }}
-          transition={{ duration: 0.2 }}
-          className="leading-tight whitespace-nowrap"
-        >
+        <motion.div animate={{ opacity: open ? 1 : 0 }} transition={{ duration: 0.2 }} className="leading-tight whitespace-nowrap">
           <div className="font-extrabold text-[17px]">
             <span style={{ color: '#173d33' }}>Zero</span><span style={{ color: '#2f8f78' }}>AI</span>
           </div>
@@ -64,39 +67,35 @@ export default function Sidebar() {
         </motion.div>
       </div>
 
-      <nav className="p-3 flex-1 space-y-0.5">
-        {NAV.map(({ to, label: text, icon: Icon, end }) => (
-          <NavLink
-            key={to}
-            to={to}
-            end={end}
-            title={text}
-            className={({ isActive }) =>
-              cn(
-                'flex items-center gap-3 px-3 py-2 rounded-xl text-sm transition-colors',
-                isActive ? 'bg-zinc-100 text-zinc-900 font-semibold' : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-800',
-              )
-            }
-          >
-            <Icon size={18} className="shrink-0" />
-            {label(text)}
-          </NavLink>
+      <nav className="p-3 flex-1 space-y-4 overflow-y-auto overflow-x-hidden">
+        {SECTIONS.map((sec) => (
+          <div key={sec.title} className="space-y-0.5">
+            <div className="h-4 px-3 flex items-end">
+              <motion.span animate={{ opacity: open ? 1 : 0 }} transition={{ duration: 0.2 }}
+                className="text-[10px] font-semibold uppercase tracking-wider text-zinc-300 whitespace-nowrap overflow-hidden">
+                {sec.title}
+              </motion.span>
+            </div>
+            {sec.items.map(({ to, label: text, icon: Icon, end }) => (
+              <NavLink key={to} to={to} end={end} title={text}
+                className={({ isActive }) => cn(
+                  'flex items-center gap-3 px-3 py-2 rounded-xl text-sm transition-colors',
+                  isActive ? 'bg-zinc-100 text-zinc-900 font-semibold' : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-800',
+                )}>
+                <Icon size={18} className="shrink-0" />
+                {reveal(text)}
+              </NavLink>
+            ))}
+          </div>
         ))}
       </nav>
 
       <div className="p-3 border-t border-zinc-100 space-y-1">
-        <button
-          onClick={() => api.logout()}
-          title="Cerrar sesión"
-          className="flex items-center gap-3 px-3 py-2 rounded-xl text-sm text-zinc-500 hover:bg-zinc-50 hover:text-zinc-800 transition-colors w-full"
-        >
+        <button onClick={() => api.logout()} title="Cerrar sesión"
+          className="flex items-center gap-3 px-3 py-2 rounded-xl text-sm text-zinc-500 hover:bg-zinc-50 hover:text-zinc-800 transition-colors w-full">
           <LogOut size={18} className="shrink-0" />
-          {label('Cerrar sesión')}
+          {reveal('Cerrar sesión')}
         </button>
-        <motion.div animate={{ opacity: open ? 1 : 0 }} transition={{ duration: 0.2 }}
-          className="text-[11px] text-zinc-400 px-3 whitespace-nowrap overflow-hidden">
-          v0.1 · local
-        </motion.div>
       </div>
     </motion.aside>
   )

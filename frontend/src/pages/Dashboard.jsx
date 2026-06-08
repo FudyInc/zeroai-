@@ -49,7 +49,7 @@ export default function Dashboard() {
   const pct = total ? Math.round((100 * (total - disq)) / total) : 0
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
         {cards.map((c, i) => (
           <motion.div key={c.label} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06, ease: [0.22, 1, 0.36, 1] }}>
