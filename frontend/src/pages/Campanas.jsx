@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { DollarSign, Users, Target, Activity, Settings2, MapPin } from 'lucide-react'
+import { DollarSign, Users, Target, Activity, Settings2, MapPin, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
 import { Card, CountUp, Skeleton, Button, Badge, Input } from '../components/ui'
@@ -21,6 +21,14 @@ export default function Campanas() {
   const { client } = useApp()
   const [filter, setFilter] = useState('todas')
   const [showCfg, setShowCfg] = useState(false)
+  const [opt, setOpt] = useState(null)
+  const [optBusy, setOptBusy] = useState(false)
+  const optimize = async () => {
+    setOptBusy(true)
+    try { setOpt(await api.optimizeCampaigns(client)) }
+    catch (e) { toast.error('No se pudo optimizar: ' + e.message) }
+    finally { setOptBusy(false) }
+  }
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['campaigns', client], queryFn: () => api.campaigns(client), enabled: !!client,
   })
@@ -76,10 +84,14 @@ export default function Campanas() {
             {summary.source === 'live' ? 'Meta conectado' : 'datos mock'}
           </Badge>
           <Button variant="soft" onClick={() => setShowCfg((v) => !v)}><Settings2 size={15} /> Config del cliente</Button>
+          <Button variant="accent" onClick={optimize} disabled={optBusy}>
+            <Sparkles size={15} /> {optBusy ? 'Analizando…' : 'Gestionar con Claude'}
+          </Button>
         </div>
       </div>
 
       {showCfg && <ClientConfig client={client} onClose={() => setShowCfg(false)} />}
+      {opt && <OptimizePanel opt={opt} onClose={() => setOpt(null)} />}
 
       <Card className="overflow-hidden">
         <table className="w-full text-sm">
@@ -106,6 +118,41 @@ export default function Campanas() {
         </table>
       </Card>
     </div>
+  )
+}
+
+const ACTIONS = {
+  scale: { l: 'Escalar', c: '#16a34a', bg: '#ecfdf5' },
+  reallocate: { l: 'Realojar', c: '#d97706', bg: '#fff7ed' },
+  pause: { l: 'Pausar', c: '#e11d48', bg: '#fef2f2' },
+  keep: { l: 'Mantener', c: '#64748b', bg: '#f4f4f5' },
+}
+
+// El plan de gestión que propone Claude: recomienda acciones, no gasta.
+function OptimizePanel({ opt }) {
+  return (
+    <Card className="p-5 space-y-3 border-emerald-200 bg-emerald-50/40">
+      <div className="flex items-center justify-between">
+        <div className="font-semibold flex items-center gap-2"><Sparkles size={16} className="text-emerald-600" /> Plan de Claude</div>
+        <Badge color={opt.mode === 'live' ? '#16a34a' : '#94a3b8'}>{opt.mode === 'live' ? 'modelo real' : 'mock'}</Badge>
+      </div>
+      <p className="text-sm text-zinc-700">{opt.plan}</p>
+      <div className="space-y-2">
+        {opt.recommendations.map((r, i) => {
+          const a = ACTIONS[r.action] || ACTIONS.keep
+          return (
+            <div key={i} className="flex items-start gap-3 bg-white rounded-xl border border-zinc-200 p-3">
+              <span className="text-xs font-bold px-2 py-1 rounded-full shrink-0" style={{ color: a.c, background: a.bg }}>{a.l}</span>
+              <div>
+                <div className="text-sm font-medium">{r.name}</div>
+                <div className="text-xs text-zinc-500">{r.reason}</div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      <div className="text-[11px] text-zinc-400">Recomendaciones — Claude no gasta ni aplica cambios solo. Conecta Meta real para ejecutar el plan.</div>
+    </Card>
   )
 }
 

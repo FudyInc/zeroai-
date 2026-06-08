@@ -350,6 +350,18 @@ class Zero:
         ))
         return resp.result.get("reply") or ""
 
+    def optimize_campaigns(self, client_id: str, campaigns: List[Dict[str, Any]],
+                           good_cpl_clp: int = 6000) -> Dict[str, Any]:
+        """MEDIABUYER analiza las campañas y devuelve recomendaciones + plan
+        (recomienda, no gasta). Usa el ICP del cliente para alinear el targeting."""
+        icp = self.memory.get_client_icp(client_id) if client_id else {}
+        resp = self.dispatch("MEDIABUYER", TaskPayload(
+            agent="MEDIABUYER", client_id=client_id or "", client_tier="",
+            instructions="Analiza las campañas y propone un plan de gestión (Chile, foco Santiago).",
+            data={"campaigns": campaigns, "good_cpl_clp": good_cpl_clp, "icp": icp},
+        ))
+        return resp.result if resp.status != "error" else {"recommendations": [], "plan": resp.notes or ""}
+
     def handle_inbound(self, from_contact: str, text: str,
                        channel: str = "whatsapp") -> Dict[str, Any]:
         """An inbound message arrived (e.g. a WhatsApp reply). Match it to its lead,

@@ -549,6 +549,21 @@ class MetaAdsTest(unittest.TestCase):
         from zero.metaads import make_metaads, MockMetaAds
         self.assertIsInstance(make_metaads(), MockMetaAds)   # sin credenciales → mock
 
+    def test_mediabuyer_recommends_actions(self):
+        a = build_agents(mock=True)["MEDIABUYER"]
+        camps = [
+            {"id": "1", "name": "Leads OK", "objective": "OUTCOME_LEADS", "status": "active", "region": "Santiago (RM)", "cpl_clp": 4000, "leads": 20},
+            {"id": "2", "name": "Leads caro", "objective": "OUTCOME_LEADS", "status": "active", "region": "Santiago (RM)", "cpl_clp": 12000, "leads": 3},
+            {"id": "3", "name": "Awareness", "objective": "OUTCOME_AWARENESS", "status": "active", "region": "Santiago (RM)", "cpl_clp": 0, "leads": 0},
+        ]
+        resp = a.run(TaskPayload(agent="MEDIABUYER", client_id="acme", client_tier="",
+                                 instructions="x", data={"campaigns": camps, "good_cpl_clp": 6000}))
+        recs = {r["name"]: r["action"] for r in resp.result["recommendations"]}
+        self.assertEqual(recs["Leads OK"], "scale")          # CPL bajo el objetivo
+        self.assertEqual(recs["Leads caro"], "reallocate")   # CPL alto
+        self.assertEqual(recs["Awareness"], "reallocate")    # no trae leads
+        self.assertTrue(resp.result["plan"])
+
 
 if __name__ == "__main__":
     unittest.main()

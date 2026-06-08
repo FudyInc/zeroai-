@@ -183,6 +183,18 @@ def campaigns(client: str):
     }
 
 
+@app.get("/api/campaigns/optimize")
+def optimize_campaigns(client: str):
+    """Claude gestiona: analiza las campañas del cliente y propone un plan (no gasta)."""
+    from zero.metaads import CHILE, make_metaads
+    cfg = _client_meta_cfg(client)
+    items = make_metaads(cfg).campaigns(client, cfg)
+    agents, mode = _agents_best()
+    zero = Zero(agents, memory=make_memory(STATE_PATH))
+    res = zero.optimize_campaigns(client, items, good_cpl_clp=CHILE["good_cpl_clp"])
+    return {"recommendations": res.get("recommendations", []), "plan": res.get("plan", ""), "mode": mode}
+
+
 class Marketing(BaseModel):
     ad_account: Optional[str] = None
     monthly_budget_clp: Optional[int] = None

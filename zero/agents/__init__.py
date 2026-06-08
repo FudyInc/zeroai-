@@ -8,6 +8,7 @@ from .outreach import Outreach
 from .tracker import Tracker
 from .analyst import Analyst
 from .concierge import Concierge
+from .mediabuyer import MediaBuyer
 
 AGENT_CLASSES = {
     "PROSPECTOR": Prospector,
@@ -16,6 +17,7 @@ AGENT_CLASSES = {
     "TRACKER": Tracker,
     "ANALYST": Analyst,
     "CONCIERGE": Concierge,
+    "MEDIABUYER": MediaBuyer,
 }
 
 
@@ -29,5 +31,5 @@ def build_agents(backend=None, mock: bool = False, source=None):
 
 __all__ = [
     "BaseAgent", "Prospector", "Qualifier", "Outreach", "Tracker", "Analyst",
-    "Concierge", "AGENT_CLASSES", "build_agents",
+    "Concierge", "MediaBuyer", "AGENT_CLASSES", "build_agents",
 ]
