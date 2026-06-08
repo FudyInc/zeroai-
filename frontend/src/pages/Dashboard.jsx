@@ -36,7 +36,7 @@ export default function Dashboard() {
     { label: 'Leads totales', value: kpis?.total, icon: Users, bg: '#eef2ff', fg: '#6366f1' },
     { label: 'En pipeline', value: kpis?.in_pipeline, icon: GitBranch, bg: '#ecfdf5', fg: '#10b981' },
     { label: 'Ganados', value: kpis?.won, icon: Trophy, bg: '#faf5ff', fg: '#a855f7' },
-    { label: 'Pipeline ganado', value: kpis?.pipeline_usd, prefix: '$', icon: DollarSign, bg: '#fff7ed', fg: '#f59e0b' },
+    { label: 'Pipeline ganado', value: kpis?.pipeline_clp, prefix: '$', icon: DollarSign, bg: '#fff7ed', fg: '#f59e0b' },
   ]
 
   const inChart = (st) => chartG === 'todas' ? true : chartG === 'cerradas' ? CLOSED.includes(st) : OPEN.includes(st)

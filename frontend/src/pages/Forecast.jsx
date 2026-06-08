@@ -41,7 +41,7 @@ export default function Forecast() {
     { l: 'Respuestas esperadas', v: Math.round(p.expected_replies * k), prefix: '~' },
     { l: 'Reuniones', v: Math.round(p.expected_meetings * k), prefix: '~' },
     { l: 'Cierres', v: Math.round(p.expected_wins * k), prefix: '~' },
-    { l: 'Pipeline', v: Math.round(p.expected_pipeline_usd * k), prefix: '$' },
+    { l: 'Pipeline', v: Math.round(p.expected_pipeline_clp * k), prefix: '$' },
   ]
   return (
     <div className="space-y-5">
@@ -64,7 +64,7 @@ export default function Forecast() {
       <Card className="p-5 text-sm text-zinc-600">
         <div className="font-semibold text-zinc-900 mb-2">Supuestos</div>
         Embudo: descubiertos {i.discovered} → calificados {i.qualified} → contactados {i.contacted}.<br />
-        Tasas: respuesta {a.reply_rate} · reunión {a.meeting_rate} · cierre {a.win_rate} · ticket ${a.avg_deal_value_usd}.
+        Tasas: respuesta {a.reply_rate} · reunión {a.meeting_rate} · cierre {a.win_rate} · ticket ${(a.avg_deal_value_clp || 0).toLocaleString('es-CL')} CLP.
         {f.commentary && <div className="mt-3 text-zinc-500 italic">{f.commentary}</div>}
       </Card>
     </div>

@@ -77,7 +77,7 @@ FORECAST_RATES = {
     "meeting_rate": 0.35,     # replied -> meeting booked
     "win_rate": 0.25,         # meeting -> closed won
 }
-AVG_DEAL_VALUE_USD = 1200     # default monthly contract value per won deal
+AVG_DEAL_VALUE_CLP = 1_000_000   # valor promedio por cierre, en CLP (ajustable)
 
 
 # --- CRM pipeline stages -----------------------------------------------------
@@ -125,6 +125,6 @@ def project_funnel(contacted: int, rates: Dict[str, Any], deal_value: float) -> 
         "expected_replies": round(replies, 1),
         "expected_meetings": round(meetings, 1),
         "expected_wins": round(wins, 2),
-        "expected_pipeline_usd": round(wins * deal_value, 2),
+        "expected_pipeline_clp": round(wins * deal_value, 2),
         "_rates_used": {"reply_rate": reply, "meeting_rate": meeting, "win_rate": win},
     }

@@ -143,8 +143,8 @@ class TestRealPipeline(unittest.TestCase):
     def test_forecast_on_real_path(self):
         self.zero.run_pipeline("acme", "GROWTH", "fintech", count=5)
         fc = self.zero.forecast("acme")["forecast"]
-        self.assertIn("expected_pipeline_usd", fc["projection"])
-        self.assertGreaterEqual(fc["projection"]["expected_pipeline_usd"], 0)
+        self.assertIn("expected_pipeline_clp", fc["projection"])
+        self.assertGreaterEqual(fc["projection"]["expected_pipeline_clp"], 0)
 
 
 class TestBackendDegrades(unittest.TestCase):

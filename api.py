@@ -22,7 +22,7 @@ from zero._env import load_env, set_env
 from zero.agents import build_agents
 
 load_env()   # load secrets from .env (ELEVENLABS_API_KEY, ANTHROPIC_API_KEY, …)
-from zero.config import AVG_DEAL_VALUE_USD, CRM_OPEN_STAGES, CRM_STAGES
+from zero.config import AVG_DEAL_VALUE_CLP, CRM_OPEN_STAGES, CRM_STAGES
 from zero.channels import make_outbox
 from zero.icp import normalize_icp
 from zero.orchestrator import Zero
@@ -119,7 +119,7 @@ def kpis(client: Optional[str] = None):
         "total": sum(counts.values()),
         "in_pipeline": sum(counts.get(s, 0) for s in CRM_OPEN_STAGES),
         "won": won,
-        "pipeline_usd": won * AVG_DEAL_VALUE_USD,
+        "pipeline_clp": won * AVG_DEAL_VALUE_CLP,
     }
 
 

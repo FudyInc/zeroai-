@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from .config import (
-    AVG_DEAL_VALUE_USD,
+    AVG_DEAL_VALUE_CLP,
     FORECAST_RATES,
     MIN_ICP_SCORE,
     RECONTACT_BLACKOUT_DAYS,
@@ -433,16 +433,16 @@ class Zero:
             return self._fail(client_id, "forecast", resp)
 
         proposed = resp.result.get("rates") or {}
-        projection = project_funnel(metrics["contacted"], proposed, AVG_DEAL_VALUE_USD)
+        projection = project_funnel(metrics["contacted"], proposed, AVG_DEAL_VALUE_CLP)
         rates_used = projection.pop("_rates_used")
         forecast = {
             "inputs": metrics,
-            "assumptions": {**rates_used, "avg_deal_value_usd": AVG_DEAL_VALUE_USD},
+            "assumptions": {**rates_used, "avg_deal_value_clp": AVG_DEAL_VALUE_CLP},
             "projection": projection,
             "commentary": resp.result.get("commentary"),
         }
         self.memory.log("forecast", client=client_id,
-                        pipeline_usd=projection["expected_pipeline_usd"])
+                        pipeline_clp=projection["expected_pipeline_clp"])
         self.memory.set_stage(client_id, "delivered")
         self.memory.save()
         return {"client_id": client_id, "forecast": forecast, "notes": resp.notes}
