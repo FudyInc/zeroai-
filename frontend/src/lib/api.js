@@ -29,7 +29,8 @@ export const api = {
   clients: () => req('/api/clients').then((d) => d.clients),
   kpis: (c) => req('/api/kpis?client=' + q(c)),
   board: (c) => req('/api/board?client=' + q(c)),
-  leads: (c) => req('/api/leads?client=' + q(c)).then((d) => d.leads),
+  leads: (c, { group = 'todos', limit = 50, offset = 0 } = {}) =>
+    req(`/api/leads?client=${q(c)}&group=${q(group)}&limit=${limit}&offset=${offset}`),
   lead: (c, k) => req('/api/leads/' + q(k) + '?client=' + q(c)),
   moveStage: (c, k, stage) =>
     req('/api/leads/' + q(k) + '/stage?client=' + q(c), {

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Search } from 'lucide-react'
 import { api } from '../lib/api'
@@ -15,21 +15,26 @@ const GROUPS = [
   { value: 'ganados', label: 'Ganados' },
   { value: 'perdidos', label: 'Perdidos' },
 ]
-const CLOSED = ['won', 'lost', 'disqualified']
-const inGroup = (g, st) =>
-  g === 'todos' ? true
-    : g === 'ganados' ? st === 'won'
-      : g === 'perdidos' ? (st === 'lost' || st === 'disqualified')
-        : !CLOSED.includes(st) // activos
+const PAGE = 50
 
 export default function Leads() {
   const { client, openLead } = useApp()
   const qc = useQueryClient()
-  const { data: leads = [], isLoading, error, refetch } = useQuery({
-    queryKey: ['leads', client], queryFn: () => api.leads(client), enabled: !!client,
-  })
   const [q, setQ] = useState('')
   const [group, setGroup] = useState('todos')
+
+  const {
+    data, isLoading, error, refetch, fetchNextPage, hasNextPage, isFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: ['leads', client, group],
+    queryFn: ({ pageParam = 0 }) => api.leads(client, { group, limit: PAGE, offset: pageParam }),
+    enabled: !!client,
+    getNextPageParam: (last, pages) => {
+      const loaded = pages.reduce((n, p) => n + p.leads.length, 0)
+      return loaded < last.total ? loaded : undefined
+    },
+  })
+
   if (!client) return <NoClient />
 
   const move = async (k, s) => {
@@ -37,22 +42,22 @@ export default function Leads() {
     catch (e) { toast.error('No se pudo mover: ' + e.message) }
   }
 
+  const leads = data?.pages.flatMap((p) => p.leads) ?? []
+  const total = data?.pages[0]?.total ?? 0
   const needle = q.trim().toLowerCase()
-  const filtered = leads.filter((r) => {
-    if (!inGroup(group, r.stage)) return false
-    if (!needle) return true
-    return [r.company, r.role, r.email, r.phone].some((x) => (x || '').toLowerCase().includes(needle))
-  })
+  const rows = needle
+    ? leads.filter((r) => [r.company, r.role, r.email, r.phone].some((x) => (x || '').toLowerCase().includes(needle)))
+    : leads
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[220px]">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
-          <Input className="pl-9" placeholder="Buscar empresa, cargo o contacto…" value={q} onChange={(e) => setQ(e.target.value)} />
+          <Input className="pl-9" placeholder="Buscar en lo cargado…" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
         <Segmented options={GROUPS} value={group} onChange={setGroup} />
-        {!isLoading && <span className="text-xs text-zinc-400">{filtered.length} de {leads.length}</span>}
+        {!isLoading && <span className="text-xs text-zinc-400">{leads.length} de {total}</span>}
       </div>
 
       <Card className="overflow-hidden">
@@ -67,7 +72,7 @@ export default function Leads() {
               </tr>
             ))}
 
-            {!isLoading && !error && filtered.map((r) => (
+            {!isLoading && !error && rows.map((r) => (
               <tr key={r.key} onClick={() => openLead(r.key)} className="border-t border-zinc-100 hover:bg-zinc-50 cursor-pointer transition-colors">
                 <td className="px-5 py-3 font-medium">{r.company}</td>
                 <td className="px-5 py-3 text-zinc-500">{r.role || '—'}</td>
@@ -88,14 +93,22 @@ export default function Leads() {
                 <Button variant="soft" className="mt-3" onClick={() => refetch()}>Reintentar</Button>
               </td></tr>
             )}
-            {!isLoading && !error && filtered.length === 0 && (
+            {!isLoading && !error && rows.length === 0 && (
               <tr><td colSpan={5} className="px-5 py-10 text-center text-zinc-400">
-                {leads.length ? 'Ningún lead coincide con el filtro.' : 'Sin leads. Usá “Buscar leads”.'}
+                {total ? 'Ningún lead coincide.' : 'Sin leads. Usá “Buscar leads”.'}
               </td></tr>
             )}
           </tbody>
         </table>
       </Card>
+
+      {hasNextPage && (
+        <div className="flex justify-center">
+          <Button variant="soft" onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
+            {isFetchingNextPage ? 'Cargando…' : `Cargar más (${leads.length} de ${total})`}
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

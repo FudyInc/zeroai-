@@ -132,9 +132,22 @@ def board(client: str):
     }
 
 
+_LEAD_GROUPS = {
+    "todos": None,
+    "activos": list(CRM_OPEN_STAGES),
+    "ganados": ["won"],
+    "perdidos": ["lost", "disqualified"],
+}
+
+
 @app.get("/api/leads")
-def leads(client: str, stage: Optional[str] = None):
-    return {"leads": _crm().list(client, stage)}
+def leads(client: str, group: str = "todos", limit: int = 50, offset: int = 0):
+    crm = _crm()
+    stages = _LEAD_GROUPS.get(group)
+    rows = crm.query(client, stages=stages, limit=limit, offset=offset)
+    counts = crm.counts(client)
+    total = sum(counts.values()) if stages is None else sum(counts.get(s, 0) for s in stages)
+    return {"leads": rows, "total": total, "limit": limit, "offset": offset}
 
 
 @app.get("/api/leads/{key}")

@@ -61,6 +61,20 @@ class SupabaseCRM(CRM):
         rows = self._req("GET", f"{self.TABLE}?select=client_id") or []
         return sorted({r["client_id"] for r in rows if r.get("client_id")})
 
+    def query(self, client_id: str, stages: Optional[List[str]] = None,
+              limit: Optional[int] = None, offset: int = 0) -> List[Dict[str, Any]]:
+        """Paginate server-side: PostgREST does the filter, sort and slice — we never
+        pull more than one page of one client's leads."""
+        c = urllib.parse.quote(str(client_id), safe="")
+        # lead_key as a unique tiebreaker → a total order, so pages never overlap.
+        path = f"{self.TABLE}?client_id=eq.{c}&order=score.desc.nullslast,company.asc,lead_key.asc"
+        if stages:
+            path += f"&stage=in.({','.join(stages)})"
+        if limit is not None:
+            path += f"&limit={int(limit)}&offset={int(offset)}"
+        rows = self._req("GET", path) or []
+        return [self._row_to_rec(r) for r in rows]
+
     def counts(self, client_id: Optional[str] = None) -> Dict[str, int]:
         """Stage counts via a `stage`-only projection — for KPIs we don't pull full
         rows. `client_id=None` aggregates across accounts (agency overview)."""

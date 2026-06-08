@@ -460,6 +460,16 @@ class ScalabilityTest(unittest.TestCase):
         # sorted by score desc → highest first
         self.assertGreaterEqual(page1[0]["score"], page1[1]["score"])
 
+    def test_query_groups_and_pagination(self):
+        crm = self._crm()
+        self.assertEqual(len(crm.query("acme")), 5)                       # all of one client
+        crm.set_stage("acme", crm.list("acme")[0]["key"], "won")
+        self.assertEqual(len(crm.query("acme", stages=["won"])), 1)       # group filter
+        self.assertEqual(len(crm.query("acme", stages=["qualified"])), 4)
+        self.assertEqual(len(crm.query("acme", limit=2, offset=0)), 2)    # page 1
+        self.assertEqual(len(crm.query("acme", limit=2, offset=4)), 1)    # last page
+        self.assertEqual([r["client_id"] for r in crm.query("acme")], ["acme"] * 5)
+
     def test_ensure_hook_is_called_per_client(self):
         # SupabaseCRM uses this hook to lazy-load; the base must invoke it on reads.
         crm = CRM(None)

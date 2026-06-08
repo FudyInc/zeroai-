@@ -152,10 +152,21 @@ class CRM:
         out = [r for r in self.leads.values()
                if (client_id is None or r["client_id"] == client_id)
                and (stage is None or r["stage"] == stage)]
-        out.sort(key=lambda r: (-(r.get("score") or 0), r.get("company") or ""))
+        out.sort(key=lambda r: (-(r.get("score") or 0), r.get("company") or "", r.get("key") or ""))
         if limit is not None:
             return out[offset:offset + limit]
         return out[offset:] if offset else out
+
+    def query(self, client_id: str, stages: Optional[List[str]] = None,
+              limit: Optional[int] = None, offset: int = 0) -> List[Dict[str, Any]]:
+        """Paginated lookup for the Leads table: one client, an optional set of
+        stages (a group filter), sorted by score, sliced by limit/offset."""
+        self._ensure(client_id)
+        out = [r for r in self.leads.values()
+               if r["client_id"] == client_id and (stages is None or r["stage"] in stages)]
+        # key as a unique tiebreaker → stable, non-overlapping pages
+        out.sort(key=lambda r: (-(r.get("score") or 0), r.get("company") or "", r.get("key") or ""))
+        return out[offset:offset + limit] if limit is not None else out[offset:]
 
     def board(self, client_id: Optional[str] = None) -> Dict[str, List[Dict[str, Any]]]:
         """Leads grouped by stage, in pipeline order."""
