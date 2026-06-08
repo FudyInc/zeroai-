@@ -20,3 +20,31 @@ services:
         sync: false
       - key: VAPI_PHONE_NUMBER_ID
         sync: false
+      # Motor real (opcional)
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      # Canal email (SMTP)
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      # Canal WhatsApp (Meta Cloud API)
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_ID
+        sync: false
+      - key: WHATSAPP_VERIFY_TOKEN
+        sync: false
+      # Operación: envío real (1=on), login de agencia, y URL del dashboard
+      - key: OUTBOX_LIVE
+        sync: false
+      - key: AUTH_PASSWORD
+        sync: false
+      - key: APP_URL
+        sync: false

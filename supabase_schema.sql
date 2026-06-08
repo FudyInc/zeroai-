@@ -26,5 +26,13 @@ create table if not exists crm_leads (
 create index if not exists crm_leads_client_idx on crm_leads (client_id);
 create index if not exists crm_leads_stage_idx  on crm_leads (client_id, stage);
 
+-- Estado de sesión en la nube (ICP por cliente, secuencias de follow-up, contactados).
+-- Un snapshot JSON por agencia. Ver zero/memory_supabase.py.
+create table if not exists app_state (
+  id       text primary key,
+  data     jsonb not null default '{}'::jsonb,
+  updated  timestamptz default now()
+);
+
 -- Nota: el backend usa la service_role key (omite RLS). Cuando sumes login de
 -- equipo con Supabase Auth, activá RLS y agregá políticas por usuario/cliente.

@@ -16,19 +16,17 @@ If the table is missing, `make_memory` falls back to the local file (nothing bre
 """
 from __future__ import annotations
 
-import json
 import os
-import urllib.error
-import urllib.request
 from typing import Any, Dict
 
 from ._env import load_env
+from ._supabase import SupabaseError, sb_request
 from .memory import SessionMemory
 
 load_env()
 
 
-class CloudStateUnavailable(RuntimeError):
+class CloudStateUnavailable(SupabaseError):
     """Raised when Supabase is configured but the app_state table isn't reachable."""
 
 
@@ -47,23 +45,8 @@ class SupabaseMemory(SessionMemory):
         self._load_cloud()              # may raise CloudStateUnavailable
 
     def _req(self, method: str, path: str, body=None, prefer=None):
-        headers = {"apikey": self.key, "Authorization": f"Bearer {self.key}",
-                   "Content-Type": "application/json"}
-        if prefer:
-            headers["Prefer"] = prefer
-        data = json.dumps(body).encode("utf-8") if body is not None else None
-        req = urllib.request.Request(f"{self.url}/rest/v1/{path}", data=data, method=method, headers=headers)
-        try:
-            with urllib.request.urlopen(req, timeout=20) as r:
-                raw = r.read().decode("utf-8")
-                return json.loads(raw) if raw.strip() else None
-        except urllib.error.HTTPError as e:
-            detail = e.read().decode("utf-8", "replace")
-            if e.code in (404, 400) and "app_state" in detail or "PGRST" in detail:
-                raise CloudStateUnavailable(f"tabla app_state no disponible: {detail}") from e
-            raise CloudStateUnavailable(f"Supabase {e.code}: {detail}") from e
-        except urllib.error.URLError as e:
-            raise CloudStateUnavailable(f"no pude contactar a Supabase: {e}") from e
+        # SupabaseError (incl. table-missing) propagates → make_memory falls back to local.
+        return sb_request(self.url, self.key, method, path, body=body, prefer=prefer)
 
     def _load_cloud(self) -> None:
         rows = self._req("GET", f"{self.TABLE}?id=eq.{self.ROW_ID}&select=data") or []

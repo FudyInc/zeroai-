@@ -9,14 +9,12 @@ Needs in the environment / .env:
 """
 from __future__ import annotations
 
-import json
 import os
-import urllib.error
 import urllib.parse
-import urllib.request
 from typing import Any, Dict, List, Optional
 
 from ._env import load_env
+from ._supabase import sb_request
 from .crm import CRM
 
 load_env()
@@ -44,19 +42,7 @@ class SupabaseCRM(CRM):
 
     # --- storage (the only thing that differs from the file CRM) -------------
     def _req(self, method: str, path: str, body=None, prefer: Optional[str] = None):
-        headers = {"apikey": self.key, "Authorization": f"Bearer {self.key}", "Content-Type": "application/json"}
-        if prefer:
-            headers["Prefer"] = prefer
-        data = json.dumps(body).encode("utf-8") if body is not None else None
-        req = urllib.request.Request(f"{self.url}/rest/v1/{path}", data=data, method=method, headers=headers)
-        try:
-            with urllib.request.urlopen(req, timeout=20) as r:
-                raw = r.read().decode("utf-8")
-                return json.loads(raw) if raw.strip() else None
-        except urllib.error.HTTPError as e:
-            raise RuntimeError(f"Supabase {e.code}: {e.read().decode('utf-8', 'replace')}") from e
-        except urllib.error.URLError as e:
-            raise RuntimeError(f"No pude contactar a Supabase: {e}") from e
+        return sb_request(self.url, self.key, method, path, body=body, prefer=prefer)
 
     def _ensure(self, client_id: Optional[str]) -> None:
         """Pull just this client's rows on first touch (instead of the whole table)."""
