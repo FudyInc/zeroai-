@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { Phone } from 'lucide-react'
 import { api } from '../lib/api'
-import { Card, Button, Input, Select } from '../components/ui'
+import { Card, Button, Input, Select, Skeleton } from '../components/ui'
 
 export default function Llamadas() {
   const agentsQ = useQuery({ queryKey: ['assistants'], queryFn: api.assistants, retry: false })
@@ -15,15 +15,31 @@ export default function Llamadas() {
   const [msg, setMsg] = useState(null)
   const [busy, setBusy] = useState(false)
 
+  // Cargando (importante: sin esto, durante la carga mostraba 'No tienes agentes' en rojo).
+  if (agentsQ.isLoading || numbersQ.isLoading) {
+    return (
+      <Card className="p-6 max-w-xl space-y-3">
+        <Skeleton className="h-5 w-44" />
+        <Skeleton className="h-9 w-full" />
+        <Skeleton className="h-9 w-full" />
+        <Skeleton className="h-10 w-full" />
+      </Card>
+    )
+  }
+
+  // Vapi no configurado (o error de conexión) → estado claro, no un crash.
   if (agentsQ.isError) {
     return (
       <Card className="p-6 max-w-xl">
         <div className="font-semibold mb-1">Llamadas con IA</div>
         <div className="text-sm text-zinc-500 mb-2">
-          Falta tu <b>VAPI_API_KEY</b>. Conéctala en Configuración y volvé.
+          Este canal usa <b>Vapi</b>. Conecta tu <b>VAPI_API_KEY</b> en Configuración para activarlo.
         </div>
-        <div className="text-xs text-zinc-400 mb-3">({agentsQ.error.message})</div>
-        <Link to="/config" className="text-emerald-700 text-sm font-medium">Ir a Configuración →</Link>
+        <div className="text-xs text-zinc-400 mb-3 break-words">({agentsQ.error?.message || 'no disponible'})</div>
+        <div className="flex gap-3">
+          <Link to="/config" className="text-emerald-700 text-sm font-medium">Ir a Configuración →</Link>
+          <button onClick={() => { agentsQ.refetch(); numbersQ.refetch() }} className="text-zinc-500 text-sm hover:text-zinc-700">Reintentar</button>
+        </div>
       </Card>
     )
   }
