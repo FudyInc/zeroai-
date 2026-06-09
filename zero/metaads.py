@@ -158,6 +158,10 @@ def make_metaads(cfg: Optional[Dict[str, Any]] = None):
     """Real si hay token de agencia + cuenta del cliente (o cuenta global); si no, mock."""
     cfg = cfg or {}
     account = cfg.get("ad_account") or os.environ.get("META_AD_ACCOUNT_ID")
+    if account:
+        account = str(account).strip()
+        if account and not account.startswith("act_"):   # tolera que peguen solo el número
+            account = "act_" + account
     if os.environ.get("META_ADS_TOKEN") and account:
         try:
             return MetaAds(account)

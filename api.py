@@ -194,13 +194,23 @@ def _client_meta_cfg(client: str) -> dict:
     return cfg
 
 
+def _safe_campaigns(client: str, cfg: dict):
+    """Trae campañas; si la API real de Meta falla, degrada a mock con el error —
+    así la pestaña NUNCA se rompe por un token/cuenta inválidos."""
+    from zero.metaads import MockMetaAds, make_metaads
+    src = make_metaads(cfg)
+    try:
+        return src.campaigns(client, cfg), ("live" if getattr(src, "live", False) else "mock"), None
+    except Exception as e:   # token inválido, cuenta sin acceso, red, etc.
+        return MockMetaAds().campaigns(client, cfg), "mock", str(e)[:300]
+
+
 @app.get("/api/campaigns")
 def campaigns(client: str):
     """Campañas de Meta Ads del cliente, en CLP (mock si no hay credenciales de Meta)."""
-    from zero.metaads import CHILE, make_metaads
+    from zero.metaads import CHILE
     cfg = _client_meta_cfg(client)
-    src = make_metaads(cfg)
-    items = src.campaigns(client, cfg)
+    items, source, error = _safe_campaigns(client, cfg)
     spent = sum(c["spent_clp"] for c in items)
     leads = sum(c["leads"] for c in items)
     return {
@@ -211,7 +221,7 @@ def campaigns(client: str):
             "cpl_clp": round(spent / leads) if leads else 0,
             "active": sum(1 for c in items if c["status"] == "active"),
             "currency": "CLP", "good_cpl_clp": CHILE["good_cpl_clp"],
-            "source": "live" if src.live else "mock",
+            "source": source, "error": error,
         },
     }
 
@@ -244,9 +254,9 @@ def metaads_accounts():
 @app.get("/api/campaigns/optimize")
 def optimize_campaigns(client: str):
     """Claude gestiona: analiza las campañas del cliente y propone un plan (no gasta)."""
-    from zero.metaads import CHILE, make_metaads
+    from zero.metaads import CHILE
     cfg = _client_meta_cfg(client)
-    items = make_metaads(cfg).campaigns(client, cfg)
+    items, _src, _err = _safe_campaigns(client, cfg)
     agents, mode = _agents_best()
     zero = Zero(agents, memory=make_memory(STATE_PATH))
     res = zero.optimize_campaigns(client, items, good_cpl_clp=CHILE["good_cpl_clp"])
