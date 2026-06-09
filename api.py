@@ -21,7 +21,9 @@ from pydantic import BaseModel
 from zero._env import load_env, set_env
 from zero.agents import build_agents
 
-load_env()   # load secrets from .env (ELEVENLABS_API_KEY, ANTHROPIC_API_KEY, …)
+load_env()   # secrets locales (.env) — los de Render env ya están en os.environ
+from zero.cloud_env import load_into_environ, save_secret
+load_into_environ()   # + secretos guardados en la nube (sobreviven a redeploys)
 from zero.config import AVG_DEAL_VALUE_CLP, CRM_OPEN_STAGES, CRM_STAGES, TIERS
 from zero.channels import make_outbox
 from zero.icp import normalize_icp
@@ -582,11 +584,14 @@ def set_config(body: ConfigBody):
         "META_AD_ACCOUNT_ID": body.meta_ad_account_id,
     }
     if body.outbox_live is not None:   # explicit on/off toggle for real sending
-        set_env("OUTBOX_LIVE", "1" if body.outbox_live else "0")
+        val = "1" if body.outbox_live else "0"
+        set_env("OUTBOX_LIVE", val)
+        save_secret("OUTBOX_LIVE", val)        # persiste en la nube (sobrevive redeploys)
         saved.append("OUTBOX_LIVE")
     for env_key, value in fields.items():
         if value:
             set_env(env_key, value.strip())
+            save_secret(env_key, value.strip())
             saved.append(env_key)
     return {"ok": True, "saved": saved}
 
