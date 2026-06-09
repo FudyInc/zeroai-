@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Mail, Sparkles, Send } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
@@ -9,6 +9,8 @@ import { Glow } from '../components/Glow'
 // Pon el mail de un prospecto → genera el pitch (editable) → envíalo por tu SMTP.
 export default function Vender() {
   const { data: cfg } = useQuery({ queryKey: ['config'], queryFn: api.config })
+  const { data: emails = [] } = useQuery({ queryKey: ['usedEmails'], queryFn: api.usedEmails })
+  const qc = useQueryClient()
   const [to, setTo] = useState('')
   const [name, setName] = useState('')
   const [company, setCompany] = useState('')
@@ -35,6 +37,7 @@ export default function Vender() {
     try {
       await api.pitchSend({ to: to.trim(), subject, body })
       toast.success('Pitch enviado a ' + to.trim())
+      qc.invalidateQueries({ queryKey: ['usedEmails'] })
     } catch (e) { toast.error('No se pudo enviar: ' + e.message) }
     finally { setBusy(false) }
   }
@@ -52,7 +55,10 @@ export default function Vender() {
         <div className="grid grid-cols-2 gap-3">
           <div className="col-span-2">
             <label className="block text-xs text-zinc-500 mb-1">Correo del prospecto *</label>
-            <Input type="email" value={to} onChange={(e) => setTo(e.target.value)} placeholder="contacto@empresa.com" />
+            <Input type="email" list="used-emails" value={to} onChange={(e) => setTo(e.target.value)} placeholder="contacto@empresa.com" />
+            <datalist id="used-emails">
+              {emails.map((e) => <option key={e} value={e} />)}
+            </datalist>
           </div>
           <div>
             <label className="block text-xs text-zinc-500 mb-1">Nombre (opcional)</label>

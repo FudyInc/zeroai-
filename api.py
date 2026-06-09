@@ -452,7 +452,16 @@ def pitch_send(body: PitchSend):
         raise HTTPException(status_code=400, detail=f"SMTP falló: {e}")
     if res["status"] != "sent":
         raise HTTPException(status_code=400, detail=res.get("error") or "no se pudo enviar")
+    memory = make_memory(STATE_PATH)          # recuerda el correo para autocompletar después
+    memory.add_used_email(body.to)
+    memory.save()
     return res
+
+
+@app.get("/api/emails")
+def used_emails():
+    """Correos ya contactados — para sugerir/autocompletar al escribir."""
+    return {"emails": sorted(make_memory(STATE_PATH).used_emails)}
 
 
 class TestEmail(BaseModel):

@@ -31,8 +31,15 @@ class SessionMemory:
         self.sequences: List[Dict[str, Any]] = []         # open follow-ups
         self.contacted: Dict[str, str] = {}               # lead key -> iso timestamp
         self.actions: List[Dict[str, Any]] = []           # audit log
+        self.used_emails: List[str] = []                  # correos ya contactados (autocompletar)
         if self.path and self.path.exists():
             self._load()
+
+    def add_used_email(self, email: str) -> None:
+        """Recuerda un correo ya usado, para sugerirlo al escribir después."""
+        e = (email or "").strip().lower()
+        if e and "@" in e and e not in self.used_emails:
+            self.used_emails.append(e)
 
     # --- mutations -----------------------------------------------------------
     def register_client(self, client_id: str, tier: str) -> None:
@@ -161,6 +168,7 @@ class SessionMemory:
         self.sequences = d.get("sequences", [])
         self.contacted = d.get("contacted", {})
         self.actions = d.get("actions", [])
+        self.used_emails = d.get("used_emails", [])
 
     # --- snapshots -----------------------------------------------------------
     def snapshot(self) -> Dict[str, Any]:
@@ -170,6 +178,7 @@ class SessionMemory:
             "sequences": self.sequences,
             "contacted": self.contacted,
             "actions": self.actions,
+            "used_emails": self.used_emails,
         }
 
     def handoff(self) -> Dict[str, Any]:

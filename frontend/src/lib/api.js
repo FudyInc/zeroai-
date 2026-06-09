@@ -63,6 +63,7 @@ export const api = {
     req('/api/pitch/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   pitchSend: (body) =>
     req('/api/pitch/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  usedEmails: () => req('/api/emails').then((d) => d.emails),
   authStatus: () => req('/api/auth/status'),
   login: (password) =>
     req('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) })

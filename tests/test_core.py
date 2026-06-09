@@ -613,5 +613,19 @@ class PitchWriterTest(unittest.TestCase):
         self.assertIn("mencionar su web nueva", self._gen("mencionar su web nueva")["body"].lower())
 
 
+class UsedEmailsTest(unittest.TestCase):
+    """Recuerda correos contactados (autocompletar), sin duplicados ni basura."""
+
+    def test_dedup_and_validation(self):
+        m = SessionMemory(None)
+        m.add_used_email("Foo@Bar.com")
+        m.add_used_email("foo@bar.com")     # mismo (case-insensitive) → no duplica
+        m.add_used_email("baz@qux.cl")
+        m.add_used_email("no-es-email")     # sin @ → se ignora
+        m.add_used_email("")                # vacío → se ignora
+        self.assertEqual(sorted(m.used_emails), ["baz@qux.cl", "foo@bar.com"])
+        self.assertIn("used_emails", m.snapshot())
+
+
 if __name__ == "__main__":
     unittest.main()

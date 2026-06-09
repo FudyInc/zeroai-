@@ -57,6 +57,7 @@ class SupabaseMemory(SessionMemory):
             self.sequences = d.get("sequences", [])
             self.contacted = d.get("contacted", {})
             self.actions = d.get("actions", [])
+            self.used_emails = d.get("used_emails", [])
 
     def save(self) -> None:
         self._req("POST", f"{self.TABLE}?on_conflict=id",
