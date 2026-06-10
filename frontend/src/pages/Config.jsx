@@ -127,7 +127,14 @@ export default function Config() {
       <Card className="p-6">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <div className="font-semibold">Envío real {cfg?.outbox_live ? '· activado' : '· en mock'}</div>
+            <div className="font-semibold flex items-center gap-2">
+              Envío real
+              {cfg?.outbox_live && (
+                <span className="text-sm text-emerald-600 font-medium flex items-center gap-1">
+                  <CheckCircle2 size={16} /> Activado
+                </span>
+              )}
+            </div>
             <div className="text-xs text-zinc-400 mt-0.5">
               {cfg?.outbox_live
                 ? 'Los mensajes se ENVÍAN de verdad por los canales conectados.'

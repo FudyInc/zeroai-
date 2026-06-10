@@ -526,8 +526,8 @@ def get_config():
     return {
         "elevenlabs": bool(os.environ.get("ELEVENLABS_API_KEY")),
         "anthropic": bool(os.environ.get("ANTHROPIC_API_KEY")),
-        "vapi": all(os.environ.get(k) for k in
-                    ("VAPI_API_KEY", "VAPI_ASSISTANT_ID", "VAPI_PHONE_NUMBER_ID")),
+        # con la API key ya lista agentes y números; assistant/phone son opcionales
+        "vapi": bool(os.environ.get("VAPI_API_KEY")),
         "supabase": bool(os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_KEY")),
         "email": bool(os.environ.get("SMTP_HOST")),
         "whatsapp": bool(os.environ.get("WHATSAPP_TOKEN") and os.environ.get("WHATSAPP_PHONE_ID")),
