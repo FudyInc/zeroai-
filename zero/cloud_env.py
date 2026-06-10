@@ -43,16 +43,24 @@ def load_into_environ() -> None:
             os.environ[k] = str(v)
 
 
-def save_secret(key_name: str, value: str) -> None:
-    """Persiste un secreto en la nube para que sobreviva al próximo redeploy."""
+def save_secret(key_name: str, value: str) -> bool:
+    """Persiste un secreto en la nube para que sobreviva al próximo redeploy.
+    Devuelve True si quedó respaldado (para no fallar en silencio)."""
     url, key = _creds()
     if not url:
-        return
+        return False
     try:
         data = _read()
         data[key_name] = value
         sb_request(url, key, "POST", f"{_TABLE}?on_conflict=id",
                    body=[{"id": _ROW, "data": data}],
                    prefer="resolution=merge-duplicates,return=minimal")
+        return True
     except Exception:
-        pass
+        return False
+
+
+def backed_up_keys() -> list:
+    """Nombres de los secretos respaldados en la nube (sin valores) — para mostrar
+    al usuario qué sobrevive a un redeploy."""
+    return sorted(_read().keys())

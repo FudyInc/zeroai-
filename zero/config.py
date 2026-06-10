@@ -6,10 +6,11 @@ which model each role uses) lives here so it can change without touching logic.
 from __future__ import annotations
 
 # --- Models ------------------------------------------------------------------
-OPUS = "claude-opus-4-8"      # ZERO orchestrator — always API.
-SONNET = "claude-sonnet-4-6"  # Critical sub-agents on the API path.
+FABLE = "claude-fable-5"      # el más potente — cerebro de ZERO (orquestador).
+OPUS = "claude-opus-4-8"      # Opus 4.8 — alternativa fuerte.
+SONNET = "claude-sonnet-4-6"  # sub-agentes críticos en la ruta API.
 
-ZERO_MODEL = OPUS
+ZERO_MODEL = FABLE
 
 # --- Client tiers ------------------------------------------------------------
 # leads_per_mo = None means "custom / negotiated".

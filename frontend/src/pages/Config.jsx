@@ -13,10 +13,11 @@ export default function Config() {
 
   const save = async (payload, clearKeys) => {
     try {
-      await api.setConfig(payload)
+      const res = await api.setConfig(payload)
       setVals((s) => { const n = { ...s }; clearKeys.forEach((k) => delete n[k]); return n })
       qc.invalidateQueries({ queryKey: ['config'] })
-      toast.success('Conexión guardada')
+      if (res?.backed_up) toast.success('Guardado y respaldado en la nube ✓ — sobrevive redeploys')
+      else toast.warning('Guardado, pero SIN respaldo en la nube — conecta Supabase para que no se borre')
     } catch (e) { toast.error('No se pudo guardar: ' + e.message) }
   }
 
@@ -25,6 +26,8 @@ export default function Config() {
 
   return (
     <div className="max-w-xl space-y-4">
+      <CloudBackupBanner backedUp={cfg?.backed_up || []} supabase={cfg?.supabase} />
+
       <IntegrationCard title="Acceso (login de agencia)" ok={cfg?.auth} hint="protege el dashboard con una contraseña · vacío = abierto (solo local)">
         <div className="flex gap-2">
           <Input type="password" placeholder="Nueva contraseña" value={vals.pw || ''} onChange={(e) => set('pw', e.target.value)} />
@@ -248,6 +251,32 @@ function TestEmailRow() {
         <Input type="email" placeholder="tu-correo@gmail.com" value={to} onChange={(e) => setTo(e.target.value)} />
         <Button variant="soft" onClick={send} disabled={busy}>{busy ? 'Enviando…' : 'Probar envío'}</Button>
       </div>
+    </Card>
+  )
+}
+
+/* Aviso de blindaje: muestra qué keys están respaldadas en la nube (sobreviven
+   a redeploys) para que el usuario tenga certeza de que no se borrarán. */
+const _NAMES = {
+  VAPI: 'Vapi', SMTP: 'Email', ELEVENLABS: 'ElevenLabs', META: 'Meta Ads',
+  WHATSAPP: 'WhatsApp', ANTHROPIC: 'Anthropic', AUTH: 'Login', OUTBOX: 'Envío real', SUPABASE: 'Supabase',
+}
+function CloudBackupBanner({ backedUp, supabase }) {
+  const names = [...new Set(backedUp.map((k) => _NAMES[k.split('_')[0]] || k))]
+  if (!supabase) return (
+    <Card className="p-4 border-amber-200 bg-amber-50/70 text-sm text-amber-800">
+      ⚠️ <b>Sin Supabase conectado, las keys no se respaldan</b> y se borran en cada redeploy. Conéctalo abajo (tarjeta Supabase) para protegerlas.
+    </Card>
+  )
+  if (names.length === 0) return (
+    <Card className="p-4 border-zinc-200 bg-zinc-50 text-sm text-zinc-600">
+      🔒 Las keys que guardes aquí quedan <b>respaldadas en la nube</b> y sobreviven a los redeploys. Aún no hay ninguna guardada.
+    </Card>
+  )
+  return (
+    <Card className="p-4 border-emerald-200 bg-emerald-50/70 text-sm text-emerald-800">
+      🔒 <b>Respaldado en la nube — sobrevive a cualquier redeploy.</b>
+      <div className="text-xs text-emerald-700/80 mt-1">Protegido: {names.join(' · ')}</div>
     </Card>
   )
 }

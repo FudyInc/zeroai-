@@ -22,7 +22,7 @@ from zero._env import load_env, set_env
 from zero.agents import build_agents
 
 load_env()   # secrets locales (.env) — los de Render env ya están en os.environ
-from zero.cloud_env import load_into_environ, save_secret
+from zero.cloud_env import backed_up_keys, load_into_environ, save_secret
 load_into_environ()   # + secretos guardados en la nube (sobreviven a redeploys)
 from zero.config import AVG_DEAL_VALUE_CLP, CRM_OPEN_STAGES, CRM_STAGES, TIERS
 from zero.channels import make_outbox
@@ -535,6 +535,8 @@ def get_config():
         "outbox_live": os.environ.get("OUTBOX_LIVE") == "1",
         "auth": bool(os.environ.get("AUTH_PASSWORD")),
         "metaads": bool(os.environ.get("META_ADS_TOKEN") and os.environ.get("META_AD_ACCOUNT_ID")),
+        # nombres de los secretos respaldados en la nube (sobreviven a redeploys)
+        "backed_up": backed_up_keys(),
     }
 
 
@@ -583,17 +585,19 @@ def set_config(body: ConfigBody):
         "META_ADS_TOKEN": body.meta_ads_token,
         "META_AD_ACCOUNT_ID": body.meta_ad_account_id,
     }
+    cloud_ok = True   # ¿quedó todo respaldado en la nube? (para avisar si no)
     if body.outbox_live is not None:   # explicit on/off toggle for real sending
         val = "1" if body.outbox_live else "0"
         set_env("OUTBOX_LIVE", val)
-        save_secret("OUTBOX_LIVE", val)        # persiste en la nube (sobrevive redeploys)
+        cloud_ok &= save_secret("OUTBOX_LIVE", val)   # persiste en la nube (sobrevive redeploys)
         saved.append("OUTBOX_LIVE")
     for env_key, value in fields.items():
         if value:
             set_env(env_key, value.strip())
-            save_secret(env_key, value.strip())
+            cloud_ok &= save_secret(env_key, value.strip())
             saved.append(env_key)
-    return {"ok": True, "saved": saved}
+    # backed_up=True → sobrevive redeploys; si Supabase no está, queda solo en este server
+    return {"ok": True, "saved": saved, "backed_up": bool(cloud_ok and saved)}
 
 
 @app.get("/api/assistants")
