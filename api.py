@@ -259,9 +259,7 @@ def optimize_campaigns(client: str):
     from zero.metaads import CHILE
     cfg = _client_meta_cfg(client)
     items, _src, _err = _safe_campaigns(client, cfg)
-    agents, mode = _agents_best()
-    zero = Zero(agents, memory=make_memory(STATE_PATH))
-    res = zero.optimize_campaigns(client, items, good_cpl_clp=CHILE["good_cpl_clp"])
+    res, mode = _agent_op(lambda z: z.optimize_campaigns(client, items, good_cpl_clp=CHILE["good_cpl_clp"]))
     return {"recommendations": res.get("recommendations", []), "plan": res.get("plan", ""), "mode": mode}
 
 
@@ -333,15 +331,16 @@ def register_reply(key: str, client: str, body: Reply):
 # --- WhatsApp conversational agent (CONCIERGE) -------------------------------
 def _agents_best():
     """El mejor cerebro disponible: Anthropic (pago) → modelo local (gratis, Ollama) →
-    mock. El local se activa con LOCAL_MODEL en el entorno (sin costo por token)."""
-    key = os.environ.get("ANTHROPIC_API_KEY")
+    mock. El local se activa con LOCAL_MODEL en el entorno (sin costo por token).
+    Ignora valores vacíos/espacios (un env declarado pero sin valor NO activa 'live')."""
+    key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
     if key:
         try:
             from zero.backends import AnthropicBackend
             return build_agents(backend=AnthropicBackend(api_key=key), mock=False), "live"
         except Exception:
             pass
-    local = os.environ.get("LOCAL_MODEL")
+    local = (os.environ.get("LOCAL_MODEL") or "").strip()
     if local:
         try:
             from zero.backends import LocalBackend
@@ -350,6 +349,33 @@ def _agents_best():
         except Exception:
             pass
     return build_agents(mock=True), "mock"
+
+
+def _nonempty(r) -> bool:
+    """¿El agente devolvió algo útil? (string con texto, o dict con algún valor)."""
+    if isinstance(r, str):
+        return bool(r.strip())
+    if isinstance(r, dict):
+        return any(bool(v) for v in r.values())
+    return r is not None
+
+
+def _agent_op(fn, memory=None):
+    """Corre una operación de agente con el mejor cerebro; si el modelo 'live' falla
+    en runtime (key inválida, modelo no disponible, Ollama inalcanzable) O devuelve
+    vacío, reintenta en mock para que el agente SIEMPRE responda.
+    fn(zero) -> result. Devuelve (result, mode)."""
+    mem = memory if memory is not None else make_memory(STATE_PATH)
+    agents, mode = _agents_best()
+    try:
+        res = fn(Zero(agents, memory=mem))
+        if mode != "mock" and not _nonempty(res):
+            raise RuntimeError("el modelo live devolvió vacío")
+        return res, mode
+    except Exception:
+        if mode == "mock":
+            raise   # ya era mock: el fallo es real, que lo vea quien llama
+        return fn(Zero(build_agents(mock=True), memory=mem)), "mock"
 
 
 @app.get("/api/webhooks/whatsapp")
@@ -387,10 +413,11 @@ def whatsapp_simulate(body: Simulate):
     """Try the agent without WhatsApp: draft (don't send) a reply to a message, to
     evaluate how it answers business questions. Uses the client's saved ICP."""
     memory = make_memory(STATE_PATH)
-    agents, mode = _agents_best()
-    zero = Zero(agents, memory=memory)
     try:
-        reply = zero.converse(body.client or "", body.message, lead=body.lead or {})
+        reply, mode = _agent_op(
+            lambda z: z.converse(body.client or "", body.message, lead=body.lead or {}),
+            memory=memory,
+        )
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"el agente falló: {e}")
     return {"reply": reply, "mode": mode}
@@ -439,9 +466,7 @@ class PitchGen(BaseModel):
 def pitch_generate(body: PitchGen):
     """Genera un pitch con IA (creativo, distinto cada vez). Mock varía; con modelo
     (Anthropic o local) es de verdad creativo."""
-    agents, mode = _agents_best()
-    zero = Zero(agents)
-    res = zero.write_pitch({"name": body.name, "company": body.company}, body.notes or "")
+    res, mode = _agent_op(lambda z: z.write_pitch({"name": body.name, "company": body.company}, body.notes or ""))
     return {"subject": res.get("subject", ""), "body": res.get("body", ""), "mode": mode}
 
 
