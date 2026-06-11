@@ -6,6 +6,7 @@ state change, and assembles the client deliverable.
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -24,6 +25,80 @@ from .contracts import AgentResponse, Constraints, Lead, TaskPayload
 from .icp import describe_icp, is_empty, normalize_icp
 from .inbox import Inbox, MockInbox
 from .memory import SessionMemory
+
+# --- pending offers (the CONCIERGE promises, ZERO fulfills) -------------------
+# When the agent replies "te mando un resumen" / "¿te dejo 3 ejemplos?", that's a
+# promise. ZERO remembers it (memory.pending_offers) and, when the lead's next
+# message accepts, sends the actual summary. The helpers live here — not in the
+# agent — because keeping promises is orchestration, not drafting.
+
+_EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+
+
+def _has(text: str, *words: str) -> bool:
+    return any(w in text for w in words)
+
+
+def _word(text: str, *words: str) -> bool:
+    return any(re.search(rf"\b{re.escape(w)}\b", text) for w in words)
+
+
+def accepts_offer(text: str) -> bool:
+    """¿El lead aceptó lo ofrecido (resumen / 3 ejemplos)? Afirmación ("sí",
+    "dale", "ok"), elección de canal ("por acá", "al correo") o un correo donde
+    mandarlo. Un rechazo explícito nunca acepta, aunque mencione un canal."""
+    t = (text or "").lower().strip()
+    if _has(t, "no me interesa", "no gracias", "no, gracias", "no quiero",
+            "dejen de", "deja de", "stop",
+            # objeción, no aceptación — que el "ya" de "ya tenemos proveedor"
+            # no cuente como un "ya" afirmativo
+            "ya tenemos", "ya trabajamos", "ya contamos", "proveedor"):
+        return False
+    if _EMAIL_RE.search(t):
+        return True
+    if _has(t, "por acá", "por aca", "por aquí", "por aqui", "al correo",
+            "por correo", "por email", "por mail", "de acuerdo", "me sirve"):
+        return True
+    return (_word(t, "sí", "si", "dale", "ok", "okey", "okay", "ya", "bueno",
+                  "claro", "perfecto", "listo", "obvio", "correo", "email", "mail")
+            and not _word(t, "no"))
+
+
+def pick_channel(text: str, lead: Dict[str, Any],
+                 default_channel: str = "whatsapp") -> Tuple[str, Optional[str]]:
+    """(canal, destinatario) para cumplir la oferta: si el lead dio un correo o
+    pidió email, va por email; si no, por el canal en que escribió."""
+    m = _EMAIL_RE.search(text or "")
+    if m:
+        return "email", m.group(0)
+    if _word((text or "").lower(), "correo", "email", "mail") and lead.get("email"):
+        return "email", lead["email"]
+    return default_channel, lead.get("phone") or lead.get("email")
+
+
+def build_info_summary(icp: Dict[str, Any], lead: Optional[Dict[str, Any]] = None) -> str:
+    """El resumen corto prometido ("cómo funciona y 3 ejemplos"). Determinista y
+    fiel al ICP: solo afirma lo que está en el contexto del cliente; los ejemplos
+    salen de icp["examples"] si existen."""
+    sells = (icp or {}).get("sells")
+    que = (f"ayudamos a empresas como la tuya con {sells}" if sells
+           else "te entregamos leads B2B ya calificados, listos para contactar")
+    name = (lead or {}).get("name")
+    hi = f"Hola {name}" if name else "Hola"
+    examples = list((icp or {}).get("examples") or (
+        "Gerente de operaciones, empresa industrial mediana — pidió cotización esta semana",
+        "Jefe de adquisiciones, retail regional — está comparando proveedores",
+        "Dueño de pyme en crecimiento — busca volumen mensual estable",
+    ))[:3]
+    lines = [f"{hi}, aquí va el resumen prometido 👇",
+             f"• Qué hacemos: {que}.",
+             "• Cómo funciona: definimos tu cliente ideal, descubrimos y calificamos "
+             "leads contra ese perfil, y te llegan listos para contactar.",
+             "• 3 ejemplos del tipo de lead que entregamos:"]
+    lines += [f"   {i}. {e}" for i, e in enumerate(examples, 1)]
+    lines.append("Si te hace sentido, lo vemos en una llamada corta de 10 min. "
+                 "¿Te acomoda esta semana?")
+    return "\n".join(lines)
 
 
 class Zero:
@@ -365,12 +440,12 @@ class Zero:
             "open_remaining": open_remaining,
         }
 
-    def converse(self, client_id: str, message: str,
-                 lead: Optional[Dict[str, Any]] = None,
-                 channel: str = "whatsapp") -> str:
+    def converse_result(self, client_id: str, message: str,
+                        lead: Optional[Dict[str, Any]] = None,
+                        channel: str = "whatsapp") -> Dict[str, Any]:
         """Draft a reply to an inbound message using the client's business context
-        (ICP). Pure drafting — doesn't send. Used both by `handle_inbound` and the
-        'try the agent' tester so its answers can be evaluated on real questions."""
+        (ICP). Pure drafting — doesn't send. Returns the full CONCIERGE result
+        ({reply, intent}) so callers can act on the intent (e.g. pending offers)."""
         icp = self.memory.get_client_icp(client_id) if client_id else {}
         resp = self.dispatch("CONCIERGE", TaskPayload(
             agent="CONCIERGE", client_id=client_id or "", client_tier="",
@@ -378,7 +453,14 @@ class Zero:
             data={"message": message, "lead": lead or {}, "icp": icp},
             constraints=Constraints(channels=[channel]),
         ))
-        return resp.result.get("reply") or ""
+        return resp.result or {}
+
+    def converse(self, client_id: str, message: str,
+                 lead: Optional[Dict[str, Any]] = None,
+                 channel: str = "whatsapp") -> str:
+        """Reply text only — the seam `handle_inbound` and the 'try the agent'
+        tester share so its answers can be evaluated on real questions."""
+        return self.converse_result(client_id, message, lead=lead, channel=channel).get("reply") or ""
 
     def optimize_campaigns(self, client_id: str, campaigns: List[Dict[str, Any]],
                            good_cpl_clp: int = 6000) -> Dict[str, Any]:
@@ -434,14 +516,45 @@ class Zero:
         client_id, key = rec["client_id"], rec["key"]
         out = self.register_reply(client_id, key, text=text, channel=channel)
 
-        reply = self.converse(client_id, text, lead=rec, channel=channel)
+        # An offer was pending (summary / 3 examples) and the lead accepted:
+        # fulfill it instead of drafting — a promise kept beats a fresh pitch.
+        pending = self.memory.get_pending_offer(client_id, key)
+        if pending and accepts_offer(text):
+            body = build_info_summary(self.memory.get_client_icp(client_id), rec)
+            out_channel, to = pick_channel(text, rec, default_channel=channel)
+            self._deliver(client_id, key, to, {
+                "channel": out_channel,
+                "subject": "ZeroAI — resumen y 3 ejemplos" if out_channel == "email" else None,
+                "body": body,
+            })
+            self.memory.clear_pending_offer(client_id, key)
+            self.memory.log("offer_fulfilled", client=client_id, lead=key,
+                            kind=pending.get("kind"), channel=out_channel)
+            self.memory.save()
+            if self.crm:
+                self.crm.log(client_id, key, "info_sent",
+                             f"resumen + ejemplos ({pending.get('kind')}, {out_channel})")
+                self.crm.save()
+            return {"matched": True, "company": rec.get("company"), "reply": body,
+                    "intent": "fulfill", **out}
+
+        res = self.converse_result(client_id, text, lead=rec, channel=channel)
+        reply, intent = res.get("reply") or "", res.get("intent") or "general"
         if reply:
             self._deliver(client_id, key, rec.get("phone") or rec.get("email"),
                           {"channel": channel, "subject": None, "body": reply})
             if self.crm:
                 self.crm.log(client_id, key, "auto_reply", reply[:140])
                 self.crm.save()
-        return {"matched": True, "company": rec.get("company"), "reply": reply, **out}
+        # The reply itself made an offer → remember it; an opt-out voids any open one.
+        if intent in ("info", "objection"):
+            self.memory.set_pending_offer(client_id, key, intent)
+            self.memory.save()
+        elif intent == "optout" and pending:
+            self.memory.clear_pending_offer(client_id, key)
+            self.memory.save()
+        return {"matched": True, "company": rec.get("company"), "reply": reply,
+                "intent": intent, **out}
 
     # --- forecasting (ANALYST proposes rates; ZERO does the math) ------------
     def forecast(self, client_id: str) -> Dict[str, Any]:

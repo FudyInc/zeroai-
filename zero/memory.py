@@ -32,6 +32,7 @@ class SessionMemory:
         self.contacted: Dict[str, str] = {}               # lead key -> iso timestamp
         self.actions: List[Dict[str, Any]] = []           # audit log
         self.used_emails: List[str] = []                  # correos ya contactados (autocompletar)
+        self.pending_offers: Dict[str, Dict[str, Any]] = {}  # "client|lead" -> oferta hecha y aún no cumplida
         if self.path and self.path.exists():
             self._load()
 
@@ -137,6 +138,21 @@ class SessionMemory:
                 return s
         return None
 
+    # --- pending offers (CONCIERGE promises, ZERO fulfills) -------------------
+    @staticmethod
+    def _offer_key(client_id: str, lead_key: str) -> str:
+        return f"{client_id}|{str(lead_key).lower()}"
+
+    def set_pending_offer(self, client_id: str, lead_key: str, kind: str) -> None:
+        """El CONCIERGE ofreció algo (resumen/ejemplos); queda pendiente de cumplir."""
+        self.pending_offers[self._offer_key(client_id, lead_key)] = {"kind": kind, "ts": _now()}
+
+    def get_pending_offer(self, client_id: str, lead_key: str) -> Optional[Dict[str, Any]]:
+        return self.pending_offers.get(self._offer_key(client_id, lead_key))
+
+    def clear_pending_offer(self, client_id: str, lead_key: str) -> None:
+        self.pending_offers.pop(self._offer_key(client_id, lead_key), None)
+
     @staticmethod
     def _due_at(started: str, step: int) -> Optional[str]:
         cadence = followup_step(step)
@@ -169,6 +185,7 @@ class SessionMemory:
         self.contacted = d.get("contacted", {})
         self.actions = d.get("actions", [])
         self.used_emails = d.get("used_emails", [])
+        self.pending_offers = d.get("pending_offers", {})
 
     # --- snapshots -----------------------------------------------------------
     def snapshot(self) -> Dict[str, Any]:
@@ -179,6 +196,7 @@ class SessionMemory:
             "contacted": self.contacted,
             "actions": self.actions,
             "used_emails": self.used_emails,
+            "pending_offers": self.pending_offers,
         }
 
     def handoff(self) -> Dict[str, Any]:

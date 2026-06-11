@@ -510,6 +510,16 @@ class ConciergeTest(unittest.TestCase):
         self.assertNotEqual(self._intent(z, "tenemos mucha demanda, cuéntame más")["intent"],
                             "info")
 
+    def test_accepts_offer_rejections_and_acceptances(self):
+        from zero.orchestrator import accepts_offer
+        # una objeción no es aceptar la oferta — el "ya" de "ya tenemos" no es afirmativo
+        for msg in ("ya tenemos proveedor, gracias", "no, gracias", "no me interesa",
+                    "stop", "ya trabajamos con alguien"):
+            self.assertFalse(accepts_offer(msg), msg)
+        for msg in ("sí, dale", "ok perfecto", "al correo porfa", "carla@acme.cl",
+                    "ya, mándalo"):
+            self.assertTrue(accepts_offer(msg), msg)
+
     def test_parse_inbound(self):
         from zero.whatsapp_inbound import parse_inbound
         payload = {"entry": [{"changes": [{"value": {"messages": [
@@ -540,6 +550,67 @@ class ConciergeTest(unittest.TestCase):
         z, _ = self._zero()
         res = z.handle_inbound("000000000", "hola?")
         self.assertFalse(res["matched"])
+
+
+class PendingOfferTest(unittest.TestCase):
+    """Las promesas del CONCIERGE se cumplen: 'te mando un resumen' / '¿te dejo
+    3 ejemplos?' quedan pendientes y la aceptación del lead dispara el envío."""
+
+    def _zero(self):
+        crm = CRM(None)
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=crm)
+        z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8)
+        lead = crm.list("acme", "nurturing")[0]
+        sender = lead.get("email") or "".join(c for c in lead["phone"] if c.isdigit())
+        return z, crm, lead, sender
+
+    def test_info_offer_fulfilled_on_acceptance(self):
+        z, crm, lead, sender = self._zero()
+        r1 = z.handle_inbound(sender, "mándame más información")
+        self.assertEqual(r1["intent"], "info")           # promesa hecha…
+        r2 = z.handle_inbound(sender, "sí, por acá")
+        self.assertEqual(r2["intent"], "fulfill")        # …y cumplida
+        self.assertIn("ejemplos", r2["reply"].lower())
+        self.assertTrue(any(h["event"] == "info_sent"
+                            for h in crm.get("acme", lead["key"])["history"]))
+
+    def test_offer_is_consumed_once(self):
+        z, _, _, sender = self._zero()
+        z.handle_inbound(sender, "mándame más información")
+        z.handle_inbound(sender, "dale")
+        r3 = z.handle_inbound(sender, "ok")              # ya no hay nada pendiente
+        self.assertNotEqual(r3["intent"], "fulfill")
+
+    def test_objection_yes_gets_examples(self):
+        z, _, _, sender = self._zero()
+        r1 = z.handle_inbound(sender, "ya trabajamos con alguien que nos hace esto")
+        self.assertEqual(r1["intent"], "objection")
+        r2 = z.handle_inbound(sender, "bueno, déjalos")
+        self.assertEqual(r2["intent"], "fulfill")
+        self.assertIn("3 ejemplos", r2["reply"])
+
+    def test_acceptance_with_email_goes_to_email(self):
+        z, _, _, sender = self._zero()
+        z.handle_inbound(sender, "mándame más información")
+        z.handle_inbound(sender, "mándalo a carla@acme.cl")
+        sent = z.outbox.log[-1]
+        self.assertEqual(sent["channel"], "email")
+        self.assertEqual(sent["to"], "carla@acme.cl")
+
+    def test_objection_after_offer_is_not_acceptance(self):
+        # "ya tenemos proveedor" trae un "ya" — es objeción, no un sí
+        z, _, _, sender = self._zero()
+        z.handle_inbound(sender, "mándame más información")
+        r2 = z.handle_inbound(sender, "mmm la verdad ya tenemos proveedor")
+        self.assertEqual(r2["intent"], "objection")
+
+    def test_rejection_voids_the_offer(self):
+        z, _, _, sender = self._zero()
+        z.handle_inbound(sender, "mándame más información")
+        r2 = z.handle_inbound(sender, "no gracias, no me interesa")
+        self.assertEqual(r2["intent"], "optout")         # rechazo ≠ aceptación
+        r3 = z.handle_inbound(sender, "ok")
+        self.assertNotEqual(r3["intent"], "fulfill")     # y la oferta quedó anulada
 
 
 class ScalabilityTest(unittest.TestCase):
