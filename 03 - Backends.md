@@ -10,7 +10,7 @@ El mismo prompt y el mismo [[02 - Arquitectura|contrato JSON]] corren sobre tres
 
 ## mock (por defecto)
 
-Sintetiza leads, scores y mensajes **deterministas** a partir de fixtures. Permite ver el pipeline, el gate de lead calificado y los borradores de outreach sin tokens ni red. Es la base del enfoque **mock-first**: cada frontera con el mundo exterior tiene un mock **fiel al contrato** (misma forma de datos).
+Sintetiza leads, scores y mensajes **deterministas** a partir de fixtures. Permite ver el pipeline, el gate de lead calificado y los borradores de outreach sin tokens ni red. Es la base del enfoque **mock-first**: cada frontera con el mundo exterior tiene un mock **fiel al contrato** (misma forma de datos). La **discovery web gratis** (DuckDuckGo, sin key) corre también en mock con HTML enlatado en tests (`tests/test_discovery.py`).
 
 ## local (`--local`) — el destino de producción
 

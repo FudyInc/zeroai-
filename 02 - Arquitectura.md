@@ -67,7 +67,7 @@ Cada uno es una clase en `zero/agents/` con su `_mock_result` (offline, determin
 ZERO se construye sobre **abstracciones swap-in**. Cada una tiene su versión mock (para tests/desarrollo) y su versión real; puedes enchufar la que necesites sin tocar la lógica:
 
 - **`zero/backends.py`** — cerebro LLM (mock · local OpenAI-compatible · Anthropic).
-- **`zero/discovery.py`** — fuente de leads (mock · LLM · web real DuckDuckGo).
+- **`zero/discovery.py`** — fuente de leads (mock · LLM · web real DuckDuckGo); minería de directorios (hasta 3 por búsqueda, 10 links c/u), fallback a `/contacto` si no hay email/teléfono en portada, filtrado robusto de señales de email (`mailto:` primero, des-ofuscación) y teléfono (rechaza placeholders).
 - **`zero/channels.py`** — capa de envío outbound (mock · email SMTP · WhatsApp Cloud API).
 - **`zero/inbox.py`** — capa de recepción inbound; itera sobre respuestas en bandeja (mock en memoria · archivo local JSON · IMAP real). El orquestador llama a `check_replies()` antes de los follow-ups: quien ya respondió no recibe más toques.
 

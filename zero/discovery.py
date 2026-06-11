@@ -8,7 +8,10 @@ PROSPECTOR doesn't change.
 
 Web extraction is best-effort: many sites expose no email, so candidates often
 arrive without a verified contact — exactly the kind of lead ZERO's qualified
-gate is meant to filter.
+gate is meant to filter. Coverage tricks for heterogeneous SME sites: listicle/
+directory results ("Las 10 mejores agencias…") are mined for the real company
+links they contain instead of delivered as leads, and when a homepage exposes
+no contact at all the /contacto page is tried before giving up.
 """
 from __future__ import annotations
 
@@ -21,6 +24,8 @@ from typing import Any, Dict, List, Optional, Tuple
 _UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+# mailto: is to email what tel: is to phone — the strongest signal on a page.
+_MAILTO_RE = re.compile(r'mailto:([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})', re.I)
 # `tel:` links are the most reliable phone signal; the text patterns are strict
 # on purpose (a bare "1.42857143" from JS must not look like a phone).
 _TEL_HREF_RE = re.compile(r'tel:\s*([+()\d][\d\s().\-]{6,}\d)', re.I)
@@ -30,7 +35,10 @@ _RESULT_RE = re.compile(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)
 _SITE_NAME_RE = re.compile(r'<meta[^>]+property=["\']og:site_name["\'][^>]+content=["\']([^"\']+)["\']', re.I)
 _TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.S | re.I)
 
-_BAD_EMAIL_HINTS = ("example.", "sentry", "wixpress", "@2x", "@3x", ".png", ".jpg", ".gif", ".webp")
+_BAD_EMAIL_HINTS = ("example.", "sentry", "wixpress", "@2x", "@3x", ".png", ".jpg", ".gif", ".webp",
+                    # placeholders de formularios ("usuario@dominio.com"), no contactos
+                    "usuario@", "nombre@", "ejemplo", "tucorreo", "tudominio",
+                    "youremail", "yourdomain")
 
 # Decision-maker enrichment: a role keyword near a person name on an about/team
 # page. Order matters — list specific titles before generic ones so the longer
@@ -66,6 +74,8 @@ _NOT_NAME = {
     "ingeniero", "ingeniera", "consultor", "asesor", "asesora", "profesional", "profesionales",
 }
 _ENRICH_PATHS = ("nosotros", "equipo", "quienes-somos", "sobre-nosotros", "about", "team")
+# SME sites often expose contact info only on the contact page, not the homepage.
+_CONTACT_PATHS = ("contacto", "contact", "contactenos", "contactanos")
 
 # Search engines, social, and aggregators aren't the company sites we want as leads.
 _SKIP_DOMAINS = (
@@ -73,7 +83,20 @@ _SKIP_DOMAINS = (
     "facebook.com", "instagram.com", "linkedin.com", "twitter.com", "x.com",
     "youtube.com", "tiktok.com", "wikipedia.org", "yelp.com", "pinterest.com",
     "amazon.", "mercadolibre.", "wordpress.com", "blogspot.com",
+    "wa.me", "api.whatsapp.com", "goo.gl", "bit.ly", "t.me", "maps.google",
 )
+
+# Directory/listicle pages ("Las 10 mejores agencias…") are not leads themselves,
+# but they LINK to dozens of real SME sites — so we mine them instead of skipping
+# (or worse, delivering the directory as a "lead").
+_DIRECTORY_DOMAINS = (
+    "sortlist.com", "clutch.co", "linkatomic.com", "goodfirms.co", "designrush.com",
+    "semrush.com", "trustpilot.com", "paginasamarillas.", "amarillas.", "cylex",
+)
+_LISTICLE_RE = re.compile(
+    r"(?:\b|[-/_])(las?[-\s]?\d+|los[-\s]?\d+|top[-\s]?\d+|\d+[-\s]mejores|mejores"
+    r"|ranking|directorio|listado)(?:\b|[-/_])", re.I)
+_HREF_RE = re.compile(r'<a[^>]+href=["\'](https?://[^"\'#?]+)', re.I)
 
 
 class DiscoverySource:
@@ -89,22 +112,27 @@ class DuckDuckGoSource(DiscoverySource):
     SEARCH_URL = "https://html.duckduckgo.com/html/"
 
     def __init__(self, timeout: float = 8.0, max_fetch: Optional[int] = None,
-                 enrich: bool = True, enrich_fetches: int = 3):
+                 enrich: bool = True, enrich_fetches: int = 3,
+                 contact_fetches: int = 2, mine_directories: int = 3, mine_links: int = 10):
         self.timeout = timeout
         self.max_fetch = max_fetch
         self.enrich = enrich              # look up the decision-maker (name + role)
         self.enrich_fetches = enrich_fetches  # max extra about/team page fetches per company
+        self.contact_fetches = contact_fetches    # max contact-page fetches per company
+        self.mine_directories = mine_directories  # max listicle pages mined per search
+        self.mine_links = mine_links              # max SME links taken from each one
 
     def search_leads(self, query: str, max_items: int, channels: List[str]) -> List[Dict[str, Any]]:
-        budget = self.max_fetch or max_items
-        results = self._search(query, n=max_items * 3)
+        # Directories cost fetches but yield no lead directly, so the default
+        # budget leaves headroom beyond one fetch per lead.
+        budget = self.max_fetch or max_items * 2
+        queue = list(self._search(query, n=max_items * 3))
 
         leads: List[Dict[str, Any]] = []
         seen: set = set()
-        fetched = 0
-        for title, url in results:
-            if len(leads) >= max_items or fetched >= max(budget, max_items):
-                break
+        fetched = mined = 0
+        while queue and len(leads) < max_items and fetched < max(budget, max_items):
+            title, url = queue.pop(0)
             domain = self._domain(url)
             if not domain or domain in seen or any(b in domain for b in _SKIP_DOMAINS):
                 continue
@@ -112,8 +140,16 @@ class DuckDuckGoSource(DiscoverySource):
             fetched += 1
 
             page = self._get(url) or ""
+            if self._looks_directory(title, url, domain):
+                if mined < self.mine_directories:
+                    mined += 1
+                    for u in self._mine_directory(page, domain)[:self.mine_links]:
+                        queue.append((self._domain(u), u))
+                continue
             email = self._best_email(page, domain)
             phone = self._first_phone(page)
+            if not email and not phone:
+                email, phone = self._contact_lookup(domain)
             company = self._company_name(page, title, domain)
             name, role = (None, None)
             if self.enrich:
@@ -133,6 +169,42 @@ class DuckDuckGoSource(DiscoverySource):
                 "url": url,
             })
         return leads
+
+    # --- directory mining ------------------------------------------------------
+    @staticmethod
+    def _looks_directory(title: str, url: str, domain: str) -> bool:
+        if any(d in domain for d in _DIRECTORY_DOMAINS):
+            return True
+        return bool(_LISTICLE_RE.search(f"{title} {url}"))
+
+    def _mine_directory(self, page: str, own_domain: str) -> List[str]:
+        """Pull the external company links out of a listicle/directory page —
+        each one is an SME candidate worth visiting as if it were a result."""
+        out: List[str] = []
+        seen: set = set()
+        for u in _HREF_RE.findall(page or ""):
+            d = self._domain(u)
+            if (not d or d == own_domain or d in seen
+                    or any(b in d for b in _SKIP_DOMAINS)
+                    or any(b in d for b in _DIRECTORY_DOMAINS)):
+                continue
+            seen.add(d)
+            out.append(f"https://{d}")   # the homepage, not whatever deep link they used
+        return out
+
+    def _contact_lookup(self, domain: str) -> Tuple[Optional[str], Optional[str]]:
+        """Homepage had no contact at all — try the contact page before giving up."""
+        for i, path in enumerate(_CONTACT_PATHS):
+            if i >= self.contact_fetches:
+                break
+            page = self._get(f"https://{domain}/{path}")
+            if not page:
+                continue
+            email = self._best_email(page, domain)
+            phone = self._first_phone(page)
+            if email or phone:
+                return email, phone
+        return None, None
 
     # --- decision-maker enrichment -------------------------------------------
     def _enrich(self, domain: str, homepage: str, company: str) -> Tuple[Optional[str], Optional[str]]:
@@ -200,6 +272,8 @@ class DuckDuckGoSource(DiscoverySource):
         qs = urllib.parse.parse_qs(parsed.query)
         if "uddg" in qs:                       # DDG redirect wrapper
             return qs["uddg"][0]
+        if "duckduckgo.com" in parsed.netloc:  # an ad (y.js) — not a result
+            return None
         return href if parsed.scheme.startswith("http") else None
 
     # --- fetch + extract -----------------------------------------------------
@@ -213,13 +287,31 @@ class DuckDuckGoSource(DiscoverySource):
             return None
 
     def _best_email(self, page: str, domain: str) -> Optional[str]:
-        found = [e for e in _EMAIL_RE.findall(page)
-                 if not any(h in e.lower() for h in _BAD_EMAIL_HINTS)]
+        # Strongest first: explicit mailto links, then plain text, then text with
+        # common obfuscations undone ("ventas (arroba) pyme (punto) cl").
+        found = self._clean_emails(_MAILTO_RE.findall(page))
+        if not found:
+            found = self._clean_emails(_EMAIL_RE.findall(page))
+        if not found:
+            text = re.sub(r"<[^>]+>", " ", page)
+            found = self._clean_emails(_EMAIL_RE.findall(self._deobfuscate(text)))
         if not found:
             return None
         # Prefer an address on the site's own domain.
         on_domain = [e for e in found if e.lower().endswith("@" + domain) or domain in e.lower()]
         return (on_domain or found)[0]
+
+    @staticmethod
+    def _clean_emails(found: List[str]) -> List[str]:
+        return [e for e in found if not any(h in e.lower() for h in _BAD_EMAIL_HINTS)]
+
+    @staticmethod
+    def _deobfuscate(text: str) -> str:
+        """Rewrite common email obfuscations into plain form. The bracketed `at`
+        form is required (a bare English "at" would invent addresses); the
+        Spanish words are unambiguous enough on their own."""
+        t = re.sub(r"\s*[\[\(\{]\s*(?:at|arroba)\s*[\]\)\}]\s*|\s+arroba\s+", "@", text, flags=re.I)
+        return re.sub(r"\s*[\[\(\{]\s*(?:dot|punto)\s*[\]\)\}]\s*|\s+punto\s+", ".", t, flags=re.I)
 
     def _first_phone(self, page: str) -> Optional[str]:
         # 1) Most reliable: an explicit tel: link.
@@ -238,7 +330,10 @@ class DuckDuckGoSource(DiscoverySource):
     def _valid_phone(raw: str, min_digits: int) -> bool:
         if raw.strip().startswith("+0"):     # no country code starts with 0 → placeholder/garbage
             return False
-        return min_digits <= len(re.sub(r"\D", "", raw)) <= 12
+        digits = re.sub(r"\D", "", raw)
+        if len(set(digits)) <= 1:            # 999999999 → placeholder, not a phone
+            return False
+        return min_digits <= len(digits) <= 12
 
     def _company_name(self, page: str, title: str, domain: str) -> str:
         m = _SITE_NAME_RE.search(page)
@@ -251,6 +346,8 @@ class DuckDuckGoSource(DiscoverySource):
             return domain
         # Names/titles are often "Company — tagline | Section"; keep the first chunk.
         first = re.split(r"\s*[\|\-–—:·]\s*", html.unescape(raw).strip())[0].strip()
+        if len(first) < 3:   # "D - Marketing Chile" → the dash was part of the name
+            first = html.unescape(raw).strip()
         return (first[:60] or domain)
 
     # --- helpers -------------------------------------------------------------

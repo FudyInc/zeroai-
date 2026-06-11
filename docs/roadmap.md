@@ -24,8 +24,8 @@ Panel `IntegrationCard` en `frontend/src/pages/Config.jsx` + endpoint `/api/conf
 Motor real (que de verdad SOLUCIONE):
 1. **Calificación/score REAL** contra el ICP del cliente — ✅ commit `motor-real`
    (prompts reales + `zero/icp.py` + camino real con parseo a prueba de balas).
-2. **Discovery real y confiable** — 🟡 parcial: `DuckDuckGoSource` sin key; falta
-   proveedor con key para cobertura.
+2. **Discovery real y confiable** — 🟡 parcial: `DuckDuckGoSource` sin key mejorada (✅ 2026-06-11: minería de directorios, fallback a /contacto, filtrado de señales de email/teléfono); falta
+   proveedor con key para cobertura mayor. Tests nuevos en `tests/test_discovery.py`; 6/6 PyMEs reales en vivo.
 3. **Outreach de calidad real** — ✅ redacta por canal; ⚠️ calidad sin evaluar en vivo
    (requiere correr con key/modelo y juzgar a ojo crítico).
 
