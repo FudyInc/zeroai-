@@ -465,6 +465,37 @@ class ConciergeTest(unittest.TestCase):
         # transparency: admits it's an AI if asked
         self.assertIn("ia", z.converse("acme", "¿eres un robot?").lower())
 
+    def _intent(self, z, msg):
+        t = TaskPayload(agent="CONCIERGE", client_id="acme", client_tier="", instructions="x",
+                        data={"message": msg, "lead": {"name": "Carla", "company": "Acme"},
+                              "icp": {"sells": "pallets"}},
+                        constraints=Constraints(channels=["whatsapp"]))
+        return z.agents["CONCIERGE"].run(t).result
+
+    def test_interested_message_is_not_optout(self):
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None))
+        # 'bueno' y 'necesito' contienen 'no' — un interesado no es un opt-out
+        r = self._intent(z, "Bueno, mándame más información")
+        self.assertEqual(r["intent"], "info")
+        self.assertNotEqual(self._intent(z, "necesito más detalles del servicio")["intent"],
+                            "optout")
+
+    def test_real_optout_still_closes(self):
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None))
+        for msg in ("no me interesa, gracias", "stop", "no", "dejen de escribirme"):
+            self.assertEqual(self._intent(z, msg)["intent"], "optout", msg)
+
+    def test_trust_question_gets_transparency(self):
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None))
+        r = self._intent(z, "¿de dónde sacaste mi número?")
+        self.assertEqual(r["intent"], "trust")
+        self.assertIn("pública", r["reply"].lower())   # honesto: fuente del contacto
+
+    def test_objections_are_handled(self):
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None))
+        self.assertEqual(self._intent(z, "ya tenemos proveedor de esto")["intent"], "objection")
+        self.assertEqual(self._intent(z, "me parece muy caro")["intent"], "objection")
+
     def test_parse_inbound(self):
         from zero.whatsapp_inbound import parse_inbound
         payload = {"entry": [{"changes": [{"value": {"messages": [
