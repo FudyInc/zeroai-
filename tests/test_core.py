@@ -496,6 +496,20 @@ class ConciergeTest(unittest.TestCase):
         self.assertEqual(self._intent(z, "ya tenemos proveedor de esto")["intent"], "objection")
         self.assertEqual(self._intent(z, "me parece muy caro")["intent"], "objection")
 
+    def test_negated_interest_is_optout(self):
+        # 'interesa' es keyword de meeting — un interés negado jamás debe agendar
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None))
+        for msg in ("no nos interesa por ahora", "no estamos interesados, gracias",
+                    "no me interesa, dejen de mandar spam", "dejen de mandarme spam"):
+            self.assertEqual(self._intent(z, msg)["intent"], "optout", msg)
+        self.assertEqual(self._intent(z, "sí me interesa, agendemos")["intent"], "meeting")
+
+    def test_manda_substring_is_not_info(self):
+        # 'demanda' contiene 'manda' — no es una petición de información
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None))
+        self.assertNotEqual(self._intent(z, "tenemos mucha demanda, cuéntame más")["intent"],
+                            "info")
+
     def test_parse_inbound(self):
         from zero.whatsapp_inbound import parse_inbound
         payload = {"entry": [{"changes": [{"value": {"messages": [
