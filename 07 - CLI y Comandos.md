@@ -13,11 +13,12 @@ Entrada por `main.py`. El modo por defecto es **mock** (sin key, sin red). Tiers
 | `--discover` | `none` (mock/LLM, default) · `web` (DuckDuckGo real, sin key) |
 | `--no-enrich` | saltar la búsqueda de decision-maker en discovery web (más rápido) |
 | `--exclude` | dominios excluidos, separados por coma |
-| `--action` | `pipeline` (default) · `followups` · `forecast` · `crm` |
+| `--action` | `pipeline` (default) · `followups` · `forecast` · `crm` · `replies` |
 | `--move` | mover etapa de un lead: `"key=stage"` (con `--action crm`) |
 | `--lead` | ver la ficha + timeline de un lead (con `--action crm`) |
 | `--as-of` | datetime ISO tratado como "ahora" para follow-ups vencidos |
 | `--no-outreach` | saltar el primer mensaje |
+| `--inbox` | ruta del archivo inbox (default `inbox.json`). Simula respuestas escribiendo un mensaje JSON ahí. |
 | `--live` | usar la API de Anthropic en vez de mock |
 | `--local` | usar un modelo local OpenAI-compatible (`--local-model`, `--local-url`) |
 | `--local-model` | nombre del modelo local (default `qwen2.5-coder:7b`) |
@@ -54,7 +55,35 @@ python3 main.py --client acme --tier SCALE --action followups --as-of 2026-06-08
 
 # proyectar pipeline desde la actividad registrada (ANALYST)
 python3 main.py --client acme --tier SCALE --action forecast
+
+# revisar bandeja de respuestas y cerrar secuencias de seguimiento automáticamente
+python3 main.py --client acme --tier GROWTH --action replies
 ```
+
+#### Simular respuestas (inbox local)
+
+Crear un archivo `inbox.json` con respuestas entrantes (simula que un lead contesta):
+
+```json
+[
+  {
+    "channel": "email",
+    "from": "juan@empresa.cl",
+    "subject": "Re: Tu mensaje",
+    "body": "Hola, me interesa conocer más.",
+    "received_at": "2026-06-10T14:30:00Z"
+  }
+]
+```
+
+Luego ejecutar:
+
+```bash
+python3 main.py --client acme --tier GROWTH --action replies --inbox inbox.json
+```
+
+El orquestador hace match con el lead, registra la respuesta, cierra la secuencia de follow-up
+y mueve el lead a etapa `replied` en el CRM. El CONCIERGE redacta una respuesta automática.
 
 ### CRM (ver [[04 - CRM y Pipeline de Ventas]])
 

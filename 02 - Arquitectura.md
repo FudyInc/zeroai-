@@ -62,6 +62,15 @@ Cada uno es una clase en `zero/agents/` con su `_mock_result` (offline, determin
 | **MEDIABUYER** | Gestor de campañas Meta Ads con Claude (analiza CPL/gasto/leads vs CPL objetivo) | `agents/mediabuyer.py` |
 | **PITCHWRITER** | Redacta el pitch de venta — creativo y distinto cada vez | `agents/pitchwriter.py` |
 
+## Piezas intercambiables
+
+ZERO se construye sobre **abstracciones swap-in**. Cada una tiene su versión mock (para tests/desarrollo) y su versión real; puedes enchufar la que necesites sin tocar la lógica:
+
+- **`zero/backends.py`** — cerebro LLM (mock · local OpenAI-compatible · Anthropic).
+- **`zero/discovery.py`** — fuente de leads (mock · LLM · web real DuckDuckGo).
+- **`zero/channels.py`** — capa de envío outbound (mock · email SMTP · WhatsApp Cloud API).
+- **`zero/inbox.py`** — capa de recepción inbound; itera sobre respuestas en bandeja (mock en memoria · archivo local JSON · IMAP real). El orquestador llama a `check_replies()` antes de los follow-ups: quien ya respondió no recibe más toques.
+
 ## El contrato (`zero/contracts.py`)
 
 Las dataclasses **son** la interfaz entre ZERO y los sub-agentes:

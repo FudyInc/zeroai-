@@ -21,7 +21,7 @@ Los cinco agentes del núcleo son reales en **todos** los backends (mock · loca
 ## Próximos pasos
 
 - [ ] **Proveedor de discovery/enrichment con key** (Brave / SerpAPI / data provider) para alta cobertura — entra con la misma firma de `zero/discovery.py`, sin tocar PROSPECTOR.
-- [ ] **Detección de respuestas** para auto-cerrar secuencias de seguimiento cuando el lead responde.
+- [x] **Detección de respuestas** para auto-cerrar secuencias de seguimiento cuando el lead responde (✅ junio 2026: `zero/inbox.py` + mock/file/IMAP, cierra la loop automáticamente).
 - [ ] Mejorar la **discovery gratis** (DuckDuckGo) — cobertura en sitios PyME heterogéneos.
 - [ ] Afinar **prompts** de los agentes (concierge, pitch, mediabuyer).
 

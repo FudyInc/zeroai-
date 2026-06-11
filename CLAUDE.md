@@ -38,8 +38,8 @@ Backends: mock (default) · `--local` (modelo local OpenAI-compatible, p.ej. Oll
 - `zero/config.py` — **la política**: tiers, reglas del gate, cadencia, forecast. Los
   números de negocio viven aquí (p.ej. `MIN_ICP_SCORE`).
 - `zero/contracts.py` — el contrato JSON (TaskPayload / AgentResponse / Lead).
-- `zero/backends.py` · `zero/discovery.py` — piezas **intercambiables** (LLM / fuente de
-  leads); cada una con su versión real y su mock.
+- `zero/backends.py` · `zero/discovery.py` · `zero/inbox.py` — piezas **intercambiables** (LLM / fuente de
+  leads / bandeja de respuestas); cada una con su versión real y su mock.
 - `zero/crm.py` — registro durable de leads (etapas + historial).
 - `zero/memory.py` — estado de sesión + secuencias de follow-up.
 - `zero/board.py` · `zero/export.py` — presentación (Kanban) y entrega (CSV). Sin lógica.

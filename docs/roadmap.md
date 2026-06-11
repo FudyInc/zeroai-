@@ -53,8 +53,12 @@ Operación:
    → cierra loop → responde → envía). WhatsApp entrante: `zero/whatsapp_inbound.py` (parser)
    + webhook `GET/POST /api/webhooks/whatsapp` (verificación Meta + recepción). Probador en
    vivo: `POST /api/whatsapp/simulate` y card **"Probar el agente de respuestas"** en Config
-   (mock por intención; con Anthropic key responde el modelo real). 4 tests nuevos.
-   Falta para real: número de WhatsApp Business + URL pública (deploy/ngrok) para el webhook.
+   (mock por intención; con Anthropic key responde el modelo real). **Detección automática
+   de respuestas** ✅ (2026-06-11): `zero/inbox.py` (abstracción `Inbox` + `MockInbox` /
+   `FileInbox` drop-box / `ImapInbox` stdlib con `INBOX_LIVE=1`). El orquestador corre
+   `check_replies()` antes de los follow-ups (`run_followups`): quien ya respondió no
+   recibe más toques. Acción `--action replies` y flag `--inbox` en el CLI. Falta para
+   real: número de WhatsApp Business + URL pública (deploy/ngrok) para el webhook.
 
 ## Formulario de ICP (mejorado, 2026-06-07)
 Antes capturaba 4 de 8 campos y era write-only. Ahora: los **8 campos** (`industry,

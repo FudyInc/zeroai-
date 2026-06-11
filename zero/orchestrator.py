@@ -22,16 +22,19 @@ from .config import (
 from .channels import Outbox
 from .contracts import AgentResponse, Constraints, Lead, TaskPayload
 from .icp import describe_icp, is_empty, normalize_icp
+from .inbox import Inbox, MockInbox
 from .memory import SessionMemory
 
 
 class Zero:
     def __init__(self, agents: Dict[str, Any], memory: Optional[SessionMemory] = None,
-                 crm: Any = None, outbox: Optional[Outbox] = None):
+                 crm: Any = None, outbox: Optional[Outbox] = None,
+                 inbox: Optional[Inbox] = None):
         self.agents = agents
         self.memory = memory or SessionMemory()
         self.crm = crm   # optional system of record; pipeline updates it when present
         self.outbox = outbox or Outbox()   # mock by default; sends what gets drafted
+        self.inbox = inbox or MockInbox()  # mock by default; where replies get detected
 
     # --- sending (OUTREACH/TRACKER draft; the outbox delivers) ---------------
     def _deliver(self, client_id: str, lead_key: str, to: Optional[str],
@@ -240,9 +243,13 @@ class Zero:
     def run_followups(self, client_id: str, as_of: Optional[str] = None) -> Dict[str, Any]:
         """Advance every due follow-up: draft the next step, then reschedule/close."""
         cfg = tier_config(self.memory.clients.get(client_id, {}).get("tier", "STARTER"))
+        # First, sweep the inbox: whoever already replied gets its sequence closed
+        # here and is never nudged below.
+        replies = self.check_replies()
         due = self.memory.due_sequences(client_id, as_of=as_of)
         if not due:
             return {"client_id": client_id, "followups": [], "advanced": 0,
+                    "replies_detected": replies["matched"],
                     "notes": "no hay seguimientos pendientes"}
 
         # Attach each sequence's current cadence `kind` for TRACKER.
@@ -293,9 +300,32 @@ class Zero:
             "advanced": len(due),
             "sent": sent,
             "delivery": "live" if self.outbox.live else "mock",
+            "replies_detected": replies["matched"],
             "open_remaining": open_remaining,
             "followups": messages,
         }
+
+    # --- reply detection (closes sequences automatically) ---------------------
+    def check_replies(self) -> Dict[str, Any]:
+        """Pull unread inbound messages and close the loop for each one via
+        `handle_inbound` (match → register_reply → CONCIERGE). The inbox is mock
+        and empty by default, so this is a free no-op until a real source
+        (inbox.json drop-box, IMAP) is plugged in."""
+        msgs = self.inbox.fetch()
+        results = []
+        for m in msgs:
+            out = self.handle_inbound(m["from"], m["body"], channel=m["channel"])
+            results.append({"from": m["from"], "channel": m["channel"],
+                            "matched": out.get("matched", False),
+                            "company": out.get("company"),
+                            "sequence_closed": out.get("sequence_closed", False)})
+        matched = sum(1 for r in results if r["matched"])
+        if msgs:
+            self.memory.log("replies_check", checked=len(msgs), matched=matched)
+            self.memory.save()
+        return {"checked": len(msgs), "matched": matched,
+                "source": "live" if self.inbox.live else "mock",
+                "replies": results}
 
     # --- inbound reply (closes the loop) -------------------------------------
     def register_reply(self, client_id: str, lead_key: str,

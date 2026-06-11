@@ -340,6 +340,71 @@ class ReplyLoopTest(unittest.TestCase):
         self.assertEqual(crm.get("acme", key)["stage"], "won")  # not dragged back
 
 
+class ReplyDetectionTest(unittest.TestCase):
+    """The inbox sweep detects replies and closes sequences before TRACKER nudges."""
+
+    def _zero(self):
+        from zero.inbox import MockInbox
+        crm = CRM(None)
+        inbox = MockInbox()
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=crm, inbox=inbox)
+        z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8)
+        return z, crm, inbox
+
+    def test_detected_reply_closes_sequence_and_skips_followup(self):
+        z, crm, inbox = self._zero()
+        lead = crm.list("acme", "nurturing")[0]
+        sender = lead.get("email") or "".join(c for c in lead["phone"] if c.isdigit())
+        inbox.add({"from": sender, "body": "me interesa, hablemos"})
+
+        future = (datetime.now(timezone.utc) + timedelta(days=999)).isoformat()
+        d = z.run_followups("acme", as_of=future)
+
+        self.assertEqual(d["replies_detected"], 1)
+        self.assertEqual(crm.get("acme", lead["key"])["stage"], "replied")
+        # its sequence was closed by the reply, so TRACKER never nudged it
+        self.assertNotIn(lead["key"], [m["lead_key"] for m in d["followups"]])
+        self.assertFalse(any(s["lead_key"] == lead["key"] and s["status"] == "open"
+                             for s in z.memory.sequences))
+
+    def test_unmatched_sender_is_logged_not_an_error(self):
+        z, _, inbox = self._zero()
+        inbox.add({"from": "desconocido@nadie.cl", "body": "hola, ¿quién eres?"})
+        d = z.check_replies()
+        self.assertEqual(d["checked"], 1)
+        self.assertEqual(d["matched"], 0)
+
+    def test_empty_inbox_is_a_free_noop(self):
+        z, _, _ = self._zero()
+        d = z.check_replies()
+        self.assertEqual(d, {"checked": 0, "matched": 0, "source": "mock", "replies": []})
+
+    def test_file_inbox_consumes_once(self):
+        import json
+        import os
+        import tempfile
+        from zero.inbox import FileInbox
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "inbox.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump([{"from": "a@b.cl", "body": "sí, me interesa"}], f)
+            box = FileInbox(path)
+            self.assertEqual(len(box.fetch()), 1)
+            self.assertEqual(box.fetch(), [])   # consumed: a reply never re-triggers
+
+    def test_file_inbox_corrupt_file_left_untouched(self):
+        import os
+        import tempfile
+        from zero.inbox import FileInbox
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "inbox.json")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("{esto no es json")
+            self.assertEqual(FileInbox(path).fetch(), [])
+            with open(path, encoding="utf-8") as f:
+                self.assertEqual(f.read(), "{esto no es json")   # never overwrite blind
+
+
 class ChannelTest(unittest.TestCase):
     """The outbox delivers what gets drafted — mock-first, faithful contract."""
 

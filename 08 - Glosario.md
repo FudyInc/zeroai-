@@ -23,6 +23,7 @@ Términos clave de ZeroAI, una línea cada uno. Ver también [[02 - Arquitectura
 | **MRR** | *Monthly Recurring Revenue* — suma de los `price_clp` de los clientes con plan activo. |
 | **Deliverable / entregable** | El paquete final de leads calificados + outreach que recibe el cliente (CSV / dashboard). |
 | **Outbox** | Capa de envío (`zero/channels.py`): mock por defecto; `OUTBOX_LIVE=1` para enviar de verdad. Ver [[09 - Otros]]. |
+| **Inbox** | Capa de recepción de respuestas (`zero/inbox.py`): mock en memoria · `inbox.json` local · IMAP real. Mock por defecto; `INBOX_LIVE=1` para conectar a servidor IMAP. |
 | **CONCIERGE** | Agente conversacional que redacta la respuesta cuando un lead contesta. |
 | **MEDIABUYER** | Agente que gestiona campañas Meta Ads (CPL vs objetivo) con Claude. |
 | **PITCHWRITER** | Agente que redacta el pitch de venta, creativo y distinto cada vez. |

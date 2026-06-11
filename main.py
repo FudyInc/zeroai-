@@ -26,8 +26,11 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="ZERO — B2B lead-gen orchestrator")
     p.add_argument("--client", required=True, help="client_id")
     p.add_argument("--tier", required=True, choices=list(TIERS), help="client tier")
-    p.add_argument("--action", choices=["pipeline", "followups", "forecast", "crm"], default="pipeline",
-                   help="pipeline · followups · forecast · crm (lead board)")
+    p.add_argument("--action", choices=["pipeline", "followups", "replies", "forecast", "crm"],
+                   default="pipeline",
+                   help="pipeline · followups · replies (revisar respuestas) · forecast · crm (lead board)")
+    p.add_argument("--inbox", default="inbox.json",
+                   help="inbound drop-box (JSON) donde se detectan respuestas; IMAP real con INBOX_LIVE=1")
     p.add_argument("--crm", default="crm.json", help="CRM lead store (JSON)")
     p.add_argument("--move", default=None,
                    help='mover un lead de etapa: "clave=etapa" (con --action crm)')
@@ -91,8 +94,10 @@ def main(argv=None) -> int:
         print(f"ERROR: {e}", file=sys.stderr)
         return 2
 
+    from zero.inbox import make_inbox
     memory.register_client(args.client, args.tier)
-    zero = Zero(build_agents(backend=backend, mock=mock, source=source), memory=memory, crm=crm)
+    zero = Zero(build_agents(backend=backend, mock=mock, source=source), memory=memory,
+                crm=crm, inbox=make_inbox(args.inbox))
 
     if args.action == "crm":
         return _run_crm(crm, args)
@@ -100,6 +105,9 @@ def main(argv=None) -> int:
     if args.action == "followups":
         result = zero.run_followups(args.client, as_of=args.as_of)
         printer = _print_followups
+    elif args.action == "replies":
+        result = zero.check_replies()
+        printer = _print_replies
     elif args.action == "forecast":
         result = zero.forecast(args.client)
         printer = _print_forecast
@@ -173,12 +181,30 @@ def _print_followups(d: dict) -> None:
     if not msgs:
         print(d.get("notes", "no hay seguimientos pendientes"))
         return
-    print(f"Avanzadas {d['advanced']} secuencias · abiertas restantes: {d.get('open_remaining', 0)}\n")
+    head = f"Avanzadas {d['advanced']} secuencias · abiertas restantes: {d.get('open_remaining', 0)}"
+    if d.get("replies_detected"):
+        head += f" · respuestas detectadas: {d['replies_detected']}"
+    print(head + "\n")
     for m in msgs:
         head = f"[{m['channel']}] {m['company']} · paso {m.get('step')} ({m.get('kind')})"
         if m.get("subject"):
             head += f" · {m['subject']}"
         print(f"  {head}\n    {m['body']}")
+    print()
+
+
+def _print_replies(d: dict) -> None:
+    print(f"\n=== ZERO · detección de respuestas ({d.get('source', 'mock')}) ===")
+    if not d.get("checked"):
+        print("bandeja vacía — sin mensajes nuevos")
+        return
+    print(f"Revisados {d['checked']} mensajes · {d['matched']} respuestas de leads\n")
+    for r in d.get("replies", []):
+        if r["matched"]:
+            seq = " · secuencia cerrada" if r.get("sequence_closed") else ""
+            print(f"  ✓ [{r['channel']}] {r['from']} → {r.get('company')} (replied){seq}")
+        else:
+            print(f"  – [{r['channel']}] {r['from']} (sin lead asociado, registrado)")
     print()
 
 
