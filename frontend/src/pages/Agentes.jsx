@@ -33,7 +33,7 @@ export default function Agentes() {
       key: 'wa', name: 'WhatsApp', icon: MessageCircle, bg: '#f0fdf4', fg: '#16a34a',
       desc: 'Agente que responde dudas del lead y agenda (ventana de 24h).',
       status: cfg?.whatsapp ? { t: 'Activo', tone: 'ok' } : { t: 'Configurar / probar', tone: 'warn' },
-      onClick: () => nav('/config'),
+      onClick: () => nav('/whatsapp'),
     },
     {
       key: 'ig', name: 'Instagram', icon: Instagram, bg: '#fdf2f8', fg: '#db2777',

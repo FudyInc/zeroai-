@@ -1,6 +1,6 @@
 // En dev: '' → el proxy de Vite manda /api a localhost:8800.
 // En prod (Vercel): definí VITE_API_URL con la URL del backend en Render.
-const BASE = import.meta.env.VITE_API_URL || ''
+export const BASE = import.meta.env.VITE_API_URL || ''
 
 const TOKEN_KEY = 'zero_token'
 export const getToken = () => localStorage.getItem(TOKEN_KEY)

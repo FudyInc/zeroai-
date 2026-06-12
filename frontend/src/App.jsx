@@ -19,6 +19,7 @@ import Forecast from './pages/Forecast'
 import Clientes from './pages/Clientes'
 import Arquitectura from './pages/Arquitectura'
 import Llamadas from './pages/Llamadas'
+import Whatsapp from './pages/Whatsapp'
 import Agentes from './pages/Agentes'
 import Config from './pages/Config'
 
@@ -33,6 +34,7 @@ const TITLES = {
   '/pipeline': ['Pipeline', 'El tablero por etapas'],
   '/agentes': ['Agentes', 'Tus canales de contacto, un agente por cada uno'],
   '/llamadas': ['Llamadas', 'Llamá a un prospecto con un agente de voz'],
+  '/whatsapp': ['WhatsApp', 'Tu agente de WhatsApp: estado, prueba y actividad reciente'],
   '/forecast': ['Forecast', 'Proyección de pipeline'],
   '/clientes': ['Clientes', 'Tus cuentas'],
   '/arquitectura': ['Arquitectura', 'Cómo está armado ZeroAI por dentro'],
@@ -110,6 +112,7 @@ export default function App() {
                 <Route path="/arquitectura" element={<Arquitectura />} />
                 <Route path="/agentes" element={<Agentes />} />
                 <Route path="/llamadas" element={<Llamadas />} />
+                <Route path="/whatsapp" element={<Whatsapp />} />
                 <Route path="/config" element={<Config />} />
               </Routes>
             </motion.div>
