@@ -68,7 +68,8 @@ class Concierge(BaseAgent):
                      f"línea de qué se trataba?")
             intent = "trust"
         elif _has(msg, "ya tenemos", "ya trabajamos", "ya contamos", "proveedor",
-                  "caro", "cara", "costoso", "no hay presupuesto", "sin presupuesto"):
+                  "caro", "cara", "costoso", "no hay presupuesto", "sin presupuesto",
+                  "no tengo presupuesto", "sin plata", "no tenemos presupuesto"):
             if _has(msg, "caro", "cara", "costoso", "presupuesto"):
                 reply = (f"{hi}, te entiendo — por eso el plan se arma según el volumen que necesites, "
                          f"y pagas por leads calificados, no por promesas. ¿Te muestro 3 ejemplos "
@@ -85,7 +86,7 @@ class Concierge(BaseAgent):
             reply = (f"{hi}, claro — te preparo un resumen corto con cómo funciona y 3 ejemplos. "
                      f"¿Te lo mando por acá o prefieres por correo?")
             intent = "info"
-        elif _has(msg, "precio", "costo", "cuánto", "cuanto", "vale", "tarifa", "plan"):
+        elif _has(msg, "precio", "costo", "cuánto", "cuanto", "tarifa", "plan"):
             reply = (f"{hi}, el plan se arma según el volumen de leads que necesites; "
                      f"hay opciones desde un tier de entrada. ¿Te paso una propuesta corta a tu medida "
                      f"o prefieres verlo en una llamada de 10 min?")
@@ -95,8 +96,8 @@ class Concierge(BaseAgent):
             reply = (f"{hi}, en simple: {offer}. Calificamos cada uno contra tu perfil ideal "
                      f"y te llegan listos para contactar. ¿Te muestro 3 de ejemplo?")
             intent = "explain"
-        elif _has(msg, "reunión", "reunion", "agendar", "llamada", "cuándo", "cuando", "hora",
-                  "agenda", "meeting", "interesa"):
+        elif _has(msg, "reunión", "reunion", "agendar", "llamada", "cuándo", "cuando",
+                  "agenda", "meeting", "interesa") or _word(msg, "hora"):
             reply = (f"{hi}, genial. ¿Te acomoda esta semana? Puedo proponerte hoy o mañana "
                      f"en la tarde — dime qué horario te sirve y lo dejamos agendado.")
             intent = "meeting"

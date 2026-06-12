@@ -800,6 +800,30 @@ class MetaAdsTest(unittest.TestCase):
         self.assertEqual(recs["Awareness"], "reallocate")    # no trae leads
         self.assertTrue(resp.result["plan"])
 
+    def test_mediabuyer_zero_cpl_with_leads_is_scale_not_keep(self):
+        # CPL $0 con leads > 0 (p.ej. leads orgánicos atribuidos) sigue <= objetivo:
+        # debe escalar, no caer en "rendimiento aceptable" por accidente (cpl=0 truthy bug).
+        a = build_agents(mock=True)["MEDIABUYER"]
+        camps = [{"id": "1", "name": "Gratis", "objective": "OUTCOME_LEADS", "status": "active",
+                  "region": "Santiago (RM)", "cpl_clp": 0, "leads": 5}]
+        resp = a.run(TaskPayload(agent="MEDIABUYER", client_id="acme", client_tier="",
+                                 instructions="x", data={"campaigns": camps, "good_cpl_clp": 6000}))
+        rec = resp.result["recommendations"][0]
+        self.assertEqual(rec["action"], "scale")
+        self.assertIn("Gratis", resp.result["plan"])   # no crashea armando el plan
+
+    def test_mediabuyer_no_data_yet_is_not_reported_as_fine(self):
+        # Activa, OUTCOME_LEADS, sin leads ni CPL todavía (insights de Meta no conectados):
+        # no es "rendimiento aceptable" — es ausencia de datos.
+        a = build_agents(mock=True)["MEDIABUYER"]
+        camps = [{"id": "1", "name": "Sin datos", "objective": "OUTCOME_LEADS", "status": "active",
+                  "region": "Santiago (RM)", "cpl_clp": None, "leads": None}]
+        resp = a.run(TaskPayload(agent="MEDIABUYER", client_id="acme", client_tier="",
+                                 instructions="x", data={"campaigns": camps, "good_cpl_clp": 6000}))
+        rec = resp.result["recommendations"][0]
+        self.assertEqual(rec["action"], "keep")
+        self.assertNotIn("aceptable", rec["reason"].lower())
+
 
 class PricingTest(unittest.TestCase):
     """Los planes tienen precio en CLP (el MRR de la agencia)."""

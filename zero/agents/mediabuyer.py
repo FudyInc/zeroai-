@@ -26,23 +26,29 @@ class MediaBuyer(BaseAgent):
 
         recs: List[Dict[str, Any]] = []
         best = None
+        best_cpl = None
         for c in camps:
             cpl = c.get("cpl_clp") or 0
             leads = c.get("leads") or 0
             status = c.get("status")
             obj = c.get("objective")
             region = c.get("region") or "Santiago (RM)"
-            if status == "active" and leads and cpl and cpl <= good:
+            if status == "active" and leads and cpl <= good:
                 action = "scale"
                 reason = f"CPL ${cpl:,} bajo el objetivo (${good:,}). Subí presupuesto manteniendo {region}."
-                if best is None or cpl < (best.get("cpl_clp") or 10 ** 9):
-                    best = c
+                if best is None or cpl < best_cpl:
+                    best, best_cpl = c, cpl
             elif status == "active" and leads and cpl > good:
                 action = "reallocate"
                 reason = f"CPL ${cpl:,} sobre el objetivo (${good:,}). Bajá presupuesto y realojá a la de mejor CPL."
             elif status == "active" and obj != "OUTCOME_LEADS" and not leads:
                 action = "reallocate"
                 reason = "No trae leads. Realojá el gasto a campañas de leads en Santiago."
+            elif status == "active" and obj == "OUTCOME_LEADS" and not leads:
+                # leads=0 y cpl=0: activa pero sin resultados todavía (p.ej. insights
+                # de Meta aún no conectados) — no es "rendimiento aceptable", es "sin dato".
+                action = "keep"
+                reason = "Activa pero sin leads reportados todavía. Esperá unos días o revisá que los insights de Meta estén conectados."
             elif status == "paused":
                 action = "keep"
                 reason = "Pausada. Reactivá solo si liberás presupuesto de una de CPL alto."
@@ -52,7 +58,7 @@ class MediaBuyer(BaseAgent):
             recs.append({"campaign_id": c.get("id"), "name": c.get("name"), "action": action, "reason": reason})
 
         if best:
-            plan = (f"Foco leads + Santiago. Escalá «{best['name']}» (mejor CPL ${best['cpl_clp']:,}), "
+            plan = (f"Foco leads + Santiago. Escalá «{best['name']}» (mejor CPL ${best_cpl:,}), "
                     f"realojá el gasto de las de CPL > ${good:,}, y pausá lo que no trae leads. "
                     f"Mantené el objetivo de CPL ≤ ${good:,} para Chile.")
         else:

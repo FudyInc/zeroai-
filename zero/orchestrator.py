@@ -59,7 +59,7 @@ def accepts_offer(text: str) -> bool:
     if _has(t, "por acá", "por aca", "por aquí", "por aqui", "al correo",
             "por correo", "por email", "por mail", "de acuerdo", "me sirve"):
         return True
-    return (_word(t, "sí", "si", "dale", "ok", "okey", "okay", "ya", "bueno",
+    return (_word(t, "sí", "si", "dale", "ok", "okey", "okay", "ya", "vale", "bueno",
                   "claro", "perfecto", "listo", "obvio", "correo", "email", "mail")
             and not _word(t, "no"))
 

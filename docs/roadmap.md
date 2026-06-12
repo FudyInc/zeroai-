@@ -44,7 +44,9 @@ Robustez:
 5. **Sin crasheos, maneja datos malos** — ✅ parseo tolerante + 40/40 tests.
 
 Operación:
-6. **Login / multi-cliente** — ❌ pendiente (no hay auth en `api.py`).
+6. **Login / multi-cliente** — ✅ (2026-06-11): gate de un password (`zero/auth.py`,
+   tokens firmados por el propio password) + middleware en `api.py`; sin password
+   configurado queda abierto (dev).
 7. **Loop completo** (respuesta → acción) — ✅ **agente conversacional listo, mock-first**.
    `register_reply` cierra la secuencia y mueve a `replied` (forward-only). Agente
    **CONCIERGE** (`zero/agents/concierge.py` + `prompts/concierge.md`): responde preguntas
@@ -57,8 +59,14 @@ Operación:
    de respuestas** ✅ (2026-06-11): `zero/inbox.py` (abstracción `Inbox` + `MockInbox` /
    `FileInbox` drop-box / `ImapInbox` stdlib con `INBOX_LIVE=1`). El orquestador corre
    `check_replies()` antes de los follow-ups (`run_followups`): quien ya respondió no
-   recibe más toques. Acción `--action replies` y flag `--inbox` en el CLI. Falta para
-   real: número de WhatsApp Business + URL pública (deploy/ngrok) para el webhook.
+   recibe más toques. Acción `--action replies` y flag `--inbox` en el CLI. **Intents
+   ampliados + ofertas pendientes** ✅ (2026-06-11): CONCIERGE maneja objeciones,
+   desconfianza y "mándame info" (intents `objection/trust/info`), y ZERO **cumple lo
+   que el agente promete**: la oferta queda en `memory.pending_offers` y la aceptación
+   del lead ("sí", "por acá", un correo) dispara el envío del resumen real
+   (`build_info_summary`, fiel al ICP) por el canal elegido, con evento `info_sent`
+   en el CRM. Falta para real: número de WhatsApp Business + URL pública
+   (deploy/ngrok) para el webhook.
 
 ## Formulario de ICP (mejorado, 2026-06-07)
 Antes capturaba 4 de 8 campos y era write-only. Ahora: los **8 campos** (`industry,
@@ -75,9 +83,10 @@ internas aisladas en datos, no entran ellos).
 1. **Lectura escalable** — ✅ `SupabaseCRM` ya no hace `SELECT *`: carga **por cliente**
    (`_ensure`), `client_ids()` por proyección, `find_by_contact` server-side; `crm.list`
    con `limit/offset`. `/clients` y `/kpis` scoped. 53/53 tests.
-2. **Auth (un login de agencia)** — ❌ pendiente: gate simple (un password) sobre API+dashboard.
-3. **Estado a la nube** — ❌ pendiente: ICP/secuencias salen de `state.json` a la DB
-   (hoy siguen locales → no sobreviven multi-instancia).
+2. **Auth (un login de agencia)** — ✅ (2026-06-11): ver Plan B #6.
+3. **Estado a la nube** — ✅: `SupabaseMemory` (`zero/memory_supabase.py`) guarda el
+   snapshot completo (ICP, secuencias, ofertas pendientes) en `app_state`;
+   `make_memory` la usa si hay credenciales y cae a `state.json` local si no.
 4. **Paginación fina** — ✅ (2026-06-08): `CRM.query(client, stages, limit, offset)` empuja
    filtro+orden+slice a PostgREST; `/api/leads?group&limit&offset` → `{leads,total}`;
    frontend con `useInfiniteQuery` + "Cargar más". Orden con desempate único (lead_key)
