@@ -170,6 +170,63 @@ class Zero:
         except Exception:
             return float("inf")
 
+    # --- pipeline steps (helpers for run_pipeline) ---------------------------
+    def _validate_and_record(
+        self, client_id: str, scored: List[Lead], exclusions: List[str]
+    ) -> Tuple[List[Lead], List[Dict[str, Any]]]:
+        """Run the qualified-lead gate over scored leads, updating CRM + memory log."""
+        self.memory.set_stage(client_id, "validate")
+        qualified: List[Lead] = []
+        rejected: List[Dict[str, Any]] = []
+        for lead in scored:
+            ok, fails = self.validate_lead(lead, exclusions)
+            if ok:
+                qualified.append(lead)
+            else:
+                rejected.append({"company": lead.company, "score": lead.score, "reasons": fails})
+            if self.crm:
+                rec = self.crm.upsert(client_id, {**lead.to_dict(), "key": lead.key()},
+                                      stage="qualified" if ok else "disqualified")
+                # Only note the reasons if the lead actually landed in disqualified
+                # (a lead already further along isn't dragged back by a re-run).
+                if not ok and rec["stage"] == "disqualified":
+                    self.crm.log(client_id, lead.key(), "disqualified", ", ".join(fails))
+        self.memory.log(
+            "validation", client=client_id,
+            qualified=len(qualified), rejected=len(rejected),
+        )
+        return qualified, rejected
+
+    def _send_first_touch(
+        self, client_id: str, qualified: List[Lead], messages: List[Dict[str, Any]]
+    ) -> Tuple[int, int]:
+        """Deliver the first-touch message to each qualified lead and open its
+        follow-up sequence. Returns (sequences_opened, sent)."""
+        sequences_opened = 0
+        sent = 0
+        by_company = {m.get("company"): m for m in messages}
+        for lead in qualified:
+            self.memory.mark_contacted(lead.key())
+            msg = by_company.get(lead.company)
+            if self.crm:
+                self.crm.advance(client_id, lead.key(), "contacted")
+                if msg:
+                    self.crm.set_outreach(client_id, lead.key(), {
+                        "channel": msg.get("channel"),
+                        "subject": msg.get("subject"),
+                        "body": msg.get("body"),
+                    })
+            if msg:
+                res = self._deliver(client_id, lead.key(), lead.email or lead.phone, msg)
+                if res["status"] == "sent":
+                    sent += 1
+            seq = self.memory.open_sequence(client_id, {**lead.to_dict(), "key": lead.key()})
+            if seq["step"] == 0:
+                sequences_opened += 1
+                if self.crm:
+                    self.crm.advance(client_id, lead.key(), "nurturing")
+        return sequences_opened, sent
+
     # --- the pipeline --------------------------------------------------------
     def run_pipeline(
         self,
@@ -226,26 +283,7 @@ class Zero:
         scored = [Lead.from_dict(d) for d in qual.result.get("leads", [])]
 
         # 3) VALIDATE against the qualified-lead definition -------------------
-        self.memory.set_stage(client_id, "validate")
-        qualified: List[Lead] = []
-        rejected: List[Dict[str, Any]] = []
-        for lead in scored:
-            ok, fails = self.validate_lead(lead, exclusions)
-            if ok:
-                qualified.append(lead)
-            else:
-                rejected.append({"company": lead.company, "score": lead.score, "reasons": fails})
-            if self.crm:
-                rec = self.crm.upsert(client_id, {**lead.to_dict(), "key": lead.key()},
-                                      stage="qualified" if ok else "disqualified")
-                # Only note the reasons if the lead actually landed in disqualified
-                # (a lead already further along isn't dragged back by a re-run).
-                if not ok and rec["stage"] == "disqualified":
-                    self.crm.log(client_id, lead.key(), "disqualified", ", ".join(fails))
-        self.memory.log(
-            "validation", client=client_id,
-            qualified=len(qualified), rejected=len(rejected),
-        )
+        qualified, rejected = self._validate_and_record(client_id, scored, exclusions)
 
         # 4) OUTREACH (first touch) ------------------------------------------
         messages: List[Dict[str, Any]] = []
@@ -261,30 +299,9 @@ class Zero:
                 messages = out.result.get("messages", [])
 
         # 4b) SEND first touch + OPEN FOLLOW-UP SEQUENCES --------------------
-        sequences_opened = 0
-        sent = 0
+        sequences_opened, sent = (0, 0)
         if write_outreach and messages:
-            by_company = {m.get("company"): m for m in messages}
-            for lead in qualified:
-                self.memory.mark_contacted(lead.key())
-                msg = by_company.get(lead.company)
-                if self.crm:
-                    self.crm.advance(client_id, lead.key(), "contacted")
-                    if msg:
-                        self.crm.set_outreach(client_id, lead.key(), {
-                            "channel": msg.get("channel"),
-                            "subject": msg.get("subject"),
-                            "body": msg.get("body"),
-                        })
-                if msg:
-                    res = self._deliver(client_id, lead.key(), lead.email or lead.phone, msg)
-                    if res["status"] == "sent":
-                        sent += 1
-                seq = self.memory.open_sequence(client_id, {**lead.to_dict(), "key": lead.key()})
-                if seq["step"] == 0:
-                    sequences_opened += 1
-                    if self.crm:
-                        self.crm.advance(client_id, lead.key(), "nurturing")
+            sequences_opened, sent = self._send_first_touch(client_id, qualified, messages)
 
         # 5) REPORT -----------------------------------------------------------
         self.memory.set_stage(client_id, "delivered")
