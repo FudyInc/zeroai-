@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, MessageSquare } from 'lucide-react'
+import { CheckCircle2, AlertCircle, WifiOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
-import { Card, Button, Input, Skeleton } from '../components/ui'
+import { Card, Button, Input, Skeleton, Badge } from '../components/ui'
+import AgentTester from '../components/AgentTester'
 
 export default function Config() {
   const qc = useQueryClient()
@@ -109,18 +110,7 @@ export default function Config() {
         </div>
       </IntegrationCard>
 
-      <IntegrationCard title="Meta Ads (campañas)" ok={cfg?.metaads} hint="access token + Ad Account ID (act_…) de tu Meta Business · sin esto, datos mock">
-        <div className="space-y-2">
-          <Input type="password" placeholder="Access token" value={vals.mt || ''} onChange={(e) => set('mt', e.target.value)} />
-          <Input placeholder="Ad Account ID (act_123…)" value={vals.ma || ''} onChange={(e) => set('ma', e.target.value)} />
-          <Button onClick={() => save({
-            ...(vals.mt && { meta_ads_token: vals.mt }),
-            ...(vals.ma && { meta_ad_account_id: vals.ma }),
-          }, ['mt', 'ma'])}>Conectar Meta Ads</Button>
-        </div>
-      </IntegrationCard>
-
-      <MetaAdsAccounts />
+      <MetaAdsCard cfg={cfg} vals={vals} set={set} save={save} />
 
       <AgentTester />
 
@@ -151,89 +141,88 @@ export default function Config() {
   )
 }
 
-/* Prueba el token de Meta y lista las cuentas publicitarias para elegir el act_. */
-function MetaAdsAccounts() {
-  const [accs, setAccs] = useState(null)
+/* Tarjeta de Meta Ads en Config: estado de conexión (Conectado / Error / Sin conectar),
+   campos para token + cuenta, y botón "Probar conexión" que lista las cuentas
+   publicitarias visibles para ese token (para elegir el act_ correcto). */
+function MetaAdsCard({ cfg, vals, set, save }) {
+  const [editing, setEditing] = useState(false)
+  const [probe, setProbe] = useState(null) // null | { ok: true, accounts } | { ok: false, error }
   const [busy, setBusy] = useState(false)
-  const probe = async () => {
+
+  const connected = !!cfg?.metaads
+  const status = probe?.ok === false
+    ? { label: 'Error: Key inválida', color: '#e11d48', icon: AlertCircle }
+    : connected
+      ? { label: 'Conectado', color: '#16a34a', icon: CheckCircle2 }
+      : { label: 'Sin conectar', color: '#8C929B', icon: WifiOff }
+
+  const testConnection = async () => {
     setBusy(true)
-    try { setAccs(await api.metaadsAccounts()); toast.success('Conexión con Meta OK') }
-    catch (e) { toast.error('Conexión falló: ' + e.message); setAccs(null) }
-    finally { setBusy(false) }
+    try {
+      const accounts = await api.metaadsAccounts()
+      setProbe({ ok: true, accounts })
+      toast.success('Conexión con Meta OK')
+    } catch (e) {
+      setProbe({ ok: false, error: e.message })
+      toast.error('Conexión falló: ' + e.message)
+    } finally { setBusy(false) }
   }
+
+  const connect = () => {
+    save({
+      ...(vals.mt && { meta_ads_token: vals.mt }),
+      ...(vals.ma && { meta_ad_account_id: vals.ma }),
+    }, ['mt', 'ma'])
+    setEditing(false)
+    setProbe(null)
+  }
+
   return (
-    <Card className="p-4 -mt-2 border-dashed">
-      <div className="flex items-center justify-between gap-2">
-        <div className="text-xs text-zinc-500">Prueba el token y lista tus cuentas publicitarias</div>
-        <Button variant="soft" onClick={probe} disabled={busy}>{busy ? 'Probando…' : 'Probar conexión'}</Button>
+    <Card className="p-6">
+      <div className="flex items-center justify-between">
+        <div className="font-semibold">Meta Ads (campañas)</div>
+        <Badge color={status.color} className="inline-flex items-center gap-1">
+          <status.icon size={12} /> {status.label}
+        </Badge>
       </div>
-      {accs && (
+      <div className="text-xs text-zinc-400 mt-0.5 mb-3">
+        access token + Ad Account ID (act_…) de tu Meta Business · sin esto, datos mock
+      </div>
+
+      {probe?.ok === false && (
+        <div className="text-xs text-rose-600 mb-2 break-words">{probe.error}</div>
+      )}
+
+      {connected && !editing ? (
+        <div className="flex items-center gap-2">
+          <Button variant="soft" onClick={testConnection} disabled={busy}>
+            {busy ? 'Probando…' : 'Probar conexión'}
+          </Button>
+          <Button variant="ghost" onClick={() => setEditing(true)}>Reconectar</Button>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <Input type="password" placeholder="Access token" value={vals.mt || ''} onChange={(e) => set('mt', e.target.value)} />
+          <Input placeholder="Ad Account ID (act_123…)" value={vals.ma || ''} onChange={(e) => set('ma', e.target.value)} />
+          <div className="flex gap-2">
+            <Button onClick={connect}>{connected ? 'Guardar y reconectar' : 'Conectar Meta Ads'}</Button>
+            {connected && <Button variant="ghost" onClick={() => setEditing(false)}>Cancelar</Button>}
+          </div>
+        </div>
+      )}
+
+      {probe?.ok && (
         <div className="mt-3 space-y-1">
-          {accs.length === 0 && <div className="text-xs text-zinc-400">El token no ve cuentas publicitarias.</div>}
-          {accs.map((a) => (
+          {probe.accounts.length === 0 && <div className="text-xs text-zinc-400">El token no ve cuentas publicitarias.</div>}
+          {probe.accounts.map((a) => (
             <div key={a.id} className="text-xs flex items-center gap-2 bg-zinc-50 rounded-lg px-2 py-1">
               <code className="text-gold-deep font-semibold">{a.id}</code>
               <span className="text-zinc-500">{a.name}</span>
             </div>
           ))}
-          {accs.length > 0 && <div className="text-[11px] text-zinc-400 mt-1">Copia el <code>act_…</code> de la cuenta que quieras al campo de arriba y guarda.</div>}
+          {probe.accounts.length > 0 && <div className="text-[11px] text-zinc-400 mt-1">Copia el <code>act_…</code> de la cuenta que quieras al campo de arriba y guarda.</div>}
         </div>
       )}
-    </Card>
-  )
-}
-
-/* Prueba el agente conversacional: escribe como si fueras un lead y mira cómo responde
-   usando el negocio del cliente (su ICP guardado). En mock da respuestas por intención;
-   con Anthropic key responde el modelo real. */
-function AgentTester() {
-  const [client, setClient] = useState('demo')
-  const [msg, setMsg] = useState('')
-  const [chat, setChat] = useState([])
-  const [busy, setBusy] = useState(false)
-  const send = async () => {
-    const text = msg.trim()
-    if (!text) return
-    setMsg(''); setBusy(true)
-    setChat((c) => [...c, { who: 'lead', text }])
-    try {
-      const { reply, mode } = await api.simulateAgent({ client: client.trim() || 'demo', message: text })
-      setChat((c) => [...c, { who: 'agent', text: reply, mode }])
-    } catch (e) {
-      setChat((c) => [...c, { who: 'agent', text: 'Error: ' + e.message, mode: 'error' }])
-    } finally { setBusy(false) }
-  }
-  return (
-    <Card className="p-6">
-      <div className="font-semibold flex items-center gap-2">
-        <MessageSquare size={16} /> Probar el agente de respuestas
-      </div>
-      <div className="text-xs text-zinc-400 mt-0.5 mb-3">
-        Escribe como si fueras un lead. Responde con el negocio del cliente (su ICP). Mock por intención · con Anthropic key, modelo real.
-      </div>
-      <div className="flex items-center gap-2 mb-3">
-        <span className="text-xs text-zinc-500">Cliente:</span>
-        <Input value={client} onChange={(e) => setClient(e.target.value)} className="w-40" placeholder="demo" />
-      </div>
-      {chat.length > 0 && (
-        <div className="space-y-2 mb-3 max-h-72 overflow-auto rounded-xl bg-zinc-50 p-3">
-          {chat.map((m, i) => (
-            <div key={i} className={m.who === 'lead' ? 'text-right' : 'text-left'}>
-              <span className={'inline-block rounded-2xl px-3 py-1.5 text-sm ' +
-                (m.who === 'lead' ? 'bg-brand text-white' : 'bg-white border border-zinc-200 text-zinc-700')}>
-                {m.text}
-              </span>
-              {m.who === 'agent' && m.mode && <div className="text-[10px] text-zinc-400 mt-0.5">{m.mode}</div>}
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="flex gap-2">
-        <Input value={msg} onChange={(e) => setMsg(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && send()}
-          placeholder="¿cuánto cuesta? / ¿qué hacen? / ¿eres un bot?" />
-        <Button variant="accent" onClick={send} disabled={busy}>{busy ? '…' : 'Enviar'}</Button>
-      </div>
     </Card>
   )
 }

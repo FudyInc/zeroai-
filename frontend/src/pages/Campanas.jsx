@@ -17,6 +17,21 @@ const FILTERS = [
 const OBJ = { OUTCOME_LEADS: 'Leads', OUTCOME_TRAFFIC: 'Tráfico', OUTCOME_AWARENESS: 'Awareness' }
 const clp = (n) => '$' + Math.round(n || 0).toLocaleString('es-CL')
 
+// "hace X" relativo — tolera campañas sin created_at (mock aún no lo trae).
+function timeAgo(iso) {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return '—'
+  const days = Math.floor((Date.now() - d.getTime()) / 86400000)
+  if (days <= 0) return 'hoy'
+  if (days === 1) return 'hace 1 día'
+  if (days < 30) return `hace ${days} días`
+  const months = Math.floor(days / 30)
+  if (months < 12) return `hace ${months} ${months === 1 ? 'mes' : 'meses'}`
+  const years = Math.floor(months / 12)
+  return `hace ${years} ${years === 1 ? 'año' : 'años'}`
+}
+
 export default function Campanas() {
   const { client } = useApp()
   const qc = useQueryClient()
@@ -51,7 +66,7 @@ export default function Campanas() {
     isLoading, error, onRetry: refetch,
     skeleton: (
       <div className="space-y-5">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-24 w-full" />)}</div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-24 w-full" />)}</div>
         <Skeleton className="h-64 w-full" />
       </div>
     ),
@@ -60,15 +75,14 @@ export default function Campanas() {
   const { campaigns, summary } = data
   const rows = filter === 'todas' ? campaigns : campaigns.filter((c) => c.status === filter)
   const cards = [
-    { l: 'Gastado (mes)', v: clp(summary.spent_clp), icon: DollarSign, bg: '#fff7ed', fg: '#f59e0b' },
-    { l: 'Leads de ads', v: summary.leads, icon: Users, bg: '#eef2ff', fg: '#6366f1' },
-    { l: 'CPL promedio', v: clp(summary.cpl_clp), icon: Target, bg: '#ecfdf5', fg: '#10b981' },
-    { l: 'Campañas activas', v: summary.active, icon: Activity, bg: '#faf5ff', fg: '#a855f7' },
+    { l: 'Gastado (mes)', v: clp(summary.spent_clp), icon: DollarSign, bg: 'bg-champagne/35', fg: 'text-gold-deep' },
+    { l: 'Leads de ads', v: summary.leads, icon: Users, bg: 'bg-brand/8', fg: 'text-brand' },
+    { l: 'CPL promedio', v: clp(summary.cpl_clp), icon: Target, bg: 'bg-pewter/15', fg: 'text-pewter' },
   ]
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {cards.map((c, i) => (
           <motion.div key={c.l} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }}>
             <Card interactive className="p-5 flex items-start justify-between">
@@ -76,7 +90,7 @@ export default function Campanas() {
                 <div className="text-sm text-zinc-500">{c.l}</div>
                 <div className="text-2xl font-extrabold mt-1 tabular-nums">{typeof c.v === 'number' ? <CountUp value={c.v} /> : c.v}</div>
               </div>
-              <div className="w-10 h-10 rounded-xl grid place-items-center" style={{ background: c.bg, color: c.fg }}>
+              <div className={`w-10 h-10 rounded-xl grid place-items-center ${c.bg} ${c.fg}`}>
                 <c.icon size={18} />
               </div>
             </Card>
@@ -87,6 +101,7 @@ export default function Campanas() {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <Segmented options={FILTERS} value={filter} onChange={setFilter} />
         <div className="flex items-center gap-2">
+          <Badge color="#8C929B"><Activity size={11} className="inline -mt-px mr-1" />{summary.active} activas</Badge>
           <Badge color={summary.cpl_clp && summary.cpl_clp <= summary.good_cpl_clp ? '#16a34a' : '#d97706'}>
             CPL objetivo Chile ≤ {clp(summary.good_cpl_clp)}
           </Badge>
@@ -112,30 +127,39 @@ export default function Campanas() {
       {showCfg && <ClientConfig client={client} onClose={() => setShowCfg(false)} />}
       {opt && <OptimizePanel opt={opt} onClose={() => setOpt(null)} />}
 
-      <Card className="overflow-x-auto">
-        <table className="w-full text-sm min-w-[760px]">
-          <thead className="bg-zinc-50 text-zinc-500 text-left text-xs uppercase tracking-wide">
-            <tr>{['Campaña', 'Objetivo', 'Zona', 'Estado', 'Presupuesto', 'Gastado', 'Leads', 'CPL'].map((h) => <th key={h} className="px-5 py-3 font-medium">{h}</th>)}</tr>
-          </thead>
-          <tbody>
-            {rows.map((c) => (
-              <tr key={c.id} className="border-t border-zinc-100 hover:bg-zinc-50 transition-colors">
-                <td className="px-5 py-3 font-medium">{c.name}</td>
-                <td className="px-5 py-3 text-zinc-500">{OBJ[c.objective] || c.objective}</td>
-                <td className="px-5 py-3 text-zinc-500"><span className="inline-flex items-center gap-1"><MapPin size={12} />{c.region}</span></td>
-                <td className="px-5 py-3"><Badge color={c.status === 'active' ? '#16a34a' : '#d97706'}>{c.status === 'active' ? 'Activa' : 'Pausada'}</Badge></td>
-                <td className="px-5 py-3 tabular-nums text-zinc-500">{clp(c.budget_clp)}</td>
-                <td className="px-5 py-3 tabular-nums">{clp(c.spent_clp)}</td>
-                <td className="px-5 py-3 tabular-nums font-semibold">{c.leads}</td>
-                <td className="px-5 py-3 tabular-nums font-semibold" style={{ color: c.cpl_clp && c.cpl_clp <= summary.good_cpl_clp ? '#16a34a' : '#d97706' }}>
-                  {c.cpl_clp ? clp(c.cpl_clp) : '—'}
-                </td>
-              </tr>
-            ))}
-            {rows.length === 0 && <tr><td colSpan={8} className="px-5 py-10 text-center text-zinc-400">Sin campañas en este filtro.</td></tr>}
-          </tbody>
-        </table>
-      </Card>
+      {campaigns.length === 0 ? (
+        <Card className="py-16 text-center">
+          <img src="/logo-mark.png" alt="" className="w-12 h-12 mx-auto mb-4 grayscale opacity-25" />
+          <div className="font-semibold text-zinc-500">No hay campañas activas</div>
+          <p className="text-sm text-zinc-400 mt-1">Conecta Meta Ads o crea una campaña para ver su rendimiento aquí.</p>
+        </Card>
+      ) : (
+        <Card className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[820px]">
+            <thead className="bg-zinc-50 text-zinc-500 text-left text-xs uppercase tracking-wide">
+              <tr>{['Campaña', 'Objetivo', 'Zona', 'Estado', 'Presupuesto', 'Gastado', 'Leads', 'CPL', 'Creada'].map((h) => <th key={h} className="px-5 py-3 font-medium">{h}</th>)}</tr>
+            </thead>
+            <tbody>
+              {rows.map((c) => (
+                <tr key={c.id} className="border-t border-zinc-100 hover:bg-zinc-50 transition-colors">
+                  <td className="px-5 py-3 font-medium">{c.name}</td>
+                  <td className="px-5 py-3 text-zinc-500">{OBJ[c.objective] || c.objective}</td>
+                  <td className="px-5 py-3 text-zinc-500"><span className="inline-flex items-center gap-1"><MapPin size={12} />{c.region}</span></td>
+                  <td className="px-5 py-3"><Badge color={c.status === 'active' ? '#16a34a' : '#d97706'}>{c.status === 'active' ? 'Activa' : 'Pausada'}</Badge></td>
+                  <td className="px-5 py-3 tabular-nums text-zinc-500">{clp(c.budget_clp)}</td>
+                  <td className="px-5 py-3 tabular-nums">{clp(c.spent_clp)}</td>
+                  <td className="px-5 py-3 tabular-nums font-semibold">{c.leads}</td>
+                  <td className="px-5 py-3 tabular-nums font-semibold" style={{ color: c.cpl_clp && c.cpl_clp <= summary.good_cpl_clp ? '#16a34a' : '#d97706' }}>
+                    {c.cpl_clp ? clp(c.cpl_clp) : '—'}
+                  </td>
+                  <td className="px-5 py-3 text-zinc-400">{timeAgo(c.created_at)}</td>
+                </tr>
+              ))}
+              {rows.length === 0 && <tr><td colSpan={9} className="px-5 py-10 text-center text-zinc-400">Sin campañas en este filtro.</td></tr>}
+            </tbody>
+          </table>
+        </Card>
+      )}
     </div>
   )
 }

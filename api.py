@@ -610,17 +610,27 @@ def set_config(body: ConfigBody):
         "META_ADS_TOKEN": body.meta_ads_token,
         "META_AD_ACCOUNT_ID": body.meta_ad_account_id,
     }
-    cloud_ok = True   # ¿quedó todo respaldado en la nube? (para avisar si no)
+    # Dos pasadas: primero set_env() de TODO (así os.environ queda completo),
+    # después save_secret() de TODO. Si se pasan SUPABASE_URL y SUPABASE_KEY
+    # juntos (conectar Supabase por primera vez), save_secret(SUPABASE_URL, ...)
+    # necesita que SUPABASE_KEY ya esté en os.environ para autenticar contra
+    # Supabase — con una sola pasada en orden de dict, SUPABASE_URL se procesa
+    # antes y su backup a la nube fallaba en silencio.
+    to_save = []
     if body.outbox_live is not None:   # explicit on/off toggle for real sending
         val = "1" if body.outbox_live else "0"
         set_env("OUTBOX_LIVE", val)
-        cloud_ok &= save_secret("OUTBOX_LIVE", val)   # persiste en la nube (sobrevive redeploys)
-        saved.append("OUTBOX_LIVE")
+        to_save.append(("OUTBOX_LIVE", val))
     for env_key, value in fields.items():
         if value:
-            set_env(env_key, value.strip())
-            cloud_ok &= save_secret(env_key, value.strip())
-            saved.append(env_key)
+            value = value.strip()
+            set_env(env_key, value)
+            to_save.append((env_key, value))
+
+    cloud_ok = True   # ¿quedó todo respaldado en la nube? (para avisar si no)
+    for env_key, value in to_save:
+        cloud_ok &= save_secret(env_key, value)
+        saved.append(env_key)
     # backed_up=True → sobrevive redeploys; si Supabase no está, queda solo en este server
     return {"ok": True, "saved": saved, "backed_up": bool(cloud_ok and saved)}
 
