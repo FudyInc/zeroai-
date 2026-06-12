@@ -51,13 +51,7 @@ class SupabaseMemory(SessionMemory):
     def _load_cloud(self) -> None:
         rows = self._req("GET", f"{self.TABLE}?id=eq.{self.ROW_ID}&select=data") or []
         if rows:
-            d: Dict[str, Any] = rows[0].get("data") or {}
-            self.clients = d.get("clients", {})
-            self.agent_status = d.get("agent_status", {})
-            self.sequences = d.get("sequences", [])
-            self.contacted = d.get("contacted", {})
-            self.actions = d.get("actions", [])
-            self.used_emails = d.get("used_emails", [])
+            self._restore(rows[0].get("data") or {})
 
     def save(self) -> None:
         self._req("POST", f"{self.TABLE}?on_conflict=id",

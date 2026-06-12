@@ -179,6 +179,11 @@ class SessionMemory:
                 f"Estado corrupto o ilegible en {self.path}: {e}. "
                 f"Revisá o restaurá el archivo (no lo sobrescribo para no perder datos)."
             ) from e
+        self._restore(d)
+
+    def _restore(self, d: Dict[str, Any]) -> None:
+        """Rehydrate from a snapshot dict — the single place that knows the field
+        list, shared by every persistence backend (file, Supabase)."""
         self.clients = d.get("clients", {})
         self.agent_status = d.get("agent_status", {})
         self.sequences = d.get("sequences", [])

@@ -265,6 +265,26 @@ class ExportTest(unittest.TestCase):
         self.assertIn("etapa", rows[0])
 
 
+class MemoryPersistenceTest(unittest.TestCase):
+    def test_snapshot_restore_roundtrip_covers_all_fields(self):
+        """Todo lo que snapshot() guarda, _restore() lo recupera — atrapa el bug
+        de agregar un campo nuevo y olvidarlo en la carga (file o Supabase)."""
+        m = SessionMemory(None)
+        m.register_client("acme", "GROWTH")
+        m.set_client_icp("acme", {"sells": "pallets"})
+        m.set_agent_status("CONCIERGE", "done")
+        m.mark_contacted("ceo@acme.cl")
+        m.add_used_email("ceo@acme.cl")
+        m.open_sequence("acme", {"email": "ceo@acme.cl", "company": "Acme"})
+        m.set_pending_offer("acme", "ceo@acme.cl", "info")
+        m.log("test", detail="x")
+        snap = m.snapshot()
+        self.assertTrue(all(snap[k] for k in snap), snap)   # cada campo tiene algo
+        m2 = SessionMemory(None)
+        m2._restore(snap)
+        self.assertEqual(m2.snapshot(), snap)
+
+
 class LifecycleTest(unittest.TestCase):
     """The whole operator journey, end to end, must hold together."""
 
@@ -510,6 +530,28 @@ class ConciergeTest(unittest.TestCase):
         self.assertNotEqual(self._intent(z, "tenemos mucha demanda, cuéntame más")["intent"],
                             "info")
 
+    def test_ahora_substring_is_not_meeting(self):
+        # 'ahora' contiene 'hora' — un "no por ahora" no debe agendar reunión
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None))
+        for msg in ("no por ahora, tal vez después", "ahora no puedo hablar",
+                    "te escribo ahora", "no tengo presupuesto para esto ahora"):
+            self.assertNotEqual(self._intent(z, msg)["intent"], "meeting", msg)
+        # 'hora' como palabra (no dentro de 'ahora') sí dispara meeting
+        self.assertEqual(self._intent(z, "¿a qué hora te acomoda?")["intent"], "meeting")
+
+    def test_vale_is_not_pricing(self):
+        # 'vale' como muletilla chilena ("ok") no es una pregunta de precio
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None))
+        for msg in ("vale, gracias", "vale, perfecto", "ya vale, entendido"):
+            self.assertNotEqual(self._intent(z, msg)["intent"], "pricing", msg)
+        # pero "¿cuánto vale?" sigue siendo pricing (vía 'cuánto')
+        self.assertEqual(self._intent(z, "¿cuánto vale el servicio?")["intent"], "pricing")
+
+    def test_no_budget_objection_is_handled(self):
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None))
+        self.assertEqual(self._intent(z, "no tengo presupuesto para esto ahora")["intent"],
+                         "objection")
+
     def test_accepts_offer_rejections_and_acceptances(self):
         from zero.orchestrator import accepts_offer
         # una objeción no es aceptar la oferta — el "ya" de "ya tenemos" no es afirmativo
@@ -517,7 +559,7 @@ class ConciergeTest(unittest.TestCase):
                     "stop", "ya trabajamos con alguien"):
             self.assertFalse(accepts_offer(msg), msg)
         for msg in ("sí, dale", "ok perfecto", "al correo porfa", "carla@acme.cl",
-                    "ya, mándalo"):
+                    "ya, mándalo", "vale, mándalo", "vale dale"):
             self.assertTrue(accepts_offer(msg), msg)
 
     def test_parse_inbound(self):
