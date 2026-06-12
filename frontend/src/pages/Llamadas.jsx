@@ -37,7 +37,7 @@ export default function Llamadas() {
         </div>
         <div className="text-xs text-zinc-400 mb-3 break-words">({agentsQ.error?.message || 'no disponible'})</div>
         <div className="flex gap-3">
-          <Link to="/config" className="text-emerald-700 text-sm font-medium">Ir a Configuración →</Link>
+          <Link to="/config" className="text-gold-deep text-sm font-medium">Ir a Configuración →</Link>
           <button onClick={() => { agentsQ.refetch(); numbersQ.refetch() }} className="text-zinc-500 text-sm hover:text-zinc-700">Reintentar</button>
         </div>
       </Card>
@@ -91,7 +91,7 @@ export default function Llamadas() {
         </div>
       </div>
 
-      {msg && <div className={'text-sm ' + (msg.ok ? 'text-emerald-700' : 'text-rose-600')}>{msg.ok ? '✓ ' : ''}{msg.t}</div>}
+      {msg && <div className={'text-sm ' + (msg.ok ? 'text-gold-deep' : 'text-rose-600')}>{msg.ok ? '✓ ' : ''}{msg.t}</div>}
     </Card>
   )
 }

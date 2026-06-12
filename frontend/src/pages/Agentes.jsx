@@ -6,7 +6,7 @@ import { api } from '../lib/api'
 import { Card } from '../components/ui'
 
 const TONES = {
-  ok: 'text-emerald-700 bg-emerald-50',
+  ok: 'text-gold-deep bg-champagne/30',
   warn: 'text-amber-700 bg-amber-50',
   soon: 'text-zinc-500 bg-zinc-100',
   bad: 'text-rose-600 bg-rose-50',

@@ -3,7 +3,7 @@ import { Routes, Route, useLocation } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Toaster } from 'sonner'
-import { Plus } from 'lucide-react'
+import { Plus, Menu } from 'lucide-react'
 import { api } from './lib/api'
 import { Button, Input, Select } from './components/ui'
 import { Glow } from './components/Glow'
@@ -46,6 +46,7 @@ export default function App() {
   const { pathname } = useLocation()
   const [title, sub] = TITLES[pathname] || ['ZeroAI', '']
   const [authed, setAuthed] = useState(null)   // null=checking · false=login · true=in
+  const [navOpen, setNavOpen] = useState(false) // drawer móvil del sidebar
 
   useEffect(() => {
     let alive = true
@@ -65,13 +66,17 @@ export default function App() {
 
   return (
     <AppCtx.Provider value={{ client, setClient, clients, openLead: setLeadKey, openRun: () => setRunOpen(true) }}>
-      <div className="min-h-screen flex text-zinc-900 bg-[radial-gradient(120%_120%_at_100%_0%,#f4f7f5_0%,#fafafa_45%,#f7f8fa_100%)]">
-        <Sidebar />
+      <div className="min-h-screen flex text-zinc-900 bg-[radial-gradient(120%_120%_at_100%_0%,#f2f1ec_0%,#f4f4f4_45%,#f6f5f2_100%)]">
+        <Sidebar mobileOpen={navOpen} onClose={() => setNavOpen(false)} />
         <div className="flex-1 min-w-0">
-          <header className="h-[68px] sticky top-0 z-20 bg-white/80 backdrop-blur border-b border-zinc-200 flex items-center px-8 gap-3">
-            <div>
-              <div className="text-lg font-bold leading-tight">{title}</div>
-              <div className="text-xs text-zinc-400">{sub}</div>
+          <header className="h-[68px] sticky top-0 z-20 bg-white/80 backdrop-blur border-b border-zinc-200 flex items-center px-4 md:px-8 gap-3">
+            <button onClick={() => setNavOpen(true)} aria-label="Abrir menú"
+              className="md:hidden p-2 -ml-1 rounded-lg text-zinc-600 hover:bg-zinc-100">
+              <Menu size={20} />
+            </button>
+            <div className="min-w-0">
+              <div className="font-display text-lg font-bold leading-tight truncate">{title}</div>
+              <div className="text-xs text-zinc-500 truncate">{sub}</div>
             </div>
             <div className="ml-auto flex items-center gap-2">
               {clients.length > 0 && (
@@ -87,7 +92,7 @@ export default function App() {
             </div>
           </header>
 
-          <main className="p-8">
+          <main className="p-4 md:p-8">
             <motion.div
               key={pathname}
               initial={{ opacity: 0, y: 10 }}
@@ -198,7 +203,7 @@ function RunModal({ open, onClose }) {
             <div className="border-t border-zinc-100 pt-3">
               <div className="flex items-center justify-between">
                 <button type="button" onClick={() => setShowIcp((v) => !v)}
-                  className="text-xs font-medium text-emerald-700 hover:underline">
+                  className="text-xs font-medium text-gold-deep hover:underline">
                   {showIcp ? '− Ocultar' : '+ Definir'} perfil del cliente (ICP) — adaptación a medida
                 </button>
                 {showIcp && (

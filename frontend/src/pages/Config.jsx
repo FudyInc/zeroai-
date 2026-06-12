@@ -130,7 +130,7 @@ export default function Config() {
             <div className="font-semibold flex items-center gap-2">
               Envío real
               {cfg?.outbox_live && (
-                <span className="text-sm text-emerald-600 font-medium flex items-center gap-1">
+                <span className="text-sm text-gold-deep font-medium flex items-center gap-1">
                   <CheckCircle2 size={16} /> Activado
                 </span>
               )}
@@ -172,7 +172,7 @@ function MetaAdsAccounts() {
           {accs.length === 0 && <div className="text-xs text-zinc-400">El token no ve cuentas publicitarias.</div>}
           {accs.map((a) => (
             <div key={a.id} className="text-xs flex items-center gap-2 bg-zinc-50 rounded-lg px-2 py-1">
-              <code className="text-emerald-700 font-semibold">{a.id}</code>
+              <code className="text-gold-deep font-semibold">{a.id}</code>
               <span className="text-zinc-500">{a.name}</span>
             </div>
           ))}
@@ -220,7 +220,7 @@ function AgentTester() {
           {chat.map((m, i) => (
             <div key={i} className={m.who === 'lead' ? 'text-right' : 'text-left'}>
               <span className={'inline-block rounded-2xl px-3 py-1.5 text-sm ' +
-                (m.who === 'lead' ? 'bg-emerald-600 text-white' : 'bg-white border border-zinc-200 text-zinc-700')}>
+                (m.who === 'lead' ? 'bg-brand text-white' : 'bg-white border border-zinc-200 text-zinc-700')}>
                 {m.text}
               </span>
               {m.who === 'agent' && m.mode && <div className="text-[10px] text-zinc-400 mt-0.5">{m.mode}</div>}
@@ -281,9 +281,9 @@ function CloudBackupBanner({ backedUp, supabase }) {
     </Card>
   )
   return (
-    <Card className="p-4 border-emerald-200 bg-emerald-50/70 text-sm text-emerald-800">
+    <Card className="p-4 border-champagne bg-champagne/30 text-sm text-brand">
       🔒 <b>Respaldado en la nube — sobrevive a cualquier redeploy.</b>
-      <div className="text-xs text-emerald-700/80 mt-1">Protegido: {names.join(' · ')}</div>
+      <div className="text-xs text-gold-deep mt-1">Protegido: {names.join(' · ')}</div>
     </Card>
   )
 }
@@ -297,7 +297,7 @@ function IntegrationCard({ title, ok, hint, children }) {
       <div className="flex items-center justify-between">
         <div className="font-semibold">{title}</div>
         {ok && (
-          <span className="text-sm text-emerald-600 font-medium flex items-center gap-1">
+          <span className="text-sm text-gold-deep font-medium flex items-center gap-1">
             <CheckCircle2 size={16} /> Conectado
           </span>
         )}
@@ -305,7 +305,7 @@ function IntegrationCard({ title, ok, hint, children }) {
       {ok && !editing ? (
         <div className="text-xs text-zinc-400 mt-1">
           Listo, no hay nada que hacer.{' '}
-          <button onClick={() => setEditing(true)} className="text-emerald-700 hover:underline">Reconfigurar</button>
+          <button onClick={() => setEditing(true)} className="text-gold-deep hover:underline">Reconfigurar</button>
         </div>
       ) : (
         <>

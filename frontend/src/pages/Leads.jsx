@@ -61,8 +61,8 @@ export default function Leads() {
         {!isLoading && <span className="text-xs text-zinc-400">{leads.length} de {total}</span>}
       </div>
 
-      <Card className="overflow-hidden">
-        <table className="w-full text-sm">
+      <Card className="overflow-hidden overflow-x-auto">
+        <table className="w-full text-sm min-w-[640px]">
           <thead className="bg-zinc-50 text-zinc-500 text-left text-xs uppercase tracking-wide">
             <tr>{['Empresa', 'Cargo', 'Contacto', 'Score', 'Etapa'].map((h) => <th key={h} className="px-5 py-3 font-medium">{h}</th>)}</tr>
           </thead>
@@ -82,7 +82,7 @@ export default function Leads() {
                 <td className="px-5 py-3 font-extrabold tabular-nums" style={{ color: scoreColor(r.score) }}>{r.score ?? '—'}</td>
                 <td className="px-5 py-3" onClick={(e) => e.stopPropagation()}>
                   <select value={r.stage} onChange={(e) => move(r.key, e.target.value)}
-                    className="text-xs border border-zinc-200 rounded-lg px-2 py-1 bg-zinc-50 text-zinc-600 outline-none focus:ring-2 focus:ring-emerald-200">
+                    className="text-xs border border-zinc-200 rounded-lg px-2 py-1 bg-zinc-50 text-zinc-600 outline-none focus:ring-2 focus:ring-champagne">
                     {ORDER.map((s) => <option key={s} value={s}>{STAGES[s].l}</option>)}
                   </select>
                 </td>

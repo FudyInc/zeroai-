@@ -98,7 +98,7 @@ export default function Dashboard() {
           <Card className="p-5 h-full">
             <div className="font-semibold">Salud del embudo</div>
             <div className="text-xs text-zinc-400">% de leads que pasó el filtro</div>
-            <div className="text-4xl font-extrabold text-emerald-600 text-center mt-4 tabular-nums">
+            <div className="text-4xl font-extrabold text-gold-deep text-center mt-4 tabular-nums">
               {boardQ.isLoading ? '—' : <CountUp value={pct} />}%
             </div>
             <div className="w-full h-2 bg-zinc-100 rounded-full mt-3 overflow-hidden">
@@ -135,13 +135,13 @@ export function NoClient() {
   ]
   return (
     <div className="max-w-lg mx-auto py-16 text-center">
-      <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 grid place-items-center mx-auto mb-4"><Rocket size={26} /></div>
+      <div className="w-14 h-14 rounded-2xl bg-champagne/40 text-gold-deep grid place-items-center mx-auto mb-4"><Rocket size={26} /></div>
       <h2 className="text-xl font-bold">Empieza con tu primer cliente</h2>
       <p className="text-zinc-500 mt-1 mb-6">En un clic, ZeroAI descubre, califica y prepara leads B2B listos para contactar.</p>
       <div className="text-left space-y-3 mb-7">
         {steps.map(([t, d], i) => (
           <div key={i} className="flex gap-3">
-            <span className="w-6 h-6 shrink-0 rounded-full bg-[#173d33] text-white text-xs font-bold grid place-items-center">{i + 1}</span>
+            <span className="w-6 h-6 shrink-0 rounded-full bg-brand text-white text-xs font-bold grid place-items-center">{i + 1}</span>
             <div>
               <div className="text-sm font-semibold">{t}</div>
               <div className="text-xs text-zinc-500">{d}</div>

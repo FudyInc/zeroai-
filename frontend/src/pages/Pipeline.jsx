@@ -62,7 +62,7 @@ export default function Pipeline() {
               onDrop={(e) => { e.preventDefault(); onDrop(stage) }}
               className={
                 'shrink-0 rounded-2xl p-2 transition-colors ' + (compact ? 'w-52 ' : 'w-64 ') +
-                (isOver ? 'bg-emerald-50 ring-2 ring-emerald-300' : 'bg-transparent')
+                (isOver ? 'bg-champagne/25 ring-2 ring-gold/50' : 'bg-transparent')
               }
             >
               <div className="flex items-center gap-2 mb-3 px-1 text-xs font-semibold uppercase tracking-wide" style={{ color: m.c }}>
@@ -90,7 +90,7 @@ export default function Pipeline() {
                         <div className="text-[13px] text-zinc-500 mt-1">{r.role || '—'}</div>
                         <div className="text-[13px] text-zinc-500">{r.email || r.phone || '—'}</div>
                         <select value={r.stage} onClick={(e) => e.stopPropagation()} onChange={(e) => move(r.key, e.target.value)}
-                          className="mt-2.5 w-full text-xs border border-zinc-200 rounded-lg px-2 py-1 bg-zinc-50 text-zinc-600 outline-none focus:ring-2 focus:ring-emerald-200">
+                          className="mt-2.5 w-full text-xs border border-zinc-200 rounded-lg px-2 py-1 bg-zinc-50 text-zinc-600 outline-none focus:ring-2 focus:ring-champagne">
                           {ORDER.map((st) => <option key={st} value={st}>{STAGES[st].l}</option>)}
                         </select>
                       </>

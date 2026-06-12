@@ -55,9 +55,9 @@ function TreeView() {
       {/* ZERO */}
       <div className="flex justify-center">
         <motion.div variants={pop}>
-          <div className="rounded-2xl px-7 py-4 bg-[#2f8f78] text-white text-center shadow-lg shadow-emerald-900/10">
+          <div className="rounded-2xl px-7 py-4 bg-brand text-white text-center shadow-lg shadow-black/10">
             <div className="flex items-center gap-2 justify-center font-extrabold"><Cpu size={18} /> ZERO — orquestador</div>
-            <div className="text-[11px] text-emerald-50/90 mt-0.5">el cerebro · lógica Python (no LLM) · reparte · gate · entrega</div>
+            <div className="text-[11px] text-champagne/90 mt-0.5">el cerebro · lógica Python (no LLM) · reparte · gate · entrega</div>
           </div>
         </motion.div>
       </div>
@@ -66,10 +66,10 @@ function TreeView() {
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {AGENTS.map(([n, d, isNew]) => (
             <motion.div key={n} variants={pop} whileHover={{ y: -4 }}
-              className={'rounded-xl p-3 bg-white border text-center cursor-default ' + (isNew ? 'border-emerald-400 ring-1 ring-emerald-200' : 'border-zinc-200')}>
-              <div className={'text-[13px] font-extrabold ' + (isNew ? 'text-emerald-700' : 'text-[#173d33]')}>{n}</div>
+              className={'rounded-xl p-3 bg-white border text-center cursor-default ' + (isNew ? 'border-gold/60 ring-1 ring-champagne' : 'border-zinc-200')}>
+              <div className={'text-[13px] font-extrabold ' + (isNew ? 'text-gold-deep' : 'text-brand')}>{n}</div>
               <div className="text-[10.5px] text-zinc-500 mt-1 leading-snug">{d}</div>
-              {isNew && <div className="text-[9px] font-bold text-emerald-600 mt-1 tracking-wide">NUEVO</div>}
+              {isNew && <div className="text-[9px] font-bold text-gold-deep mt-1 tracking-wide">NUEVO</div>}
             </motion.div>
           ))}
         </div>
@@ -80,7 +80,7 @@ function TreeView() {
           {LAYERS.map(([n, d, tag]) => (
             <motion.div key={n} variants={pop} whileHover={{ y: -4 }}
               className="rounded-xl p-4 bg-white border border-zinc-200">
-              <div className="text-[13px] font-extrabold text-[#173d33]">{n}</div>
+              <div className="text-[13px] font-extrabold text-brand">{n}</div>
               <div className="text-[11px] text-zinc-500 mt-1">{d}</div>
               <div className="text-[9px] font-bold text-zinc-400 mt-2 uppercase tracking-wide">{tag}</div>
             </motion.div>
@@ -114,7 +114,7 @@ function FlowView() {
         className="flex flex-wrap items-center justify-center gap-2">
         {FLOW.map((step, i) => (
           <motion.div key={step} variants={pop} className="flex items-center gap-2">
-            <div className="rounded-full px-4 py-2 text-sm font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+            <div className="rounded-full px-4 py-2 text-sm font-semibold bg-champagne/30 text-brand border border-champagne">
               {step}
             </div>
             {i < FLOW.length - 1 && <ArrowRight size={16} className="text-zinc-300" />}

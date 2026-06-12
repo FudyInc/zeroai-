@@ -38,12 +38,12 @@ export default function Clientes() {
 
   return (
     <div className="space-y-5">
-      <Card className="p-5 inline-flex items-center gap-4 bg-[#173d33] text-white">
+      <Card className="p-5 inline-flex items-center gap-4 bg-brand text-white">
         <div className="w-11 h-11 rounded-xl grid place-items-center bg-white/10"><Wallet size={20} /></div>
         <div>
-          <div className="text-xs text-emerald-100/80">Ingreso mensual (MRR)</div>
+          <div className="text-xs text-champagne/80">Ingreso mensual (MRR)</div>
           <div className="text-3xl font-extrabold tabular-nums">$<CountUp value={mrr_clp} /></div>
-          <div className="text-[11px] text-emerald-100/70">{accounts.length} cliente{accounts.length !== 1 ? 's' : ''} · CLP/mes</div>
+          <div className="text-[11px] text-champagne/70">{accounts.length} cliente{accounts.length !== 1 ? 's' : ''} · CLP/mes</div>
         </div>
       </Card>
 
@@ -53,7 +53,7 @@ export default function Clientes() {
             <Card interactive className="p-5">
               <div className="flex items-start justify-between">
                 <div className="font-semibold capitalize">{a.client}</div>
-                <div className="text-sm font-extrabold text-emerald-700 tabular-nums">{a.price_clp ? clp(a.price_clp) : 'Custom'}</div>
+                <div className="text-sm font-extrabold text-gold-deep tabular-nums">{a.price_clp ? clp(a.price_clp) : 'Custom'}</div>
               </div>
               <div className="text-xs text-zinc-400 mt-0.5">{a.leads_per_mo ? `${a.leads_per_mo} leads/mes` : 'leads a medida'}</div>
 
@@ -67,7 +67,7 @@ export default function Clientes() {
               </div>
 
               <button onClick={() => { setClient(a.client); nav('/') }}
-                className="text-sm text-emerald-700 mt-3 flex items-center gap-1 hover:underline">
+                className="text-sm text-gold-deep mt-3 flex items-center gap-1 hover:underline">
                 Ver dashboard <ArrowRight size={14} />
               </button>
             </Card>

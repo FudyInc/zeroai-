@@ -125,8 +125,8 @@ function ReplyAction({ r, client }) {
     },
   })
   return (
-    <div className="mt-4 border border-emerald-200 bg-emerald-50/60 rounded-xl p-3">
-      <div className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-emerald-700 mb-1.5">
+    <div className="mt-4 border border-champagne bg-champagne/30 rounded-xl p-3">
+      <div className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-gold-deep mb-1.5">
         <MessageSquareReply size={13} /> El lead respondió
       </div>
       <p className="text-xs text-zinc-500 mb-2">Lo movemos a <b>respondió</b> y detenemos los seguimientos automáticos.</p>

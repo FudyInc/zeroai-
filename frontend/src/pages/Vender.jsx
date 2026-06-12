@@ -52,8 +52,8 @@ export default function Vender() {
 
       <Card className="p-6 space-y-3">
         <div className="font-semibold flex items-center gap-2"><Mail size={16} /> A quién le escribes</div>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="col-span-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="sm:col-span-2">
             <label className="block text-xs text-zinc-500 mb-1">Correo del prospecto *</label>
             <Input type="email" list="used-emails" value={to} onChange={(e) => setTo(e.target.value)} placeholder="contacto@empresa.com" />
             <datalist id="used-emails">
@@ -68,11 +68,11 @@ export default function Vender() {
             <label className="block text-xs text-zinc-500 mb-1">Empresa (opcional)</label>
             <Input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Acme" />
           </div>
-          <div className="col-span-2">
+          <div className="sm:col-span-2">
             <label className="block text-xs text-zinc-500 mb-1">Contexto / ángulo (opcional) — qué sabes del prospecto, qué tono</label>
             <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3}
               placeholder="Ej: agencia de marketing en Providencia, vi su web nueva; tono cercano y directo."
-              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30" />
+              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold/40" />
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -94,7 +94,7 @@ export default function Vender() {
           <label className="block text-xs text-zinc-500 mb-1">Mensaje</label>
           <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={14}
             placeholder="Pulsa 'Generar pitch' o escribe aquí…"
-            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-emerald-500/30" />
+            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-gold/40" />
         </div>
         <div className="flex justify-end">
           <Glow>

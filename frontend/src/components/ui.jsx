@@ -46,7 +46,7 @@ export function Input({ className, ...p }) {
     <input
       className={cn(
         'w-full border border-zinc-200 rounded-xl px-3 py-2 text-sm outline-none transition',
-        'focus:ring-4 focus:ring-emerald-100 focus:border-emerald-300 placeholder:text-zinc-400',
+        'focus:ring-4 focus:ring-champagne/40 focus:border-gold/60 placeholder:text-zinc-400',
         className,
       )}
       {...p}
@@ -59,7 +59,7 @@ export function Select({ className, ...p }) {
     <select
       className={cn(
         'border border-zinc-200 rounded-xl px-3 py-2 text-sm bg-white outline-none transition',
-        'focus:ring-4 focus:ring-emerald-100 focus:border-emerald-300',
+        'focus:ring-4 focus:ring-champagne/40 focus:border-gold/60',
         className,
       )}
       {...p}

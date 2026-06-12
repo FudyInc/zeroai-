@@ -8,7 +8,7 @@ import { motion } from 'framer-motion'
 */
 const VARIANTS = {
   light: { box: 'bg-zinc-100', pill: 'bg-brand-grad shadow', on: 'text-white', off: 'text-zinc-500 hover:text-zinc-700' },
-  dark: { box: 'bg-[#173d33] shadow-sm', pill: 'bg-brand-grad shadow', on: 'text-white', off: 'text-white/70 hover:text-white' },
+  dark: { box: 'bg-brand shadow-sm', pill: 'bg-brand-grad shadow', on: 'text-white', off: 'text-white/70 hover:text-white' },
 }
 
 export function Segmented({ options, value, onChange, variant = 'light', className = '' }) {

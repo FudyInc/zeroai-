@@ -1,13 +1,29 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Montserrat:wght@600;700;800&display=swap');
 @import "tailwindcss";
 
-:root { --brand: #173d33; --brand-accent: #2f8f78; }
+/* ─── ZEROAI design tokens ───────────────────────────────────────────────
+   Paleta oficial de marca (brand sheet 2026): slate / pewter / champagne
+   gold / off-white. Usar SIEMPRE estos tokens (bg-brand, text-gold-deep,
+   border-champagne, …) en vez de hex sueltos — el rebrand vive aquí.
+   gold-deep es la variante del dorado apta para texto sobre blanco. */
+@theme {
+  --color-brand: #2C3529;        /* slate — primario oscuro */
+  --color-brand-ink: #222923;    /* slate más profundo (gradientes/hover) */
+  --color-pewter: #8C929B;       /* gris secundario */
+  --color-gold: #C9A45C;         /* champagne gold rico — acentos grandes */
+  --color-gold-deep: #8A6B2D;    /* dorado legible — links y texto chico */
+  --color-champagne: #D8CDB0;    /* champagne claro — fondos/tintes/rings */
+  --color-offwhite: #F4F4F4;     /* fondo de marca */
+  --font-display: 'Montserrat', 'Inter', sans-serif;
+}
+
+:root { --brand: #2C3529; --brand-accent: #C9A45C; }
 
 html { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
 body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
 
-/* paleta de marca — oscura y sobria (negro → verde marca), botones/píldoras/scrollbars */
-.bg-brand-grad { background-image: linear-gradient(135deg, #1c1c1f, #173d33); }
+/* paleta de marca — oscura y sobria (negro → slate), botones/píldoras/scrollbars */
+.bg-brand-grad { background-image: linear-gradient(135deg, #222923, #2C3529 60%, #3a4536); }
 
 ::-webkit-scrollbar { height: 9px; width: 9px; }
 ::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #3f3f46, #18181b); border-radius: 6px; }
@@ -16,7 +32,7 @@ body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; 
 
 /* halo de gradiente animado para el CTA estrella (componente <Glow>) */
 .glow-halo {
-  background: linear-gradient(90deg, #173d33, #2f8f78, #3f3f46, #173d33);
+  background: linear-gradient(90deg, #2C3529, #C9A45C, #8C929B, #2C3529);
   background-size: 300% 100%;
   animation: glow-pan 6s linear infinite;
 }

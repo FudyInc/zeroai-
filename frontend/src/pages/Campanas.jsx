@@ -150,9 +150,9 @@ const ACTIONS = {
 // El plan de gestión que propone Claude: recomienda acciones, no gasta.
 function OptimizePanel({ opt }) {
   return (
-    <Card className="p-5 space-y-3 border-emerald-200 bg-emerald-50/40">
+    <Card className="p-5 space-y-3 border-champagne bg-champagne/20">
       <div className="flex items-center justify-between">
-        <div className="font-semibold flex items-center gap-2"><Sparkles size={16} className="text-emerald-600" /> Plan de Claude</div>
+        <div className="font-semibold flex items-center gap-2"><Sparkles size={16} className="text-gold-deep" /> Plan de Claude</div>
         <Badge color={opt.mode === 'live' ? '#16a34a' : '#94a3b8'}>{opt.mode === 'live' ? 'modelo real' : 'mock'}</Badge>
       </div>
       <p className="text-sm text-zinc-700">{opt.plan}</p>
@@ -200,8 +200,8 @@ function ClientConfig({ client }) {
     } catch (e) { toast.error('No se pudo guardar: ' + e.message) }
   }
   return (
-    <Card className="p-5 space-y-3 border-emerald-200">
-      <div className="font-semibold">Marketing de <span className="text-emerald-700">{client}</span></div>
+    <Card className="p-5 space-y-3 border-champagne">
+      <div className="font-semibold">Marketing de <span className="text-gold-deep">{client}</span></div>
       <div className="grid grid-cols-2 gap-3">
         <div className="col-span-2"><label className="block text-xs text-zinc-500 mb-1">Cuenta publicitaria Meta (act_…)</label>
           <Input value={v.ad_account} onChange={(e) => set('ad_account', e.target.value)} placeholder="act_123456789 (vacío = mock)" /></div>
