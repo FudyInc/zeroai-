@@ -34,7 +34,7 @@ const SECTIONS = [
 
 function Mark() {
   return (
-    <img src="/logo.png" alt="ZeroAI" width="34" height="34" className="shrink-0" />
+    <img src="/logo-mark.png" alt="ZeroAI" width="34" height="34" className="shrink-0" />
   )
 }
 

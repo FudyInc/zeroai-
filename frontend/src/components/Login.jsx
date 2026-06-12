@@ -5,7 +5,7 @@ import { Card, Button, Input } from './ui'
 
 function Mark() {
   return (
-    <img src="/logo.png" alt="ZeroAI" width="40" height="40" className="shrink-0" />
+    <img src="/logo-mark.png" alt="ZeroAI" width="40" height="40" className="shrink-0" />
   )
 }
 
