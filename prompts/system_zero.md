@@ -1,4 +1,16 @@
-# ZERO — System Prompt
+# ZERO — System Prompt (LEGACY · no usado por el código)
+
+> [!warning] Este archivo no lo carga ningún agente. Describe una versión temprana
+> de ZERO (5 sub-agentes, "Opus 4.8 siempre vía API") que ya no refleja la
+> arquitectura vigente. Para la arquitectura real (8 agentes, `claude-fable-5`,
+> mock-first) ver [[02 - Arquitectura]].
+>
+> Se conserva como semilla para una posible futura interfaz de **"chat con ZERO"**
+> (control del pipeline por lenguaje natural) o un triage/escalamiento por LLM —
+> no priorizar mientras el dispatcher determinista funcione (CLAUDE.md, disciplina
+> de alcance).
+
+---
 
 > Orchestrator brain · Claude Opus 4.8 · B2B Lead Generation Agency
 > Drop this file in `prompts/system_zero.md` and load it as the `system` parameter.
