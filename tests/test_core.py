@@ -552,6 +552,40 @@ class ConciergeTest(unittest.TestCase):
         self.assertEqual(self._intent(z, "no tengo presupuesto para esto ahora")["intent"],
                          "objection")
 
+    def test_elongated_no_is_optout(self):
+        # "nooo", "NO!!", "no..." — un "no" decorado sigue siendo un cierre,
+        # no debe caer en 'general' por no calzar con el "no" corto exacto.
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None))
+        for msg in ("nooo", "NO!!", "no...", "no¡¡"):
+            self.assertEqual(self._intent(z, msg)["intent"], "optout", msg)
+        # pero un "no" dentro de una frase con más contenido no es esto
+        self.assertNotEqual(self._intent(z, "no por ahora, tal vez después")["intent"],
+                             "optout")
+
+    def test_safety_question_gets_trust(self):
+        # "¿es seguro?" es la misma familia de duda que "¿de dónde sacaste mi número?"
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None))
+        for msg in ("¿es esto seguro?", "¿es confiable esto?", "esto no es una estafa, no?"):
+            self.assertEqual(self._intent(z, msg)["intent"], "trust", msg)
+
+    def test_short_affirmation_is_accept(self):
+        # Afirmaciones cortas sin contenido propio → 'accept', con una propuesta
+        # concreta de siguiente paso (no el menú genérico de 'general').
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None))
+        for msg in ("dale, vamos", "ok", "vale", "sí👍", "perfecto, genial"):
+            r = self._intent(z, msg)
+            self.assertEqual(r["intent"], "accept", msg)
+            self.assertIn("?", r["reply"])  # sigue proponiendo un siguiente paso
+        # "no" en la frase descarta 'accept', aunque empiece con palabra afirmativa
+        self.assertNotEqual(self._intent(z, "bueno, no estoy seguro")["intent"], "accept")
+
+    def test_lone_channel_word_is_general(self):
+        # "por acá" solo, sin oferta previa que aceptar, no es ni 'info' ni
+        # 'accept' — es ambiguo sin contexto (es una elección de canal, no un intent).
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None))
+        r = self._intent(z, "por acá")
+        self.assertNotIn(r["intent"], ("info", "accept"))
+
     def test_accepts_offer_rejections_and_acceptances(self):
         from zero.orchestrator import accepts_offer
         # una objeción no es aceptar la oferta — el "ya" de "ya tenemos" no es afirmativo
@@ -653,6 +687,15 @@ class PendingOfferTest(unittest.TestCase):
         self.assertEqual(r2["intent"], "optout")         # rechazo ≠ aceptación
         r3 = z.handle_inbound(sender, "ok")
         self.assertNotEqual(r3["intent"], "fulfill")     # y la oferta quedó anulada
+
+    def test_pending_offer_wins_over_concierge_accept(self):
+        # CONCIERGE clasificaría "dale, vamos" como su propio intent 'accept',
+        # pero con una oferta pendiente el orquestador debe cumplirla primero
+        # ('fulfill' gana sobre 'accept').
+        z, _, _, sender = self._zero()
+        z.handle_inbound(sender, "mándame más información")
+        r2 = z.handle_inbound(sender, "dale, vamos")
+        self.assertEqual(r2["intent"], "fulfill")
 
 
 class ScalabilityTest(unittest.TestCase):
@@ -858,6 +901,36 @@ class PitchWriterTest(unittest.TestCase):
     def test_uses_notes(self):
         # el contexto es la base del correo (arranca desde ahí)
         self.assertIn("mencionar su web nueva", self._gen("mencionar su web nueva")["body"].lower())
+
+
+class ValidatorTest(unittest.TestCase):
+    """Corrupt contacts are rejected before they reach the CRM."""
+
+    def test_email_and_phone_rules(self):
+        from zero.validators import ValidatorRules
+        self.assertTrue(ValidatorRules.validate_email("ceo@acme.cl"))
+        self.assertFalse(ValidatorRules.validate_email("usuario@"))
+        self.assertFalse(ValidatorRules.validate_email("ejemplo@test"))
+        self.assertFalse(ValidatorRules.validate_email(""))
+        # GROWTH (default) requires >=7 digits; ENTERPRISE requires >=9
+        self.assertTrue(ValidatorRules.validate_phone("+56 9 1234 5678"))
+        self.assertFalse(ValidatorRules.validate_phone("12345"))
+        self.assertFalse(ValidatorRules.validate_phone("912345678",
+                         rules={"require": True, "min_digits": 12}))
+
+    def test_validate_batch_filters_and_is_tier_aware(self):
+        from zero.validators import ValidatorRules
+        leads = [
+            {"company": "Acme", "name": "Maria Soto", "email": "maria@acme.cl", "phone": "+56912345678"},
+            {"company": "BadCo", "name": "Foo", "email": "usuario@ejemplo.com", "phone": None},
+            {"company": "NoPhone", "name": "Bar", "email": "bar@nophone.cl", "phone": None},
+            {"company": "", "name": "", "email": "x@y.cl", "phone": "123"},
+        ]
+        growth = ValidatorRules.validate_batch(leads, "GROWTH")
+        self.assertEqual([l["company"] for l in growth], ["Acme", "NoPhone"])
+        # ENTERPRISE also requires a phone with >=9 digits
+        enterprise = ValidatorRules.validate_batch(leads, "ENTERPRISE")
+        self.assertEqual([l["company"] for l in enterprise], ["Acme"])
 
 
 class UsedEmailsTest(unittest.TestCase):

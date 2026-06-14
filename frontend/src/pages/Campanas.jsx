@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { DollarSign, Users, Target, Activity, Settings2, MapPin, Sparkles } from 'lucide-react'
+import { DollarSign, Users, Target, Activity, Settings2, MapPin, Sparkles, TrendingUp } from 'lucide-react'
+import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip } from 'recharts'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
-import { Card, CountUp, Skeleton, Button, Badge, Input, pageState } from '../components/ui'
+import { Card, CountUp, Skeleton, Button, Badge, Input, Spinner, pageState } from '../components/ui'
 import { Segmented } from '../components/Segmented'
 import { useApp } from '../App'
 import { NoClient } from './Dashboard'
@@ -30,6 +31,31 @@ function timeAgo(iso) {
   if (months < 12) return `hace ${months} ${months === 1 ? 'mes' : 'meses'}`
   const years = Math.floor(months / 12)
   return `hace ${years} ${years === 1 ? 'año' : 'años'}`
+}
+
+// Tendencia de 7 días — Meta no entrega series diarias por campaña, así que
+// repartimos el gasto del mes con una curva leve (ramp ascendente) para dar
+// una idea visual de evolución. Se marca como "estimado" en la UI; cuando
+// /api/campaigns entregue una serie diaria real, esto se reemplaza 1:1.
+const TREND_WEIGHTS = [0.11, 0.13, 0.12, 0.15, 0.14, 0.17, 0.18]
+function buildTrend(summary) {
+  return TREND_WEIGHTS.map((w, i) => {
+    const d = new Date(Date.now() - (6 - i) * 86400000)
+    return {
+      name: d.toLocaleDateString('es-CL', { weekday: 'short' }),
+      spent: Math.round((summary.spent_clp || 0) * w),
+    }
+  })
+}
+
+// Leads por objetivo — agregación real de las campañas actuales (sin inventar datos).
+function byObjective(campaigns) {
+  const m = new Map()
+  for (const c of campaigns) {
+    const k = OBJ[c.objective] || c.objective || '—'
+    m.set(k, (m.get(k) || 0) + (c.leads || 0))
+  }
+  return [...m.entries()].map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value)
 }
 
 export default function Campanas() {
@@ -110,13 +136,19 @@ export default function Campanas() {
           </Badge>
           <Button variant="soft" onClick={() => setShowCfg((v) => !v)}><Settings2 size={15} /> Config del cliente</Button>
           <Button variant="soft" onClick={syncLeads} disabled={syncBusy}>
-            <Users size={15} /> {syncBusy ? 'Importando…' : 'Importar leads de ads'}
+            {syncBusy ? <Spinner /> : <Users size={15} />} {syncBusy ? 'Importando…' : 'Importar leads de ads'}
           </Button>
           <Button variant="accent" onClick={optimize} disabled={optBusy}>
-            <Sparkles size={15} /> {optBusy ? 'Analizando…' : 'Gestionar con Claude'}
+            {optBusy ? <Spinner /> : <Sparkles size={15} />} {optBusy ? 'Analizando…' : 'Gestionar con Claude'}
           </Button>
         </div>
       </div>
+
+      {optBusy && (
+        <Card className="p-3 border-champagne bg-champagne/20 text-sm text-gold-deep flex items-center gap-2">
+          <Spinner /> Analizando campañas con Claude…
+        </Card>
+      )}
 
       {summary.error && (
         <Card className="p-3 border-amber-200 bg-amber-50/70 text-sm text-amber-800">
@@ -126,6 +158,54 @@ export default function Campanas() {
       )}
       {showCfg && <ClientConfig client={client} onClose={() => setShowCfg(false)} />}
       {opt && <OptimizePanel opt={opt} onClose={() => setOpt(null)} />}
+
+      {campaigns.length > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <Card className="p-5 lg:col-span-2">
+            <div className="flex items-center justify-between mb-1">
+              <div className="font-semibold flex items-center gap-2"><TrendingUp size={16} className="text-gold-deep" /> Tendencia de gasto (7 días)</div>
+              <Badge color="#8C929B">estimado</Badge>
+            </div>
+            <div className="text-xs text-zinc-400 mb-3">
+              Proyección a partir del gasto del mes — Meta aún no entrega series diarias por campaña.
+            </div>
+            <div className="h-44">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={buildTrend(summary)} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="spentFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#C9A45C" stopOpacity={0.35} />
+                      <stop offset="100%" stopColor="#C9A45C" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#71717a' }} axisLine={false} tickLine={false} />
+                  <YAxis hide />
+                  <Tooltip cursor={{ stroke: '#C9A45C', strokeWidth: 1 }} contentStyle={{ borderRadius: 12, border: '1px solid #e4e4e7', fontSize: 13 }}
+                    formatter={(v) => [clp(v), 'Gasto (estimado)']} />
+                  <Area type="monotone" dataKey="spent" stroke="#8A6B2D" strokeWidth={2} strokeDasharray="4 4" fill="url(#spentFill)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </Card>
+
+          <Card className="p-5">
+            <div className="font-semibold mb-1">Leads por objetivo</div>
+            <div className="text-xs text-zinc-400 mb-3">Distribución real de leads del mes.</div>
+            <div className="h-44">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={byObjective(campaigns)} layout="vertical" margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                  <CartesianGrid horizontal={false} stroke="#f1f5f9" />
+                  <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12, fill: '#71717a' }} axisLine={false} tickLine={false} />
+                  <YAxis type="category" dataKey="name" tick={{ fontSize: 12, fill: '#71717a' }} axisLine={false} tickLine={false} width={70} />
+                  <Tooltip cursor={{ fill: '#f4f4f5' }} contentStyle={{ borderRadius: 12, border: '1px solid #e4e4e7', fontSize: 13 }} />
+                  <Bar dataKey="value" radius={[0, 8, 8, 0]} maxBarSize={28} fill="#2C3529" animationDuration={700} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </Card>
+        </div>
+      )}
 
       {campaigns.length === 0 ? (
         <Card className="py-16 text-center">

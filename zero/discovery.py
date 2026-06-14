@@ -17,9 +17,12 @@ from __future__ import annotations
 
 import html
 import re
+import sys
 import urllib.parse
 import urllib.request
 from typing import Any, Dict, List, Optional, Tuple
+
+from .config import DEFAULT_VALIDATOR_TIER
 
 _UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 
@@ -122,7 +125,8 @@ class DuckDuckGoSource(DiscoverySource):
         self.mine_directories = mine_directories  # max listicle pages mined per search
         self.mine_links = mine_links              # max SME links taken from each one
 
-    def search_leads(self, query: str, max_items: int, channels: List[str]) -> List[Dict[str, Any]]:
+    def search_leads(self, query: str, max_items: int, channels: List[str],
+                      tier: str = DEFAULT_VALIDATOR_TIER) -> List[Dict[str, Any]]:
         # Directories cost fetches but yield no lead directly, so the default
         # budget leaves headroom beyond one fetch per lead.
         budget = self.max_fetch or max_items * 2
@@ -168,6 +172,12 @@ class DuckDuckGoSource(DiscoverySource):
                 "source": "duckduckgo",
                 "url": url,
             })
+
+        from .validators import ValidatorRules  # local import: avoid cycle with validators.py
+        raw = len(leads)
+        leads = ValidatorRules.validate_batch(leads, tier)
+        pct = round(100 * len(leads) / raw) if raw else 100
+        print(f"DuckDuckGoSource: {raw} raw → {len(leads)} valid ({pct}%)", file=sys.stderr)
         return leads
 
     # --- directory mining ------------------------------------------------------

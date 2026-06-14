@@ -54,6 +54,34 @@ def tier_config(tier: str) -> dict:
         raise ValueError(f"Unknown tier: {tier!r}. Valid: {list(TIERS)}")
 
 
+# --- Contact validator tiers (zero/validators.py) -----------------------------
+# How strict validators.py is about a contact's email/phone/name before a lead
+# is allowed past discovery into the CRM. GROWTH is liberal (some contact info
+# is better than none); ENTERPRISE is strict (only well-formed, reachable
+# contacts — matches the "confiable" promise for paying enterprise clients).
+# Tiers without an explicit entry fall back to DEFAULT_VALIDATOR_TIER.
+VALIDATOR_TIERS = {
+    "GROWTH": {
+        "email": {"require": True, "min_len": 5, "must_have_tld": False},
+        "phone": {"require": False, "min_digits": 7},
+        "name": {"require": True, "min_len": 1},
+    },
+    "ENTERPRISE": {
+        "email": {"require": True, "min_len": 6, "must_have_tld": True,
+                  "valid_tlds": [".com", ".es", ".mx", ".cl", ".co", ".ar"]},
+        "phone": {"require": True, "min_digits": 9},
+        "name": {"require": True, "min_len": 3},
+    },
+}
+DEFAULT_VALIDATOR_TIER = "GROWTH"
+
+
+def validator_tier(tier: str) -> dict:
+    """Validator rules for `tier`, falling back to the default for tiers
+    (STARTER, SCALE, ...) that don't have a dedicated entry yet."""
+    return VALIDATOR_TIERS.get(tier, VALIDATOR_TIERS[DEFAULT_VALIDATOR_TIER])
+
+
 # --- Qualified-lead rules ----------------------------------------------------
 MIN_ICP_SCORE = 70           # score >= this to be deliverable
 RECONTACT_BLACKOUT_DAYS = 90  # do not deliver a lead contacted more recently

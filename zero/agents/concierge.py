@@ -29,6 +29,34 @@ def _word(text: str, *words: str) -> bool:
     return any(re.search(rf"\b{re.escape(w)}\b", text) for w in words)
 
 
+# A message that is *only* "no" repeated/elongated ("no", "nooo", "no!", "noo...") —
+# WhatsApp shorthand for a flat decline, distinct from "no" used inside a longer
+# sentence ("no por ahora", "no tengo presupuesto") which other branches handle.
+_ELONGATED_NO_RE = re.compile(r"^no+[\s!¡.]*$")
+
+# A short, *purely* affirmative reply ("dale, vamos", "ok", "sí 👍") — the lead is
+# saying yes to *something* we said, but with no other content for CONCIERGE to
+# go on. Anchored at the start so it doesn't fire on "no estoy seguro" or similar
+# (the trailing `not _word(msg, "no")` guard below covers that too).
+_ACCEPT_RE = re.compile(
+    r"^(sí|dale|vamos|ok|okey|okay|oki|listo|perfecto|genial|buenísimo|buenisimo|"
+    r"bueno|claro|obvio|vale|excelente|de acuerdo|me sirve)\b"
+)
+
+# "sí" / "si" alargado ("siii", "siiii", "síii") — variante de WhatsApp del
+# afirmativo corto, igual que "nooo" es la variante alargada del "no". Anclado
+# al mensaje completo: no dispara dentro de "sin problema" ni "si tienes info".
+_ELONGATED_SI_RE = re.compile(r"^s[ií]{2,}[\s!¡.]*$")
+
+# "¿es esto seguro?", "¿esto es confiable?", "no es una estafa, no?" — doubts about
+# legitimacy, phrased as "es / esto es / es esto" + seguro/confiable/legítimo/estafa/
+# real, with up to ~15 chars between (covers "es esto seguro" word order too).
+# Doesn't match "no estoy seguro" — "estoy" isn't the whole word "es".
+_TRUST_SAFETY_RE = re.compile(
+    r"\b(es|esto es|es esto)\b[^.,;!?]{0,15}\b(seguro|confiable|legítim\w*|legitim\w*|estafa|real)\b"
+)
+
+
 class Concierge(BaseAgent):
     name = "CONCIERGE"
     prompt_file = "concierge.md"
@@ -57,11 +85,14 @@ class Concierge(BaseAgent):
                    "dejen de", "deja de", "no insist", "stop", "dar de baja", "darme de baja")
               # interés negado en cualquier forma: "no nos interesa", "no estamos interesados"
               or re.search(r"\bno\b[^.,;!?]{0,20}\binteresa", msg)
-              or _word(msg, "no") and len(msg) <= 4):
+              or _word(msg, "no") and len(msg) <= 4
+              # "nooo", "no!", "no..." — un "no" elongado/decorado sigue siendo un no
+              or _ELONGATED_NO_RE.match(msg)):
             reply = (f"{hi}, sin problema y gracias por avisar. Lo dejo aquí; si más adelante necesitas "
                      f"leads B2B calificados, escríbeme y retomamos. ¡Éxito!")
             intent = "optout"
-        elif _has(msg, "sacaste", "sacaron", "conseguiste", "consiguieron", "mis datos", "spam"):
+        elif (_has(msg, "sacaste", "sacaron", "conseguiste", "consiguieron", "mis datos", "spam")
+              or _TRUST_SAFETY_RE.search(msg)):
             reply = (f"{hi}, justa pregunta: tu contacto aparece en información pública de "
                      f"{company} (su sitio web). Te escribí porque creí que podía aportarles; "
                      f"si prefieres que no te contacte más, lo borro y listo. ¿Te cuento en una "
@@ -101,6 +132,13 @@ class Concierge(BaseAgent):
             reply = (f"{hi}, genial. ¿Te acomoda esta semana? Puedo proponerte hoy o mañana "
                      f"en la tarde — dime qué horario te sirve y lo dejamos agendado.")
             intent = "meeting"
+        elif (_ACCEPT_RE.match(msg) or _ELONGATED_SI_RE.match(msg)) and not _word(msg, "no"):
+            # "dale, vamos" / "ok" / "sí 👍" — sin pregunta ni objeción: el lead dice
+            # que sí a algo. Sin oferta pendiente que cumplir (eso lo resuelve el
+            # orquestador), avanzamos proponiendo el siguiente paso concreto.
+            reply = (f"{hi}, ¡buenísimo! Te paso 3 ejemplos para que veas el nivel — "
+                     f"¿te los mando por acá o prefieres que agendemos una llamada corta de 10 min?")
+            intent = "accept"
         else:
             reply = (f"{hi}, gracias por escribir. {offer[0].upper() + offer[1:]}. "
                      f"¿Qué te gustaría saber — cómo funciona, precios, o vemos 3 ejemplos?")

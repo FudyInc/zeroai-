@@ -1,15 +1,35 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { MessageCircle, CheckCircle2, WifiOff, Copy, Check, Clock } from 'lucide-react'
+import { MessageCircle, CheckCircle2, WifiOff, Copy, Check, Clock, ChevronRight } from 'lucide-react'
 import { api, BASE } from '../lib/api'
 import { Card, Button, Badge, Skeleton } from '../components/ui'
 import { STAGES } from '../lib/util'
 import { useApp } from '../App'
 import AgentTester from '../components/AgentTester'
+import ChatDetailModal from '../components/ChatDetail'
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+// Cuántos leads de `leads` están en etapa "replied" y cuántos llegaron a esa
+// etapa en las últimas 24h — usando el historial del CRM (ya viene en /api/leads),
+// sin endpoints nuevos.
+function repliedInfo(leads) {
+  const cutoff = Date.now() - DAY_MS
+  let total = 0, recent = 0
+  for (const r of leads) {
+    if (r.stage !== 'replied') continue
+    total++
+    const ev = (r.history || []).slice().reverse()
+      .find((h) => h.event === 'stage' && /→ replied/.test(h.detail || ''))
+    if (ev?.ts && new Date(ev.ts).getTime() >= cutoff) recent++
+  }
+  return { total, recent }
+}
 
 export default function Whatsapp() {
   const { client } = useApp()
+  const [openKey, setOpenKey] = useState(null)
   const cfgQ = useQuery({ queryKey: ['config'], queryFn: api.config })
   const leadsQ = useQuery({
     queryKey: ['leads', client, 'whatsapp-activity'],
@@ -65,7 +85,8 @@ export default function Whatsapp() {
         hint="Simula un mensaje entrante de WhatsApp y mira cómo responde el agente (CONCIERGE) con el negocio del cliente. Mock por intención · con Anthropic key, modelo real."
         defaultClient={client || 'demo'}
       />
-      <ActivityCard leadsQ={leadsQ} />
+      <ActivityCard leadsQ={leadsQ} onOpen={setOpenKey} />
+      <ChatDetailModal client={client} leadKey={openKey} onClose={() => setOpenKey(null)} />
     </div>
   )
 }
@@ -116,7 +137,7 @@ function StatusCard({ cfg, webhookUrl }) {
   )
 }
 
-function ActivityCard({ leadsQ }) {
+function ActivityCard({ leadsQ, onOpen }) {
   if (leadsQ.isLoading) {
     return (
       <Card className="p-6 space-y-2">
@@ -129,14 +150,23 @@ function ActivityCard({ leadsQ }) {
 
   const leads = (leadsQ.data?.leads || []).filter((r) => r.channel === 'whatsapp')
   leads.sort((a, b) => (b.updated || '').localeCompare(a.updated || ''))
+  const { total: repliedTotal, recent: repliedRecent } = repliedInfo(leads)
 
   return (
     <Card className="p-6">
-      <div className="font-semibold flex items-center gap-2 mb-1">
-        <Clock size={16} /> Actividad reciente (WhatsApp)
+      <div className="flex items-center justify-between gap-2 mb-1">
+        <div className="font-semibold flex items-center gap-2">
+          <Clock size={16} /> Actividad reciente (WhatsApp)
+        </div>
+        {repliedTotal > 0 && (
+          <div className="flex items-center gap-1.5 shrink-0">
+            <Badge color="#2563eb">{repliedTotal} respondi{repliedTotal === 1 ? 'ó' : 'eron'}</Badge>
+            {repliedRecent > 0 && <Badge color="#8A6B2D">{repliedRecent} en 24h</Badge>}
+          </div>
+        )}
       </div>
       <div className="text-xs text-zinc-400 mt-0.5 mb-3">
-        Leads de este canal y su último evento. Se actualiza con cada mensaje entrante.
+        Leads de este canal y su último evento. Toca un lead para ver la conversación completa.
       </div>
 
       {leads.length === 0 ? (
@@ -149,7 +179,11 @@ function ActivityCard({ leadsQ }) {
             const last = (r.history || [])[r.history.length - 1]
             const stage = STAGES[r.stage] || { l: r.stage, c: '#71717a' }
             return (
-              <div key={r.key} className="flex items-center justify-between gap-3 bg-zinc-50 rounded-xl px-3 py-2">
+              <button
+                key={r.key}
+                onClick={() => onOpen(r.key)}
+                className="w-full flex items-center justify-between gap-3 bg-zinc-50 hover:bg-zinc-100 rounded-xl px-3 py-2 text-left transition-colors"
+              >
                 <div className="min-w-0">
                   <div className="text-sm font-medium truncate">{r.company || r.name || r.key}</div>
                   {last && <div className="text-xs text-zinc-400 truncate">{last.event}{last.detail ? ` — ${last.detail}` : ''}</div>}
@@ -157,8 +191,9 @@ function ActivityCard({ leadsQ }) {
                 <div className="flex items-center gap-2 shrink-0">
                   {last?.ts && <span className="text-[11px] text-zinc-400">{new Date(last.ts).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>}
                   <Badge color={stage.c}>{stage.l}</Badge>
+                  <ChevronRight size={14} className="text-zinc-300" />
                 </div>
-              </div>
+              </button>
             )
           })}
         </div>
