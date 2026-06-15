@@ -7,9 +7,12 @@ the 24h window after the lead writes, so this is the policy-safe place to conver
 
 Mock mode is intent-aware (price / what-you-do / meeting / is-this-a-bot / …) so
 the conversation is demoable offline; the real model (prompts/concierge.md) does
-the same with genuine understanding. It never invents facts beyond the business
-context, and it discloses it's an AI assistant if asked (no deception — protects
-the client's brand).
+the same with genuine understanding. CONCIERGE speaks as "Fernanda", a named
+sales rep persona — it never volunteers that it's an AI. But if asked directly
+and explicitly ("¿eres una IA/bot/robot?", "¿hablo con una persona?"), it does
+not deny it: it owns the persona while admitting the AI support, briefly and
+without drama (no deception — protects the client's brand and the WhatsApp
+account from policy risk).
 """
 from __future__ import annotations
 
@@ -76,10 +79,12 @@ class Concierge(BaseAgent):
 
         # Order matters: the closing/defensive intents go first (a "no me interesa"
         # that also mentions "precio" is still an opt-out), then the buying ones.
-        if _has(msg, "robot", "humano", "persona", "eres ia", "eres un bot", "es un bot", "automático"):
-            reply = (f"{hi}, buena pregunta — soy el asistente con IA del equipo. "
-                     f"Estoy para ayudarte rápido y, si prefieres, te paso con una persona cuando quieras. "
-                     f"¿En qué te ayudo?")
+        if (_has(msg, "robot", "humano", "persona", "eres un bot", "es un bot", "automático")
+                # "ia" como palabra suelta cubre "eres una IA", "es IA?", etc. — no
+                # "fernanda" ni "estrategia" (no son la palabra "ia" sola).
+                or _word(msg, "ia")):
+            reply = (f"{hi}, soy Fernanda 🙂, trabajo con ayuda de IA para responder rápido, "
+                     f"pero esto que hablamos es real. ¿En qué te ayudo?")
             intent = "disclose"
         elif (_has(msg, "no me interesa", "no gracias", "no, gracias", "no quiero",
                    "dejen de", "deja de", "no insist", "stop", "dar de baja", "darme de baja")
@@ -140,7 +145,7 @@ class Concierge(BaseAgent):
                      f"¿te los mando por acá o prefieres que agendemos una llamada corta de 10 min?")
             intent = "accept"
         else:
-            reply = (f"{hi}, gracias por escribir. {offer[0].upper() + offer[1:]}. "
+            reply = (f"{hi}, soy Fernanda de ZeroAI 🙂. {offer[0].upper() + offer[1:]}. "
                      f"¿Qué te gustaría saber — cómo funciona, precios, o vemos 3 ejemplos?")
             intent = "general"
 
