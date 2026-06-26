@@ -277,6 +277,8 @@ class MemoryPersistenceTest(unittest.TestCase):
         m.add_used_email("ceo@acme.cl")
         m.open_sequence("acme", {"email": "ceo@acme.cl", "company": "Acme"})
         m.set_pending_offer("acme", "ceo@acme.cl", "info")
+        m.set_client_vendor("acme", "stefano")
+        m.list_vendors()                                    # siembra el catálogo
         m.log("test", detail="x")
         snap = m.snapshot()
         self.assertTrue(all(snap[k] for k in snap), snap)   # cada campo tiene algo
@@ -872,6 +874,136 @@ class UsedEmailsTest(unittest.TestCase):
         m.add_used_email("")                # vacío → se ignora
         self.assertEqual(sorted(m.used_emails), ["baz@qux.cl", "foo@bar.com"])
         self.assertIn("used_emails", m.snapshot())
+
+
+class VendorTest(unittest.TestCase):
+    """Catálogo de vendedores (Fernanda, Stéfano, ...), cada uno con su propio
+    WhatsApp Business — y la asignación cliente → vendedor."""
+
+    def test_catalog_seeds_fernanda_and_stefano(self):
+        m = SessionMemory(None)
+        vendors = m.list_vendors()
+        ids = {v["id"] for v in vendors}
+        self.assertIn("fernanda", ids)
+        self.assertIn("stefano", ids)
+
+    def test_get_vendor(self):
+        m = SessionMemory(None)
+        v = m.get_vendor("fernanda")
+        self.assertEqual(v["name"], "Fernanda")
+        self.assertIsNone(m.get_vendor("no-existe"))
+
+    def test_upsert_vendor(self):
+        m = SessionMemory(None)
+        m.upsert_vendor({"id": "fernanda", "name": "Fernanda Editada",
+                         "photo": None, "tone": "nuevo tono",
+                         "phone": "+56 9 0000 0000", "whatsapp_phone_id": "999"})
+        self.assertEqual(m.get_vendor("fernanda")["name"], "Fernanda Editada")
+        # el resto del catálogo sigue intacto
+        self.assertIsNotNone(m.get_vendor("stefano"))
+
+    def test_client_vendor_assignment_and_default(self):
+        from zero.config import DEFAULT_VENDOR_ID
+        m = SessionMemory(None)
+        # sin asignación -> default
+        self.assertEqual(m.get_client_vendor("acme"), DEFAULT_VENDOR_ID)
+        m.set_client_vendor("acme", "stefano")
+        self.assertEqual(m.get_client_vendor("acme"), "stefano")
+
+    def test_zero_vendor_for(self):
+        from zero.config import DEFAULT_VENDOR_ID
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None))
+        # sin asignación -> el vendedor default
+        self.assertEqual(z.vendor_for("acme")["id"], DEFAULT_VENDOR_ID)
+        z.memory.set_client_vendor("acme", "stefano")
+        self.assertEqual(z.vendor_for("acme")["id"], "stefano")
+
+    def test_snapshot_roundtrip_keeps_catalog_and_assignment(self):
+        m = SessionMemory(None)
+        m.set_client_vendor("acme", "stefano")
+        m.list_vendors()   # asegura el catálogo sembrado antes de snapshot
+        snap = m.snapshot()
+        self.assertIn("vendors", snap)
+        m2 = SessionMemory(None)
+        m2._restore(snap)
+        self.assertEqual(m2.get_client_vendor("acme"), "stefano")
+        self.assertIn("fernanda", {v["id"] for v in m2.list_vendors()})
+
+
+class VendorCredentialsTest(unittest.TestCase):
+    """Resolución de credenciales por vendedor, con fallback a las env globales."""
+
+    def setUp(self):
+        import os
+        self._env_keys = ("WHATSAPP_TOKEN", "WHATSAPP_PHONE_ID", "WHATSAPP_TOKEN_FERNANDA")
+        self._prev = {k: os.environ.get(k) for k in self._env_keys}
+
+    def tearDown(self):
+        import os
+        for k, v in self._prev.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    def test_credentials_fall_back_to_global_token(self):
+        import os
+        from zero.vendors import credentials_for, seed_vendors
+        os.environ.pop("WHATSAPP_TOKEN_FERNANDA", None)
+        os.environ["WHATSAPP_TOKEN"] = "global-token"
+        fernanda = next(v for v in seed_vendors() if v["id"] == "fernanda")
+        phone_id, token = credentials_for(fernanda)
+        self.assertEqual(phone_id, fernanda["whatsapp_phone_id"])  # propio
+        self.assertEqual(token, "global-token")                    # fallback global
+
+    def test_per_vendor_token_takes_priority(self):
+        import os
+        from zero.vendors import credentials_for, seed_vendors
+        os.environ["WHATSAPP_TOKEN"] = "global-token"
+        os.environ["WHATSAPP_TOKEN_FERNANDA"] = "fernanda-token"
+        fernanda = next(v for v in seed_vendors() if v["id"] == "fernanda")
+        _, token = credentials_for(fernanda)
+        self.assertEqual(token, "fernanda-token")
+
+    def test_phone_id_falls_back_to_global_when_vendor_has_none(self):
+        import os
+        from zero.vendors import credentials_for
+        os.environ["WHATSAPP_PHONE_ID"] = "global-phone-id"
+        vendor = {"id": "sin-phone", "whatsapp_phone_id": None}
+        phone_id, _ = credentials_for(vendor)
+        self.assertEqual(phone_id, "global-phone-id")
+
+
+class WhatsAppSenderCredentialsTest(unittest.TestCase):
+    """WhatsAppSender acepta credenciales por parámetro (por-vendedor) o cae a
+    las env globales — sin romper el `/api/whatsapp/status` existente."""
+
+    def setUp(self):
+        import os
+        self._env_keys = ("WHATSAPP_TOKEN", "WHATSAPP_PHONE_ID")
+        self._prev = {k: os.environ.get(k) for k in self._env_keys}
+        os.environ["WHATSAPP_TOKEN"] = "global-token"
+        os.environ["WHATSAPP_PHONE_ID"] = "global-phone-id"
+
+    def tearDown(self):
+        import os
+        for k, v in self._prev.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    def test_uses_global_env_by_default(self):
+        from zero.channels import WhatsAppSender
+        s = WhatsAppSender()
+        self.assertEqual(s.token, "global-token")
+        self.assertEqual(s.phone_id, "global-phone-id")
+
+    def test_uses_passed_in_credentials(self):
+        from zero.channels import WhatsAppSender
+        s = WhatsAppSender(phone_id="vendor-phone-id", token="vendor-token")
+        self.assertEqual(s.token, "vendor-token")
+        self.assertEqual(s.phone_id, "vendor-phone-id")
 
 
 if __name__ == "__main__":

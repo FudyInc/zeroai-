@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .config import (
     AVG_DEAL_VALUE_CLP,
+    DEFAULT_VENDOR_ID,
     FORECAST_RATES,
     MIN_ICP_SCORE,
     RECONTACT_BLACKOUT_DAYS,
@@ -110,6 +111,15 @@ class Zero:
         self.crm = crm   # optional system of record; pipeline updates it when present
         self.outbox = outbox or Outbox()   # mock by default; sends what gets drafted
         self.inbox = inbox or MockInbox()  # mock by default; where replies get detected
+
+    # --- vendors (Fernanda, Stéfano, ... each with their own WhatsApp) -------
+    def vendor_for(self, client_id: str) -> Dict[str, Any]:
+        """The sales-agent record assigned to this client (or the default one).
+
+        Does not (yet) change how `run_pipeline`/`handle_inbound` send — that's
+        the next phase. For now this just resolves *who* is assigned."""
+        vendor_id = self.memory.get_client_vendor(client_id)
+        return self.memory.get_vendor(vendor_id) or self.memory.get_vendor(DEFAULT_VENDOR_ID) or {}
 
     # --- sending (OUTREACH/TRACKER draft; the outbox delivers) ---------------
     def _deliver(self, client_id: str, lead_key: str, to: Optional[str],
