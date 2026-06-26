@@ -20,6 +20,7 @@ import os
 import smtplib
 import ssl
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from email.message import EmailMessage
@@ -80,14 +81,16 @@ class EmailSender:
 
 
 class WhatsAppSender:
-    """Real WhatsApp send via Meta Cloud API (stdlib urllib). Needs WHATSAPP_TOKEN,
-    WHATSAPP_PHONE_ID. Swappable for Twilio/another provider — same `send` contract."""
+    """Real WhatsApp send via Meta Cloud API (stdlib urllib). Needs a phone_id +
+    token — either passed in (per-vendor credentials, see `zero/vendors.py`) or,
+    if omitted, the global WHATSAPP_TOKEN/WHATSAPP_PHONE_ID env vars. Swappable
+    for Twilio/another provider — same `send` contract."""
     name = "whatsapp"
     API = "https://graph.facebook.com/v20.0"
 
-    def __init__(self) -> None:
-        self.token = os.environ["WHATSAPP_TOKEN"]
-        self.phone_id = os.environ["WHATSAPP_PHONE_ID"]
+    def __init__(self, phone_id: Optional[str] = None, token: Optional[str] = None) -> None:
+        self.token = token or os.environ["WHATSAPP_TOKEN"]
+        self.phone_id = phone_id or os.environ["WHATSAPP_PHONE_ID"]
 
     def send(self, msg: Dict[str, Any]) -> Dict[str, Any]:
         to = "".join(ch for ch in str(msg.get("to") or "") if ch.isdigit())
@@ -104,6 +107,29 @@ class WhatsAppSender:
             res = json.loads(r.read().decode("utf-8"))
         mid = (res.get("messages") or [{}])[0].get("id")
         return _result("whatsapp", to, "sent", id=mid, via="whatsapp")
+
+
+def whatsapp_status() -> Dict[str, Any]:
+    """Pings the Graph API with WHATSAPP_TOKEN/WHATSAPP_PHONE_ID to confirm the
+    WhatsApp Business number is really linked (not just that the env vars exist).
+    Raises RuntimeError with Meta's own message on failure."""
+    token = os.environ["WHATSAPP_TOKEN"]
+    phone_id = os.environ["WHATSAPP_PHONE_ID"]
+    q = urllib.parse.urlencode({"fields": "display_phone_number,verified_name", "access_token": token})
+    url = f"{WhatsAppSender.API}/{phone_id}?{q}"
+    try:
+        with urllib.request.urlopen(url, timeout=20) as r:
+            d = json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "replace")
+        try:
+            msg = json.loads(detail).get("error", {}).get("message", detail)
+        except Exception:
+            msg = detail
+        raise RuntimeError(f"Meta: {msg[:200]}") from e
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"no pude contactar a Meta: {e}") from e
+    return {"display_phone_number": d.get("display_phone_number"), "verified_name": d.get("verified_name")}
 
 
 class Outbox:

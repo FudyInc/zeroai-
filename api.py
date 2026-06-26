@@ -378,6 +378,18 @@ def _agent_op(fn, memory=None):
         return fn(Zero(build_agents(mock=True), memory=mem)), "mock"
 
 
+@app.get("/api/whatsapp/status")
+def whatsapp_status():
+    """Prueba el token + phone_id de WhatsApp contra la Graph API real."""
+    if not (os.environ.get("WHATSAPP_TOKEN") and os.environ.get("WHATSAPP_PHONE_ID")):
+        raise HTTPException(status_code=400, detail="Configura primero WhatsApp en Configuración.")
+    from zero.channels import whatsapp_status as _whatsapp_status
+    try:
+        return _whatsapp_status()
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @app.get("/api/webhooks/whatsapp")
 def whatsapp_verify(mode: Optional[str] = Query(None, alias="hub.mode"),
                     token: Optional[str] = Query(None, alias="hub.verify_token"),
