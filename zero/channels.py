@@ -143,18 +143,34 @@ class Outbox:
     the LLM backends.
     """
 
-    def __init__(self, real_senders: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(self, real_senders: Optional[Dict[str, Any]] = None,
+                 wa_sender_factory: Optional[Any] = None) -> None:
         self.real = real_senders or {}
         self._mock = MockSender()
+        # Builds a per-vendor WhatsApp sender from (phone_id, token) when live, so
+        # each client sends from its assigned vendor's number. Cached by phone_id.
+        self._wa_factory = wa_sender_factory
+        self._wa_cache: Dict[str, Any] = {}
         self.log: List[Dict[str, Any]] = []
 
     @property
     def live(self) -> bool:
         return bool(self.real)
 
-    def send(self, msg: Dict[str, Any]) -> Dict[str, Any]:
+    def _sender_for(self, channel: str, wa_creds: Optional[Any]) -> Any:
+        if not self.real:
+            return self._mock                       # mock mode: never real
+        if channel == "whatsapp" and wa_creds and self._wa_factory:
+            phone_id, token = wa_creds
+            if phone_id and token:
+                if phone_id not in self._wa_cache:
+                    self._wa_cache[phone_id] = self._wa_factory(phone_id, token)
+                return self._wa_cache[phone_id]
+        return self.real.get(channel, self._mock)
+
+    def send(self, msg: Dict[str, Any], wa_creds: Optional[Any] = None) -> Dict[str, Any]:
         channel = msg.get("channel") or "email"
-        sender = self.real.get(channel, self._mock)
+        sender = self._sender_for(channel, wa_creds)
         try:
             res = sender.send(msg)
         except Exception as e:   # noqa: BLE001 — any failure degrades, never crashes
@@ -176,5 +192,6 @@ def make_outbox() -> Outbox:
     if os.environ.get("SMTP_HOST"):
         real["email"] = EmailSender()
     if os.environ.get("WHATSAPP_TOKEN") and os.environ.get("WHATSAPP_PHONE_ID"):
-        real["whatsapp"] = WhatsAppSender()
-    return Outbox(real)
+        real["whatsapp"] = WhatsAppSender()              # global fallback sender
+    # Per-vendor senders are built on demand from each vendor's (phone_id, token).
+    return Outbox(real, wa_sender_factory=lambda pid, tok: WhatsAppSender(pid, tok))

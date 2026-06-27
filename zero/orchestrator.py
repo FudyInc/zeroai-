@@ -26,6 +26,7 @@ from .contracts import AgentResponse, Constraints, Lead, TaskPayload
 from .icp import describe_icp, is_empty, normalize_icp
 from .inbox import Inbox, MockInbox
 from .memory import SessionMemory
+from .vendors import credentials_for
 
 # --- pending offers (the CONCIERGE promises, ZERO fulfills) -------------------
 # When the agent replies "te mando un resumen" / "¿te dejo 3 ejemplos?", that's a
@@ -124,8 +125,14 @@ class Zero:
     # --- sending (OUTREACH/TRACKER draft; the outbox delivers) ---------------
     def _deliver(self, client_id: str, lead_key: str, to: Optional[str],
                  msg: Dict[str, Any]) -> Dict[str, Any]:
-        """Send one drafted message and record the outcome on the CRM record."""
-        res = self.outbox.send({**msg, "to": to})
+        """Send one drafted message and record the outcome on the CRM record.
+
+        WhatsApp goes out from the client's assigned vendor's number (its own
+        phone_id/token); the outbox uses these only when sending for real."""
+        wa_creds = None
+        if (msg.get("channel") or "") == "whatsapp" and client_id:
+            wa_creds = credentials_for(self.vendor_for(client_id))
+        res = self.outbox.send({**msg, "to": to}, wa_creds=wa_creds)
         if self.crm:
             detail = f"{res['channel']} → {to or '—'} [{res['status']}/{res['via']}]"
             if res.get("error"):

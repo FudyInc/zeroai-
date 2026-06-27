@@ -488,6 +488,88 @@ class ChannelTest(unittest.TestCase):
         self.assertTrue(any(h["event"] == "send" for h in crm.get("acme", key)["history"]))
 
 
+class WhatsAppVendorSendTest(unittest.TestCase):
+    """Cada cliente envía WhatsApp con las credenciales de SU vendedor (Fase 3.2).
+    Todo offline: el factory de senders se inyecta, nunca se toca la red."""
+
+    @staticmethod
+    def _ok(msg):
+        return {"channel": "whatsapp", "to": msg.get("to"), "status": "sent",
+                "id": "x", "error": None, "via": "whatsapp"}
+
+    def _live_outbox(self):
+        from zero.channels import Outbox
+        built = {}
+
+        class FakeWA:
+            name = "whatsapp"
+            def __init__(self, pid, tok):
+                self.pid, self.tok, self.sent = pid, tok, []
+                built[pid] = self
+            def send(s, msg):
+                s.sent.append(msg)
+                return WhatsAppVendorSendTest._ok(msg)
+
+        box = Outbox({"whatsapp": object()},                # real no vacío -> modo live
+                     wa_sender_factory=lambda pid, tok: FakeWA(pid, tok))
+        return box, built
+
+    def test_outbox_builds_per_vendor_sender_and_caches(self):
+        box, built = self._live_outbox()
+        box.send({"channel": "whatsapp", "to": "569111", "body": "a"}, wa_creds=("pid-1", "tok-1"))
+        box.send({"channel": "whatsapp", "to": "569222", "body": "b"}, wa_creds=("pid-2", "tok-2"))
+        box.send({"channel": "whatsapp", "to": "569333", "body": "c"}, wa_creds=("pid-1", "tok-1"))
+        self.assertEqual(built["pid-1"].tok, "tok-1")
+        self.assertEqual(built["pid-2"].tok, "tok-2")
+        self.assertEqual(set(built), {"pid-1", "pid-2"})     # pid-1 reusado (cache), no recreado
+        self.assertEqual(len(built["pid-1"].sent), 2)        # dos envíos por el mismo sender
+
+    def test_mock_outbox_ignores_wa_creds(self):
+        from zero.channels import Outbox
+        res = Outbox().send({"channel": "whatsapp", "to": "569", "body": "x"},
+                            wa_creds=("pid", "tok"))
+        self.assertEqual(res["via"], "mock")                 # sin red, sin credenciales reales
+
+    def test_deliver_selects_each_clients_vendor_credentials(self):
+        import os
+        prev = {k: os.environ.get(k) for k in
+                ("WHATSAPP_TOKEN_FERNANDA", "WHATSAPP_TOKEN_STEFANO", "WHATSAPP_TOKEN")}
+        os.environ["WHATSAPP_TOKEN_FERNANDA"] = "tok-f"
+        os.environ["WHATSAPP_TOKEN_STEFANO"] = "tok-s"
+        os.environ.pop("WHATSAPP_TOKEN", None)
+        try:
+            from zero.channels import Outbox
+
+            class RecordingOutbox(Outbox):
+                def __init__(self):
+                    super().__init__()
+                    self.calls = []
+                def send(self, msg, wa_creds=None):
+                    self.calls.append((msg.get("channel"), wa_creds))
+                    return super().send(msg, wa_creds=wa_creds)
+
+            box = RecordingOutbox()
+            z = Zero(build_agents(mock=True), memory=SessionMemory(None), outbox=box)
+            z.memory.set_client_vendor("a", "fernanda")
+            z.memory.set_client_vendor("b", "stefano")
+            f, st = z.memory.get_vendor("fernanda"), z.memory.get_vendor("stefano")
+
+            z._deliver("a", "k1", "569111", {"channel": "whatsapp", "body": "hola"})
+            z._deliver("b", "k2", "569222", {"channel": "whatsapp", "body": "hola"})
+            self.assertEqual(box.calls[0], ("whatsapp", (f["whatsapp_phone_id"], "tok-f")))
+            self.assertEqual(box.calls[1], ("whatsapp", (st["whatsapp_phone_id"], "tok-s")))
+
+            # email no resuelve credenciales de WhatsApp
+            z._deliver("a", "k3", "a@b.cl", {"channel": "email", "body": "x"})
+            self.assertEqual(box.calls[2], ("email", None))
+        finally:
+            for k, v in prev.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+
 class ConciergeTest(unittest.TestCase):
     """The conversational agent answers inbound questions about the business."""
 
