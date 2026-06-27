@@ -112,9 +112,12 @@ class WhatsAppSender:
 def whatsapp_status() -> Dict[str, Any]:
     """Pings the Graph API with WHATSAPP_TOKEN/WHATSAPP_PHONE_ID to confirm the
     WhatsApp Business number is really linked (not just that the env vars exist).
-    Raises RuntimeError with Meta's own message on failure."""
-    token = os.environ["WHATSAPP_TOKEN"]
-    phone_id = os.environ["WHATSAPP_PHONE_ID"]
+    Raises RuntimeError with Meta's own message on failure (or a clear message if
+    the credentials aren't configured — never a bare KeyError)."""
+    token = os.environ.get("WHATSAPP_TOKEN")
+    phone_id = os.environ.get("WHATSAPP_PHONE_ID")
+    if not (token and phone_id):
+        raise RuntimeError("WhatsApp sin configurar: faltan WHATSAPP_TOKEN / WHATSAPP_PHONE_ID")
     q = urllib.parse.urlencode({"fields": "display_phone_number,verified_name", "access_token": token})
     url = f"{WhatsAppSender.API}/{phone_id}?{q}"
     try:

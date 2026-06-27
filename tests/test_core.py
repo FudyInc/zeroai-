@@ -454,6 +454,25 @@ class ChannelTest(unittest.TestCase):
         self.assertEqual(res["status"], "error")          # degraded, not crashed
         self.assertIn("smtp caído", res["error"])
 
+    def test_whatsapp_status_without_creds_raises_clean_error(self):
+        """Sin WHATSAPP_TOKEN/PHONE_ID, whatsapp_status() falla con un mensaje
+        claro (RuntimeError), nunca un KeyError crudo — y sin tocar la red."""
+        import os
+        from zero.channels import whatsapp_status
+        prev = {k: os.environ.get(k) for k in ("WHATSAPP_TOKEN", "WHATSAPP_PHONE_ID")}
+        try:
+            os.environ.pop("WHATSAPP_TOKEN", None)
+            os.environ.pop("WHATSAPP_PHONE_ID", None)
+            with self.assertRaises(RuntimeError) as ctx:
+                whatsapp_status()
+            self.assertIn("WhatsApp", str(ctx.exception))
+        finally:
+            for k, v in prev.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
     def test_pipeline_sends_first_touch_via_mock(self):
         from zero.channels import Outbox
         crm = CRM(None)
