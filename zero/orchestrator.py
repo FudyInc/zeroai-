@@ -474,10 +474,14 @@ class Zero:
         (ICP). Pure drafting — doesn't send. Returns the full CONCIERGE result
         ({reply, intent}) so callers can act on the intent (e.g. pending offers)."""
         icp = self.memory.get_client_icp(client_id) if client_id else {}
+        # Persona del vendedor asignado (Fernanda/Stéfano/...): solo name/tone, para
+        # que CONCIERGE suene como esa persona. Nunca el token/phone_id (secretos).
+        vendor = self.vendor_for(client_id) if client_id else {}
+        persona = {"name": vendor.get("name"), "tone": vendor.get("tone")}
         resp = self.dispatch("CONCIERGE", TaskPayload(
             agent="CONCIERGE", client_id=client_id or "", client_tier="",
             instructions="Responde el mensaje entrante del lead, en su idioma, breve y útil.",
-            data={"message": message, "lead": lead or {}, "icp": icp},
+            data={"message": message, "lead": lead or {}, "icp": icp, "vendor": persona},
             constraints=Constraints(channels=[channel]),
         ))
         return resp.result or {}

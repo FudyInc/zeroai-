@@ -937,6 +937,27 @@ class VendorTest(unittest.TestCase):
         z.memory.set_client_vendor("acme", "stefano")
         self.assertEqual(z.vendor_for("acme")["id"], "stefano")
 
+    def test_converse_injects_vendor_persona_without_secrets(self):
+        """converse_result pasa data['vendor']={name,tone} a CONCIERGE (contrato
+        que consume MOTOR·WhatsApp) y NUNCA filtra token/phone_id."""
+        from zero.contracts import AgentResponse
+
+        class Recorder:
+            def __init__(self): self.task = None
+            def run(self, task):
+                self.task = task
+                return AgentResponse(task_id="t", agent="CONCIERGE", status="done",
+                                     result={"reply": "ok", "intent": "info"})
+
+        rec = Recorder()
+        z = Zero({"CONCIERGE": rec}, memory=SessionMemory(None))
+        z.memory.set_client_vendor("acme", "stefano")
+        z.converse_result("acme", "hola")
+        vendor = rec.task.data["vendor"]
+        self.assertEqual(vendor, {"name": "Stéfano", "tone": "formal, técnico, al grano"})
+        self.assertNotIn("token", vendor)
+        self.assertNotIn("whatsapp_phone_id", vendor)
+
     def test_snapshot_roundtrip_keeps_catalog_and_assignment(self):
         m = SessionMemory(None)
         m.set_client_vendor("acme", "stefano")
