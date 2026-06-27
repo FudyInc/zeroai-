@@ -569,6 +569,47 @@ class WhatsAppVendorSendTest(unittest.TestCase):
                 else:
                     os.environ[k] = v
 
+    def test_inbound_reply_uses_vendor_of_received_number(self):
+        """Una respuesta sale del número al que el lead escribió (su vendedor por
+        phone_id), aunque el cliente esté asignado a otro vendedor."""
+        import os
+        prev = {k: os.environ.get(k) for k in ("WHATSAPP_TOKEN_STEFANO", "WHATSAPP_TOKEN")}
+        os.environ["WHATSAPP_TOKEN_STEFANO"] = "tok-s"
+        os.environ.pop("WHATSAPP_TOKEN", None)
+        try:
+            from zero.channels import Outbox
+
+            class RecordingOutbox(Outbox):
+                def __init__(self):
+                    super().__init__()
+                    self.calls = []
+                def send(self, msg, wa_creds=None):
+                    self.calls.append((msg.get("channel"), wa_creds))
+                    return super().send(msg, wa_creds=wa_creds)
+
+            box = RecordingOutbox()
+            crm = CRM(None)
+            z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=crm, outbox=box)
+            z.memory.set_client_vendor("acme", "fernanda")   # cliente asignado a Fernanda
+            z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8)
+            lead = crm.list("acme", "nurturing")[0]
+            stefano = z.memory.get_vendor("stefano")
+            from_contact = "".join(c for c in (lead.get("phone") or lead.get("email") or "") if c.isalnum())
+
+            box.calls.clear()
+            # llega un mensaje al NÚMERO de Stéfano (no el de Fernanda)
+            z.handle_inbound(from_contact, "¿qué hacen?", to_phone_id=stefano["whatsapp_phone_id"])
+            wa_calls = [c for c in box.calls if c[0] == "whatsapp"]
+            self.assertTrue(wa_calls)
+            # respondió con las credenciales de Stéfano (el número que recibió), no Fernanda
+            self.assertEqual(wa_calls[-1][1], (stefano["whatsapp_phone_id"], "tok-s"))
+        finally:
+            for k, v in prev.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
 
 class ConciergeTest(unittest.TestCase):
     """The conversational agent answers inbound questions about the business."""
@@ -667,14 +708,22 @@ class ConciergeTest(unittest.TestCase):
 
     def test_parse_inbound(self):
         from zero.whatsapp_inbound import parse_inbound
-        payload = {"entry": [{"changes": [{"value": {"messages": [
-            {"from": "56999111222", "type": "text", "text": {"body": "hola, precio?"}},
-            {"from": "56999333444", "type": "image"},
-        ]}}]}]}
+        payload = {"entry": [{"changes": [{"value": {
+            "metadata": {"phone_number_id": "PID_STEFANO"},
+            "messages": [
+                {"from": "56999111222", "type": "text", "text": {"body": "hola, precio?"}},
+                {"from": "56999333444", "type": "image"},
+            ]}}]}]}
         msgs = parse_inbound(payload)
         self.assertEqual(len(msgs), 2)
-        self.assertEqual(msgs[0], {"from": "56999111222", "text": "hola, precio?"})
+        self.assertEqual(msgs[0], {"from": "56999111222", "text": "hola, precio?",
+                                   "to_phone_id": "PID_STEFANO"})
         self.assertEqual(msgs[1]["text"], "[image]")
+        self.assertEqual(msgs[1]["to_phone_id"], "PID_STEFANO")
+        # sin metadata → to_phone_id vacío, nunca crash
+        no_meta = parse_inbound({"entry": [{"changes": [{"value": {"messages": [
+            {"from": "569", "type": "text", "text": {"body": "x"}}]}}]}]})
+        self.assertEqual(no_meta[0]["to_phone_id"], "")
         self.assertEqual(parse_inbound({}), [])      # malformed → empty, no crash
 
     def test_inbound_matches_lead_and_replies(self):

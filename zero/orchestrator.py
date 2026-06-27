@@ -122,15 +122,26 @@ class Zero:
         vendor_id = self.memory.get_client_vendor(client_id)
         return self.memory.get_vendor(vendor_id) or self.memory.get_vendor(DEFAULT_VENDOR_ID) or {}
 
+    def vendor_by_phone_id(self, phone_id: Optional[str]) -> Dict[str, Any]:
+        """The vendor that owns a WhatsApp number (by whatsapp_phone_id), or {} if
+        none matches — used to reply from the same number a lead wrote to."""
+        if not phone_id:
+            return {}
+        for v in self.memory.list_vendors():
+            if v.get("whatsapp_phone_id") == phone_id:
+                return v
+        return {}
+
     # --- sending (OUTREACH/TRACKER draft; the outbox delivers) ---------------
     def _deliver(self, client_id: str, lead_key: str, to: Optional[str],
-                 msg: Dict[str, Any]) -> Dict[str, Any]:
+                 msg: Dict[str, Any], wa_creds: Optional[Tuple[Optional[str], Optional[str]]] = None) -> Dict[str, Any]:
         """Send one drafted message and record the outcome on the CRM record.
 
-        WhatsApp goes out from the client's assigned vendor's number (its own
-        phone_id/token); the outbox uses these only when sending for real."""
-        wa_creds = None
-        if (msg.get("channel") or "") == "whatsapp" and client_id:
+        WhatsApp goes out from a vendor's number (its own phone_id/token); the
+        outbox uses these only when sending for real. `wa_creds` overrides the
+        sender (e.g. reply from the number a lead wrote to); when omitted, it falls
+        back to the client's assigned vendor."""
+        if wa_creds is None and (msg.get("channel") or "") == "whatsapp" and client_id:
             wa_creds = credentials_for(self.vendor_for(client_id))
         res = self.outbox.send({**msg, "to": to}, wa_creds=wa_creds)
         if self.crm:
@@ -540,10 +551,13 @@ class Zero:
         return {"imported": imported, "client_id": client_id}
 
     def handle_inbound(self, from_contact: str, text: str,
-                       channel: str = "whatsapp") -> Dict[str, Any]:
+                       channel: str = "whatsapp",
+                       to_phone_id: Optional[str] = None) -> Dict[str, Any]:
         """An inbound message arrived (e.g. a WhatsApp reply). Match it to its lead,
         close the loop (`register_reply`), then draft + send a reply with CONCIERGE.
-        Unmatched senders are logged (a number we never contacted), not an error."""
+        Reply goes from the vendor that owns `to_phone_id` (the number the lead wrote
+        to); falls back to the client's assigned vendor. Unmatched senders are logged
+        (a number we never contacted), not an error."""
         rec = self.crm.find_by_contact(phone=from_contact, email=from_contact) if self.crm else None
         if not rec:
             self.memory.log("inbound_unmatched", channel=channel,
@@ -552,6 +566,9 @@ class Zero:
             return {"matched": False, "sender": from_contact}
 
         client_id, key = rec["client_id"], rec["key"]
+        # Reply from the number the lead wrote to (its vendor), else the client's vendor.
+        inbound_vendor = self.vendor_by_phone_id(to_phone_id)
+        wa_creds = credentials_for(inbound_vendor) if inbound_vendor else None
         out = self.register_reply(client_id, key, text=text, channel=channel)
 
         # An offer was pending (summary / 3 examples) and the lead accepted:
@@ -564,7 +581,7 @@ class Zero:
                 "channel": out_channel,
                 "subject": "ZeroAI — resumen y 3 ejemplos" if out_channel == "email" else None,
                 "body": body,
-            })
+            }, wa_creds=wa_creds)
             self.memory.clear_pending_offer(client_id, key)
             self.memory.log("offer_fulfilled", client=client_id, lead=key,
                             kind=pending.get("kind"), channel=out_channel)
@@ -580,7 +597,7 @@ class Zero:
         reply, intent = res.get("reply") or "", res.get("intent") or "general"
         if reply:
             self._deliver(client_id, key, rec.get("phone") or rec.get("email"),
-                          {"channel": channel, "subject": None, "body": reply})
+                          {"channel": channel, "subject": None, "body": reply}, wa_creds=wa_creds)
             if self.crm:
                 self.crm.log(client_id, key, "auto_reply", reply[:140])
                 self.crm.save()
