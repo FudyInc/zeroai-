@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
-import { MessageCircle, CheckCircle2, WifiOff, Copy, Check, Clock } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
+import { MessageCircle, CheckCircle2, WifiOff, AlertCircle, Copy, Check, Clock } from 'lucide-react'
 import { api, BASE } from '../lib/api'
 import { Card, Button, Badge, Skeleton } from '../components/ui'
 import { STAGES } from '../lib/util'
@@ -10,6 +11,7 @@ import AgentTester from '../components/AgentTester'
 
 export default function Whatsapp() {
   const { client } = useApp()
+  const nav = useNavigate()
   const cfgQ = useQuery({ queryKey: ['config'], queryFn: api.config })
   const leadsQ = useQuery({
     queryKey: ['leads', client, 'whatsapp-activity'],
@@ -43,14 +45,24 @@ export default function Whatsapp() {
   if (!connected) {
     return (
       <Card className="p-6 max-w-2xl">
-        <div className="flex items-center gap-2 font-semibold mb-1">
-          <MessageCircle size={18} className="text-[#16a34a]" /> Agente de WhatsApp
+        <div className="flex items-start gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-champagne/40 text-gold-deep grid place-items-center shrink-0">
+            <MessageCircle size={22} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="font-semibold mb-1">Agente de WhatsApp</div>
+            <div className="text-sm text-zinc-500 mb-3">
+              Conecta tu cuenta de <b>WhatsApp Business (Meta Cloud API)</b> para activar este agente. Una vez
+              conectado:
+            </div>
+            <ul className="text-sm text-zinc-500 space-y-1.5 mb-4 list-disc pl-4">
+              <li>Responde las dudas del lead sobre la oferta y el negocio del cliente.</li>
+              <li>Si detecta interés, propone una reunión corta dentro de la ventana de 24h de WhatsApp Business.</li>
+              <li>Si le preguntan si es humano o IA, lo admite — protege la marca del cliente.</li>
+            </ul>
+            <Button onClick={() => nav('/config')}>Ir a Configuración</Button>
+          </div>
         </div>
-        <div className="text-sm text-zinc-500 mb-3">
-          Conecta tu cuenta de <b>WhatsApp Business (Meta Cloud API)</b> para activar este agente: responde
-          dudas del lead y agenda dentro de la ventana de 24h.
-        </div>
-        <Link to="/config" className="text-gold-deep text-sm font-medium">Ir a Configuración →</Link>
       </Card>
     )
   }
@@ -72,10 +84,23 @@ export default function Whatsapp() {
 
 function StatusCard({ cfg, webhookUrl }) {
   const [copied, setCopied] = useState(false)
+  const [probe, setProbe] = useState(null) // null | { ok: true, data } | { ok: false, error }
+  const [busy, setBusy] = useState(false)
   const copy = () => {
     navigator.clipboard?.writeText(webhookUrl)
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
+  }
+  const testConnection = async () => {
+    setBusy(true)
+    try {
+      const data = await api.whatsappStatus()
+      setProbe({ ok: true, data })
+      toast.success('Conexión con WhatsApp OK')
+    } catch (e) {
+      setProbe({ ok: false, error: e.message })
+      toast.error('Conexión falló: ' + e.message)
+    } finally { setBusy(false) }
   }
   return (
     <Card className="p-6">
@@ -87,10 +112,30 @@ function StatusCard({ cfg, webhookUrl }) {
           <CheckCircle2 size={12} /> Activo
         </Badge>
       </div>
-      <div className="text-xs text-zinc-400 mt-0.5 mb-4">
+      <div className="text-xs text-zinc-400 mt-0.5 mb-3">
         Token y phone number ID conectados. El agente responde dudas y agenda dentro de la ventana de 24h
         de WhatsApp Business.
       </div>
+
+      <div className="flex items-center gap-2 mb-3">
+        <Button variant="soft" onClick={testConnection} disabled={busy}>
+          {busy ? 'Probando…' : 'Probar conexión'}
+        </Button>
+        {probe?.ok && (
+          <span className="text-xs text-zinc-500 flex items-center gap-1.5 min-w-0">
+            <CheckCircle2 size={13} className="text-[#16a34a] shrink-0" />
+            <span className="truncate">
+              {probe.data?.display_phone_number}
+              {probe.data?.verified_name ? ` · ${probe.data.verified_name}` : ''}
+            </span>
+          </span>
+        )}
+      </div>
+      {probe?.ok === false && (
+        <div className="text-xs text-rose-600 mb-3 flex items-start gap-1.5 break-words">
+          <AlertCircle size={13} className="mt-0.5 shrink-0" /> {probe.error}
+        </div>
+      )}
 
       <div className="rounded-xl bg-zinc-50 p-3 mb-3">
         <div className="text-xs font-medium text-zinc-600 mb-1">Webhook (configúralo en Meta for Developers → WhatsApp → Configuración)</div>
