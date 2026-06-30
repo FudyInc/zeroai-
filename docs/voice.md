@@ -43,4 +43,5 @@ Hacer que *llame de verdad y converse* necesita además:
 tiempo real. Eso lo arman plataformas como **Vapi / Retell / Bland / ElevenLabs
 Conversational AI** (todas con tu cuenta/keys).
 
-Y siempre: **si preguntan si es IA, se dice que sí.** Voz natural ✓; ocultar que es IA ✗.
+Y siempre: **no se ofrece por cuenta propia, pero si preguntan directo, no se niega**
+("trabajo con ayuda de IA, pero esto es real"). Voz natural ✓; negar que hay IA ✗.
