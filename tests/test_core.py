@@ -277,6 +277,8 @@ class MemoryPersistenceTest(unittest.TestCase):
         m.add_used_email("ceo@acme.cl")
         m.open_sequence("acme", {"email": "ceo@acme.cl", "company": "Acme"})
         m.set_pending_offer("acme", "ceo@acme.cl", "info")
+        m.set_client_vendor("acme", "stefano")
+        m.list_vendors()                                    # siembra el catálogo
         m.log("test", detail="x")
         snap = m.snapshot()
         self.assertTrue(all(snap[k] for k in snap), snap)   # cada campo tiene algo
@@ -452,6 +454,25 @@ class ChannelTest(unittest.TestCase):
         self.assertEqual(res["status"], "error")          # degraded, not crashed
         self.assertIn("smtp caído", res["error"])
 
+    def test_whatsapp_status_without_creds_raises_clean_error(self):
+        """Sin WHATSAPP_TOKEN/PHONE_ID, whatsapp_status() falla con un mensaje
+        claro (RuntimeError), nunca un KeyError crudo — y sin tocar la red."""
+        import os
+        from zero.channels import whatsapp_status
+        prev = {k: os.environ.get(k) for k in ("WHATSAPP_TOKEN", "WHATSAPP_PHONE_ID")}
+        try:
+            os.environ.pop("WHATSAPP_TOKEN", None)
+            os.environ.pop("WHATSAPP_PHONE_ID", None)
+            with self.assertRaises(RuntimeError) as ctx:
+                whatsapp_status()
+            self.assertIn("WhatsApp", str(ctx.exception))
+        finally:
+            for k, v in prev.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
     def test_pipeline_sends_first_touch_via_mock(self):
         from zero.channels import Outbox
         crm = CRM(None)
@@ -465,6 +486,129 @@ class ChannelTest(unittest.TestCase):
         # every send is recorded on the lead's CRM history
         key = crm.list("acme", "nurturing")[0]["key"]
         self.assertTrue(any(h["event"] == "send" for h in crm.get("acme", key)["history"]))
+
+
+class WhatsAppVendorSendTest(unittest.TestCase):
+    """Cada cliente envía WhatsApp con las credenciales de SU vendedor (Fase 3.2).
+    Todo offline: el factory de senders se inyecta, nunca se toca la red."""
+
+    @staticmethod
+    def _ok(msg):
+        return {"channel": "whatsapp", "to": msg.get("to"), "status": "sent",
+                "id": "x", "error": None, "via": "whatsapp"}
+
+    def _live_outbox(self):
+        from zero.channels import Outbox
+        built = {}
+
+        class FakeWA:
+            name = "whatsapp"
+            def __init__(self, pid, tok):
+                self.pid, self.tok, self.sent = pid, tok, []
+                built[pid] = self
+            def send(s, msg):
+                s.sent.append(msg)
+                return WhatsAppVendorSendTest._ok(msg)
+
+        box = Outbox({"whatsapp": object()},                # real no vacío -> modo live
+                     wa_sender_factory=lambda pid, tok: FakeWA(pid, tok))
+        return box, built
+
+    def test_outbox_builds_per_vendor_sender_and_caches(self):
+        box, built = self._live_outbox()
+        box.send({"channel": "whatsapp", "to": "569111", "body": "a"}, wa_creds=("pid-1", "tok-1"))
+        box.send({"channel": "whatsapp", "to": "569222", "body": "b"}, wa_creds=("pid-2", "tok-2"))
+        box.send({"channel": "whatsapp", "to": "569333", "body": "c"}, wa_creds=("pid-1", "tok-1"))
+        self.assertEqual(built["pid-1"].tok, "tok-1")
+        self.assertEqual(built["pid-2"].tok, "tok-2")
+        self.assertEqual(set(built), {"pid-1", "pid-2"})     # pid-1 reusado (cache), no recreado
+        self.assertEqual(len(built["pid-1"].sent), 2)        # dos envíos por el mismo sender
+
+    def test_mock_outbox_ignores_wa_creds(self):
+        from zero.channels import Outbox
+        res = Outbox().send({"channel": "whatsapp", "to": "569", "body": "x"},
+                            wa_creds=("pid", "tok"))
+        self.assertEqual(res["via"], "mock")                 # sin red, sin credenciales reales
+
+    def test_deliver_selects_each_clients_vendor_credentials(self):
+        import os
+        prev = {k: os.environ.get(k) for k in
+                ("WHATSAPP_TOKEN_FERNANDA", "WHATSAPP_TOKEN_STEFANO", "WHATSAPP_TOKEN")}
+        os.environ["WHATSAPP_TOKEN_FERNANDA"] = "tok-f"
+        os.environ["WHATSAPP_TOKEN_STEFANO"] = "tok-s"
+        os.environ.pop("WHATSAPP_TOKEN", None)
+        try:
+            from zero.channels import Outbox
+
+            class RecordingOutbox(Outbox):
+                def __init__(self):
+                    super().__init__()
+                    self.calls = []
+                def send(self, msg, wa_creds=None):
+                    self.calls.append((msg.get("channel"), wa_creds))
+                    return super().send(msg, wa_creds=wa_creds)
+
+            box = RecordingOutbox()
+            z = Zero(build_agents(mock=True), memory=SessionMemory(None), outbox=box)
+            z.memory.set_client_vendor("a", "fernanda")
+            z.memory.set_client_vendor("b", "stefano")
+            f, st = z.memory.get_vendor("fernanda"), z.memory.get_vendor("stefano")
+
+            z._deliver("a", "k1", "569111", {"channel": "whatsapp", "body": "hola"})
+            z._deliver("b", "k2", "569222", {"channel": "whatsapp", "body": "hola"})
+            self.assertEqual(box.calls[0], ("whatsapp", (f["whatsapp_phone_id"], "tok-f")))
+            self.assertEqual(box.calls[1], ("whatsapp", (st["whatsapp_phone_id"], "tok-s")))
+
+            # email no resuelve credenciales de WhatsApp
+            z._deliver("a", "k3", "a@b.cl", {"channel": "email", "body": "x"})
+            self.assertEqual(box.calls[2], ("email", None))
+        finally:
+            for k, v in prev.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+    def test_inbound_reply_uses_vendor_of_received_number(self):
+        """Una respuesta sale del número al que el lead escribió (su vendedor por
+        phone_id), aunque el cliente esté asignado a otro vendedor."""
+        import os
+        prev = {k: os.environ.get(k) for k in ("WHATSAPP_TOKEN_STEFANO", "WHATSAPP_TOKEN")}
+        os.environ["WHATSAPP_TOKEN_STEFANO"] = "tok-s"
+        os.environ.pop("WHATSAPP_TOKEN", None)
+        try:
+            from zero.channels import Outbox
+
+            class RecordingOutbox(Outbox):
+                def __init__(self):
+                    super().__init__()
+                    self.calls = []
+                def send(self, msg, wa_creds=None):
+                    self.calls.append((msg.get("channel"), wa_creds))
+                    return super().send(msg, wa_creds=wa_creds)
+
+            box = RecordingOutbox()
+            crm = CRM(None)
+            z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=crm, outbox=box)
+            z.memory.set_client_vendor("acme", "fernanda")   # cliente asignado a Fernanda
+            z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8)
+            lead = crm.list("acme", "nurturing")[0]
+            stefano = z.memory.get_vendor("stefano")
+            from_contact = "".join(c for c in (lead.get("phone") or lead.get("email") or "") if c.isalnum())
+
+            box.calls.clear()
+            # llega un mensaje al NÚMERO de Stéfano (no el de Fernanda)
+            z.handle_inbound(from_contact, "¿qué hacen?", to_phone_id=stefano["whatsapp_phone_id"])
+            wa_calls = [c for c in box.calls if c[0] == "whatsapp"]
+            self.assertTrue(wa_calls)
+            # respondió con las credenciales de Stéfano (el número que recibió), no Fernanda
+            self.assertEqual(wa_calls[-1][1], (stefano["whatsapp_phone_id"], "tok-s"))
+        finally:
+            for k, v in prev.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
 
 
 class ConciergeTest(unittest.TestCase):
@@ -598,14 +742,22 @@ class ConciergeTest(unittest.TestCase):
 
     def test_parse_inbound(self):
         from zero.whatsapp_inbound import parse_inbound
-        payload = {"entry": [{"changes": [{"value": {"messages": [
-            {"from": "56999111222", "type": "text", "text": {"body": "hola, precio?"}},
-            {"from": "56999333444", "type": "image"},
-        ]}}]}]}
+        payload = {"entry": [{"changes": [{"value": {
+            "metadata": {"phone_number_id": "PID_STEFANO"},
+            "messages": [
+                {"from": "56999111222", "type": "text", "text": {"body": "hola, precio?"}},
+                {"from": "56999333444", "type": "image"},
+            ]}}]}]}
         msgs = parse_inbound(payload)
         self.assertEqual(len(msgs), 2)
-        self.assertEqual(msgs[0], {"from": "56999111222", "text": "hola, precio?"})
+        self.assertEqual(msgs[0], {"from": "56999111222", "text": "hola, precio?",
+                                   "to_phone_id": "PID_STEFANO"})
         self.assertEqual(msgs[1]["text"], "[image]")
+        self.assertEqual(msgs[1]["to_phone_id"], "PID_STEFANO")
+        # sin metadata → to_phone_id vacío, nunca crash
+        no_meta = parse_inbound({"entry": [{"changes": [{"value": {"messages": [
+            {"from": "569", "type": "text", "text": {"body": "x"}}]}}]}]})
+        self.assertEqual(no_meta[0]["to_phone_id"], "")
         self.assertEqual(parse_inbound({}), [])      # malformed → empty, no crash
 
     def test_inbound_matches_lead_and_replies(self):
@@ -945,6 +1097,157 @@ class UsedEmailsTest(unittest.TestCase):
         m.add_used_email("")                # vacío → se ignora
         self.assertEqual(sorted(m.used_emails), ["baz@qux.cl", "foo@bar.com"])
         self.assertIn("used_emails", m.snapshot())
+
+
+class VendorTest(unittest.TestCase):
+    """Catálogo de vendedores (Fernanda, Stéfano, ...), cada uno con su propio
+    WhatsApp Business — y la asignación cliente → vendedor."""
+
+    def test_catalog_seeds_fernanda_and_stefano(self):
+        m = SessionMemory(None)
+        vendors = m.list_vendors()
+        ids = {v["id"] for v in vendors}
+        self.assertIn("fernanda", ids)
+        self.assertIn("stefano", ids)
+
+    def test_get_vendor(self):
+        m = SessionMemory(None)
+        v = m.get_vendor("fernanda")
+        self.assertEqual(v["name"], "Fernanda")
+        self.assertIsNone(m.get_vendor("no-existe"))
+
+    def test_upsert_vendor(self):
+        m = SessionMemory(None)
+        m.upsert_vendor({"id": "fernanda", "name": "Fernanda Editada",
+                         "photo": None, "tone": "nuevo tono",
+                         "phone": "+56 9 0000 0000", "whatsapp_phone_id": "999"})
+        self.assertEqual(m.get_vendor("fernanda")["name"], "Fernanda Editada")
+        # el resto del catálogo sigue intacto
+        self.assertIsNotNone(m.get_vendor("stefano"))
+
+    def test_client_vendor_assignment_and_default(self):
+        from zero.config import DEFAULT_VENDOR_ID
+        m = SessionMemory(None)
+        # sin asignación -> default
+        self.assertEqual(m.get_client_vendor("acme"), DEFAULT_VENDOR_ID)
+        m.set_client_vendor("acme", "stefano")
+        self.assertEqual(m.get_client_vendor("acme"), "stefano")
+
+    def test_zero_vendor_for(self):
+        from zero.config import DEFAULT_VENDOR_ID
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None))
+        # sin asignación -> el vendedor default
+        self.assertEqual(z.vendor_for("acme")["id"], DEFAULT_VENDOR_ID)
+        z.memory.set_client_vendor("acme", "stefano")
+        self.assertEqual(z.vendor_for("acme")["id"], "stefano")
+
+    def test_converse_injects_vendor_persona_without_secrets(self):
+        """converse_result pasa data['vendor']={name,tone} a CONCIERGE (contrato
+        que consume MOTOR·WhatsApp) y NUNCA filtra token/phone_id."""
+        from zero.contracts import AgentResponse
+
+        class Recorder:
+            def __init__(self): self.task = None
+            def run(self, task):
+                self.task = task
+                return AgentResponse(task_id="t", agent="CONCIERGE", status="done",
+                                     result={"reply": "ok", "intent": "info"})
+
+        rec = Recorder()
+        z = Zero({"CONCIERGE": rec}, memory=SessionMemory(None))
+        z.memory.set_client_vendor("acme", "stefano")
+        z.converse_result("acme", "hola")
+        vendor = rec.task.data["vendor"]
+        self.assertEqual(vendor, {"name": "Stéfano", "tone": "formal, técnico, al grano"})
+        self.assertNotIn("token", vendor)
+        self.assertNotIn("whatsapp_phone_id", vendor)
+
+    def test_snapshot_roundtrip_keeps_catalog_and_assignment(self):
+        m = SessionMemory(None)
+        m.set_client_vendor("acme", "stefano")
+        m.list_vendors()   # asegura el catálogo sembrado antes de snapshot
+        snap = m.snapshot()
+        self.assertIn("vendors", snap)
+        m2 = SessionMemory(None)
+        m2._restore(snap)
+        self.assertEqual(m2.get_client_vendor("acme"), "stefano")
+        self.assertIn("fernanda", {v["id"] for v in m2.list_vendors()})
+
+
+class VendorCredentialsTest(unittest.TestCase):
+    """Resolución de credenciales por vendedor, con fallback a las env globales."""
+
+    def setUp(self):
+        import os
+        self._env_keys = ("WHATSAPP_TOKEN", "WHATSAPP_PHONE_ID", "WHATSAPP_TOKEN_FERNANDA")
+        self._prev = {k: os.environ.get(k) for k in self._env_keys}
+
+    def tearDown(self):
+        import os
+        for k, v in self._prev.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    def test_credentials_fall_back_to_global_token(self):
+        import os
+        from zero.vendors import credentials_for, seed_vendors
+        os.environ.pop("WHATSAPP_TOKEN_FERNANDA", None)
+        os.environ["WHATSAPP_TOKEN"] = "global-token"
+        fernanda = next(v for v in seed_vendors() if v["id"] == "fernanda")
+        phone_id, token = credentials_for(fernanda)
+        self.assertEqual(phone_id, fernanda["whatsapp_phone_id"])  # propio
+        self.assertEqual(token, "global-token")                    # fallback global
+
+    def test_per_vendor_token_takes_priority(self):
+        import os
+        from zero.vendors import credentials_for, seed_vendors
+        os.environ["WHATSAPP_TOKEN"] = "global-token"
+        os.environ["WHATSAPP_TOKEN_FERNANDA"] = "fernanda-token"
+        fernanda = next(v for v in seed_vendors() if v["id"] == "fernanda")
+        _, token = credentials_for(fernanda)
+        self.assertEqual(token, "fernanda-token")
+
+    def test_phone_id_falls_back_to_global_when_vendor_has_none(self):
+        import os
+        from zero.vendors import credentials_for
+        os.environ["WHATSAPP_PHONE_ID"] = "global-phone-id"
+        vendor = {"id": "sin-phone", "whatsapp_phone_id": None}
+        phone_id, _ = credentials_for(vendor)
+        self.assertEqual(phone_id, "global-phone-id")
+
+
+class WhatsAppSenderCredentialsTest(unittest.TestCase):
+    """WhatsAppSender acepta credenciales por parámetro (por-vendedor) o cae a
+    las env globales — sin romper el `/api/whatsapp/status` existente."""
+
+    def setUp(self):
+        import os
+        self._env_keys = ("WHATSAPP_TOKEN", "WHATSAPP_PHONE_ID")
+        self._prev = {k: os.environ.get(k) for k in self._env_keys}
+        os.environ["WHATSAPP_TOKEN"] = "global-token"
+        os.environ["WHATSAPP_PHONE_ID"] = "global-phone-id"
+
+    def tearDown(self):
+        import os
+        for k, v in self._prev.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    def test_uses_global_env_by_default(self):
+        from zero.channels import WhatsAppSender
+        s = WhatsAppSender()
+        self.assertEqual(s.token, "global-token")
+        self.assertEqual(s.phone_id, "global-phone-id")
+
+    def test_uses_passed_in_credentials(self):
+        from zero.channels import WhatsAppSender
+        s = WhatsAppSender(phone_id="vendor-phone-id", token="vendor-token")
+        self.assertEqual(s.token, "vendor-token")
+        self.assertEqual(s.phone_id, "vendor-phone-id")
 
 
 if __name__ == "__main__":

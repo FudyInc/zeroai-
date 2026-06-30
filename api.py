@@ -378,6 +378,18 @@ def _agent_op(fn, memory=None):
         return fn(Zero(build_agents(mock=True), memory=mem)), "mock"
 
 
+@app.get("/api/whatsapp/status")
+def whatsapp_status():
+    """Prueba el token + phone_id de WhatsApp contra la Graph API real."""
+    if not (os.environ.get("WHATSAPP_TOKEN") and os.environ.get("WHATSAPP_PHONE_ID")):
+        raise HTTPException(status_code=400, detail="Configura primero WhatsApp en Configuración.")
+    from zero.channels import whatsapp_status as _whatsapp_status
+    try:
+        return _whatsapp_status()
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @app.get("/api/webhooks/whatsapp")
 def whatsapp_verify(mode: Optional[str] = Query(None, alias="hub.mode"),
                     token: Optional[str] = Query(None, alias="hub.verify_token"),
@@ -398,7 +410,8 @@ async def whatsapp_inbound(req: Request):
     memory = make_memory(STATE_PATH)
     agents, _ = _agents_best()
     zero = Zero(agents, memory=memory, crm=crm, outbox=make_outbox())
-    results = [zero.handle_inbound(m["from"], m["text"]) for m in msgs]
+    results = [zero.handle_inbound(m["from"], m["text"], to_phone_id=m.get("to_phone_id"))
+               for m in msgs]
     return {"received": len(msgs), "results": results}
 
 

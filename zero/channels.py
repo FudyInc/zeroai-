@@ -20,6 +20,7 @@ import os
 import smtplib
 import ssl
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from email.message import EmailMessage
@@ -80,14 +81,16 @@ class EmailSender:
 
 
 class WhatsAppSender:
-    """Real WhatsApp send via Meta Cloud API (stdlib urllib). Needs WHATSAPP_TOKEN,
-    WHATSAPP_PHONE_ID. Swappable for Twilio/another provider — same `send` contract."""
+    """Real WhatsApp send via Meta Cloud API (stdlib urllib). Needs a phone_id +
+    token — either passed in (per-vendor credentials, see `zero/vendors.py`) or,
+    if omitted, the global WHATSAPP_TOKEN/WHATSAPP_PHONE_ID env vars. Swappable
+    for Twilio/another provider — same `send` contract."""
     name = "whatsapp"
     API = "https://graph.facebook.com/v20.0"
 
-    def __init__(self) -> None:
-        self.token = os.environ["WHATSAPP_TOKEN"]
-        self.phone_id = os.environ["WHATSAPP_PHONE_ID"]
+    def __init__(self, phone_id: Optional[str] = None, token: Optional[str] = None) -> None:
+        self.token = token or os.environ["WHATSAPP_TOKEN"]
+        self.phone_id = phone_id or os.environ["WHATSAPP_PHONE_ID"]
 
     def send(self, msg: Dict[str, Any]) -> Dict[str, Any]:
         to = "".join(ch for ch in str(msg.get("to") or "") if ch.isdigit())
@@ -106,6 +109,32 @@ class WhatsAppSender:
         return _result("whatsapp", to, "sent", id=mid, via="whatsapp")
 
 
+def whatsapp_status() -> Dict[str, Any]:
+    """Pings the Graph API with WHATSAPP_TOKEN/WHATSAPP_PHONE_ID to confirm the
+    WhatsApp Business number is really linked (not just that the env vars exist).
+    Raises RuntimeError with Meta's own message on failure (or a clear message if
+    the credentials aren't configured — never a bare KeyError)."""
+    token = os.environ.get("WHATSAPP_TOKEN")
+    phone_id = os.environ.get("WHATSAPP_PHONE_ID")
+    if not (token and phone_id):
+        raise RuntimeError("WhatsApp sin configurar: faltan WHATSAPP_TOKEN / WHATSAPP_PHONE_ID")
+    q = urllib.parse.urlencode({"fields": "display_phone_number,verified_name", "access_token": token})
+    url = f"{WhatsAppSender.API}/{phone_id}?{q}"
+    try:
+        with urllib.request.urlopen(url, timeout=20) as r:
+            d = json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "replace")
+        try:
+            msg = json.loads(detail).get("error", {}).get("message", detail)
+        except Exception:
+            msg = detail
+        raise RuntimeError(f"Meta: {msg[:200]}") from e
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"no pude contactar a Meta: {e}") from e
+    return {"display_phone_number": d.get("display_phone_number"), "verified_name": d.get("verified_name")}
+
+
 class Outbox:
     """Routes each message to the right sender; falls back to mock per channel.
 
@@ -114,18 +143,34 @@ class Outbox:
     the LLM backends.
     """
 
-    def __init__(self, real_senders: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(self, real_senders: Optional[Dict[str, Any]] = None,
+                 wa_sender_factory: Optional[Any] = None) -> None:
         self.real = real_senders or {}
         self._mock = MockSender()
+        # Builds a per-vendor WhatsApp sender from (phone_id, token) when live, so
+        # each client sends from its assigned vendor's number. Cached by phone_id.
+        self._wa_factory = wa_sender_factory
+        self._wa_cache: Dict[str, Any] = {}
         self.log: List[Dict[str, Any]] = []
 
     @property
     def live(self) -> bool:
         return bool(self.real)
 
-    def send(self, msg: Dict[str, Any]) -> Dict[str, Any]:
+    def _sender_for(self, channel: str, wa_creds: Optional[Any]) -> Any:
+        if not self.real:
+            return self._mock                       # mock mode: never real
+        if channel == "whatsapp" and wa_creds and self._wa_factory:
+            phone_id, token = wa_creds
+            if phone_id and token:
+                if phone_id not in self._wa_cache:
+                    self._wa_cache[phone_id] = self._wa_factory(phone_id, token)
+                return self._wa_cache[phone_id]
+        return self.real.get(channel, self._mock)
+
+    def send(self, msg: Dict[str, Any], wa_creds: Optional[Any] = None) -> Dict[str, Any]:
         channel = msg.get("channel") or "email"
-        sender = self.real.get(channel, self._mock)
+        sender = self._sender_for(channel, wa_creds)
         try:
             res = sender.send(msg)
         except Exception as e:   # noqa: BLE001 — any failure degrades, never crashes
@@ -147,5 +192,6 @@ def make_outbox() -> Outbox:
     if os.environ.get("SMTP_HOST"):
         real["email"] = EmailSender()
     if os.environ.get("WHATSAPP_TOKEN") and os.environ.get("WHATSAPP_PHONE_ID"):
-        real["whatsapp"] = WhatsAppSender()
-    return Outbox(real)
+        real["whatsapp"] = WhatsAppSender()              # global fallback sender
+    # Per-vendor senders are built on demand from each vendor's (phone_id, token).
+    return Outbox(real, wa_sender_factory=lambda pid, tok: WhatsAppSender(pid, tok))

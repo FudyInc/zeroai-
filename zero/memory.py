@@ -11,7 +11,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .config import followup_step
+from .config import DEFAULT_VENDOR_ID, followup_step
+from .vendors import seed_vendors
 
 
 def _now() -> str:
@@ -33,6 +34,7 @@ class SessionMemory:
         self.actions: List[Dict[str, Any]] = []           # audit log
         self.used_emails: List[str] = []                  # correos ya contactados (autocompletar)
         self.pending_offers: Dict[str, Dict[str, Any]] = {}  # "client|lead" -> oferta hecha y aún no cumplida
+        self.vendors: Dict[str, Dict[str, Any]] = {}      # vendor_id -> Vendor (catálogo)
         if self.path and self.path.exists():
             self._load()
 
@@ -64,6 +66,32 @@ class SessionMemory:
 
     def get_client_meta(self, client_id: str) -> Dict[str, Any]:
         return self.clients.get(client_id, {}).get("meta") or {}
+
+    # --- vendor catalog (Fernanda, Stéfano, ... each with their own WhatsApp) --
+    def _ensure_vendors_seeded(self) -> None:
+        if not self.vendors:
+            for v in seed_vendors():
+                self.vendors[v["id"]] = v
+
+    def list_vendors(self) -> List[Dict[str, Any]]:
+        self._ensure_vendors_seeded()
+        return list(self.vendors.values())
+
+    def get_vendor(self, vendor_id: str) -> Optional[Dict[str, Any]]:
+        self._ensure_vendors_seeded()
+        return self.vendors.get(vendor_id)
+
+    def upsert_vendor(self, vendor: Dict[str, Any]) -> None:
+        self._ensure_vendors_seeded()
+        self.vendors[vendor["id"]] = vendor
+
+    # --- client -> vendor assignment ------------------------------------------
+    def set_client_vendor(self, client_id: str, vendor_id: str) -> None:
+        self.clients.setdefault(client_id, {})["vendor_id"] = vendor_id
+
+    def get_client_vendor(self, client_id: str) -> str:
+        """Vendor id assigned to this client, or DEFAULT_VENDOR_ID if none."""
+        return self.clients.get(client_id, {}).get("vendor_id") or DEFAULT_VENDOR_ID
 
     def set_agent_status(self, agent: str, status: str) -> None:
         self.agent_status[agent] = status
@@ -191,6 +219,7 @@ class SessionMemory:
         self.actions = d.get("actions", [])
         self.used_emails = d.get("used_emails", [])
         self.pending_offers = d.get("pending_offers", {})
+        self.vendors = d.get("vendors", {})
 
     # --- snapshots -----------------------------------------------------------
     def snapshot(self) -> Dict[str, Any]:
@@ -202,6 +231,7 @@ class SessionMemory:
             "actions": self.actions,
             "used_emails": self.used_emails,
             "pending_offers": self.pending_offers,
+            "vendors": self.vendors,
         }
 
     def handoff(self) -> Dict[str, Any]:
