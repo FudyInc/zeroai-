@@ -97,21 +97,22 @@ internas aisladas en datos, no entran ellos).
 ## Meta Ads / Campañas (2026-06-08) · 🟡 mock-first
 `zero/metaads.py` (MockMetaAds + MetaAds real vía Graph + `make_metaads`), `/api/campaigns`,
 pestaña **Campañas** (KPIs gasto/leads/CPL + tabla + filtro), card en Config. Mock por
-defecto; real con `META_ADS_TOKEN` + `META_AD_ACCOUNT_ID`. Falta: insights reales
-(gasto/leads del endpoint de Meta) y atar leads de ads → CRM.
+defecto; real con `META_ADS_TOKEN` + `META_AD_ACCOUNT_ID`. **Atar leads de ads → CRM: ✅**
+(`Zero.import_ad_leads`, endpoint `POST /api/campaigns/sync-leads`, botón en la pestaña
+Campañas; entra como `qualified` + tag "Meta Ads", mock por defecto). Falta: insights
+reales (gasto/leads del endpoint de Meta).
 
 ## ⏸️ Pendientes de PAGO (hacer cuando Diego pueda pagar — ver [[zero-cost-policy]])
 Cero gasto por ahora. Estos están construidos **mock-first / con seam listo**; solo falta
 enchufar la cuenta/key de pago para que funcionen de verdad:
 - **Motor real con Anthropic** — calidad real de scoring/mensajes/agentes. (Alternativa
   gratis: modelo local Ollama). 
-- **Meta Ads real**: insights (gasto/leads/CPL reales), gestión que **aplica** el plan de
-  Claude (pausar/presupuesto), y leads de Meta Lead Ads → CRM por API. (La cuenta de Meta
-  nueva además tiene cooldown inicial.)
+- **Meta Ads real**: insights (gasto/leads/CPL reales) y gestión que **aplica** el plan
+  de Claude (pausar/presupuesto). (La cuenta de Meta nueva además tiene cooldown inicial.)
 - **Discovery con proveedor con key** — cobertura real de prospección.
 - **ElevenLabs** (clonación de voz) y **Vapi** (llamadas) — el agente de voz real.
 - **Envío email/WhatsApp a volumen** (deliverability / proveedor dedicado tipo SES).
 
 ## Lo que sigue (recomendación)
-Mientras no haya pagos: perfeccionar lo gratis. En curso: atar leads de ads → CRM
-(mock), probar email real (SMTP ya configurado), y pulir el dashboard.
+Mientras no haya pagos: perfeccionar lo gratis. En curso: probar email real (SMTP
+ya configurado) y pulir el dashboard.

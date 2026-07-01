@@ -12,6 +12,11 @@ SONNET = "claude-sonnet-4-6"  # sub-agentes críticos en la ruta API.
 
 ZERO_MODEL = FABLE
 
+# --- Vendors -------------------------------------------------------------------
+# Vendedor asignado a un cliente cuando no se elige uno explícitamente. Debe
+# existir en el catálogo semilla (zero/vendors.py::seed_vendors).
+DEFAULT_VENDOR_ID = "fernanda"
+
 # --- Client tiers ------------------------------------------------------------
 # leads_per_mo = None means "custom / negotiated".
 # price_clp = lo que el cliente paga por mes (el MRR de la agencia). ENTERPRISE = custom.

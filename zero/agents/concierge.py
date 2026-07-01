@@ -16,6 +16,7 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+from ..config import OPUS
 from ..contracts import TaskPayload
 from .base import BaseAgent
 
@@ -60,6 +61,7 @@ _TRUST_SAFETY_RE = re.compile(
 class Concierge(BaseAgent):
     name = "CONCIERGE"
     prompt_file = "concierge.md"
+    model = OPUS   # conversación con el lead = la cara del cliente; vale el modelo fuerte
 
     def _mock_result(self, task: TaskPayload) -> Tuple[Dict[str, Any], str, Optional[str]]:
         msg = str(task.data.get("message") or "").lower().strip()

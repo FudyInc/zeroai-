@@ -1,35 +1,17 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
-import { MessageCircle, CheckCircle2, WifiOff, Copy, Check, Clock, ChevronRight } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
+import { MessageCircle, CheckCircle2, WifiOff, AlertCircle, Copy, Check, Clock } from 'lucide-react'
 import { api, BASE } from '../lib/api'
 import { Card, Button, Badge, Skeleton } from '../components/ui'
 import { STAGES } from '../lib/util'
 import { useApp } from '../App'
 import AgentTester from '../components/AgentTester'
-import ChatDetailModal from '../components/ChatDetail'
-
-const DAY_MS = 24 * 60 * 60 * 1000
-
-// Cuántos leads de `leads` están en etapa "replied" y cuántos llegaron a esa
-// etapa en las últimas 24h — usando el historial del CRM (ya viene en /api/leads),
-// sin endpoints nuevos.
-function repliedInfo(leads) {
-  const cutoff = Date.now() - DAY_MS
-  let total = 0, recent = 0
-  for (const r of leads) {
-    if (r.stage !== 'replied') continue
-    total++
-    const ev = (r.history || []).slice().reverse()
-      .find((h) => h.event === 'stage' && /→ replied/.test(h.detail || ''))
-    if (ev?.ts && new Date(ev.ts).getTime() >= cutoff) recent++
-  }
-  return { total, recent }
-}
 
 export default function Whatsapp() {
   const { client } = useApp()
-  const [openKey, setOpenKey] = useState(null)
+  const nav = useNavigate()
   const cfgQ = useQuery({ queryKey: ['config'], queryFn: api.config })
   const leadsQ = useQuery({
     queryKey: ['leads', client, 'whatsapp-activity'],
@@ -63,14 +45,24 @@ export default function Whatsapp() {
   if (!connected) {
     return (
       <Card className="p-6 max-w-2xl">
-        <div className="flex items-center gap-2 font-semibold mb-1">
-          <MessageCircle size={18} className="text-[#16a34a]" /> Agente de WhatsApp
+        <div className="flex items-start gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-champagne/40 text-gold-deep grid place-items-center shrink-0">
+            <MessageCircle size={22} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="font-semibold mb-1">Agente de WhatsApp</div>
+            <div className="text-sm text-zinc-500 mb-3">
+              Conecta tu cuenta de <b>WhatsApp Business (Meta Cloud API)</b> para activar este agente. Una vez
+              conectado:
+            </div>
+            <ul className="text-sm text-zinc-500 space-y-1.5 mb-4 list-disc pl-4">
+              <li>Responde las dudas del lead sobre la oferta y el negocio del cliente.</li>
+              <li>Si detecta interés, propone una reunión corta dentro de la ventana de 24h de WhatsApp Business.</li>
+              <li>Si le preguntan si es humano o IA, lo admite — protege la marca del cliente.</li>
+            </ul>
+            <Button onClick={() => nav('/config')}>Ir a Configuración</Button>
+          </div>
         </div>
-        <div className="text-sm text-zinc-500 mb-3">
-          Conecta tu cuenta de <b>WhatsApp Business (Meta Cloud API)</b> para activar este agente: responde
-          dudas del lead y agenda dentro de la ventana de 24h.
-        </div>
-        <Link to="/config" className="text-gold-deep text-sm font-medium">Ir a Configuración →</Link>
       </Card>
     )
   }
@@ -85,18 +77,30 @@ export default function Whatsapp() {
         hint="Simula un mensaje entrante de WhatsApp y mira cómo responde el agente (CONCIERGE) con el negocio del cliente. Mock por intención · con Anthropic key, modelo real."
         defaultClient={client || 'demo'}
       />
-      <ActivityCard leadsQ={leadsQ} onOpen={setOpenKey} />
-      <ChatDetailModal client={client} leadKey={openKey} onClose={() => setOpenKey(null)} />
+      <ActivityCard leadsQ={leadsQ} />
     </div>
   )
 }
 
 function StatusCard({ cfg, webhookUrl }) {
   const [copied, setCopied] = useState(false)
+  const [probe, setProbe] = useState(null) // null | { ok: true, data } | { ok: false, error }
+  const [busy, setBusy] = useState(false)
   const copy = () => {
     navigator.clipboard?.writeText(webhookUrl)
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
+  }
+  const testConnection = async () => {
+    setBusy(true)
+    try {
+      const data = await api.whatsappStatus()
+      setProbe({ ok: true, data })
+      toast.success('Conexión con WhatsApp OK')
+    } catch (e) {
+      setProbe({ ok: false, error: e.message })
+      toast.error('Conexión falló: ' + e.message)
+    } finally { setBusy(false) }
   }
   return (
     <Card className="p-6">
@@ -108,10 +112,30 @@ function StatusCard({ cfg, webhookUrl }) {
           <CheckCircle2 size={12} /> Activo
         </Badge>
       </div>
-      <div className="text-xs text-zinc-400 mt-0.5 mb-4">
+      <div className="text-xs text-zinc-400 mt-0.5 mb-3">
         Token y phone number ID conectados. El agente responde dudas y agenda dentro de la ventana de 24h
         de WhatsApp Business.
       </div>
+
+      <div className="flex items-center gap-2 mb-3">
+        <Button variant="soft" onClick={testConnection} disabled={busy}>
+          {busy ? 'Probando…' : 'Probar conexión'}
+        </Button>
+        {probe?.ok && (
+          <span className="text-xs text-zinc-500 flex items-center gap-1.5 min-w-0">
+            <CheckCircle2 size={13} className="text-[#16a34a] shrink-0" />
+            <span className="truncate">
+              {probe.data?.display_phone_number}
+              {probe.data?.verified_name ? ` · ${probe.data.verified_name}` : ''}
+            </span>
+          </span>
+        )}
+      </div>
+      {probe?.ok === false && (
+        <div className="text-xs text-rose-600 mb-3 flex items-start gap-1.5 break-words">
+          <AlertCircle size={13} className="mt-0.5 shrink-0" /> {probe.error}
+        </div>
+      )}
 
       <div className="rounded-xl bg-zinc-50 p-3 mb-3">
         <div className="text-xs font-medium text-zinc-600 mb-1">Webhook (configúralo en Meta for Developers → WhatsApp → Configuración)</div>
@@ -137,7 +161,7 @@ function StatusCard({ cfg, webhookUrl }) {
   )
 }
 
-function ActivityCard({ leadsQ, onOpen }) {
+function ActivityCard({ leadsQ }) {
   if (leadsQ.isLoading) {
     return (
       <Card className="p-6 space-y-2">
@@ -150,23 +174,14 @@ function ActivityCard({ leadsQ, onOpen }) {
 
   const leads = (leadsQ.data?.leads || []).filter((r) => r.channel === 'whatsapp')
   leads.sort((a, b) => (b.updated || '').localeCompare(a.updated || ''))
-  const { total: repliedTotal, recent: repliedRecent } = repliedInfo(leads)
 
   return (
     <Card className="p-6">
-      <div className="flex items-center justify-between gap-2 mb-1">
-        <div className="font-semibold flex items-center gap-2">
-          <Clock size={16} /> Actividad reciente (WhatsApp)
-        </div>
-        {repliedTotal > 0 && (
-          <div className="flex items-center gap-1.5 shrink-0">
-            <Badge color="#2563eb">{repliedTotal} respondi{repliedTotal === 1 ? 'ó' : 'eron'}</Badge>
-            {repliedRecent > 0 && <Badge color="#8A6B2D">{repliedRecent} en 24h</Badge>}
-          </div>
-        )}
+      <div className="font-semibold flex items-center gap-2 mb-1">
+        <Clock size={16} /> Actividad reciente (WhatsApp)
       </div>
       <div className="text-xs text-zinc-400 mt-0.5 mb-3">
-        Leads de este canal y su último evento. Toca un lead para ver la conversación completa.
+        Leads de este canal y su último evento. Se actualiza con cada mensaje entrante.
       </div>
 
       {leads.length === 0 ? (
@@ -179,11 +194,7 @@ function ActivityCard({ leadsQ, onOpen }) {
             const last = (r.history || [])[r.history.length - 1]
             const stage = STAGES[r.stage] || { l: r.stage, c: '#71717a' }
             return (
-              <button
-                key={r.key}
-                onClick={() => onOpen(r.key)}
-                className="w-full flex items-center justify-between gap-3 bg-zinc-50 hover:bg-zinc-100 rounded-xl px-3 py-2 text-left transition-colors"
-              >
+              <div key={r.key} className="flex items-center justify-between gap-3 bg-zinc-50 rounded-xl px-3 py-2">
                 <div className="min-w-0">
                   <div className="text-sm font-medium truncate">{r.company || r.name || r.key}</div>
                   {last && <div className="text-xs text-zinc-400 truncate">{last.event}{last.detail ? ` — ${last.detail}` : ''}</div>}
@@ -191,9 +202,8 @@ function ActivityCard({ leadsQ, onOpen }) {
                 <div className="flex items-center gap-2 shrink-0">
                   {last?.ts && <span className="text-[11px] text-zinc-400">{new Date(last.ts).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>}
                   <Badge color={stage.c}>{stage.l}</Badge>
-                  <ChevronRight size={14} className="text-zinc-300" />
                 </div>
-              </button>
+              </div>
             )
           })}
         </div>

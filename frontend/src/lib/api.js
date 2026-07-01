@@ -70,6 +70,7 @@ export const api = {
       .then((d) => { setToken(d.token); return d }),
   logout: () => { setToken(null); window.location.reload() },
   metaadsAccounts: () => req('/api/metaads/accounts').then((d) => d.accounts),
+  whatsappStatus: () => req('/api/whatsapp/status'),
   config: () => req('/api/config'),
   setConfig: (body) =>
     req('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
