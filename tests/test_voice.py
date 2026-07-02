@@ -5,6 +5,7 @@ ELEVENLABS_API_KEY. Se prueba la exigencia de credencial, el mapeo de voces,
 el manejo de HTTPError y que speak escriba el MP3 con el body correcto —
 sin red ni credenciales reales.
 """
+import contextlib
 import io
 import json
 import os
@@ -14,6 +15,14 @@ import urllib.error
 from unittest import mock
 
 from zero import voice
+
+
+@contextlib.contextmanager
+def _quiet():
+    """Silencia stdout/stderr para no ensuciar la salida de la suite."""
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+        yield
 
 
 def _resp(data: bytes):
@@ -103,15 +112,15 @@ class TestSpeak(unittest.TestCase):
 
 class TestMain(unittest.TestCase):
     def test_voices_lista_y_retorna_0(self):
-        with mock.patch("zero.voice.list_voices", return_value=[("v1", "Fernanda")]):
+        with mock.patch("zero.voice.list_voices", return_value=[("v1", "Fernanda")]), _quiet():
             self.assertEqual(voice._main(["--voices"]), 0)
 
     def test_sin_args_suficientes_error(self):
-        with self.assertRaises(SystemExit):
+        with self.assertRaises(SystemExit), _quiet():
             voice._main(["--voice-id", "v1"])  # falta --text
 
     def test_speak_desde_cli(self):
-        with mock.patch("zero.voice.speak", return_value="x.mp3") as sp:
+        with mock.patch("zero.voice.speak", return_value="x.mp3") as sp, _quiet():
             rc = voice._main(["--voice-id", "v1", "--text", "Hola", "--out", "x.mp3"])
             self.assertEqual(rc, 0)
             sp.assert_called_once()
