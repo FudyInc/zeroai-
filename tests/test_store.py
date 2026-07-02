@@ -4,6 +4,8 @@ store decide, según env, si el CRM/memoria van a Postgres o a archivo local.
 Estos tests fijan el camino local (sin Supabase) y el detector _supabase_on.
 Se usan paths temporales: nunca tocan crm.json / state.json reales.
 """
+import contextlib
+import io
 import os
 import tempfile
 import unittest
@@ -64,7 +66,8 @@ class TestMakeMemory(unittest.TestCase):
                              clear=False), \
              mock.patch("zero.memory_supabase.SupabaseMemory",
                         side_effect=RuntimeError("tabla ausente")), \
-             tempfile.TemporaryDirectory() as d:
+             tempfile.TemporaryDirectory() as d, \
+             contextlib.redirect_stderr(io.StringIO()):
             mem = store.make_memory(os.path.join(d, "state.json"))
             self.assertIsInstance(mem, SessionMemory)
 
