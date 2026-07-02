@@ -189,7 +189,11 @@ def make_outbox() -> Outbox:
     if os.environ.get("OUTBOX_LIVE") != "1":
         return Outbox()
     real: Dict[str, Any] = {}
-    if os.environ.get("SMTP_HOST"):
+    # Credenciales completas o nada: un SMTP_USER sin SMTP_PASS intentaría logins
+    # vacíos (error en cada envío) — mejor seguir en mock hasta que esté la clave.
+    if os.environ.get("SMTP_HOST") and (
+        not os.environ.get("SMTP_USER") or os.environ.get("SMTP_PASS")
+    ):
         real["email"] = EmailSender()
     if os.environ.get("WHATSAPP_TOKEN") and os.environ.get("WHATSAPP_PHONE_ID"):
         real["whatsapp"] = WhatsAppSender()              # global fallback sender
