@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# 🚀 Lanzador ZERO — abre UNA ventana de Ptyxis con las 6 pestañas/terminales,
+# 🚀 Lanzador ZERO — abre UNA ventana de Ptyxis con las 7 pestañas/terminales,
 # cada una arrancando ya en su rol y modelo.
-#   🔎 CONSULTAS · 📝 PROMPTS · 🔨 WORKER · 🔍 DEBUG · 🤖 AGENTS · 📊 USO
+#   🔎 CONSULTAS · 📝 PROMPTS · 🔨 WORKER · 🔍 DEBUG · 🤖 AGENTS · 🎨 DESIGN · 📊 USO
 # Uso:  ./zero-terminals.sh   (o el comando  zero  desde cualquier lado)
 set -e
 DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -16,5 +16,7 @@ sleep 0.4
 ptyxis --tab -T "🔍 DEBUG"   -d "$DIR" -- "$DIR/debug-terminal.sh"
 sleep 0.4
 ptyxis --tab -T "🤖 AGENTS"  -d "$DIR" -- "$DIR/agents-terminal.sh"
+sleep 0.4
+ptyxis --tab -T "🎨 DESIGN"  -d "$DIR" -- "$DIR/design-terminal.sh"
 sleep 0.4
 ptyxis --tab -T "📊 USO"     -d "$DIR" -- "$DIR/uso-terminal.sh"

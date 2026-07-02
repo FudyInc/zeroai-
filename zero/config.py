@@ -119,6 +119,12 @@ FORECAST_RATES = {
 AVG_DEAL_VALUE_CLP = 1_000_000   # valor promedio por cierre, en CLP (ajustable)
 
 
+# --- Presupuestos (cotizaciones por chat) --------------------------------------
+# El IVA que se aplica a un presupuesto cuando la lista de precios del cliente no
+# lo especifica. La aritmética del presupuesto NUNCA la hace el LLM (quotes.py).
+IVA_RATE = 0.19   # IVA Chile
+
+
 # --- CRM pipeline stages -----------------------------------------------------
 # The lifecycle a lead moves through in ZERO's system of record. Ordered; the
 # CRM board renders them left→right. ZERO advances the first ones automatically;

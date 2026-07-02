@@ -26,6 +26,7 @@ from .contracts import AgentResponse, Constraints, Lead, TaskPayload
 from .icp import describe_icp, is_empty, normalize_icp
 from .inbox import Inbox, MockInbox
 from .memory import SessionMemory
+from .quotes import compute_quote, extract_request, format_quote, normalize_pricing
 from .vendors import credentials_for
 
 # --- pending offers (the CONCIERGE promises, ZERO fulfills) -------------------
@@ -320,7 +321,8 @@ class Zero:
             out = self.dispatch("OUTREACH", TaskPayload(
                 agent="OUTREACH", client_id=client_id, client_tier=tier,
                 instructions="Redacta el primer mensaje para cada lead calificado.",
-                data={"leads": [l.to_dict() for l in qualified], "icp": icp},
+                data={"leads": [l.to_dict() for l in qualified], "icp": icp,
+                      "knowledge": self.memory.get_client_knowledge(client_id)[:4000]},
                 constraints=Constraints(channels=channels),
             ))
             if out.status != "error":
@@ -487,29 +489,62 @@ class Zero:
 
     def converse_result(self, client_id: str, message: str,
                         lead: Optional[Dict[str, Any]] = None,
-                        channel: str = "whatsapp") -> Dict[str, Any]:
+                        channel: str = "whatsapp",
+                        history: Optional[List[Dict[str, Any]]] = None,
+                        vendor: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Draft a reply to an inbound message using the client's business context
-        (ICP). Pure drafting — doesn't send. Returns the full CONCIERGE result
-        ({reply, intent}) so callers can act on the intent (e.g. pending offers)."""
+        (ICP + base de conocimiento + historial del diálogo). Pure drafting —
+        doesn't send. Returns the full CONCIERGE result ({reply, intent}) so
+        callers can act on the intent (e.g. pending offers)."""
         icp = self.memory.get_client_icp(client_id) if client_id else {}
+        # La ficha de la empresa cargada desde el dashboard: acotada para que un
+        # documento largo no reviente el presupuesto de contexto del modelo.
+        knowledge = (self.memory.get_client_knowledge(client_id) if client_id else "")[:4000]
+        # Historial del diálogo (turnos previos, NO incluye `message`): pasado
+        # explícito (p.ej. el simulador) o recuperado de memoria por lead.
+        if history is None and lead and lead.get("key") and client_id:
+            history = self.memory.get_conversation(client_id, lead["key"], limit=12)
         # Persona del vendedor asignado (Fernanda/Stéfano/...): solo name/tone, para
         # que CONCIERGE suene como esa persona. Nunca el token/phone_id (secretos).
-        vendor = self.vendor_for(client_id) if client_id else {}
+        if vendor is None:
+            vendor = self.vendor_for(client_id) if client_id else {}
         persona = {"name": vendor.get("name"), "tone": vendor.get("tone")}
+        # Presupuesto: si el mensaje pide precios de ítems del catálogo del cliente,
+        # se calcula ACÁ (quotes.py, determinista) y se adjunta tras la respuesta del
+        # agente — mismo patrón que project_funnel: el LLM redacta, nunca calcula.
+        pricing = normalize_pricing(self.memory.get_client_pricing(client_id)) \
+            if client_id else {"items": []}
+        quote = compute_quote(pricing, extract_request(message, pricing)) \
+            if pricing["items"] else None
+        instructions = "Responde el mensaje entrante del lead, en su idioma, breve y útil."
+        if quote:
+            instructions += (" Debajo de tu respuesta se adjuntará un presupuesto ya "
+                             "calculado con los ítems que pidió: preséntalo en una frase "
+                             "y NO repitas ni inventes montos.")
         resp = self.dispatch("CONCIERGE", TaskPayload(
             agent="CONCIERGE", client_id=client_id or "", client_tier="",
-            instructions="Responde el mensaje entrante del lead, en su idioma, breve y útil.",
-            data={"message": message, "lead": lead or {}, "icp": icp, "vendor": persona},
+            instructions=instructions,
+            data={"message": message, "lead": lead or {}, "icp": icp, "vendor": persona,
+                  "knowledge": knowledge, "history": history or [],
+                  "quote": quote or {}},
             constraints=Constraints(channels=[channel]),
         ))
-        return resp.result or {}
+        result = dict(resp.result or {})
+        if quote:
+            reply = (result.get("reply") or "").strip()
+            result["reply"] = (reply + "\n\n" if reply else "") + format_quote(quote)
+            result["quote"] = quote
+        return result
 
     def converse(self, client_id: str, message: str,
                  lead: Optional[Dict[str, Any]] = None,
-                 channel: str = "whatsapp") -> str:
+                 channel: str = "whatsapp",
+                 history: Optional[List[Dict[str, Any]]] = None,
+                 vendor: Optional[Dict[str, Any]] = None) -> str:
         """Reply text only — the seam `handle_inbound` and the 'try the agent'
         tester share so its answers can be evaluated on real questions."""
-        return self.converse_result(client_id, message, lead=lead, channel=channel).get("reply") or ""
+        return self.converse_result(client_id, message, lead=lead, channel=channel,
+                                    history=history, vendor=vendor).get("reply") or ""
 
     def optimize_campaigns(self, client_id: str, campaigns: List[Dict[str, Any]],
                            good_cpl_clp: int = 6000) -> Dict[str, Any]:
@@ -583,6 +618,8 @@ class Zero:
                 "body": body,
             }, wa_creds=wa_creds)
             self.memory.clear_pending_offer(client_id, key)
+            self.memory.add_turn(client_id, key, "lead", text)
+            self.memory.add_turn(client_id, key, "agent", body)
             self.memory.log("offer_fulfilled", client=client_id, lead=key,
                             kind=pending.get("kind"), channel=out_channel)
             self.memory.save()
@@ -593,14 +630,19 @@ class Zero:
             return {"matched": True, "company": rec.get("company"), "reply": body,
                     "intent": "fulfill", **out}
 
+        # Redactar ANTES de registrar los turnos: así el historial que ve CONCIERGE
+        # son solo los turnos previos (el mensaje actual viaja aparte en `message`).
         res = self.converse_result(client_id, text, lead=rec, channel=channel)
         reply, intent = res.get("reply") or "", res.get("intent") or "general"
+        self.memory.add_turn(client_id, key, "lead", text)
         if reply:
+            self.memory.add_turn(client_id, key, "agent", reply)
             self._deliver(client_id, key, rec.get("phone") or rec.get("email"),
                           {"channel": channel, "subject": None, "body": reply}, wa_creds=wa_creds)
             if self.crm:
                 self.crm.log(client_id, key, "auto_reply", reply[:140])
                 self.crm.save()
+        self.memory.save()
         # The reply itself made an offer → remember it; an opt-out voids any open one.
         if intent in ("info", "objection"):
             self.memory.set_pending_offer(client_id, key, intent)

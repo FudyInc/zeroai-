@@ -57,6 +57,17 @@ export const api = {
     req('/api/test-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to }) }),
   simulateAgent: (body) =>
     req('/api/whatsapp/simulate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  vendors: () => req('/api/vendors'),
+  saveVendor: (body) =>
+    req('/api/vendors', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  vendorFor: (c) => req('/api/vendor?client=' + q(c)),
+  setVendor: (c, vendor_id) =>
+    req('/api/vendor?client=' + q(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ vendor_id }) }),
+  knowledge: (c) => req('/api/knowledge?client=' + q(c)),
+  setKnowledge: (c, knowledge) =>
+    req('/api/knowledge?client=' + q(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ knowledge }) }),
+  conversation: (c, lead, limit = 50) =>
+    req(`/api/conversation?client=${q(c)}&lead=${q(lead)}&limit=${limit}`),
   pitchCompose: (body) =>
     req('/api/pitch/compose', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   pitchGenerate: (body) =>

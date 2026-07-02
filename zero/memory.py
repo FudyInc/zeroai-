@@ -67,6 +67,47 @@ class SessionMemory:
     def get_client_meta(self, client_id: str) -> Dict[str, Any]:
         return self.clients.get(client_id, {}).get("meta") or {}
 
+    # --- knowledge base (la "ficha de la empresa" que carga el dashboard) -----
+    def set_client_knowledge(self, client_id: str, knowledge: str) -> None:
+        """Texto libre sobre el negocio del cliente (qué vende, precios, horarios,
+        tono, políticas...). Es el contexto que hace personal al agente."""
+        self.clients.setdefault(client_id, {})["knowledge"] = (knowledge or "").strip()
+
+    def get_client_knowledge(self, client_id: str) -> str:
+        return self.clients.get(client_id, {}).get("knowledge") or ""
+
+    # --- pricing (lista de precios estructurada, para presupuestos) -----------
+    def set_client_pricing(self, client_id: str, pricing: Dict[str, Any]) -> None:
+        """Lista de precios del cliente (ya normalizada por quotes.normalize_pricing).
+        Estructurada aparte del knowledge: los presupuestos se calculan en código
+        y necesitan números, no texto libre."""
+        self.clients.setdefault(client_id, {})["pricing"] = pricing
+
+    def get_client_pricing(self, client_id: str) -> Dict[str, Any]:
+        return self.clients.get(client_id, {}).get("pricing") or {}
+
+    # --- conversation history (memoria del diálogo con cada lead) -------------
+    # Vive dentro de la ficha del cliente (junto a icp/meta/knowledge), así el
+    # snapshot no cambia de forma y snapshots viejos siguen restaurando bien.
+    MAX_TURNS_STORED = 200   # por lead; el diálogo útil nunca es infinito
+
+    def add_turn(self, client_id: str, lead_key: str, role: str, text: str) -> None:
+        """Registra un turno del diálogo ('lead' o 'agent') para ese lead."""
+        text = (text or "").strip()
+        if not text:
+            return
+        convs = self.clients.setdefault(client_id, {}).setdefault("conversations", {})
+        turns = convs.setdefault(str(lead_key).lower(), [])
+        turns.append({"role": role, "text": text[:2000], "at": _now()})
+        if len(turns) > self.MAX_TURNS_STORED:
+            del turns[: len(turns) - self.MAX_TURNS_STORED]
+
+    def get_conversation(self, client_id: str, lead_key: str,
+                         limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        convs = self.clients.get(client_id, {}).get("conversations") or {}
+        turns = convs.get(str(lead_key).lower(), [])
+        return turns[-limit:] if limit else list(turns)
+
     # --- vendor catalog (Fernanda, Stéfano, ... each with their own WhatsApp) --
     def _ensure_vendors_seeded(self) -> None:
         if not self.vendors:

@@ -24,10 +24,11 @@ from zero.agents import build_agents
 load_env()   # secrets locales (.env) — los de Render env ya están en os.environ
 from zero.cloud_env import backed_up_keys, load_into_environ, save_secret
 load_into_environ()   # + secretos guardados en la nube (sobreviven a redeploys)
-from zero.config import AVG_DEAL_VALUE_CLP, CRM_OPEN_STAGES, CRM_STAGES, TIERS
+from zero.config import AVG_DEAL_VALUE_CLP, CRM_OPEN_STAGES, CRM_STAGES, DEFAULT_VENDOR_ID, TIERS
 from zero.channels import make_outbox
 from zero.icp import normalize_icp
 from zero.orchestrator import Zero
+from zero.quotes import compute_quote, format_quote, normalize_pricing
 from zero.store import make_crm, make_memory
 
 CRM_PATH = "crm.json"
@@ -430,21 +431,32 @@ class Simulate(BaseModel):
     message: str
     client: Optional[str] = None
     lead: Optional[dict] = None
+    # Transcripción del chat de prueba (turnos previos, [{"role","text"}]) — la
+    # mantiene el frontend; el servidor no guarda nada de un ensayo.
+    history: Optional[list] = None
+    vendor_id: Optional[str] = None   # probar una personalidad sin asignarla
 
 
 @app.post("/api/whatsapp/simulate")
 def whatsapp_simulate(body: Simulate):
     """Try the agent without WhatsApp: draft (don't send) a reply to a message, to
-    evaluate how it answers business questions. Uses the client's saved ICP."""
+    evaluate how it answers business questions. Uses the client's saved ICP,
+    knowledge base and the passed-in chat history."""
     memory = make_memory(STATE_PATH)
+    vendor = memory.get_vendor(body.vendor_id) if body.vendor_id else None
     try:
-        reply, mode = _agent_op(
-            lambda z: z.converse(body.client or "", body.message, lead=body.lead or {}),
+        res, mode = _agent_op(
+            lambda z: z.converse_result(body.client or "", body.message,
+                                        lead=body.lead or {},
+                                        history=body.history, vendor=vendor),
             memory=memory,
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"el agente falló: {e}")
-    return {"reply": reply, "mode": mode}
+    # `quote` viene solo si el mensaje pidió precios de ítems del catálogo: el
+    # presupuesto se calculó en código (zero/quotes.py), no lo inventó el modelo.
+    return {"reply": res.get("reply") or "", "mode": mode,
+            "quote": res.get("quote")}
 
 
 class RunRequest(BaseModel):
@@ -562,6 +574,152 @@ def get_icp(client: str):
     """The client's saved ICP, so the dashboard can show and edit it (not write-only)."""
     memory = make_memory(STATE_PATH)
     return {"client": client, "icp": normalize_icp(memory.get_client_icp(client))}
+
+
+class IcpBody(BaseModel):
+    icp: dict
+
+
+@app.post("/api/icp")
+def set_icp(client: str, body: IcpBody):
+    """Guardar el ICP desde el dashboard sin tener que correr un pipeline."""
+    memory = make_memory(STATE_PATH)
+    memory.set_client_icp(client, normalize_icp(body.icp))
+    memory.save()
+    return {"client": client, "icp": memory.get_client_icp(client)}
+
+
+# --- agentes WhatsApp (vendedores) + base de conocimiento ----------------------
+# El backend de la sección "Agentes" del dashboard: elegir/crear una personalidad,
+# asignarla a un cliente (el "deploy") y cargarle la ficha de la empresa.
+
+@app.get("/api/vendors")
+def list_vendors():
+    """Catálogo de personalidades (Fernanda, Stéfano, ...)."""
+    memory = make_memory(STATE_PATH)
+    return {"vendors": memory.list_vendors(), "default": DEFAULT_VENDOR_ID}
+
+
+class VendorBody(BaseModel):
+    id: Optional[str] = None      # si falta, se deriva del nombre
+    name: str
+    tone: Optional[str] = None
+    photo: Optional[str] = None
+    phone: Optional[str] = None
+    whatsapp_phone_id: Optional[str] = None
+
+
+@app.post("/api/vendors")
+def upsert_vendor(body: VendorBody):
+    """Crear o editar una personalidad. Solo pisa los campos enviados."""
+    memory = make_memory(STATE_PATH)
+    vid = "".join(ch for ch in (body.id or body.name).strip().lower() if ch.isalnum())
+    if not vid:
+        raise HTTPException(status_code=400, detail="el vendedor necesita un nombre")
+    vendor = dict(memory.get_vendor(vid) or {})
+    vendor["id"] = vid
+    for field in ("name", "tone", "photo", "phone", "whatsapp_phone_id"):
+        value = getattr(body, field)
+        if value is not None:
+            vendor[field] = value
+    memory.upsert_vendor(vendor)
+    memory.save()
+    return {"vendor": vendor}
+
+
+@app.get("/api/vendor")
+def client_vendor(client: str):
+    """El vendedor asignado a este cliente (o el por defecto)."""
+    memory = make_memory(STATE_PATH)
+    vid = memory.get_client_vendor(client)
+    return {"client": client, "vendor": memory.get_vendor(vid) or {}}
+
+
+class AssignVendor(BaseModel):
+    vendor_id: str
+
+
+@app.post("/api/vendor")
+def assign_vendor(client: str, body: AssignVendor):
+    """El "deploy": desde ahora este cliente es atendido por esa personalidad."""
+    memory = make_memory(STATE_PATH)
+    vendor = memory.get_vendor(body.vendor_id.strip().lower())
+    if not vendor:
+        raise HTTPException(status_code=404, detail="ese vendedor no existe")
+    memory.set_client_vendor(client, vendor["id"])
+    memory.save()
+    return {"client": client, "vendor": vendor}
+
+
+@app.get("/api/knowledge")
+def get_knowledge(client: str):
+    """La ficha de la empresa (texto libre) que alimenta al agente."""
+    memory = make_memory(STATE_PATH)
+    return {"client": client, "knowledge": memory.get_client_knowledge(client)}
+
+
+class KnowledgeBody(BaseModel):
+    knowledge: str
+
+
+@app.post("/api/knowledge")
+def set_knowledge(client: str, body: KnowledgeBody):
+    """Guardar la ficha: qué vende, precios, horarios, tono, políticas... Un
+    trabajador la pega tal cual; no necesita saber de IA."""
+    memory = make_memory(STATE_PATH)
+    memory.set_client_knowledge(client, body.knowledge)
+    memory.save()
+    return {"client": client, "saved": True, "chars": len(memory.get_client_knowledge(client))}
+
+
+# --- lista de precios + presupuestos (la aritmética vive en zero/quotes.py) ----
+
+@app.get("/api/pricing")
+def get_pricing(client: str):
+    """La lista de precios estructurada del cliente (ítems con precio unitario)."""
+    memory = make_memory(STATE_PATH)
+    return {"client": client, "pricing": normalize_pricing(memory.get_client_pricing(client))}
+
+
+class PricingBody(BaseModel):
+    pricing: dict
+
+
+@app.post("/api/pricing")
+def set_pricing(client: str, body: PricingBody):
+    """Guardar la lista de precios. Se normaliza al entrar (ítems sin nombre o sin
+    precio > 0 se descartan) — así los presupuestos nunca cotizan basura."""
+    memory = make_memory(STATE_PATH)
+    pricing = normalize_pricing(body.pricing)
+    memory.set_client_pricing(client, pricing)
+    memory.save()
+    return {"client": client, "saved": True, "pricing": pricing}
+
+
+class QuoteBody(BaseModel):
+    client: str
+    items: list   # [{"id": "sitio-web", "qty": 2}]
+
+
+@app.post("/api/quote")
+def make_quote(body: QuoteBody):
+    """Cotizador directo (sin conversación): calcula el presupuesto determinista
+    para los ítems pedidos, contra la lista de precios del cliente."""
+    memory = make_memory(STATE_PATH)
+    pricing = normalize_pricing(memory.get_client_pricing(body.client))
+    quote = compute_quote(pricing, body.items)
+    if quote is None:
+        raise HTTPException(status_code=404,
+                            detail="ningún ítem pedido está en la lista de precios del cliente")
+    return {"client": body.client, "quote": quote, "text": format_quote(quote)}
+
+
+@app.get("/api/conversation")
+def conversation(client: str, lead: str, limit: int = 50):
+    """El hilo del diálogo con un lead, para verlo en el dashboard."""
+    memory = make_memory(STATE_PATH)
+    return {"client": client, "lead": lead.strip().lower(),
+            "turns": memory.get_conversation(client, lead.strip(), limit=limit)}
 
 
 @app.get("/api/forecast")

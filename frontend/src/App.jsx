@@ -32,7 +32,7 @@ const TITLES = {
   '/campanas': ['Campañas', 'Tus campañas de Meta Ads y su rendimiento'],
   '/leads': ['Leads', 'Todos los leads del cliente'],
   '/pipeline': ['Pipeline', 'El tablero por etapas'],
-  '/agentes': ['Agentes', 'Tus canales de contacto, un agente por cada uno'],
+  '/agentes': ['Agentes', 'Deja un agente atendiendo a los leads de cada empresa, en 3 pasos'],
   '/llamadas': ['Llamadas', 'Llamá a un prospecto con un agente de voz'],
   '/whatsapp': ['WhatsApp', 'Tu agente de WhatsApp: estado, prueba y actividad reciente'],
   '/forecast': ['Forecast', 'Proyección de pipeline'],
