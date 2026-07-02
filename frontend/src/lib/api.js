@@ -63,6 +63,9 @@ export const api = {
   vendorFor: (c) => req('/api/vendor?client=' + q(c)),
   setVendor: (c, vendor_id) =>
     req('/api/vendor?client=' + q(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ vendor_id }) }),
+  pricing: (c) => req('/api/pricing?client=' + q(c)),
+  setPricing: (c, pricing) =>
+    req('/api/pricing?client=' + q(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pricing }) }),
   knowledge: (c) => req('/api/knowledge?client=' + q(c)),
   setKnowledge: (c, knowledge) =>
     req('/api/knowledge?client=' + q(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ knowledge }) }),

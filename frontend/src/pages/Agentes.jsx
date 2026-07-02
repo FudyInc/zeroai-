@@ -11,6 +11,7 @@ import { api } from '../lib/api'
 import { Card, Button, Skeleton } from '../components/ui'
 import { useApp } from '../App'
 import AgentTester from '../components/AgentTester'
+import PricingCard from '../components/PricingCard'
 
 /* Sección Agentes: en 3 pasos simples, cualquier persona del equipo deja a un agente
    atendiendo los leads de una empresa — sin saber nada de IA.
@@ -65,6 +66,7 @@ export default function Agentes() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
         <div className="space-y-4">
           <KnowledgeCard client={client} knowledgeQ={knowledgeQ} />
+          <PricingCard client={client} />
           <VendorPicker vendorsQ={vendorsQ} assignedId={assignedId} currentId={currentId} onPick={setSelected} />
           <DeployCard
             client={client} vendor={currentVendor} assignedId={assignedId}

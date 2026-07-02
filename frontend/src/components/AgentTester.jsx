@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { MessageSquare, RotateCcw, AlertTriangle } from 'lucide-react'
 import { api } from '../lib/api'
 import { Card, Button, Input } from './ui'
+import QuoteCard from './QuoteCard'
 
 /* Prueba el agente conversacional: escribe como si fueras un lead y mira cómo responde
    usando el negocio del cliente (su ficha e ICP guardados). El servidor no guarda estos
@@ -37,9 +38,9 @@ export default function AgentTester({
     try {
       const body = { client: theClient, message: text, history }
       if (vendorId) body.vendor_id = vendorId
-      const { reply, mode } = await api.simulateAgent(body)
+      const { reply, mode, quote } = await api.simulateAgent(body)
       setMockMode(mode === 'mock')
-      setChat((c) => [...c, { who: 'agent', text: reply, mode }])
+      setChat((c) => [...c, { who: 'agent', text: reply, mode, quote }])
     } catch (e) {
       setChat((c) => [...c, { who: 'agent', text: 'Error: ' + e.message, mode: 'error' }])
     } finally { setBusy(false) }
@@ -81,6 +82,7 @@ export default function AgentTester({
                 (m.who === 'lead' ? 'bg-brand text-white' : 'bg-white border border-zinc-200 text-zinc-700')}>
                 {m.text}
               </span>
+              {m.quote && <div className="mt-1.5"><QuoteCard quote={m.quote} /></div>}
             </div>
           ))}
           {busy && <div className="text-left text-xs text-zinc-400 pl-1">escribiendo…</div>}
