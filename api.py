@@ -329,15 +329,16 @@ def register_reply(key: str, client: str, body: Reply):
 
 
 # --- WhatsApp conversational agent (CONCIERGE) -------------------------------
-def _agents_best():
+def _agents_best(source=None):
     """El mejor cerebro disponible: Anthropic (pago) → modelo local (gratis, Ollama) →
     mock. El local se activa con LOCAL_MODEL en el entorno (sin costo por token).
-    Ignora valores vacíos/espacios (un env declarado pero sin valor NO activa 'live')."""
+    Ignora valores vacíos/espacios (un env declarado pero sin valor NO activa 'live').
+    `source` (discovery real) se pasa a los agentes en cualquiera de los tres modos."""
     key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
     if key:
         try:
             from zero.backends import AnthropicBackend
-            return build_agents(backend=AnthropicBackend(api_key=key), mock=False), "live"
+            return build_agents(backend=AnthropicBackend(api_key=key), mock=False, source=source), "live"
         except Exception:
             pass
     local = (os.environ.get("LOCAL_MODEL") or "").strip()
@@ -345,10 +346,20 @@ def _agents_best():
         try:
             from zero.backends import LocalBackend
             url = os.environ.get("LOCAL_MODEL_URL", "http://localhost:11434/v1")
-            return build_agents(backend=LocalBackend(model=local, base_url=url), mock=False), "live"
+            return build_agents(backend=LocalBackend(model=local, base_url=url), mock=False,
+                                source=source), "live"
         except Exception:
             pass
-    return build_agents(mock=True), "mock"
+    return build_agents(mock=True, source=source), "mock"
+
+
+def _discovery_source():
+    """Discovery web real (DuckDuckGo, sin key) por defecto; DISCOVER=none vuelve
+    al camino mock/LLM. Si la red falla, PROSPECTOR degrada a 'partial' sin crashear."""
+    if (os.environ.get("DISCOVER") or "web").strip().lower() != "web":
+        return None
+    from zero.discovery import DuckDuckGoSource
+    return DuckDuckGoSource()
 
 
 def _nonempty(r) -> bool:
@@ -360,7 +371,7 @@ def _nonempty(r) -> bool:
     return r is not None
 
 
-def _agent_op(fn, memory=None):
+def _agent_op(fn, memory=None, crm=None):
     """Corre una operación de agente con el mejor cerebro; si el modelo 'live' falla
     en runtime (key inválida, modelo no disponible, Ollama inalcanzable) O devuelve
     vacío, reintenta en mock para que el agente SIEMPRE responda.
@@ -368,14 +379,14 @@ def _agent_op(fn, memory=None):
     mem = memory if memory is not None else make_memory(STATE_PATH)
     agents, mode = _agents_best()
     try:
-        res = fn(Zero(agents, memory=mem))
+        res = fn(Zero(agents, memory=mem, crm=crm))
         if mode != "mock" and not _nonempty(res):
             raise RuntimeError("el modelo live devolvió vacío")
         return res, mode
     except Exception:
         if mode == "mock":
             raise   # ya era mock: el fallo es real, que lo vea quien llama
-        return fn(Zero(build_agents(mock=True), memory=mem)), "mock"
+        return fn(Zero(build_agents(mock=True), memory=mem, crm=crm)), "mock"
 
 
 @app.get("/api/whatsapp/status")
@@ -449,11 +460,17 @@ def run_pipeline(req: RunRequest):
     crm = make_crm(CRM_PATH)
     memory = make_memory(STATE_PATH)
     memory.register_client(req.client, req.tier)
-    zero = Zero(build_agents(mock=True), memory=memory, crm=crm, outbox=make_outbox())
+    # El mejor cerebro disponible + discovery web real. Sin fallback silencioso a
+    # mock: una entrega con leads inventados sería mentirle al cliente — si el
+    # motor real falla a mitad de pipeline, el resultado lo dice ({"error": etapa}).
+    agents, mode = _agents_best(source=_discovery_source())
+    zero = Zero(agents, memory=memory, crm=crm, outbox=make_outbox())
     try:
-        return zero.run_pipeline(req.client, req.tier, req.query, count=req.count, icp=req.icp)
+        out = zero.run_pipeline(req.client, req.tier, req.query, count=req.count, icp=req.icp)
     except ValueError as e:   # e.g. unknown tier
         raise HTTPException(status_code=400, detail=str(e))
+    out["mode"] = mode
+    return out
 
 
 # --- sales pitch (offer the service by email, demo included) ------------------
@@ -553,8 +570,11 @@ def forecast(client: str):
     memory = make_memory(STATE_PATH)
     tier = memory.clients.get(client, {}).get("tier", "GROWTH")
     memory.register_client(client, tier)
-    zero = Zero(build_agents(mock=True), memory=memory, crm=crm)
-    return zero.forecast(client)
+    # ANALYST solo propone tasas (la aritmética es determinista) — con fallback a
+    # mock está bien: nunca inventa datos, solo comenta.
+    res, mode = _agent_op(lambda z: z.forecast(client), memory=memory, crm=crm)
+    res["mode"] = mode
+    return res
 
 
 # --- config (secrets stored in .env, set once from the dashboard) -------------
@@ -564,6 +584,10 @@ def get_config():
     return {
         "elevenlabs": bool(os.environ.get("ELEVENLABS_API_KEY")),
         "anthropic": bool(os.environ.get("ANTHROPIC_API_KEY")),
+        # cerebro local (Ollama/vLLM) — gratis; activo si hay un nombre de modelo
+        "local_model": (os.environ.get("LOCAL_MODEL") or "").strip() or None,
+        # discovery de leads: web real (DuckDuckGo) por defecto, o mock/LLM
+        "discover": (os.environ.get("DISCOVER") or "web").strip().lower(),
         # con la API key ya lista agentes y números; assistant/phone son opcionales
         "vapi": bool(os.environ.get("VAPI_API_KEY")),
         "supabase": bool(os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_KEY")),
@@ -581,6 +605,9 @@ def get_config():
 class ConfigBody(BaseModel):
     elevenlabs_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
+    local_model: Optional[str] = None
+    local_model_url: Optional[str] = None
+    discover: Optional[str] = None   # "web" | "none"
     vapi_api_key: Optional[str] = None
     vapi_assistant_id: Optional[str] = None
     vapi_phone_number_id: Optional[str] = None
@@ -606,6 +633,9 @@ def set_config(body: ConfigBody):
     fields = {
         "ELEVENLABS_API_KEY": body.elevenlabs_api_key,
         "ANTHROPIC_API_KEY": body.anthropic_api_key,
+        "LOCAL_MODEL": body.local_model,
+        "LOCAL_MODEL_URL": body.local_model_url,
+        "DISCOVER": body.discover,
         "VAPI_API_KEY": body.vapi_api_key,
         "VAPI_ASSISTANT_ID": body.vapi_assistant_id,
         "VAPI_PHONE_NUMBER_ID": body.vapi_phone_number_id,

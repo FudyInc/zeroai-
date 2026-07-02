@@ -40,32 +40,46 @@ def main(argv=None) -> int:
     p.add_argument("--as-of", dest="as_of", default=None,
                    help="ISO datetime to treat as 'now' for due follow-ups (--action followups)")
     p.add_argument("--count", type=int, default=8, help="leads to attempt this run (tier-capped)")
-    p.add_argument("--discover", choices=["none", "web"], default="none",
-                   help="none = mock/LLM leads · web = real DuckDuckGo discovery (no key)")
+    p.add_argument("--discover", choices=["none", "web"],
+                   default=(os.environ.get("DISCOVER") or "none").strip().lower(),
+                   help="none = mock/LLM leads · web = real DuckDuckGo discovery (no key); "
+                        "el default sale de DISCOVER en el entorno/.env")
     p.add_argument("--no-enrich", action="store_true",
                    help="skip decision-maker lookup in web discovery (faster, fewer fetches)")
     p.add_argument("--exclude", default="", help="comma-separated excluded domains")
     p.add_argument("--no-outreach", action="store_true", help="skip first-touch messaging")
     p.add_argument("--live", action="store_true", help="use the Anthropic API instead of mock")
     p.add_argument("--local", action="store_true",
-                   help="use a local OpenAI-compatible model (Ollama/vLLM) — no key, no tokens")
-    p.add_argument("--local-model", default="qwen2.5-coder:7b", help="local model name (--local)")
-    p.add_argument("--local-url", default="http://localhost:11434/v1",
-                   help="local OpenAI-compatible base URL (--local)")
+                   help="use a local OpenAI-compatible model (Ollama/vLLM) — no key, no tokens; "
+                        "se activa solo si LOCAL_MODEL está en el entorno/.env")
+    p.add_argument("--mock", action="store_true",
+                   help="fuerza el modo mock (ignora LOCAL_MODEL/DISCOVER del entorno)")
+    p.add_argument("--local-model",
+                   default=(os.environ.get("LOCAL_MODEL") or "").strip() or "qwen2.5-coder:7b",
+                   help="local model name (--local); default: LOCAL_MODEL del entorno/.env")
+    p.add_argument("--local-url",
+                   default=(os.environ.get("LOCAL_MODEL_URL") or "").strip()
+                           or "http://localhost:11434/v1",
+                   help="local OpenAI-compatible base URL (--local); default: LOCAL_MODEL_URL")
     p.add_argument("--state", default="state.json", help="session-memory file")
     p.add_argument("--export", default=None, help="write the deliverable (qualified leads) to a CSV path")
     p.add_argument("--json", action="store_true", help="print raw deliverable JSON")
     args = p.parse_args(argv)
 
-    if args.live and args.local:
-        print("ERROR: choose one of --live or --local, not both.", file=sys.stderr)
+    if sum((args.live, args.local, args.mock)) > 1:
+        print("ERROR: choose one of --live, --local or --mock.", file=sys.stderr)
         return 2
     if args.action == "pipeline" and not args.query:
         print("ERROR: --query is required for --action pipeline.", file=sys.stderr)
         return 2
 
+    # Sin flag explícito, un LOCAL_MODEL en el entorno/.env activa el cerebro local
+    # (gratis). La nube Anthropic (pago) sigue siendo solo con --live explícito.
+    env_local = bool((os.environ.get("LOCAL_MODEL") or "").strip())
+    use_local = args.local or (env_local and not args.live and not args.mock)
+
     backend = None
-    mock = not (args.live or args.local)
+    mock = not (args.live or use_local)
     if args.live:
         key = os.environ.get("ANTHROPIC_API_KEY")
         if not key:
@@ -77,12 +91,12 @@ def main(argv=None) -> int:
         except ImportError:
             print("ERROR: --live needs `pip install anthropic`.", file=sys.stderr)
             return 2
-    elif args.local:
+    elif use_local:
         from zero.backends import LocalBackend
         backend = LocalBackend(model=args.local_model, base_url=args.local_url)
 
     source = None
-    if args.discover == "web":
+    if args.discover == "web" and not args.mock:   # --mock también apaga la red
         from zero.discovery import DuckDuckGoSource
         source = DuckDuckGoSource(enrich=not args.no_enrich)
 

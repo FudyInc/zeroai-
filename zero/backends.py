@@ -55,7 +55,9 @@ class LocalBackend:
         model: str = "qwen2.5-coder:7b",
         base_url: str = "http://localhost:11434/v1",
         api_key: str = "local",
-        timeout: float = 180.0,
+        # Holgado a propósito: un modelo razonador (DeepSeek-R1) en CPU puede tardar
+        # varios minutos en un lote; mejor lento que un pipeline caído por timeout.
+        timeout: float = 600.0,
         temperature: float = 0.2,
     ):
         self.model = model
@@ -113,6 +115,10 @@ def extract_json(text: str) -> Optional[Dict[str, Any]]:
     if not text:
         return None
     text = text.strip()
+
+    # 0) Drop the reasoning block that thinking models (DeepSeek-R1, QwQ) prepend,
+    #    so a JSON-looking fragment inside the reasoning never wins over the answer.
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
 
     # 1) Strip a code fence if present (```json ... ``` or ``` ... ```).
     fenced = re.search(r"```(?:json)?\s*(.+?)\s*```", text, re.S)
