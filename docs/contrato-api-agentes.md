@@ -42,6 +42,23 @@ reales, y el **hilo de conversación** de cada lead para supervisión.
 - `GET /api/icp?client=<id>` → `{"client", "icp": {...}}`
 - `POST /api/icp?client=<id>` — body `{"icp": {...}}`
 
+### Lista de precios + presupuestos (2026-07-02)
+
+La aritmética del presupuesto es **determinista** (código, `zero/quotes.py`); el LLM
+nunca calcula. El trabajador carga la lista de precios y el agente cotiza solo.
+
+- `GET /api/pricing?client=<id>` → `{"client", "pricing": Pricing}`
+  `Pricing = {"currency": "CLP", "iva_rate": 0.19, "items": [{"id", "name",
+  "unit_price", "unit"|null}]}`
+- `POST /api/pricing?client=<id>` — body `{"pricing": Pricing}`. Se normaliza al
+  entrar: ítems sin `name` o sin `unit_price > 0` se descartan; `id` se deriva del
+  nombre si falta. Devuelve el pricing ya normalizado (mostrar ese).
+- `POST /api/quote` — cotizador directo (sin chat). Body:
+  `{"client": "acme", "items": [{"id": "sitio-web", "qty": 2}]}`
+  → `{"client", "quote": Quote, "text": str}` · 404 si ningún ítem existe.
+  `Quote = {"currency", "lines": [{"id", "name", "qty", "unit_price", "subtotal"}],
+  "subtotal", "iva_rate", "iva", "total", "unmatched": [ids]}`
+
 ### Chat de prueba (sin WhatsApp, no envía nada, no persiste)
 
 - `POST /api/whatsapp/simulate` — body:
@@ -50,10 +67,13 @@ reales, y el **hilo de conversación** de cada lead para supervisión.
    "history": [{"role": "lead"|"agent", "text": "..."}],   // opcional
    "vendor_id": "stefano"}                                   // opcional
   ```
-  → `{"reply": str, "mode": "live"|"mock"}`
+  → `{"reply": str, "mode": "live"|"mock", "quote": Quote|null}`
   **El frontend mantiene la transcripción** y la manda completa en `history` en cada
   turno (el server no guarda ensayos). `vendor_id` permite probar una personalidad
   sin asignarla. `mode: "mock"` = no hay modelo configurado (mostrar aviso).
+  `quote` viene cuando el lead pidió precios de ítems del catálogo: el `reply` ya
+  incluye el bloque de presupuesto como texto; `quote` trae los números por si la
+  UI quiere pintar una tarjeta bonita.
 
 ### Hilo real de un lead (supervisión)
 
