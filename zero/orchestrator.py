@@ -634,14 +634,26 @@ class Zero:
         # son solo los turnos previos (el mensaje actual viaja aparte en `message`).
         res = self.converse_result(client_id, text, lead=rec, channel=channel)
         reply, intent = res.get("reply") or "", res.get("intent") or "general"
+        quote = res.get("quote")
         self.memory.add_turn(client_id, key, "lead", text)
         if reply:
             self.memory.add_turn(client_id, key, "agent", reply)
             self._deliver(client_id, key, rec.get("phone") or rec.get("email"),
                           {"channel": channel, "subject": None, "body": reply}, wa_creds=wa_creds)
             if self.crm:
-                self.crm.log(client_id, key, "auto_reply", reply[:140])
+                # Un presupuesto enviado es un evento de venta, no una respuesta más:
+                # queda aparte en el historial para que un humano lo vea de un vistazo.
+                if quote:
+                    self.crm.log(client_id, key, "quote_sent",
+                                 f"presupuesto {quote['currency']} {quote['total']:,.0f} "
+                                 f"({len(quote['lines'])} ítems)")
+                else:
+                    self.crm.log(client_id, key, "auto_reply", reply[:140])
                 self.crm.save()
+        if quote:
+            self.memory.log("quote", client=client_id, lead=key,
+                            total=quote["total"], currency=quote["currency"],
+                            items=[(l["id"], l["qty"]) for l in quote["lines"]])
         self.memory.save()
         # The reply itself made an offer → remember it; an opt-out voids any open one.
         if intent in ("info", "objection"):
