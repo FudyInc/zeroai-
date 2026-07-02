@@ -108,10 +108,14 @@ def main(argv=None) -> int:
         print(f"ERROR: {e}", file=sys.stderr)
         return 2
 
+    from zero.channels import make_outbox
     from zero.inbox import make_inbox
     memory.register_client(args.client, args.tier)
+    # El outbox honra OUTBOX_LIVE (mock salvo switch explícito) — igual que la API.
+    # --mock también fuerza envío mock: un ensayo nunca debe mandar nada real.
     zero = Zero(build_agents(backend=backend, mock=mock, source=source), memory=memory,
-                crm=crm, inbox=make_inbox(args.inbox))
+                crm=crm, inbox=make_inbox(args.inbox),
+                outbox=None if args.mock else make_outbox())
 
     if args.action == "crm":
         return _run_crm(crm, args)
