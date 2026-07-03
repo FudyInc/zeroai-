@@ -30,6 +30,7 @@ from zero.icp import normalize_icp
 from zero.orchestrator import Zero
 from zero.quotes import compute_quote, format_quote, normalize_pricing
 from zero.store import make_crm, make_memory
+from zero.vendors import clients_count_for
 
 CRM_PATH = "crm.json"
 STATE_PATH = "state.json"
@@ -595,9 +596,13 @@ def set_icp(client: str, body: IcpBody):
 
 @app.get("/api/vendors")
 def list_vendors():
-    """Catálogo de personalidades (Fernanda, Stéfano, ...)."""
+    """Catálogo de personalidades (Fernanda, Stéfano, ...), con cuántos clientes
+    tiene asignados cada una (clients_count) — presentación, no cambia el
+    registro guardado."""
     memory = make_memory(STATE_PATH)
-    return {"vendors": memory.list_vendors(), "default": DEFAULT_VENDOR_ID}
+    vendors = [dict(v, clients_count=clients_count_for(v["id"], memory))
+              for v in memory.list_vendors()]
+    return {"vendors": vendors, "default": DEFAULT_VENDOR_ID}
 
 
 class VendorBody(BaseModel):

@@ -50,6 +50,19 @@ def seed_vendors() -> List[Dict[str, Any]]:
     ]
 
 
+def clients_count_for(vendor_id: str, memory: Any) -> int:
+    """How many known clients resolve to `vendor_id` as their assigned vendor.
+
+    Uses `memory.get_client_vendor(client_id)`, which falls back to
+    `DEFAULT_VENDOR_ID` when a client has no explicit assignment — so the
+    default vendor's count includes unassigned clients. `memory` is duck-typed
+    (anything exposing `.clients` and `.get_client_vendor`, i.e. SessionMemory)
+    rather than imported by type, to avoid a circular import — zero.memory
+    already imports this module. Presentation-only: does not touch the stored
+    Vendor record or the contract credentials_for/Zero.vendor_for rely on."""
+    return sum(1 for c in memory.clients if memory.get_client_vendor(c) == vendor_id)
+
+
 def credentials_for(vendor: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
     """(phone_id, token) for sending as this vendor on WhatsApp.
 

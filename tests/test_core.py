@@ -1173,6 +1173,22 @@ class VendorTest(unittest.TestCase):
         self.assertEqual(m2.get_client_vendor("acme"), "stefano")
         self.assertIn("fernanda", {v["id"] for v in m2.list_vendors()})
 
+    def test_clients_count_for_counts_assigned_and_default_clients(self):
+        """clients_count_for() es lo que GET /api/vendors expone por vendedor —
+        se testea directo (stdlib) sin montar fastapi. No toca el registro
+        guardado ni el contrato que usan credentials_for/Zero.vendor_for."""
+        from zero.vendors import clients_count_for
+        m = SessionMemory(None)
+        m.register_client("acme", "GROWTH")
+        m.register_client("beta", "GROWTH")
+        m.register_client("gamma", "GROWTH")
+        m.set_client_vendor("acme", "fernanda")
+        m.set_client_vendor("beta", "stefano")
+        # "gamma" sin asignación explícita -> cae al default (fernanda)
+        self.assertEqual(clients_count_for("fernanda", m), 2)
+        self.assertEqual(clients_count_for("stefano", m), 1)
+        self.assertEqual(clients_count_for("no-existe", m), 0)
+
 
 class VendorCredentialsTest(unittest.TestCase):
     """Resolución de credenciales por vendedor, con fallback a las env globales."""
