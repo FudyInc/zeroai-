@@ -50,26 +50,22 @@ Orden acordado con Diego — no reordenar sin avisar:
    tests nuevos, 297/297 en verde. Instrucciones para Diego en `docs/GO-LIVE.md` §(c).
    **Falta (fuera de código, manual):** Diego crea la plantilla en Meta Business
    Manager, espera aprobación, y la anota en `WHATSAPP_TEMPLATE`.
-2. **Fragilidad del hosting** — decidido (2026-07-04), 🟡 EN CURSO. El backend depende
-   de un PC Ubuntu + túnel gratis de ngrok; si el PC se apaga/reinicia sin querer,
-   todo el producto cae para todos los clientes. Decisión de Diego: **a propósito
-   se queda así mientras esté en fase de desarrollo/prueba, sin clientes reales.**
-   La migración de verdad se hace recién cuando haya que salir al mercado — no antes.
-   - **Migración futura (cuando haya clientes reales):** mover el backend a un VPS
-     barato (Hetzner/DigitalOcean, ~$4-6 USD/mes) — mismo código, mismos `systemd`,
-     solo que en una máquina con energía/internet garantizados. Render queda
-     descartado (ver [[zero-hosting-decision]] — fricción con las keys). Vercel NO
-     sirve para el backend (es serverless, sin proceso persistente, y el disco es
-     efímero — rompería el fallback local a `state.json`/`crm.json`); Vercel se queda
-     con su rol actual, solo el frontend. Supabase (ya construido: `SupabaseCRM`/
-     `SupabaseMemory`) sí encaja para la capa de datos cuando llegue el momento —
-     ojo: el plan gratis pausa el proyecto tras ~1 semana sin actividad.
-   - **Ahora, gratis:** monitoreo con alerta — UptimeRobot (gratis) pegándole a
-     `/api/health` cada 5 min, con push a iPhone vía su app oficial. Esto no evita
-     la caída, pero avisa en minutos en vez de que lo note un cliente.
-   - **Anotado para más adelante, no ahora:** activar en el BIOS del PC Ubuntu
-     "Restore on AC Power Loss" (auto-enciende solo si vuelve la luz después de un
-     corte) — complementa lo que ya hace `systemd` (reinicia el proceso si se cae).
+2. **Fragilidad del hosting** — ⏸️ PAUSADO A PROPÓSITO (2026-07-04). El backend
+   depende de un PC Ubuntu + túnel gratis de ngrok; si el PC se apaga/reinicia sin
+   querer, todo el producto cae. Decisión de Diego: **mientras esté en fase de
+   desarrollo/prueba, sin clientes reales, todo esto queda pausado** — ni VPS, ni
+   Supabase, ni siquiera UptimeRobot todavía. El foco ahora es el producto en sí
+   (punto 3 en adelante). Retomar recién cuando haya que salir al mercado:
+   - VPS barato (Hetzner/DigitalOcean, ~$4-6 USD/mes) — mismo código, mismos
+     `systemd`, máquina con energía/internet garantizados. Render descartado (ver
+     [[zero-hosting-decision]] — fricción con las keys). Vercel NO sirve para el
+     backend (serverless, sin proceso persistente, disco efímero — rompería el
+     fallback a `state.json`/`crm.json`); se queda con su rol actual, solo frontend.
+     Supabase (ya construido: `SupabaseCRM`/`SupabaseMemory`) sí encaja para la capa
+     de datos — ojo: el plan gratis pausa el proyecto tras ~1 semana sin actividad.
+   - Monitoreo con alerta (UptimeRobot gratis + push a iPhone) — pasos ya definidos,
+     ver commit anterior de esta sección; solo falta ejecutarlos cuando toque.
+   - BIOS del PC Ubuntu: "Restore on AC Power Loss" (auto-enciende al volver la luz).
 3. **Test end-to-end HTTP** (`tests/test_api_http.py`, requiere `fastapi`+`httpx`,
    separado del núcleo stdlib-only) — prueba la cadena completa petición → FastAPI →
    auth → respuesta, no solo la lógica interna. Hoy los 297 tests de `test_core.py`
