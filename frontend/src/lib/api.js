@@ -10,6 +10,13 @@ async function req(path, opts = {}) {
   const headers = { ...(opts.headers || {}) }
   const t = getToken()
   if (t) headers.Authorization = 'Bearer ' + t
+  // El backend hoy vive detrás de un túnel gratis de ngrok — sin este header,
+  // ngrok le muestra a cualquier request con pinta de navegador (Chrome, etc.)
+  // una página HTML de advertencia en vez de dejar pasar la respuesta JSON real.
+  // Curl/Postman no la disparan (por eso "funcionaba" al probarlo a mano) pero
+  // el dashboard sí, silenciosamente: r.json() fallaba y cada panel quedaba
+  // vacío. Header inofensivo si el backend deja de estar detrás de ngrok.
+  headers['ngrok-skip-browser-warning'] = 'true'
   const r = await fetch(BASE + path, { ...opts, headers })
   if (r.status === 401) {
     setToken(null)
