@@ -6,6 +6,29 @@ en el momento** — así una compresión de contexto no nos lo borra.
 
 ---
 
+## 🔴 Estado de infraestructura (2026-07-03) — dónde vive cada cosa
+
+- **Rama de producción: `main`.** `chore/terminales-por-rol` (la que de verdad corría
+  en Ubuntu) se fusionó acá vía fast-forward. Las ramas de trabajo (`core`, `dashboard`,
+  `prompts`, etc.) se fusionan y se **borran** — no se acumulan durante semanas. Ver
+  [[zero-branch-sprawl-lesson]]: hoy mismo aparecieron un proyecto de Vercel duplicado y
+  un `GET /api/vendors` construido dos veces por tener demasiadas ramas divergiendo.
+- **Frontend:** un solo proyecto en Vercel — **`zeroai`** (`zeroai-six.vercel.app`),
+  conectado por Git a `main` (auto-deploy en cada push). Nunca correr `vercel`/
+  `vercel --prod` manual desde ningún checkout — eso fue lo que generó los duplicados
+  `zeroai-x16d`, `zeroai-dashboard` y `project-qfwaa` (ya borrados/por borrar).
+- **Backend:** corre en el PC Ubuntu como dos servicios `systemd`
+  (`zero-backend.service` + `zero-tunnel.service`), arrancan solos al prender el PC y se
+  reinician solos si se caen. Expuesto vía túnel fijo de ngrok (dominio "dev domain,
+  yours forever" — gratis, no cambia entre reinicios). `VITE_API_URL` en Vercel apunta a
+  esa URL.
+- **Antes de construir un endpoint nuevo:** revisa el `api.py` real (rama `main`)
+  primero con `grep` — no asumas el contrato de un prompt sin verificar contra el código.
+- Guardia automática: `tests/test_core.py::ApiRoutesTest` falla si `api.py` registra la
+  misma ruta dos veces (justo el problema de hoy).
+
+---
+
 ## Plan A — Pulido del dashboard (4 puntos) · ✅ COMPLETO
 1. **Pulido en TODAS las páginas** (animaciones, skeletons, estados carga/error/vacío) — ✅
    commiteado (rework en las 9 vistas del frontend).
