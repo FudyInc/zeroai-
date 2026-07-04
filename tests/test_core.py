@@ -762,6 +762,45 @@ class ConciergeTest(unittest.TestCase):
         self.assertEqual(no_meta[0]["to_phone_id"], "")
         self.assertEqual(parse_inbound({}), [])      # malformed → empty, no crash
 
+    def test_verify_meta_signature(self):
+        """Sin esto, POST /api/webhooks/whatsapp aceptaría cualquier payload de
+        cualquiera — verify_meta_signature es lo único que lo evita."""
+        import hashlib
+        import hmac
+        import os
+        from zero.whatsapp_inbound import verify_meta_signature
+        prev = os.environ.get("WHATSAPP_APP_SECRET")
+        try:
+            os.environ["WHATSAPP_APP_SECRET"] = "mi-secreto"
+            body = b'{"entry": []}'
+            good_sig = "sha256=" + hmac.new(b"mi-secreto", body, hashlib.sha256).hexdigest()
+            self.assertTrue(verify_meta_signature(body, good_sig))
+            # firma de otro secreto -> rechazada
+            bad_sig = "sha256=" + hmac.new(b"otro-secreto", body, hashlib.sha256).hexdigest()
+            self.assertFalse(verify_meta_signature(body, bad_sig))
+            # sin header -> rechazada
+            self.assertFalse(verify_meta_signature(body, None))
+            # header sin el prefijo esperado -> rechazada
+            self.assertFalse(verify_meta_signature(body, "no-es-sha256"))
+        finally:
+            if prev is None:
+                os.environ.pop("WHATSAPP_APP_SECRET", None)
+            else:
+                os.environ["WHATSAPP_APP_SECRET"] = prev
+
+    def test_verify_meta_signature_without_secret_configured_always_rejects(self):
+        """Sin WHATSAPP_APP_SECRET configurado, NUNCA deja pasar nada — ni con una
+        firma que 'parece' válida. Mejor rechazar todo que aceptar sin poder
+        verificar de verdad."""
+        import os
+        from zero.whatsapp_inbound import verify_meta_signature
+        prev = os.environ.pop("WHATSAPP_APP_SECRET", None)
+        try:
+            self.assertFalse(verify_meta_signature(b"{}", "sha256=loquesea"))
+        finally:
+            if prev is not None:
+                os.environ["WHATSAPP_APP_SECRET"] = prev
+
     def test_inbound_matches_lead_and_replies(self):
         z, crm = self._zero()
         lead = crm.list("acme", "nurturing")[0]

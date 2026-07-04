@@ -84,10 +84,21 @@ Orden acordado con Diego — no reordenar sin avisar:
    sin capturar, en cualquier endpoint, a un `503` con mensaje claro — en vez de un
    `500` genérico. Cubre tanto `crm_supabase.py` como `memory_supabase.py` (comparten
    la misma excepción). Test de regresión agregado. 302/302 tests en verde.
-4. Resto del checklist de fiabilidad (password real en vez de la de prueba, backup de
-   `crm.json`/`state.json`, verificación de firma del webhook de Meta, reintentos de
-   envío fallido, vendedores con números reales de WhatsApp Business, prueba de
-   CONCIERGE con casos difíciles, prueba en móvil, expiración de sesión probada).
+4. Checklist de fiabilidad, 🟡 EN CURSO (2026-07-04) — 3 puntos requieren acción
+   manual de Diego (anotados, no bloquean el resto): password real en vez de la de
+   prueba, vendedores con números reales de WhatsApp Business, prueba en móvil.
+   - **Verificación de firma del webhook de Meta** — ✅ HECHO. `POST
+     /api/webhooks/whatsapp` no verificaba nada — cualquiera con la URL podía
+     mandar mensajes falsos haciéndose pasar por un lead (y hasta gatillar una
+     respuesta real con `OUTBOX_LIVE=1`). Agregado `verify_meta_signature` en
+     `zero/whatsapp_inbound.py` (HMAC-SHA256 contra `WHATSAPP_APP_SECRET`,
+     comparación con `hmac.compare_digest`); sin el secreto configurado, o con una
+     firma que no cuadra, el webhook rechaza con `403` — no hay forma de recibir
+     mensajes reales sin el secreto. `WHATSAPP_APP_SECRET` sumado a
+     `POST /api/config` y a `docs/GO-LIVE.md`. 4 tests nuevos (función aislada +
+     HTTP real). 306/306 tests en verde.
+   - Backup de `crm.json`/`state.json`, reintentos de envío fallido, prueba de
+     CONCIERGE con casos difíciles, expiración de sesión probada — ⏳ siguen.
 
 ---
 

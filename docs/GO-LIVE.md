@@ -67,6 +67,7 @@ export WHATSAPP_PHONE_ID=...         # phone_id global (fallback)
 export WHATSAPP_TOKEN_FERNANDA=...   # token propio de Fernanda
 export WHATSAPP_TOKEN_STEFANO=...    # token propio de Stéfano
 export WHATSAPP_VERIFY_TOKEN=...     # para el handshake del webhook de Meta
+export WHATSAPP_APP_SECRET=...       # para verificar la firma de cada mensaje entrante
 ```
 
 **Entrante (dos vías):** el webhook `GET/POST /api/webhooks/whatsapp` recibe los mensajes;
@@ -78,6 +79,13 @@ ZERO rutea la respuesta al vendedor dueño del número que recibió el mensaje
   API real; error limpio si falta credencial).
 - Expón el backend con un dominio público o un túnel (ngrok/deploy) y registra esa URL +
   el `WHATSAPP_VERIFY_TOKEN` en el panel de Meta.
+
+**Seguridad del webhook (obligatorio antes de exponerlo en público):** sin
+`WHATSAPP_APP_SECRET`, `POST /api/webhooks/whatsapp` **rechaza todo** con `403` — a
+propósito, para que nadie pueda mandar mensajes falsos haciéndose pasar por un lead.
+El valor es el **App Secret** de tu app de Meta (Configuración de la app → Básica —
+distinto del token que usas para *enviar* mensajes). Sin este secreto configurado,
+el webhook simplemente no recibe nada — no hay forma de activarlo "a medias".
 
 **Plantilla para contacto en frío (obligatorio antes de mandar el primer toque real):**
 Meta exige una plantilla pre-aprobada para el primer mensaje a un lead que nunca
@@ -112,6 +120,8 @@ intenta un texto libre que Meta rechazaría).
 - [ ] (c.1) Plantilla aprobada por Meta + `WHATSAPP_TEMPLATE` en `zero/config.py` —
       sin esto, el primer contacto y los follow-ups por WhatsApp NO se mandan (quedan
       como error en el CRM, a propósito, en vez de un texto libre que Meta rechazaría).
+- [ ] (c.2) `WHATSAPP_APP_SECRET` — sin esto, el webhook rechaza TODO con 403 a
+      propósito (no hay forma de recibir mensajes reales sin este secreto).
 
 Hasta encender (a)/(b)/(c), todo sigue corriendo en mock: seguro para desarrollar y para
 probar la suite (`python3 -m unittest discover -s tests -t .`).

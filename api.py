@@ -10,6 +10,7 @@ Then the frontend (or http://localhost:8800/docs) talks to it.
 """
 from __future__ import annotations
 
+import json
 import os
 from typing import Optional
 
@@ -430,8 +431,11 @@ def whatsapp_verify(mode: Optional[str] = Query(None, alias="hub.mode"),
 @app.post("/api/webhooks/whatsapp")
 async def whatsapp_inbound(req: Request):
     """Receive inbound WhatsApp messages from Meta → match to lead → reply via CONCIERGE."""
-    from zero.whatsapp_inbound import parse_inbound
-    payload = await req.json()
+    from zero.whatsapp_inbound import parse_inbound, verify_meta_signature
+    raw = await req.body()
+    if not verify_meta_signature(raw, req.headers.get("x-hub-signature-256")):
+        raise HTTPException(status_code=403, detail="firma inválida — no viene de Meta")
+    payload = json.loads(raw.decode("utf-8"))
     msgs = parse_inbound(payload)
     crm = make_crm(CRM_PATH)
     memory = make_memory(STATE_PATH)
@@ -798,6 +802,7 @@ class ConfigBody(BaseModel):
     whatsapp_token: Optional[str] = None
     whatsapp_phone_id: Optional[str] = None
     whatsapp_verify_token: Optional[str] = None
+    whatsapp_app_secret: Optional[str] = None
     auth_password: Optional[str] = None
     meta_ads_token: Optional[str] = None
     meta_ad_account_id: Optional[str] = None
@@ -826,6 +831,7 @@ def set_config(body: ConfigBody):
         "WHATSAPP_TOKEN": body.whatsapp_token,
         "WHATSAPP_PHONE_ID": body.whatsapp_phone_id,
         "WHATSAPP_VERIFY_TOKEN": body.whatsapp_verify_token,
+        "WHATSAPP_APP_SECRET": body.whatsapp_app_secret,
         "AUTH_PASSWORD": body.auth_password,
         "META_ADS_TOKEN": body.meta_ads_token,
         "META_AD_ACCOUNT_ID": body.meta_ad_account_id,

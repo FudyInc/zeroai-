@@ -53,6 +53,8 @@ class ApiHttpTest(unittest.TestCase):
     ningún mensaje ni corre el pipeline, así que no ensucia crm.json/state.json
     reales (mismo tipo de chequeo que se hizo a mano varias veces hoy)."""
 
+    WHATSAPP_APP_SECRET = "test-secret-para-el-webhook"
+
     @classmethod
     def setUpClass(cls):
         cls.port = _free_port()
@@ -60,6 +62,7 @@ class ApiHttpTest(unittest.TestCase):
         repo_root = Path(__file__).resolve().parent.parent
         env = dict(os.environ)
         env.pop("AUTH_PASSWORD", None)  # sin password -> /api/* queda abierto para probar
+        env["WHATSAPP_APP_SECRET"] = cls.WHATSAPP_APP_SECRET
         cls.proc = subprocess.Popen(
             [sys.executable, "-m", "uvicorn", "api:app", "--port", str(cls.port),
              "--log-level", "warning"],
@@ -150,6 +153,40 @@ class ApiHttpTest(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self._get("/api/esto-no-existe")
         self.assertEqual(ctx.exception.code, 404)
+
+    def _post_webhook(self, body: bytes, signature: str | None):
+        headers = {"Content-Type": "application/json"}
+        if signature is not None:
+            headers["X-Hub-Signature-256"] = signature
+        req = urllib.request.Request(
+            f"{self.base}/api/webhooks/whatsapp", data=body, method="POST", headers=headers,
+        )
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return r.status, json.loads(r.read().decode("utf-8"))
+
+    def test_webhook_rejects_unsigned_request(self):
+        """Sobre HTTP real: sin firma, o con una firma que no cuadra, el webhook
+        rechaza con 403 — nunca procesa el payload. Prueba la conexión real
+        api.py -> verify_meta_signature, no solo la función aislada."""
+        body = b'{"entry": [{"changes": [{"value": {"messages": []}}]}]}'
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._post_webhook(body, signature=None)
+        self.assertEqual(ctx.exception.code, 403)
+
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._post_webhook(body, signature="sha256=firma-que-no-cuadra")
+        self.assertEqual(ctx.exception.code, 403)
+
+    def test_webhook_accepts_correctly_signed_request(self):
+        import hashlib
+        import hmac
+        body = b'{"entry": [{"changes": [{"value": {"messages": []}}]}]}'
+        sig = "sha256=" + hmac.new(
+            self.WHATSAPP_APP_SECRET.encode("utf-8"), body, hashlib.sha256
+        ).hexdigest()
+        status, resp = self._post_webhook(body, signature=sig)
+        self.assertEqual(status, 200)
+        self.assertEqual(resp["received"], 0)   # payload vacío, pero se procesó
 
 
 if __name__ == "__main__":
