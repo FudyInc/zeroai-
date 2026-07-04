@@ -17,6 +17,20 @@ ZERO_MODEL = FABLE
 # existir en el catálogo semilla (zero/vendors.py::seed_vendors).
 DEFAULT_VENDOR_ID = "fernanda"
 
+# --- WhatsApp Business — plantilla para contacto en frío ----------------------
+# Meta EXIGE una plantilla pre-aprobada para el primer mensaje a un lead que nunca
+# escribió, o cualquier mensaje fuera de la ventana de 24h desde su último mensaje —
+# un mensaje de texto libre en frío es rechazado por la Graph API real. Dentro de esa
+# ventana (o respondiendo a algo que el lead ya escribió) el texto libre SÍ está bien.
+# `name` queda en None hasta que Diego cree la plantilla en Meta Business Manager y
+# Meta la apruebe (paso manual, fuera del código) — sin nombre, WhatsAppSender no
+# manda nada en frío y lo reporta como error visible en el CRM (mock-first: nunca
+# intenta un texto libre que Meta rechazaría en silencio).
+WHATSAPP_TEMPLATE = {
+    "name": None,      # nombre exacto de la plantilla aprobada en Meta Business Manager
+    "language": "es",  # código de idioma de la plantilla aprobada
+}
+
 # --- Client tiers ------------------------------------------------------------
 # leads_per_mo = None means "custom / negotiated".
 # price_clp = lo que el cliente paga por mes (el MRR de la agencia). ENTERPRISE = custom.

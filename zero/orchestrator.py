@@ -246,7 +246,11 @@ class Zero:
                         "body": msg.get("body"),
                     })
             if msg:
-                res = self._deliver(client_id, lead.key(), lead.email or lead.phone, msg)
+                # Primer contacto por WhatsApp = en frío, el lead nunca escribió antes —
+                # Meta exige plantilla pre-aprobada (ver WHATSAPP_TEMPLATE en config.py).
+                to_send = ({**msg, "whatsapp_send_type": "template"}
+                          if msg.get("channel") == "whatsapp" else msg)
+                res = self._deliver(client_id, lead.key(), lead.email or lead.phone, to_send)
                 if res["status"] == "sent":
                     sent += 1
             seq = self.memory.open_sequence(client_id, {**lead.to_dict(), "key": lead.key()})
@@ -404,7 +408,12 @@ class Zero:
             if msg:
                 rec = self.crm.get(client_id, s["lead_key"]) if self.crm else None
                 to = (rec or {}).get("email") or (rec or {}).get("phone")
-                res = self._deliver(client_id, s["lead_key"], to, msg)
+                # Seguimiento a alguien que no ha respondido = sigue siendo contacto
+                # en frío por WhatsApp (fuera de la ventana de 24h) — misma regla que
+                # el primer toque: exige plantilla pre-aprobada.
+                to_send = ({**msg, "whatsapp_send_type": "template"}
+                          if msg.get("channel") == "whatsapp" else msg)
+                res = self._deliver(client_id, s["lead_key"], to, to_send)
                 if res["status"] == "sent":
                     sent += 1
             self.memory.advance_sequence(s)

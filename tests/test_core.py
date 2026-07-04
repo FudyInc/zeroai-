@@ -1268,6 +1268,105 @@ class WhatsAppSenderCredentialsTest(unittest.TestCase):
         self.assertEqual(s.phone_id, "vendor-phone-id")
 
 
+class WhatsAppTemplateTest(unittest.TestCase):
+    """Contacto en frío por WhatsApp (primer toque / follow-up a quien no ha
+    respondido) exige una plantilla pre-aprobada de Meta — un texto libre ahí
+    sería rechazado por la Graph API real. Ver WHATSAPP_TEMPLATE en config.py."""
+
+    def setUp(self):
+        import zero.config as config
+        self._prev_template = dict(config.WHATSAPP_TEMPLATE)
+
+    def tearDown(self):
+        import zero.config as config
+        config.WHATSAPP_TEMPLATE.clear()
+        config.WHATSAPP_TEMPLATE.update(self._prev_template)
+
+    def test_template_send_without_configured_name_raises_clean_error(self):
+        """Sin plantilla configurada, NUNCA cae a texto libre en silencio —
+        levanta un error claro (el Outbox real lo degradaría a 'error' visible
+        en el CRM, igual que cualquier otro fallo de envío)."""
+        import zero.config as config
+        from zero.channels import WhatsAppSender
+        config.WHATSAPP_TEMPLATE["name"] = None
+        s = WhatsAppSender(phone_id="p", token="t")
+        with self.assertRaises(RuntimeError) as ctx:
+            s.send({"to": "56911112222", "body": "hola",
+                    "whatsapp_send_type": "template"})
+        self.assertIn("WHATSAPP_TEMPLATE", str(ctx.exception))
+
+    def test_template_body_shape_when_configured(self):
+        import zero.config as config
+        from zero.channels import WhatsAppSender
+        config.WHATSAPP_TEMPLATE["name"] = "primer_contacto"
+        config.WHATSAPP_TEMPLATE["language"] = "es"
+        body = WhatsAppSender._template_body("56911112222", "hola, te escribo de...")
+        self.assertEqual(body["type"], "template")
+        self.assertEqual(body["template"]["name"], "primer_contacto")
+        self.assertEqual(body["template"]["language"], {"code": "es"})
+        self.assertEqual(
+            body["template"]["components"][0]["parameters"][0]["text"],
+            "hola, te escribo de...",
+        )
+
+    def test_reply_without_send_type_still_uses_free_text(self):
+        """Sin whatsapp_send_type (o distinto de 'template') sigue mandando
+        texto libre — el camino de responder a un lead que ya escribió. No
+        necesita ninguna plantilla configurada, a diferencia del contacto en frío."""
+        import zero.config as config
+        from zero.channels import WhatsAppSender
+        config.WHATSAPP_TEMPLATE["name"] = None   # ni siquiera hace falta plantilla
+        body = WhatsAppSender._text_body("56911112222", "hola, gracias por escribir")
+        self.assertEqual(body, {
+            "messaging_product": "whatsapp", "to": "56911112222", "type": "text",
+            "text": {"body": "hola, gracias por escribir"},
+        })
+
+    def test_first_touch_tags_whatsapp_as_template(self):
+        """_send_first_touch marca el mensaje de WhatsApp como contacto en frío
+        (plantilla); el mismo lead por email no lleva esa marca."""
+        crm = CRM(None)
+        box_calls = []
+
+        class RecordingOutbox:
+            live = True
+            def send(self, msg, wa_creds=None):
+                box_calls.append(msg)
+                return {"channel": msg.get("channel"), "to": msg.get("to"),
+                       "status": "sent", "id": "x", "error": None, "via": "whatsapp"}
+
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=crm,
+                 outbox=RecordingOutbox())
+        z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8)
+        wa_calls = [c for c in box_calls if c.get("channel") == "whatsapp"]
+        self.assertTrue(wa_calls, "el pipeline mock no generó ningún envío de WhatsApp")
+        self.assertTrue(all(c.get("whatsapp_send_type") == "template" for c in wa_calls))
+
+    def test_followup_tags_whatsapp_as_template(self):
+        """run_followups también marca sus envíos de WhatsApp como plantilla —
+        sigue siendo contacto a alguien que no ha respondido."""
+        from datetime import datetime, timedelta, timezone
+        crm = CRM(None)
+        box_calls = []
+
+        class RecordingOutbox:
+            live = True
+            def send(self, msg, wa_creds=None):
+                box_calls.append(msg)
+                return {"channel": msg.get("channel"), "to": msg.get("to"),
+                       "status": "sent", "id": "x", "error": None, "via": "whatsapp"}
+
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=crm,
+                 outbox=RecordingOutbox())
+        z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8)
+        future = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+        box_calls.clear()
+        z.run_followups("acme", as_of=future)
+        wa_calls = [c for c in box_calls if c.get("channel") == "whatsapp"]
+        if wa_calls:   # depende de qué canal haya elegido TRACKER en mock
+            self.assertTrue(all(c.get("whatsapp_send_type") == "template") for c in wa_calls)
+
+
 class ApiRoutesTest(unittest.TestCase):
     """Guarda contra rutas duplicadas en api.py. Registrar el mismo (método,
     ruta) dos veces no es un error de Python — FastAPI no se queja — pero solo

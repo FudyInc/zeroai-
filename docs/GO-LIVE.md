@@ -79,6 +79,28 @@ ZERO rutea la respuesta al vendedor dueño del número que recibió el mensaje
 - Expón el backend con un dominio público o un túnel (ngrok/deploy) y registra esa URL +
   el `WHATSAPP_VERIFY_TOKEN` en el panel de Meta.
 
+**Plantilla para contacto en frío (obligatorio antes de mandar el primer toque real):**
+Meta exige una plantilla pre-aprobada para el primer mensaje a un lead que nunca
+escribió, o cualquier mensaje fuera de la ventana de 24h desde su último mensaje —
+un mensaje de texto libre ahí es **rechazado** por la Graph API real. Sin esto
+configurado, ZeroAI no manda nada en frío (queda como error visible en el CRM, nunca
+intenta un texto libre que Meta rechazaría).
+
+1. En **Meta Business Manager → WhatsApp Manager → Plantillas de mensajes**, crea una
+   plantilla (categoría "Utility" suele aprobarse más rápido que "Marketing") con un
+   placeholder de cuerpo, ej.: *"Hola {{1}}, te contacto porque..."*. Espera la
+   aprobación de Meta (puede tardar de horas a un par de días).
+2. Una vez aprobada, anota su nombre exacto y el código de idioma en
+   `zero/config.py::WHATSAPP_TEMPLATE`:
+   ```python
+   WHATSAPP_TEMPLATE = {"name": "nombre_exacto_de_la_plantilla", "language": "es"}
+   ```
+3. Esto **no afecta** las respuestas a un lead que ya escribió (`handle_inbound`) —
+   esas siguen como texto libre, están dentro de la ventana de 24h.
+4. Costo: Meta cobra por conversación una vez que empiezas a mandar plantillas con un
+   número real (no es gratis como el resto de ZeroAI) — revisa el precio vigente para
+   tu país en el panel de WhatsApp Business antes de activar `OUTBOX_LIVE=1`.
+
 ---
 
 ## Checklist de encendido
@@ -87,6 +109,9 @@ ZERO rutea la respuesta al vendedor dueño del número que recibió el mensaje
 - [ ] (b) `OUTBOX_LIVE=1` (+ `SMTP_HOST` para email) — los mensajes salen.
 - [ ] (c) `WHATSAPP_TOKEN[_<VENDEDOR>]` + `WHATSAPP_PHONE_ID` + `WHATSAPP_VERIFY_TOKEN`
       y URL pública del webhook — WhatsApp de dos vías por vendedor.
+- [ ] (c.1) Plantilla aprobada por Meta + `WHATSAPP_TEMPLATE` en `zero/config.py` —
+      sin esto, el primer contacto y los follow-ups por WhatsApp NO se mandan (quedan
+      como error en el CRM, a propósito, en vez de un texto libre que Meta rechazaría).
 
 Hasta encender (a)/(b)/(c), todo sigue corriendo en mock: seguro para desarrollar y para
 probar la suite (`python3 -m unittest discover -s tests -t .`).

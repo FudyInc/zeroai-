@@ -3,9 +3,16 @@
 Mock-first, faithful to one contract so flipping to real = plugging credentials,
 not rewriting. Mirrors the `store.make_crm` switch:
 
-    msg    = {"channel", "to", "subject"|None, "body", "company"}
+    msg    = {"channel", "to", "subject"|None, "body", "company",
+              "whatsapp_send_type": "template"|None}
     result = {"channel", "to", "status": "sent"|"skipped"|"error",
               "id": str|None, "error": str|None, "via": "mock"|"email"|"whatsapp"}
+
+`whatsapp_send_type="template"` marks a message as business-initiated contact to a
+lead that hasn't replied (Meta requires a pre-approved template outside the 24h
+customer-service window — a free-text message there is rejected by the real Graph
+API). Omit it (or None) for a reply to something the lead just wrote — free text is
+fine within that window. Set by the orchestrator, not by OUTREACH/TRACKER.
 
 Senders are interchangeable. `MockSender` records without touching the network and
 returns the same shape the real ones do (a mock that drifts from the contract gives
@@ -96,8 +103,10 @@ class WhatsAppSender:
         to = "".join(ch for ch in str(msg.get("to") or "") if ch.isdigit())
         if not to:
             return _result("whatsapp", msg.get("to"), "skipped", error="sin número válido", via="whatsapp")
-        body = {"messaging_product": "whatsapp", "to": to, "type": "text",
-                "text": {"body": msg.get("body") or ""}}
+        if msg.get("whatsapp_send_type") == "template":
+            body = self._template_body(to, msg.get("body") or "")
+        else:
+            body = self._text_body(to, msg.get("body") or "")
         req = urllib.request.Request(
             f"{self.API}/{self.phone_id}/messages",
             data=json.dumps(body).encode("utf-8"), method="POST",
@@ -107,6 +116,36 @@ class WhatsAppSender:
             res = json.loads(r.read().decode("utf-8"))
         mid = (res.get("messages") or [{}])[0].get("id")
         return _result("whatsapp", to, "sent", id=mid, via="whatsapp")
+
+    @staticmethod
+    def _text_body(to: str, text: str) -> Dict[str, Any]:
+        """Graph API payload for a free-text reply — only valid within the 24h
+        customer-service window (replying to something the lead just wrote)."""
+        return {"messaging_product": "whatsapp", "to": to, "type": "text",
+                "text": {"body": text}}
+
+    @staticmethod
+    def _template_body(to: str, text: str) -> Dict[str, Any]:
+        """Graph API payload for a business-initiated (cold) message — Meta
+        requires a pre-approved template here, a free-text message is rejected.
+        Raises (Outbox degrades it to an `error` result, same as any other send
+        failure) if no template is configured yet — never silently falls back to
+        free text, which Meta would reject anyway outside the 24h window."""
+        from .config import WHATSAPP_TEMPLATE
+        name = WHATSAPP_TEMPLATE.get("name")
+        if not name:
+            raise RuntimeError(
+                "falta configurar WHATSAPP_TEMPLATE en zero/config.py (nombre de la "
+                "plantilla aprobada en Meta Business Manager) — ver docs/GO-LIVE.md"
+            )
+        return {
+            "messaging_product": "whatsapp", "to": to, "type": "template",
+            "template": {
+                "name": name,
+                "language": {"code": WHATSAPP_TEMPLATE.get("language", "es")},
+                "components": [{"type": "body", "parameters": [{"type": "text", "text": text}]}],
+            },
+        }
 
 
 def whatsapp_status() -> Dict[str, Any]:
