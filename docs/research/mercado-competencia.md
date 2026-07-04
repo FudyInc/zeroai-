@@ -5,7 +5,7 @@ generación de leads B2B (foco LATAM/Chile), para nutrir decisiones de negocio
 de ZERO. No es un feature del producto — es un archivo de observación pasiva,
 actualizado por ciclos de `/loop`.
 
-**Última revisión:** 2026-07-03
+**Última revisión:** 2026-07-04
 
 ---
 
@@ -41,6 +41,37 @@ actualizado por ciclos de `/loop`.
   el enfoque de calificación estricta (gate) que tiene nuestro pipeline.
 - Fuente: b2brocket.ai/pricing (2026-07-03).
 
+### AiSDR (AI SDR, plataforma self-service global)
+- **Qué hace:** herramienta de AI SDR que cobra por volumen de mensajes, no por
+  asiento — "unlimited seats" en todos los planes. Automatiza secuencias de
+  outreach con contenido multimedia generado por IA (videos cortos, notas de
+  voz, memes insertados en las secuencias) en el plan superior.
+- **Precio:** plan "Explore" US$900/mes (1,200 mensajes IA + créditos de
+  búsqueda de leads); plan "Grow" US$2,500/mes (4,500 mensajes + 4,500 créditos,
+  incluye contenido multimedia); "Enterprise" a medida. Facturación trimestral
+  por defecto, 20% descuento si se paga anual. Sin contrato de permanencia —
+  cancelación en cualquier momento.
+- **Señal relevante:** es el punto de entrada más barato visto hasta ahora entre
+  plataformas de agentes IA (US$900/mes vs. US$2,450/mes de B2B Rocket) — el
+  modelo "self-service, cancela cuando quieras" compite directo con el tramo
+  bajo de agencias tradicionales chilenas, pero sin trato humano ni CRM propio.
+- Fuente: aisdr.com/pricing (2026-07-04).
+
+### Adstrategy (México/global, performance marketing CPL)
+- **Qué hace:** agencia de performance marketing con 10-11 años de trayectoria,
+  enfocada en generación de leads (CPL) y ventas (CPA) para B2B y B2C en más de
+  30 países (LATAM + Europa). En B2B genera +30,000 leads calificados/mes en
+  sectores como seguridad, energía, tecnología y telemática.
+- **Posicionamiento:** "AI Lead Generation" en su marca, pero el modelo de
+  negocio real es cost-per-lead — el cliente paga solo por lead válido
+  entregado, no por gestión mensual ni por agente.
+- **Precio:** no público; modelo CPL variable según industria y volumen.
+- **Señal relevante:** el pricing por CPL (pago solo por resultado, sin
+  retainer fijo) es un modelo distinto al de suscripción mensual de Lead
+  Fishers/B2B Rocket/AiSDR — vale la pena vigilar si esto gana tracción como
+  alternativa de menor riesgo percibido para el cliente.
+- Fuente: adstrategyglobal.com, LinkedIn Adstrategy (2026-07-04).
+
 ### Panorama general de precios (referencia, no una empresa específica)
 - Agencias regionales chilenas/LATAM tradicionales (SEO/Ads + lead-gen):
   desde US$500/mes (objetivos bajos) hasta US$1,500–4,000/mes (agresivo).
@@ -62,3 +93,12 @@ actualizado por ciclos de `/loop`.
 - B2B Rocket es la referencia más cercana en lenguaje de producto ("agentes IA")
   pero no menciona un gate de calificación estricto ni CRM propio — vende
   volumen de leads/emails, no necesariamente calidad garantizada.
+- AiSDR baja el piso de entrada de las plataformas de agentes IA a US$900/mes
+  (vs. US$2,450 de B2B Rocket), compitiendo directo con el tramo bajo de
+  agencias tradicionales chilenas — esto reduce el "espacio en blanco" que
+  identificamos en el ciclo anterior, aunque sigue sin combinar precio bajo +
+  foco LATAM + gate de calidad explícito.
+- Adstrategy muestra que el modelo CPL (pago solo por lead válido, sin
+  retainer) también compite en este mercado — es un modelo de riesgo distinto
+  al de suscripción que usan Lead Fishers/B2B Rocket/AiSDR, y podría ser más
+  atractivo para clientes reacios a comprometerse con un fee mensual fijo.
