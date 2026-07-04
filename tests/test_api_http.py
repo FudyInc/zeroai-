@@ -46,6 +46,24 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
+def _wait_until_up(proc: subprocess.Popen, base: str, timeout: float = 15.0) -> None:
+    """Poll /api/health until the subprocess server answers, or raise. Shared by
+    every test class in this file that spins up its own api.py subprocess."""
+    deadline = time.time() + timeout
+    last_err = None
+    while time.time() < deadline:
+        if proc.poll() is not None:
+            raise RuntimeError(f"uvicorn murió antes de arrancar (exit {proc.returncode})")
+        try:
+            with urllib.request.urlopen(f"{base}/api/health", timeout=1) as r:
+                if r.status == 200:
+                    return
+        except Exception as e:   # noqa: BLE001 — reintenta hasta el timeout
+            last_err = e
+        time.sleep(0.3)
+    raise RuntimeError(f"el servidor no respondió a tiempo en {base}: {last_err}")
+
+
 @unittest.skipUnless(_UVICORN_AVAILABLE, "uvicorn no instalado — este test es opcional, no núcleo")
 class ApiHttpTest(unittest.TestCase):
     """Levanta api.py real y prueba de punta a punta: petición -> FastAPI ->
@@ -70,26 +88,10 @@ class ApiHttpTest(unittest.TestCase):
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
         try:
-            cls._wait_until_up()
+            _wait_until_up(cls.proc, cls.base)
         except Exception:
             cls.proc.kill()
             raise
-
-    @classmethod
-    def _wait_until_up(cls, timeout: float = 15.0) -> None:
-        deadline = time.time() + timeout
-        last_err = None
-        while time.time() < deadline:
-            if cls.proc.poll() is not None:
-                raise RuntimeError(f"uvicorn murió antes de arrancar (exit {cls.proc.returncode})")
-            try:
-                with urllib.request.urlopen(f"{cls.base}/api/health", timeout=1) as r:
-                    if r.status == 200:
-                        return
-            except Exception as e:   # noqa: BLE001 — reintenta hasta el timeout
-                last_err = e
-            time.sleep(0.3)
-        raise RuntimeError(f"el servidor no respondió a tiempo en {cls.base}: {last_err}")
 
     @classmethod
     def tearDownClass(cls):
@@ -187,6 +189,119 @@ class ApiHttpTest(unittest.TestCase):
         status, resp = self._post_webhook(body, signature=sig)
         self.assertEqual(status, 200)
         self.assertEqual(resp["received"], 0)   # payload vacío, pero se procesó
+
+
+@unittest.skipUnless(_UVICORN_AVAILABLE, "uvicorn no instalado — este test es opcional, no núcleo")
+class ApiAuthHttpTest(unittest.TestCase):
+    """Prueba la expiración de sesión de punta a punta, sobre HTTP real —
+    zero/auth.py ya tiene tests unitarios de valid_token(), pero eso no prueba
+    que el middleware de api.py (auth_guard) realmente lo aplique en cada
+    request. Corre en un subproceso PROPIO (con AUTH_PASSWORD configurado)
+    separado de ApiHttpTest de arriba, que corre a propósito sin password
+    para poder probar los demás endpoints libremente."""
+
+    PASSWORD = "s3cret-para-el-test"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.port = _free_port()
+        cls.base = f"http://127.0.0.1:{cls.port}"
+        repo_root = Path(__file__).resolve().parent.parent
+        env = dict(os.environ)
+        env["AUTH_PASSWORD"] = cls.PASSWORD
+        env.pop("SUPABASE_URL", None)
+        env.pop("SUPABASE_KEY", None)
+        cls.proc = subprocess.Popen(
+            [sys.executable, "-m", "uvicorn", "api:app", "--port", str(cls.port),
+             "--log-level", "warning"],
+            cwd=str(repo_root), env=env,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        try:
+            _wait_until_up(cls.proc, cls.base)
+        except Exception:
+            cls.proc.kill()
+            raise
+
+    @classmethod
+    def tearDownClass(cls):
+        proc = getattr(cls, "proc", None)
+        if proc is None:
+            return
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=5)
+
+    def _get(self, path: str, token: str | None = None):
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        req = urllib.request.Request(f"{self.base}{path}", headers=headers)
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return r.status, json.loads(r.read().decode("utf-8"))
+
+    def _login(self, password: str) -> str:
+        req = urllib.request.Request(
+            f"{self.base}/api/login", method="POST",
+            data=json.dumps({"password": password}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return json.loads(r.read().decode("utf-8"))["token"]
+
+    def test_protected_endpoint_without_token_is_401(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/api/vendors")
+        self.assertEqual(ctx.exception.code, 401)
+
+    def test_protected_endpoint_with_garbage_token_is_401(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/api/vendors", token="esto-no-es-un-token-valido")
+        self.assertEqual(ctx.exception.code, 401)
+
+    def test_login_with_wrong_password_is_401(self):
+        req = urllib.request.Request(
+            f"{self.base}/api/login", method="POST",
+            data=json.dumps({"password": "password-incorrecta"}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req, timeout=5)
+        self.assertEqual(ctx.exception.code, 401)
+
+    def test_login_then_protected_endpoint_with_valid_token_works(self):
+        token = self._login(self.PASSWORD)
+        status, body = self._get("/api/vendors", token=token)
+        self.assertEqual(status, 200)
+        self.assertIn("vendors", body)
+
+    def test_expired_token_is_rejected_over_real_http(self):
+        """El corazón de 'expiración de sesión probada': un token vencido —
+        firmado con la MISMA password real del servidor, así que la firma es
+        válida — debe ser rechazado igual, porque ya pasó su tiempo de vida.
+        Se firma con zero.auth directamente (no hay forma de esperar 7 días en
+        un test) usando la misma AUTH_PASSWORD que el subproceso, para producir
+        un token con firma legítima pero `exp` en el pasado."""
+        import os
+        prev = os.environ.get("AUTH_PASSWORD")
+        os.environ["AUTH_PASSWORD"] = self.PASSWORD
+        try:
+            from zero import auth
+            expired = auth.make_token(ttl=-10)
+        finally:
+            if prev is None:
+                os.environ.pop("AUTH_PASSWORD", None)
+            else:
+                os.environ["AUTH_PASSWORD"] = prev
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/api/vendors", token=expired)
+        self.assertEqual(ctx.exception.code, 401)
+
+    def test_open_endpoints_never_require_a_token(self):
+        for path in ("/api/health", "/api/auth/status"):
+            status, _ = self._get(path)
+            self.assertEqual(status, 200, path)
 
 
 if __name__ == "__main__":

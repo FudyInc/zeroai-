@@ -6,12 +6,12 @@ snapshot the system prompt calls a "state handoff block".
 """
 from __future__ import annotations
 
-import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .config import DEFAULT_VENDOR_ID, followup_step
+from .persistence import load_json, save_json
 from .vendors import seed_vendors
 
 
@@ -235,20 +235,16 @@ class SessionMemory:
 
     # --- persistence ---------------------------------------------------------
     def save(self) -> None:
+        """Escritura atómica con backup rotado (`state.json.bak`) — ver `persistence.py`."""
         if not self.path:
             return
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(self.snapshot(), ensure_ascii=False, indent=2), "utf-8")
+        save_json(self.path, self.snapshot())
 
     def _load(self) -> None:
-        try:
-            d = json.loads(self.path.read_text("utf-8"))
-        except (ValueError, OSError) as e:
-            raise RuntimeError(
-                f"Estado corrupto o ilegible en {self.path}: {e}. "
-                f"Revisá o restaurá el archivo (no lo sobrescribo para no perder datos)."
-            ) from e
-        self._restore(d)
+        # load_json ya intenta el .bak antes de rendirse; si igual falla, propaga
+        # el RuntimeError tal cual (mismo comportamiento de antes: nunca arranca
+        # vacío en silencio).
+        self._restore(load_json(self.path))
 
     def _restore(self, d: Dict[str, Any]) -> None:
         """Rehydrate from a snapshot dict — the single place that knows the field

@@ -84,9 +84,12 @@ Orden acordado con Diego — no reordenar sin avisar:
    sin capturar, en cualquier endpoint, a un `503` con mensaje claro — en vez de un
    `500` genérico. Cubre tanto `crm_supabase.py` como `memory_supabase.py` (comparten
    la misma excepción). Test de regresión agregado. 302/302 tests en verde.
-4. Checklist de fiabilidad, 🟡 EN CURSO (2026-07-04) — 3 puntos requieren acción
-   manual de Diego (anotados, no bloquean el resto): password real en vez de la de
-   prueba, vendedores con números reales de WhatsApp Business, prueba en móvil.
+4. Checklist de fiabilidad — ✅ CÓDIGO LISTO (2026-07-04). Los 4 ítems de código
+   (firma del webhook, reintentos de envío, backup de crm.json/state.json,
+   casos difíciles de CONCIERGE, expiración de sesión) están hechos y probados.
+   Quedan 3 puntos que son acción manual de Diego (anotados, no bloquean nada
+   de código): password real en vez de la de prueba, vendedores con números
+   reales de WhatsApp Business, prueba en móvil.
    - **Verificación de firma del webhook de Meta** — ✅ HECHO. `POST
      /api/webhooks/whatsapp` no verificaba nada — cualquiera con la URL podía
      mandar mensajes falsos haciéndose pasar por un lead (y hasta gatillar una
@@ -110,8 +113,48 @@ Orden acordado con Diego — no reordenar sin avisar:
      a un test viejo que sin querer empezó a dormir de verdad con la nueva
      lógica (`retry_delay=0` en los tests, para no pagar el segundo real en cada
      corrida de la suite). 308/308 tests en verde, ~1s (tiempo normal).
-   - Backup de `crm.json`/`state.json`, prueba de CONCIERGE con casos difíciles,
-     expiración de sesión probada — ⏳ siguen.
+   - **Backup de `crm.json`/`state.json`** — ✅ HECHO (2026-07-04). `CRM.save()` y
+     `SessionMemory.save()` escribían directo sobre el archivo — una escritura
+     cortada a mitad de camino (crash, corte de luz, disco lleno) podía dejarlo
+     corrupto, y sin ningún respaldo eso significaba perder todos los leads o
+     todo el estado de sesión de un saque (`_load()` ya avisaba con
+     `RuntimeError` en vez de arrancar vacío, pero no había forma de recuperarse).
+     Nuevo módulo compartido `zero/persistence.py` (`save_json`/`load_json`):
+     escritura atómica (temporal + `os.replace`, nunca deja un archivo a medio
+     escribir) que además rota la versión anterior a `<path>.bak` antes de
+     reemplazar; al leer, si el archivo principal está corrupto intenta el
+     `.bak` automáticamente (con aviso claro por stderr) antes de recién ahí
+     rendirse. `crm.py`/`memory.py` migrados a este módulo, sin cambiar su
+     comportamiento externo. `.gitignore` cubre `*.json.bak`/`*.json.tmp`. 6
+     tests nuevos (rotación, recuperación desde backup, ambos corruptos → error
+     claro, extremo a extremo con `CRM` real).
+   - **Prueba de CONCIERGE con casos difíciles** — ✅ HECHO (2026-07-04). Un
+     lead real puede escribir cualquier cosa — vacío, groserías, spam, inglés,
+     un mensaje gigante — y el agente nunca puede romperse por eso. Probado a
+     mano primero (mensaje vacío/blanco, solo emojis, 20.000 caracteres, `None`,
+     insultos con "estafa") y ninguno crashea; los 7 tests nuevos
+     (`ConciergeEdgeCasesTest`) lo dejan como regresión: mensaje vacío/blanco,
+     `data` sin la clave `message`, groserías (nunca las repite en la
+     respuesta), spam/sin sentido, "stop" en inglés (opt-out sin traducir
+     nada — misma keyword), mensaje de ~25.000 caracteres (con límite de tiempo
+     para descartar un ReDoS), y lead sin nombre (el saludo no debe romperse).
+   - **Expiración de sesión probada** — ✅ HECHO (2026-07-04). `zero/auth.py` ya
+     tenía tests unitarios de `valid_token()` (expira, password rotada, token
+     alterado), pero eso nunca probó que el middleware real de `api.py`
+     (`auth_guard`) de verdad lo aplique en cada request — la lógica podía
+     estar perfecta y el middleware roto, y los tests seguirían en verde.
+     Agregada `ApiAuthHttpTest` en `tests/test_api_http.py`: subproceso propio
+     con `AUTH_PASSWORD` configurado (separado de `ApiHttpTest`, que corre a
+     propósito sin password para probar los demás endpoints libremente),
+     probando sobre HTTP real: sin token → 401, token basura → 401, password
+     incorrecta en `/api/login` → 401, login con token válido → 200, **token
+     vencido firmado con la password real del servidor → 401** (el caso central:
+     firma válida pero expirado, para separar "token falso" de "token viejo"),
+     y que `/api/health`/`/api/auth/status` nunca piden token. Se extrajo
+     `_wait_until_up` como función compartida del archivo (la usaban ambas
+     clases). 6 tests nuevos. 327/327 tests en verde (13 de ellos en
+     `test_api_http.py`, subiendo el tiempo total a ~1.8s por los dos
+     subprocesos de uvicorn — el resto de la suite sigue en ~1s).
 
 ---
 

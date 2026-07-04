@@ -4,6 +4,8 @@ __pycache__/
 state.json
 crm.json
 inbox.json
+*.json.bak
+*.json.tmp
 .venv/
 venv/
 

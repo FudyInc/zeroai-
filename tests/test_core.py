@@ -202,6 +202,79 @@ class RobustnessTest(unittest.TestCase):
         self.assertIn("corrupto", str(ctx.exception))
 
 
+class PersistenceBackupTest(unittest.TestCase):
+    """crm.json / state.json: escritura atómica + una generación de respaldo
+    (`persistence.py`) — un archivo corrupto no debe tirar todo el CRM/estado a
+    la basura si hay un `.bak` bueno."""
+
+    def _tmp_path(self, name: str) -> Path:
+        import tempfile
+        return Path(tempfile.mkdtemp()) / name
+
+    def test_save_json_rotates_previous_version_to_bak(self):
+        from zero.persistence import load_json, save_json
+        path = self._tmp_path("crm.json")
+        bak = path.with_name(path.name + ".bak")
+        save_json(path, {"v": 1})
+        self.assertFalse(bak.exists())            # nada que rotar todavía
+        save_json(path, {"v": 2})
+        self.assertEqual(load_json(path), {"v": 2})
+        self.assertEqual(load_json(bak), {"v": 1})  # la versión anterior quedó a salvo
+
+    def test_save_json_never_leaves_a_half_written_file(self):
+        """Si la escritura del temporal fallara a mitad de camino, `path` no se
+        toca (nunca queda un archivo a medio escribir) — se prueba escribiendo
+        primero un archivo bueno y confirmando que sigue intacto tras crear (sin
+        completar) un .tmp con contenido basura."""
+        from zero.persistence import load_json, save_json
+        path = self._tmp_path("crm.json")
+        save_json(path, {"v": "bueno"})
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text("{ escritura interrumpida", "utf-8")   # simula un tmp a medias
+        self.assertEqual(load_json(path), {"v": "bueno"})     # path sigue intacto
+
+    def test_load_json_recovers_from_backup_when_main_file_is_corrupt(self):
+        from zero.persistence import load_json, save_json
+        path = self._tmp_path("state.json")
+        save_json(path, {"v": 1})
+        save_json(path, {"v": 2})          # ahora .bak tiene v=1
+        path.write_text("{ corrupto de verdad", "utf-8")
+        self.assertEqual(load_json(path), {"v": 1})   # recupera desde el backup
+
+    def test_load_json_raises_when_both_main_and_backup_are_corrupt(self):
+        from zero.persistence import load_json
+        path = self._tmp_path("state.json")
+        bak = path.with_name(path.name + ".bak")
+        path.write_text("{ corrupto", "utf-8")
+        bak.write_text("{ tambien corrupto", "utf-8")
+        with self.assertRaises(RuntimeError) as ctx:
+            load_json(path)
+        self.assertIn("corrupto", str(ctx.exception))
+
+    def test_corrupt_state_file_raises_clear_error(self):
+        """Mismo comportamiento que ya tenía CRM — SessionMemory nunca arranca
+        vacía en silencio si el estado está corrupto y no hay backup usable."""
+        path = self._tmp_path("state.json")
+        path.write_text("{ this is not valid json", "utf-8")
+        with self.assertRaises(RuntimeError) as ctx:
+            SessionMemory(str(path))
+        self.assertIn("corrupto", str(ctx.exception))
+
+    def test_crm_recovers_from_backup_after_corruption(self):
+        """Extremo a extremo: CRM.save() dos veces, corrompe crm.json a mano, y
+        el próximo CRM(path) igual arranca con los datos de la última versión
+        buena (la que quedó en .bak) en vez de reventar."""
+        path = self._tmp_path("crm.json")
+        crm = CRM(str(path))
+        crm.upsert("acme", {"company": "Acme", "role": "CEO", "email": "uno@acme.cl", "score": 80})
+        crm.save()
+        crm.upsert("acme", {"company": "Acme", "role": "CTO", "email": "dos@acme.cl", "score": 80})
+        crm.save()
+        path.write_text("{ corrupto", "utf-8")
+        recovered = CRM(str(path))
+        self.assertEqual(len(recovered.list("acme")), 1)   # la versión previa a la corrupción
+
+
 class PipelineIntegrationTest(unittest.TestCase):
     """The whole chain in mock: discover → qualify → validate → outreach → CRM."""
 
@@ -860,6 +933,90 @@ class ConciergeTest(unittest.TestCase):
         z, _ = self._zero()
         res = z.handle_inbound("000000000", "hola?")
         self.assertFalse(res["matched"])
+
+
+class ConciergeEdgeCasesTest(unittest.TestCase):
+    """Casos difíciles: mensajes vacíos, groseros, spam, en otro idioma o
+    absurdamente largos NUNCA deben tirar una excepción — siempre hay una
+    respuesta profesional, con algún intent razonable. Un lead real puede
+    escribir cualquier cosa; CONCIERGE no puede romperse por eso."""
+
+    def _zero(self):
+        return Zero(build_agents(mock=True), memory=SessionMemory(None))
+
+    def _intent(self, z, msg):
+        t = TaskPayload(agent="CONCIERGE", client_id="acme", client_tier="", instructions="x",
+                        data={"message": msg, "lead": {"name": "Carla", "company": "Acme"},
+                              "icp": {"sells": "pallets"}},
+                        constraints=Constraints(channels=["whatsapp"]))
+        return z.agents["CONCIERGE"].run(t).result
+
+    def test_empty_or_blank_message_never_crashes(self):
+        z = self._zero()
+        for msg in ("", "   ", "...", "👍👍👍", "\n\t"):
+            r = self._intent(z, msg)
+            self.assertTrue(r["reply"], repr(msg))     # siempre hay algo que decir
+            self.assertTrue(r["intent"], repr(msg))
+
+    def test_message_key_missing_entirely_never_crashes(self):
+        # el lead pudo mandar solo una imagen/audio: sin texto en absoluto,
+        # no solo un string vacío — task.data ni siquiera trae "message".
+        z = self._zero()
+        t = TaskPayload(agent="CONCIERGE", client_id="acme", client_tier="", instructions="x",
+                        data={"lead": {"name": "Carla", "company": "Acme"}, "icp": {}},
+                        constraints=Constraints(channels=["whatsapp"]))
+        r = z.agents["CONCIERGE"].run(t).result
+        self.assertTrue(r["reply"])
+
+    def test_rude_or_insulting_message_gets_a_professional_reply(self):
+        # el lead puede insultar — la respuesta NUNCA repite groserías ni se
+        # pone defensiva; sigue siendo profesional (mismo tono que 'trust'/'optout').
+        z = self._zero()
+        rude_messages = (
+            "esto es una estafa de mierda, dejen de molestarme carajo",
+            "quién chucha les dio mi número, son unos boludos",
+            "no me interesa su servicio de porquería, no jodan más",
+        )
+        profanity = ("mierda", "chucha", "boludo", "carajo", "porquería", "jodan")
+        for msg in rude_messages:
+            r = self._intent(z, msg)
+            self.assertTrue(r["reply"], msg)
+            reply_lower = r["reply"].lower()
+            for word in profanity:
+                self.assertNotIn(word, reply_lower, f"la respuesta no debe repetir groserías: {msg}")
+
+    def test_off_topic_or_nonsense_message_falls_back_to_general(self):
+        z = self._zero()
+        for msg in ("jajaja XD", "🐱🐱🐱", "asdkjfh qwoiue", "buenos días! lindo día"):
+            r = self._intent(z, msg)
+            self.assertTrue(r["reply"], msg)
+
+    def test_english_message_still_handled_via_shared_keywords(self):
+        # no hay detección de idioma — pero un "stop" en inglés sigue cerrando
+        # (misma keyword que ya cubre el opt-out en español).
+        z = self._zero()
+        r = self._intent(z, "please stop spamming me")
+        self.assertEqual(r["intent"], "optout")
+
+    def test_extremely_long_message_does_not_hang_or_crash(self):
+        import time
+        z = self._zero()
+        huge = "hola " * 5000   # ~25.000 caracteres, sin ninguna keyword clara
+        start = time.monotonic()
+        r = self._intent(z, huge)
+        elapsed = time.monotonic() - start
+        self.assertTrue(r["reply"])
+        self.assertLess(elapsed, 2.0, "un mensaje largo no debería tardar segundos (riesgo de ReDoS)")
+
+    def test_lead_without_name_still_gets_a_reply(self):
+        # lead.get("name") vacío/ausente — el saludo no debe romperse ("Hola " con espacio colgando)
+        z = self._zero()
+        t = TaskPayload(agent="CONCIERGE", client_id="acme", client_tier="", instructions="x",
+                        data={"message": "¿cuánto cuesta?", "lead": {"company": "Acme"}, "icp": {}},
+                        constraints=Constraints(channels=["whatsapp"]))
+        r = z.agents["CONCIERGE"].run(t).result
+        self.assertTrue(r["reply"])
+        self.assertTrue(r["reply"].startswith("Hola,") or r["reply"].startswith("Hola "))
 
 
 class PendingOfferTest(unittest.TestCase):

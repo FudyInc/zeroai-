@@ -7,12 +7,12 @@ move leads along it, and ANALYST can read it. Plain JSON, no external service.
 """
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .config import CRM_STAGES
+from .persistence import load_json, save_json
 
 _FIELDS = ("company", "name", "role", "email", "phone", "domain", "score", "channel", "icp_reasons")
 
@@ -177,16 +177,13 @@ class CRM:
 
     # --- persistence ---------------------------------------------------------
     def save(self) -> None:
+        """Escritura atómica con backup rotado (`crm.json.bak`) — ver `persistence.py`."""
         if not self.path:
             return
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps({"leads": self.leads}, ensure_ascii=False, indent=2), "utf-8")
+        save_json(self.path, {"leads": self.leads})
 
     def _load(self) -> None:
-        try:
-            self.leads = json.loads(self.path.read_text("utf-8")).get("leads", {})
-        except (ValueError, OSError) as e:
-            raise RuntimeError(
-                f"CRM corrupto o ilegible en {self.path}: {e}. "
-                f"Revisá o restaurá el archivo (no lo sobrescribo para no perder datos)."
-            ) from e
+        # load_json ya intenta el .bak antes de rendirse; si igual falla, propaga
+        # el RuntimeError tal cual (mismo comportamiento de antes: nunca arranca
+        # vacío en silencio).
+        self.leads = load_json(self.path).get("leads", {})
