@@ -31,6 +31,13 @@ WHATSAPP_TEMPLATE = {
     "language": "es",  # código de idioma de la plantilla aprobada
 }
 
+# --- Reintentos de envío (Outbox) ---------------------------------------------
+# Un corte de red momentáneo no debe perder un envío para siempre. Outbox.send
+# reintenta hasta OUTBOX_RETRY_ATTEMPTS veces en total (incluye el primer intento),
+# esperando OUTBOX_RETRY_DELAY_SECONDS entre cada uno, antes de degradar a "error".
+OUTBOX_RETRY_ATTEMPTS = 3
+OUTBOX_RETRY_DELAY_SECONDS = 1.0
+
 # --- Client tiers ------------------------------------------------------------
 # leads_per_mo = None means "custom / negotiated".
 # price_clp = lo que el cliente paga por mes (el MRR de la agencia). ENTERPRISE = custom.

@@ -97,8 +97,21 @@ Orden acordado con Diego — no reordenar sin avisar:
      mensajes reales sin el secreto. `WHATSAPP_APP_SECRET` sumado a
      `POST /api/config` y a `docs/GO-LIVE.md`. 4 tests nuevos (función aislada +
      HTTP real). 306/306 tests en verde.
-   - Backup de `crm.json`/`state.json`, reintentos de envío fallido, prueba de
-     CONCIERGE con casos difíciles, expiración de sesión probada — ⏳ siguen.
+   - **Reintentos de envío fallido** — ✅ HECHO (2026-07-04). `Outbox.send()` no
+     reintentaba nada: un corte de red momentáneo (timeout SMTP, blip de la Graph
+     API) degradaba el envío a `"error"` para siempre en el primer intento fallido,
+     sin darle ninguna chance a un problema transitorio. Agregado
+     `OUTBOX_RETRY_ATTEMPTS`/`OUTBOX_RETRY_DELAY_SECONDS` en `zero/config.py`
+     (3 intentos, 1s de espera entre cada uno, configurable por instancia);
+     `Outbox.send()` reintenta con esos parámetros y solo degrada a `"error"`
+     cuando se agotan todos los intentos. Nunca cambia el contrato (`Outbox`
+     sigue sin lanzar excepciones hacia afuera). 2 tests nuevos (reintenta y
+     luego funciona / se agotan los reintentos y degrada a error), más un ajuste
+     a un test viejo que sin querer empezó a dormir de verdad con la nueva
+     lógica (`retry_delay=0` en los tests, para no pagar el segundo real en cada
+     corrida de la suite). 308/308 tests en verde, ~1s (tiempo normal).
+   - Backup de `crm.json`/`state.json`, prueba de CONCIERGE con casos difíciles,
+     expiración de sesión probada — ⏳ siguen.
 
 ---
 

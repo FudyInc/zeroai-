@@ -450,11 +450,52 @@ class ChannelTest(unittest.TestCase):
             name = "email"
             def send(self, msg):
                 raise RuntimeError("smtp caído")
-        box = Outbox({"email": Boom()})
+        box = Outbox({"email": Boom()}, retry_delay=0)   # delay 0: no dormir de verdad
         self.assertTrue(box.live)
         res = box.send({"channel": "email", "to": "a@b.com", "body": "x"})
         self.assertEqual(res["status"], "error")          # degraded, not crashed
         self.assertIn("smtp caído", res["error"])
+
+    def test_outbox_retries_before_giving_up(self):
+        """Un corte de red momentáneo no debe perder el envío para siempre —
+        Outbox reintenta antes de degradar a 'error'. retry_delay=0 para no
+        dormir de verdad en el test."""
+        from zero.channels import Outbox
+
+        class FailsTwiceThenWorks:
+            name = "email"
+            def __init__(self):
+                self.calls = 0
+            def send(self, msg):
+                self.calls += 1
+                if self.calls < 3:
+                    raise RuntimeError(f"intento {self.calls} falló")
+                return {"channel": "email", "to": msg.get("to"), "status": "sent",
+                        "id": "ok", "error": None, "via": "email"}
+
+        sender = FailsTwiceThenWorks()
+        box = Outbox({"email": sender}, retry_attempts=3, retry_delay=0)
+        res = box.send({"channel": "email", "to": "a@b.com", "body": "x"})
+        self.assertEqual(res["status"], "sent")
+        self.assertEqual(sender.calls, 3)   # 2 fallos + 1 éxito
+
+    def test_outbox_gives_up_after_exhausting_retries(self):
+        from zero.channels import Outbox
+
+        class AlwaysFails:
+            name = "email"
+            def __init__(self):
+                self.calls = 0
+            def send(self, msg):
+                self.calls += 1
+                raise RuntimeError("siempre falla")
+
+        sender = AlwaysFails()
+        box = Outbox({"email": sender}, retry_attempts=3, retry_delay=0)
+        res = box.send({"channel": "email", "to": "a@b.com", "body": "x"})
+        self.assertEqual(res["status"], "error")
+        self.assertIn("siempre falla", res["error"])
+        self.assertEqual(sender.calls, 3)   # exactamente retry_attempts intentos, ni uno más
 
     def test_whatsapp_status_without_creds_raises_clean_error(self):
         """Sin WHATSAPP_TOKEN/PHONE_ID, whatsapp_status() falla con un mensaje

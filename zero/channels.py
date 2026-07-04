@@ -26,6 +26,7 @@ import json
 import os
 import smtplib
 import ssl
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -179,11 +180,16 @@ class Outbox:
 
     Never raises: a sender failure (network/timeout/bad creds) degrades to an
     `error` result so one bad send can't crash the pipeline — same discipline as
-    the LLM backends.
+    the LLM backends. Retries a few times first (config.OUTBOX_RETRY_ATTEMPTS) so
+    a momentary network blip doesn't silently lose a send — only degrades to
+    `error` once every attempt has failed.
     """
 
     def __init__(self, real_senders: Optional[Dict[str, Any]] = None,
-                 wa_sender_factory: Optional[Any] = None) -> None:
+                 wa_sender_factory: Optional[Any] = None,
+                 retry_attempts: Optional[int] = None,
+                 retry_delay: Optional[float] = None) -> None:
+        from .config import OUTBOX_RETRY_ATTEMPTS, OUTBOX_RETRY_DELAY_SECONDS
         self.real = real_senders or {}
         self._mock = MockSender()
         # Builds a per-vendor WhatsApp sender from (phone_id, token) when live, so
@@ -191,6 +197,8 @@ class Outbox:
         self._wa_factory = wa_sender_factory
         self._wa_cache: Dict[str, Any] = {}
         self.log: List[Dict[str, Any]] = []
+        self.retry_attempts = retry_attempts if retry_attempts is not None else OUTBOX_RETRY_ATTEMPTS
+        self.retry_delay = retry_delay if retry_delay is not None else OUTBOX_RETRY_DELAY_SECONDS
 
     @property
     def live(self) -> bool:
@@ -210,10 +218,17 @@ class Outbox:
     def send(self, msg: Dict[str, Any], wa_creds: Optional[Any] = None) -> Dict[str, Any]:
         channel = msg.get("channel") or "email"
         sender = self._sender_for(channel, wa_creds)
-        try:
-            res = sender.send(msg)
-        except Exception as e:   # noqa: BLE001 — any failure degrades, never crashes
-            res = _result(channel, msg.get("to"), "error", error=str(e),
+        last_error: Optional[Exception] = None
+        for attempt in range(1, max(self.retry_attempts, 1) + 1):
+            try:
+                res = sender.send(msg)
+                break
+            except Exception as e:   # noqa: BLE001 — any failure degrades, never crashes
+                last_error = e
+                if attempt < self.retry_attempts:
+                    time.sleep(self.retry_delay)
+        else:
+            res = _result(channel, msg.get("to"), "error", error=str(last_error),
                           via=getattr(sender, "name", "mock"))
         self.log.append(res)
         return res
