@@ -13,6 +13,40 @@ en el momento** — así una compresión de contexto no nos lo borra.
   `prompts`, etc.) se fusionan y se **borran** — no se acumulan durante semanas. Ver
   [[zero-branch-sprawl-lesson]]: hoy mismo aparecieron un proyecto de Vercel duplicado y
   un `GET /api/vendors` construido dos veces por tener demasiadas ramas divergiendo.
+
+## 🎯 Plan de fiabilidad — "listo para el mercado" (2026-07-04) · 🟡 EN CURSO
+Criterio: no lanzar hasta que esto esté resuelto **de verdad**, no "se siente listo".
+Orden acordado con Diego — no reordenar sin avisar:
+
+1. **Plantillas de WhatsApp Business (Meta)** — 🟡 EN CURSO (empezado hoy).
+   Confirmado en código: `WhatsAppSender.send()` (`zero/channels.py`) siempre manda
+   `type: "text"`. Meta EXIGE una plantilla pre-aprobada para el primer contacto a un
+   lead que nunca escribió, o cualquier mensaje fuera de la ventana de 24h desde su
+   último mensaje — un `type: "text"` en frío será rechazado por la Graph API real.
+   Afecta: `_send_first_touch` y `run_followups` (orchestrator.py). NO afecta las
+   respuestas dentro de `handle_inbound` (son réplica a algo que el lead ya escribió,
+   dentro de la ventana de 24h — texto libre está bien ahí).
+   Plan: agregar `WHATSAPP_TEMPLATE` a `zero/config.py` (nombre/idioma de la plantilla
+   aprobada — Diego debe crearla y esperar aprobación de Meta, paso manual fuera del
+   código); `WhatsAppSender` gana soporte para `type: "template"`; orchestrator marca
+   el mensaje como plantilla solo en los dos puntos de contacto en frío. Mock-first:
+   sin plantilla configurada, degrada a error visible en el CRM (no a un texto que
+   Meta rechazaría en silencio).
+2. **Fragilidad del hosting** — ⏳ SIGUIENTE. El backend depende de un PC Ubuntu +
+   túnel gratis de ngrok; si el PC se apaga/reinicia sin querer, todo el producto
+   cae para todos los clientes. Necesita solución real antes de lanzar (opciones a
+   evaluar: hosting real de bajo costo, o al menos monitoreo + alerta de caída).
+3. **Test end-to-end HTTP** (`tests/test_api_http.py`, requiere `fastapi`+`httpx`,
+   separado del núcleo stdlib-only) — prueba la cadena completa petición → FastAPI →
+   auth → respuesta, no solo la lógica interna. Hoy los 292 tests de `test_core.py`
+   nunca tocan HTTP real.
+4. Resto del checklist de fiabilidad (password real en vez de la de prueba, backup de
+   `crm.json`/`state.json`, verificación de firma del webhook de Meta, reintentos de
+   envío fallido, vendedores con números reales de WhatsApp Business, prueba de
+   CONCIERGE con casos difíciles, prueba en móvil, expiración de sesión probada).
+
+Nota de modelo de negocio (ya decidido, ver sección de escalabilidad más abajo): el
+dashboard es **propietario** — solo ZeroAI lo opera, los clientes nunca entran ahí.
 - **Frontend:** un solo proyecto en Vercel — **`zeroai`** (`zeroai-six.vercel.app`),
   conectado por Git a `main` (auto-deploy en cada push). Nunca correr `vercel`/
   `vercel --prod` manual desde ningún checkout — eso fue lo que generó los duplicados
