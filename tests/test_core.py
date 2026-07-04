@@ -9,8 +9,10 @@ the whole pipeline). They don't judge lead quality — that's the real model's j
 """
 from __future__ import annotations
 
+import ast
 import unittest
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from zero.agents import build_agents
 from zero.config import MIN_ICP_SCORE, RECONTACT_BLACKOUT_DAYS
@@ -1264,6 +1266,56 @@ class WhatsAppSenderCredentialsTest(unittest.TestCase):
         s = WhatsAppSender(phone_id="vendor-phone-id", token="vendor-token")
         self.assertEqual(s.token, "vendor-token")
         self.assertEqual(s.phone_id, "vendor-phone-id")
+
+
+class ApiRoutesTest(unittest.TestCase):
+    """Guarda contra rutas duplicadas en api.py. Registrar el mismo (método,
+    ruta) dos veces no es un error de Python — FastAPI no se queja — pero solo
+    la PRIMERA definición responde; la segunda queda muerta en silencio. Ya
+    casi pasó una vez (dos ramas agregando GET /api/vendors por separado).
+
+    Análisis estático con `ast` (stdlib) sobre el archivo fuente, sin importar
+    `api.py` ni `fastapi` — el núcleo (esta suite) corre sin dependencias, y
+    fastapi es opcional (solo para correr el servidor de verdad)."""
+
+    _HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
+
+    def _routes(self):
+        api_path = Path(__file__).resolve().parent.parent / "api.py"
+        tree = ast.parse(api_path.read_text("utf-8"), filename=str(api_path))
+        routes = []
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for dec in node.decorator_list:
+                # @app.get("/x") -> Call(func=Attribute(value=Name('app'), attr='get'))
+                if not (isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute)
+                        and isinstance(dec.func.value, ast.Name) and dec.func.value.id == "app"
+                        and dec.func.attr in self._HTTP_METHODS):
+                    continue
+                if dec.args and isinstance(dec.args[0], ast.Constant) and isinstance(dec.args[0].value, str):
+                    routes.append((dec.func.attr.upper(), dec.args[0].value, node.name, node.lineno))
+        return routes
+
+    def test_no_duplicate_routes(self):
+        routes = self._routes()
+        # Si esto falla, cambió el patrón @app.<método>("/ruta") o api.py se movió —
+        # el test dejó de poder ver rutas, hay que revisar _routes(), no ignorarlo.
+        self.assertGreater(len(routes), 10, "no se encontraron rutas en api.py — ¿cambió el patrón?")
+
+        seen: dict[tuple[str, str], tuple[str, int]] = {}
+        dupes = []
+        for method, path, func_name, lineno in routes:
+            key = (method, path)
+            if key in seen:
+                prev_name, prev_line = seen[key]
+                dupes.append(f"{method} {path}: línea {prev_line} ({prev_name}) y línea {lineno} ({func_name})")
+            else:
+                seen[key] = (func_name, lineno)
+        self.assertEqual(
+            dupes, [],
+            "rutas duplicadas en api.py — la segunda queda muerta en silencio:\n" + "\n".join(dupes)
+        )
 
 
 if __name__ == "__main__":
