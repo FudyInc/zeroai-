@@ -66,10 +66,24 @@ Orden acordado con Diego — no reordenar sin avisar:
    - Monitoreo con alerta (UptimeRobot gratis + push a iPhone) — pasos ya definidos,
      ver commit anterior de esta sección; solo falta ejecutarlos cuando toque.
    - BIOS del PC Ubuntu: "Restore on AC Power Loss" (auto-enciende al volver la luz).
-3. **Test end-to-end HTTP** (`tests/test_api_http.py`, requiere `fastapi`+`httpx`,
-   separado del núcleo stdlib-only) — prueba la cadena completa petición → FastAPI →
-   auth → respuesta, no solo la lógica interna. Hoy los 297 tests de `test_core.py`
-   nunca tocan HTTP real.
+3. **Test end-to-end HTTP** — ✅ HECHO (2026-07-04). `tests/test_api_http.py`: levanta
+   `api.py` real como subproceso (`uvicorn`) y le pega con HTTP real (stdlib puro —
+   `subprocess`+`urllib`, SIN `httpx`/`TestClient`, cero dependencias nuevas más allá
+   de lo que `api.py` ya necesita). Corre solo, y se salta a sí mismo (skip limpio)
+   si `uvicorn` no está instalado — separado de `test_core.py`, que sigue siendo
+   100% stdlib.
+   **Encontró un bug real al primer uso:** `GET /api/clients` tiraba `500` crudo
+   cuando `SUPABASE_URL`/`SUPABASE_KEY` estaban configuradas pero Supabase no
+   respondía (`SupabaseError` sin capturar). Causa: `make_crm()`/`SupabaseCRM` cargan
+   perezoso a propósito (no hacen `SELECT *` — ver escalabilidad más abajo), así que
+   el fallo real aparece recién al primer query, no al construir el objeto —
+   `make_memory()` sí tenía ese fallback (con try/except en la construcción),
+   `make_crm()` no tenía ninguno.
+   **Arreglado:** manejador de excepción global en `api.py`
+   (`@app.exception_handler(SupabaseError)`) que convierte CUALQUIER `SupabaseError`
+   sin capturar, en cualquier endpoint, a un `503` con mensaje claro — en vez de un
+   `500` genérico. Cubre tanto `crm_supabase.py` como `memory_supabase.py` (comparten
+   la misma excepción). Test de regresión agregado. 302/302 tests en verde.
 4. Resto del checklist de fiabilidad (password real en vez de la de prueba, backup de
    `crm.json`/`state.json`, verificación de firma del webhook de Meta, reintentos de
    envío fallido, vendedores con números reales de WhatsApp Business, prueba de

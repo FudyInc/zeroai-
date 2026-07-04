@@ -31,6 +31,7 @@ from zero.orchestrator import Zero
 from zero.quotes import compute_quote, format_quote, normalize_pricing
 from zero.store import make_crm, make_memory
 from zero.vendors import clients_count_for
+from zero._supabase import SupabaseError
 
 CRM_PATH = "crm.json"
 STATE_PATH = "state.json"
@@ -42,6 +43,19 @@ app = FastAPI(title="ZERO API", version="0.1.0",
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
 )
+
+
+@app.exception_handler(SupabaseError)
+async def supabase_error_handler(request: Request, exc: SupabaseError):
+    """Supabase (CRM o memoria en la nube) inalcanzable/con error — nunca debe
+    tirar un 500 crudo. `SupabaseCRM`/`SupabaseMemory` cargan de forma perezosa
+    (por diseño, para escalar), así que el fallo real pasa recién al primer query,
+    no al construirlas — por eso el manejo va acá, centralizado, y no en cada
+    endpoint. 503 = "el servicio de datos está caído ahora", no un bug de ZeroAI."""
+    return JSONResponse(
+        {"detail": f"Servicio de datos en la nube no disponible: {exc}"},
+        status_code=503,
+    )
 
 # Endpoints reachable without a token: login, health, auth status, and the Meta
 # webhook (Meta calls it with its own verify token, not ours).
