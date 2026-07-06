@@ -169,9 +169,16 @@ class Zero:
         outbox uses these only when sending for real. `wa_creds` overrides the
         sender (e.g. reply from the number a lead wrote to); when omitted, it falls
         back to the client's assigned vendor."""
+        vendor = self.vendor_for(client_id) if client_id else {}
         if wa_creds is None and (msg.get("channel") or "") == "whatsapp" and client_id:
-            wa_creds = credentials_for(self.vendor_for(client_id))
-        res = self.outbox.send({**msg, "to": to}, wa_creds=wa_creds)
+            wa_creds = credentials_for(vendor)
+        payload = {**msg, "to": to}
+        # Nombre del remitente en el "From" del email (EmailSender lo usa si viene) —
+        # sin esto, el correo sale con la dirección pelada (ej. una Gmail personal),
+        # que se ve poco profesional y no dice de parte de quién escribe.
+        if vendor.get("name") and (msg.get("channel") or "") == "email":
+            payload["from_name"] = vendor["name"]
+        res = self.outbox.send(payload, wa_creds=wa_creds)
         if self.crm:
             detail = f"{res['channel']} → {to or '—'} [{res['status']}/{res['via']}]"
             if res.get("error"):

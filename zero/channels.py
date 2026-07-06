@@ -32,6 +32,7 @@ import urllib.parse
 import urllib.request
 import uuid
 from email.message import EmailMessage
+from email.utils import formataddr
 from typing import Any, Dict, List, Optional
 
 from ._env import load_env
@@ -71,15 +72,28 @@ class EmailSender:
         self.password = os.environ.get("SMTP_PASS")
         self.sender = os.environ.get("SMTP_FROM") or self.user or "no-reply@localhost"
 
+    @staticmethod
+    def _build_message(sender: str, msg: Dict[str, Any]) -> EmailMessage:
+        """Arma el EmailMessage — separado de send() (y sin depender de una
+        instancia real) para poder probarlo sin tocar la red (smtplib real) ni
+        necesitar SMTP_HOST configurado. Con from_name (el vendedor asignado —
+        Fernanda/Stéfano), el correo muestra un nombre de persona en vez de la
+        dirección pelada (a menudo una cuenta personal, ej. Gmail) — se ve más
+        profesional y dice de parte de quién escribe. formataddr codifica bien
+        tildes/acentos."""
+        em = EmailMessage()
+        from_name = msg.get("from_name")
+        em["From"] = formataddr((from_name, sender)) if from_name else sender
+        em["To"] = msg["to"]
+        em["Subject"] = msg.get("subject") or "Hola"
+        em.set_content(msg.get("body") or "")
+        return em
+
     def send(self, msg: Dict[str, Any]) -> Dict[str, Any]:
         to = msg.get("to")
         if not to or "@" not in str(to):
             return _result("email", to, "skipped", error="destinatario no es un email", via="email")
-        em = EmailMessage()
-        em["From"] = self.sender
-        em["To"] = to
-        em["Subject"] = msg.get("subject") or "Hola"
-        em.set_content(msg.get("body") or "")
+        em = self._build_message(self.sender, msg)
         with smtplib.SMTP(self.host, self.port, timeout=20) as s:
             s.starttls(context=ssl.create_default_context())
             if self.user:

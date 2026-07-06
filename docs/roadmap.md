@@ -251,9 +251,32 @@ Canales reales:
    el primer toque (`run_pipeline`) y los follow-ups (`run_followups`); cada envío queda
    en el historial del CRM. **Mock por defecto incluso con credenciales** — se envía de
    verdad solo con `OUTBOX_LIVE=1` (interruptor "Activar envío real" en Config). Cards de
-   Email y WhatsApp en el dashboard. 3 tests nuevos. Falta: probar un envío real end-to-end
-   con credenciales, y el **agente conversacional de WhatsApp** (entrante de dos vías, que
-   se apoya en el loop de respuestas).
+   Email y WhatsApp en el dashboard. 3 tests nuevos.
+   **Probado en vivo (2026-07-06)**: SMTP real (Gmail) ya configurado y
+   `outbox_live: true` en producción. Confirmado punta a punta con 2 correos
+   reales — uno vía `/api/test-email` (send directo) y otro vía el `Outbox`
+   real (con reintentos) — ambos llegaron. Falta: el **agente conversacional de
+   WhatsApp** (entrante de dos vías, que se apoya en el loop de respuestas).
+
+   **Hallazgo de robustez (no es bug de código, es riesgo operativo):** el
+   remitente es una cuenta de **Gmail personal** (`fudyfoodscl@gmail.com`), no
+   un dominio propio de negocio. Tres riesgos reales para cuando haya volumen:
+   límite de ~500 correos/día en Gmail gratis; mala entregabilidad (sin
+   SPF/DKIM de un dominio propio, más probable que cualquier filtro antispam
+   lo mande a spam); y riesgo a la cuenta personal si Gmail detecta un patrón
+   de envío masivo/frío. La solución completa (dominio propio + proveedor
+   dedicado tipo SES/Mailgun) es gasto — ya está en
+   "⏸️ Pendientes de PAGO" más abajo, no se toca ahora.
+
+   **Arreglado, gratis, en el camino**: el "From" del email salía con la
+   dirección pelada de la cuenta SMTP, sin decir de parte de quién escribía —
+   mismo problema de fondo que las firmas rotas de OUTREACH (ver Discovery/
+   Outreach arriba). `EmailSender` ahora arma el header `From` con el nombre
+   del vendedor asignado (ej. "Stéfano <cuenta@gmail.com>") cuando
+   `_deliver` (usado por `run_pipeline`/`run_followups`) se lo pasa — mismo
+   patrón que ya existía para WhatsApp/CONCIERGE
+   (`vendor_for(client_id)`). `_build_message` se separó a `@staticmethod`
+   para poder probarlo sin tocar la red. 3 tests nuevos. 340/340 en verde.
 
 Robustez:
 5. **Sin crasheos, maneja datos malos** — ✅ parseo tolerante + 40/40 tests.

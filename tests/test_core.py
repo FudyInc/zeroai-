@@ -740,6 +740,56 @@ class ChannelTest(unittest.TestCase):
         self.assertTrue(any(h["event"] == "send" for h in crm.get("acme", key)["history"]))
 
 
+class EmailSenderFromNameTest(unittest.TestCase):
+    """El 'From' del email muestra el nombre del vendedor asignado (Fernanda/
+    Stéfano) cuando viene — sin esto, el correo sale con la dirección pelada
+    (a menudo una cuenta personal como Gmail), que se ve poco profesional y no
+    dice de parte de quién escribe (encontrado probando envío real, 2026-07-06)."""
+
+    def test_from_header_includes_vendor_display_name(self):
+        from zero.channels import EmailSender
+        em = EmailSender._build_message(
+            "ventas@zeroai.cl",
+            {"to": "lead@acme.cl", "subject": "Hola", "body": "x", "from_name": "Stéfano"},
+        )
+        self.assertIn("Stéfano", em["From"])
+        self.assertIn("ventas@zeroai.cl", em["From"])
+
+    def test_no_from_name_keeps_bare_address(self):
+        """Sin vendor asignado, el comportamiento no cambia — dirección pelada,
+        como siempre (nunca inventa un nombre)."""
+        from zero.channels import EmailSender
+        em = EmailSender._build_message(
+            "ventas@zeroai.cl", {"to": "lead@acme.cl", "subject": "Hola", "body": "x"},
+        )
+        self.assertEqual(em["From"], "ventas@zeroai.cl")
+
+    def test_deliver_threads_vendor_name_into_the_email_from(self):
+        """_deliver (usado por run_pipeline y run_followups) debe agregar
+        from_name al mensaje que llega al Outbox cuando el cliente tiene un
+        vendedor asignado — sin esto el correo real sale con la dirección
+        pelada de la cuenta SMTP configurada, sin decir de parte de quién."""
+        from zero.channels import Outbox
+
+        class CapturingSender:
+            name = "email"
+            def __init__(self):
+                self.sent = []
+            def send(self, msg):
+                self.sent.append(msg)
+                return {"channel": "email", "to": msg.get("to"), "status": "sent",
+                        "id": "cap", "error": None, "via": "email"}
+
+        sender = CapturingSender()
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None),
+                 outbox=Outbox({"email": sender}))
+        z.memory.set_client_vendor("acme", "stefano")
+        z._deliver("acme", "lead-1", "lead@acme.cl",
+                   {"channel": "email", "subject": "Hola", "body": "x"})
+        self.assertEqual(len(sender.sent), 1)
+        self.assertEqual(sender.sent[0]["from_name"], "Stéfano")
+
+
 class WhatsAppVendorSendTest(unittest.TestCase):
     """Cada cliente envía WhatsApp con las credenciales de SU vendedor (Fase 3.2).
     Todo offline: el factory de senders se inyecta, nunca se toca la red."""
