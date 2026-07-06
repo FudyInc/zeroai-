@@ -69,6 +69,10 @@ export default function PricingCard({ client }) {
 
       {pricingQ.isLoading ? (
         <div className="space-y-2"><Skeleton className="h-9" /><Skeleton className="h-9" /></div>
+      ) : pricingQ.isError ? (
+        <div className="text-sm text-rose-600">
+          No se pudo cargar. <button className="underline" onClick={() => pricingQ.refetch()}>Reintentar</button>
+        </div>
       ) : (
         <div className="space-y-2">
           {rows.length > 0 && (

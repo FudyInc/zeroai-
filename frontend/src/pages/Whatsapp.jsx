@@ -148,6 +148,10 @@ function KnowledgeCard({ client, knowledgeQ }) {
         sub="Pega aquí todo lo que el agente debe saber para atender bien: qué vende, precios, horarios, políticas. Texto libre, como se lo contarías a un vendedor nuevo." />
       {knowledgeQ.isLoading ? (
         <Skeleton className="h-36 w-full" />
+      ) : knowledgeQ.isError ? (
+        <div className="text-sm text-rose-600">
+          No se pudo cargar la ficha. <button className="underline" onClick={() => knowledgeQ.refetch()}>Reintentar</button>
+        </div>
       ) : (
         <textarea
           value={text} onChange={(e) => setText(e.target.value)} rows={7}
@@ -155,16 +159,18 @@ function KnowledgeCard({ client, knowledgeQ }) {
           className="w-full border border-zinc-200 rounded-xl px-3 py-2.5 text-sm outline-none transition focus:ring-4 focus:ring-champagne/40 focus:border-gold/60 placeholder:text-zinc-400 resize-y"
         />
       )}
-      <div className="flex items-center justify-between mt-2">
-        <span className="text-[11px] text-zinc-400">
-          {text.trim()
-            ? `${text.length.toLocaleString()} caracteres`
-            : 'Sin ficha todavía — el agente responderá solo con lo básico.'}
-        </span>
-        <Button variant={dirty ? 'accent' : 'soft'} onClick={() => save.mutate()} disabled={save.isPending || !dirty}>
-          {save.isPending ? 'Guardando…' : dirty ? 'Guardar ficha' : <><Check size={14} /> Guardada</>}
-        </Button>
-      </div>
+      {!knowledgeQ.isError && (
+        <div className="flex items-center justify-between mt-2">
+          <span className="text-[11px] text-zinc-400">
+            {text.trim()
+              ? `${text.length.toLocaleString()} caracteres`
+              : 'Sin ficha todavía — el agente responderá solo con lo básico.'}
+          </span>
+          <Button variant={dirty ? 'accent' : 'soft'} onClick={() => save.mutate()} disabled={save.isPending || !dirty}>
+            {save.isPending ? 'Guardando…' : dirty ? 'Guardar ficha' : <><Check size={14} /> Guardada</>}
+          </Button>
+        </div>
+      )}
     </Card>
   )
 }
@@ -363,6 +369,15 @@ function ActivityCard({ leadsQ }) {
         <Skeleton className="h-5 w-40" />
         <Skeleton className="h-10 w-full" />
         <Skeleton className="h-10 w-full" />
+      </Card>
+    )
+  }
+  if (leadsQ.isError) {
+    return (
+      <Card className="p-6">
+        <div className="text-sm text-rose-600">
+          No se pudo cargar la actividad. <button className="underline" onClick={() => leadsQ.refetch()}>Reintentar</button>
+        </div>
       </Card>
     )
   }

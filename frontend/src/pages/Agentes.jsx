@@ -38,7 +38,8 @@ function repliedRecently(leads, channel) {
 
 export default function Agentes() {
   const { client } = useApp()
-  const { data: cfg } = useQuery({ queryKey: ['config'], queryFn: api.config })
+  const cfgQ = useQuery({ queryKey: ['config'], queryFn: api.config })
+  const cfg = cfgQ.data
   const leadsQ = useQuery({
     queryKey: ['leads', client, 'agentes-activity'],
     queryFn: () => api.leads(client, { group: 'todos', limit: 50 }),
@@ -95,6 +96,12 @@ export default function Agentes() {
         Un agente por canal, todos con el mismo cerebro — cambia solo la forma de llegar al prospecto.
         Elige uno para configurarlo o ver su estado.
       </p>
+      {cfgQ.isError && (
+        <Card className="p-4 text-sm text-rose-600">
+          No se pudo cargar el estado real de los canales (se muestran como "sin configurar" por
+          defecto, puede no ser cierto). <button className="underline" onClick={() => cfgQ.refetch()}>Reintentar</button>
+        </Card>
+      )}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {agents.map((a, i) => (
           <motion.div key={a.key} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
