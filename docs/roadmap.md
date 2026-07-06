@@ -182,8 +182,44 @@ Motor real (que de verdad SOLUCIONE):
    (prompts reales + `zero/icp.py` + camino real con parseo a prueba de balas).
 2. **Discovery real y confiable** — 🟡 parcial: `DuckDuckGoSource` sin key mejorada (✅ 2026-06-11: minería de directorios, fallback a /contacto, filtrado de señales de email/teléfono); falta
    proveedor con key para cobertura mayor. Tests nuevos en `tests/test_discovery.py`; 6/6 PyMEs reales en vivo.
-3. **Outreach de calidad real** — ✅ redacta por canal; ⚠️ calidad sin evaluar en vivo
-   (requiere correr con key/modelo y juzgar a ojo crítico).
+   **Cuantificado en vivo (2026-07-04)** con el pipeline real completo (Ollama
+   qwen2.5:7b + `--discover web`) contra "pooledge" (venta de bordes de piscina
+   y pastelones — ex-empresa de Diego, la reabre), buscando "empresas
+   constructoras de piscinas en Chile": encontró **8/8 empresas reales y
+   legítimas** (Splash Piscinas, Aguamundo, MASPISCINAS, chilepiscinas.cl, …,
+   con email/teléfono real), pero **0/8 llegaron al mínimo de calificación
+   (70)** — mejor score 65 — de forma consistente por la misma causa:
+   PROSPECTOR no logra verificar un decisor real en sitios de PyMEs chicas
+   (`role` queda en `"por verificar"`), y QUALIFIER, bien calibrado, penaliza
+   fuerte esa falta de señal. No es un bug — es el límite real y ya conocido
+   del scraping sin key, ahora con un número concreto detrás. **Decisión
+   pendiente de Diego** (política, no mecanismo): ¿bajar `MIN_ICP_SCORE`, restar
+   menos peso a "decisor no verificado", o aceptar que estos casos necesitan
+   revisión humana antes de calificar? Fuera de alcance por ahora seguir
+   puliendo el scraping en sí (ver [[zero-scope-discipline]]).
+3. **Outreach de calidad real** — ✅ evaluado en vivo (2026-07-04) con el modelo
+   real (Ollama qwen2.5:7b) contra el lead real de mejor score de la prueba de
+   arriba (Splash Piscinas). El mensaje en sí fue sólido (menciona bien
+   PoolEdge, el rubro del lead, tono profesional, CTA claro), pero encontró 2
+   bugs reales de calidad, ambos arreglados:
+   - **Saludo roto**: sin rol/nombre verificado, el modelo saludaba con el
+     **email crudo como si fuera un nombre** ("Hola ventas@splash.cl,") — se ve
+     robótico y le resta credibilidad al primer contacto. Arreglado con una
+     instrucción explícita en `prompts/outreach.md` (saludar a la empresa, nunca
+     citar el email/teléfono como nombre).
+   - **Rol placeholder citado como real**: incluso en modo mock, un lead con
+     `role="por verificar"` (el placeholder honesto de PROSPECTOR cuando no
+     hay decisor verificado) generaba mensajes tipo *"vi que lideras como por
+     verificar en Splash Piscinas"*. Nueva constante compartida
+     `contracts.ROLE_UNVERIFIED`; `outreach.py` y `prospector.py` la tratan
+     igual que un rol vacío/desconocido. Test de regresión agregado.
+   **Bug de mecanismo encontrado y arreglado en el camino**: QUALIFIER con
+   backend real (probado con qwen2.5:7b, aplica a cualquier modelo real) a
+   veces omitía `channel`/`email`/`phone`/`role` al reescribir el JSON —
+   rechazaba leads perfectamente completos por una falla de fidelidad del
+   modelo, no por datos faltantes. `_merge_qualifier_scores` en
+   `orchestrator.py` restaura todo excepto `score`/`icp_reasons` desde el lead
+   original. 4 tests nuevos. 332/332 en verde.
 
 Canales reales:
 4. **Que al menos un canal ENVÍE de verdad** (email = el más viable) — ✅ **capa de envío

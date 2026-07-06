@@ -129,6 +129,22 @@ class OutreachTest(unittest.TestCase):
         self.assertGreater(len(enterprise), len(starter))   # richer copy
         self.assertIn("piloto", enterprise)                 # tier-specific touch
 
+    def test_unverified_role_never_quoted_as_a_real_title(self):
+        """Encontrado en vivo (2026-07-04, pipeline real contra empresas de
+        piscinas): un lead de discovery web sin decisor verificado trae
+        role="por verificar" (placeholder honesto de PROSPECTOR) — el mensaje
+        NUNCA debe citarlo como si fuera un cargo real ("vi que lideras como
+        por verificar en...")."""
+        o = build_agents(mock=True)["OUTREACH"]
+        task = TaskPayload(agent="OUTREACH", client_id="c", client_tier="GROWTH",
+                           instructions="x",
+                           data={"leads": [{"company": "Splash Piscinas", "role": "por verificar",
+                                            "channel": "email"}]},
+                           constraints=Constraints(channels=["email"]))
+        body = o.run(task).result["messages"][0]["body"]
+        self.assertNotIn("por verificar", body)
+        self.assertIn("Splash Piscinas", body)
+
 
 class CRMTest(unittest.TestCase):
     def setUp(self):

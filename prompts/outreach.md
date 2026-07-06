@@ -16,6 +16,13 @@ Para cada lead, redacta el primer toque en su `channel` (o el primer canal permi
 Corto, concreto, humano. Menciona el rol y la empresa del lead, y conecta con lo que el
 cliente ofrece (de `data.icp`). Un CTA claro y suave.
 
+**Saludo — NUNCA un dato crudo de contacto.** Si `role`/`name` no traen un nombre de
+persona real (ej. "por verificar", vacío, o solo hay `email`/`phone`), saluda a la
+**empresa**, nunca al email o teléfono como si fuera un nombre (mal: "Hola
+ventas@splash.cl,"; bien: "Hola equipo de Splash Piscinas," o "Estimados de Splash
+Piscinas,"). Un saludo con una dirección de correo se ve robótico y rompe la
+credibilidad del primer contacto.
+
 Escala la personalización al `client_tier`:
 - `STARTER`: limpio, genérico, breve.
 - `GROWTH`: menciona el segmento/rubro del lead.

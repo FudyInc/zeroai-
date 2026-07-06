@@ -117,6 +117,14 @@ class AgentResponse:
         return asdict(self)
 
 
+# Placeholder PROSPECTOR uses when web discovery can't find a named decision-maker
+# on the company's site (zero/agents/prospector.py) — an honest "no sabemos quién
+# decide todavía", never a real role. Anything that reads it as a real title (ej.
+# OUTREACH escribiendo "vi que lideras como por verificar en...") debe tratarlo
+# igual que un rol vacío/desconocido.
+ROLE_UNVERIFIED = "por verificar"
+
+
 @dataclass
 class Lead:
     """A normalized lead as it flows through the pipeline."""

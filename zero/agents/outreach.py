@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from ..contracts import TaskPayload
+from ..contracts import ROLE_UNVERIFIED, TaskPayload
 from .base import BaseAgent
 
 # One extra, tier-appropriate sentence woven into the pitch. Empty for STARTER
@@ -41,14 +41,19 @@ class Outreach(BaseAgent):
             channel = ld.get("channel") if ld.get("channel") in allowed else allowed[0]
             company = ld.get("company", "tu empresa")
             role = ld.get("role", "tu equipo")
+            # "por verificar" (PROSPECTOR, discovery web) es un placeholder honesto de
+            # "no sabemos quién decide todavía" — nunca un rol real. Tratarlo como tal
+            # evita mensajes que suenan rotos (ej. "vi que lideras como por verificar").
+            role_known = bool(role) and role != ROLE_UNVERIFIED
             name = ld.get("name")
             greeting = f"Hola {name}" if name else "Hola"
             if channel == "email":
                 subject: Optional[str] = f"Leads B2B calificados para {company}"
+                role_clause = (f"Vi que lideras como {role} en {company}" if role_known
+                               else f"Vi el trabajo de {company}")
                 body = _join(
-                    f"{greeting}, soy de la agencia. Vi que lideras como {role} en "
-                    f"{company} y generamos leads B2B de alta intención, ya calificados "
-                    f"(score ≥ 70).",
+                    f"{greeting}, soy de la agencia. {role_clause} y generamos leads B2B "
+                    f"de alta intención, ya calificados (score ≥ 70).",
                     touch,
                     "¿Te hago llegar una muestra esta semana?",
                 )
@@ -61,8 +66,9 @@ class Outreach(BaseAgent):
                 )
             else:  # cold_call / linkedin / sdr_ai
                 subject = None
+                who = f"{name} ({role}, {company})" if (name or role_known) else f"el equipo de {company}"
                 body = _join(
-                    f"Guion ({channel}): saludar a {name} ({role}, {company}); "
+                    f"Guion ({channel}): saludar a {who}; "
                     f"pitch de 15s sobre leads calificados;",
                     touch,
                     "pedir 10 min esta semana.",

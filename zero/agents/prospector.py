@@ -8,7 +8,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any, Dict, List, Optional, Tuple
 
-from ..contracts import AgentResponse, TaskPayload
+from ..contracts import ROLE_UNVERIFIED, AgentResponse, TaskPayload
 from .base import BaseAgent
 
 _COMPANIES = [
@@ -53,7 +53,7 @@ class Prospector(BaseAgent):
         for c in candidates:
             lead = dict(c)
             if not lead.get("role"):
-                lead["role"] = "por verificar"   # honest placeholder; QUALIFIER/humans refine
+                lead["role"] = ROLE_UNVERIFIED   # honest placeholder; QUALIFIER/humans refine
             leads.append(lead)
 
         status = "done" if leads else "partial"
