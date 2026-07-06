@@ -87,9 +87,13 @@ Orden acordado con Diego — no reordenar sin avisar:
 4. Checklist de fiabilidad — ✅ CÓDIGO LISTO (2026-07-04). Los 4 ítems de código
    (firma del webhook, reintentos de envío, backup de crm.json/state.json,
    casos difíciles de CONCIERGE, expiración de sesión) están hechos y probados.
-   Quedan 3 puntos que son acción manual de Diego (anotados, no bloquean nada
+   Quedan 2 puntos que son acción manual de Diego (anotados, no bloquean nada
    de código): password real en vez de la de prueba, vendedores con números
-   reales de WhatsApp Business, prueba en móvil.
+   reales de WhatsApp Business (en curso — bloqueado hoy por la verificación
+   de cuenta personal de Meta, ver docs/GO-LIVE.md §(c)). Prueba en móvil
+   **descartada a propósito** (2026-07-04): el dashboard es propietario, solo
+   la agencia lo opera, y siempre desde computador — no aporta nada probarlo
+   en celular.
    - **Verificación de firma del webhook de Meta** — ✅ HECHO. `POST
      /api/webhooks/whatsapp` no verificaba nada — cualquiera con la URL podía
      mandar mensajes falsos haciéndose pasar por un lead (y hasta gatillar una
