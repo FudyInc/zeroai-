@@ -14,10 +14,10 @@ from .config import (
     AVG_DEAL_VALUE_CLP,
     DEFAULT_VENDOR_ID,
     FORECAST_RATES,
-    MIN_ICP_SCORE,
     RECONTACT_BLACKOUT_DAYS,
     REQUIRED_FIELDS,
     followup_step,
+    min_icp_score,
     project_funnel,
     tier_config,
 )
@@ -194,17 +194,22 @@ class Zero:
         return resp
 
     # --- qualified-lead gate -------------------------------------------------
-    def validate_lead(self, lead: Lead, exclusions: List[str]) -> Tuple[bool, List[str]]:
-        """A lead is deliverable only if it passes EVERY check."""
+    def validate_lead(
+        self, lead: Lead, exclusions: List[str], tier: Optional[str] = None
+    ) -> Tuple[bool, List[str]]:
+        """A lead is deliverable only if it passes EVERY check. `tier` selects
+        the score bar (config.min_icp_score) — el plan que paga más exige más
+        precisión; sin tier (ej. llamadas directas/tests) cae al default."""
         fails: List[str] = []
+        bar = min_icp_score(tier)
 
         if not (lead.email or lead.phone):
             fails.append("sin contacto verificado")
         for f in REQUIRED_FIELDS:
             if not getattr(lead, f, None):
                 fails.append(f"falta campo: {f}")
-        if lead.score is None or lead.score < MIN_ICP_SCORE:
-            fails.append(f"score {lead.score} < {MIN_ICP_SCORE}")
+        if lead.score is None or lead.score < bar:
+            fails.append(f"score {lead.score} < {bar}")
 
         dom = (lead.domain or (lead.email.split("@")[-1] if lead.email else "") or "").lower()
         if dom and dom in {e.lower() for e in exclusions}:
@@ -228,14 +233,14 @@ class Zero:
 
     # --- pipeline steps (helpers for run_pipeline) ---------------------------
     def _validate_and_record(
-        self, client_id: str, scored: List[Lead], exclusions: List[str]
+        self, client_id: str, scored: List[Lead], exclusions: List[str], tier: Optional[str] = None
     ) -> Tuple[List[Lead], List[Dict[str, Any]]]:
         """Run the qualified-lead gate over scored leads, updating CRM + memory log."""
         self.memory.set_stage(client_id, "validate")
         qualified: List[Lead] = []
         rejected: List[Dict[str, Any]] = []
         for lead in scored:
-            ok, fails = self.validate_lead(lead, exclusions)
+            ok, fails = self.validate_lead(lead, exclusions, tier=tier)
             if ok:
                 qualified.append(lead)
             else:
@@ -343,7 +348,7 @@ class Zero:
         scored = _merge_qualifier_scores(raw_leads, qual.result.get("leads", []))
 
         # 3) VALIDATE against the qualified-lead definition -------------------
-        qualified, rejected = self._validate_and_record(client_id, scored, exclusions)
+        qualified, rejected = self._validate_and_record(client_id, scored, exclusions, tier=tier)
 
         # 4) OUTREACH (first touch) ------------------------------------------
         messages: List[Dict[str, Any]] = []

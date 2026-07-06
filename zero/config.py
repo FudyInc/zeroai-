@@ -109,9 +109,31 @@ def validator_tier(tier: str) -> dict:
 
 
 # --- Qualified-lead rules ----------------------------------------------------
-MIN_ICP_SCORE = 70           # score >= this to be deliverable
+# El piso de calificación varía por tier — el modelo de negocio (2026-07-04,
+# decisión de Diego) es vender el mismo servicio a empresas chicas, medianas y
+# grandes, a distinto precio y con distinto volumen/calidad de entrega según el
+# plan. STARTER (plan de entrada, barato) prioriza volumen — sirve también a
+# pymes chicas donde el decisor no siempre se puede verificar con discovery sin
+# key. ENTERPRISE (el que más paga) exige más precisión. Encontrado en vivo
+# (pipeline real, Ollama qwen2.5:7b, PyMEs reales de "pooledge"): con el piso
+# único de 70, 0/8 empresas reales calificaban — todas penalizadas por falta de
+# decisor verificado, no por mal fit de industria.
+MIN_ICP_SCORE = 60            # default / fallback para tiers sin entrada propia
+MIN_ICP_SCORE_BY_TIER = {
+    "STARTER": 50,
+    "GROWTH": 60,
+    "SCALE": 70,
+    "ENTERPRISE": 80,
+}
 RECONTACT_BLACKOUT_DAYS = 90  # do not deliver a lead contacted more recently
 REQUIRED_FIELDS = ("company", "role", "channel")  # minimum fields a lead needs
+
+
+def min_icp_score(tier: Optional[str]) -> int:
+    """Piso de calificación para `tier` — cae a MIN_ICP_SCORE si el tier no
+    tiene entrada propia o no se pasa ninguno (ej. tests que llaman a
+    validate_lead sin tier)."""
+    return MIN_ICP_SCORE_BY_TIER.get(tier or "", MIN_ICP_SCORE)
 
 # --- Follow-up cadence (TRACKER) ---------------------------------------------
 # After OUTREACH sends the first touch (step 0), TRACKER advances a lead through

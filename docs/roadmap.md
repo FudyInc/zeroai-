@@ -192,11 +192,20 @@ Motor real (que de verdad SOLUCIONE):
    PROSPECTOR no logra verificar un decisor real en sitios de PyMEs chicas
    (`role` queda en `"por verificar"`), y QUALIFIER, bien calibrado, penaliza
    fuerte esa falta de señal. No es un bug — es el límite real y ya conocido
-   del scraping sin key, ahora con un número concreto detrás. **Decisión
-   pendiente de Diego** (política, no mecanismo): ¿bajar `MIN_ICP_SCORE`, restar
-   menos peso a "decisor no verificado", o aceptar que estos casos necesitan
-   revisión humana antes de calificar? Fuera de alcance por ahora seguir
-   puliendo el scraping en sí (ver [[zero-scope-discipline]]).
+   del scraping sin key, ahora con un número concreto detrás.
+   **Decisión de Diego (2026-07-04):** el modelo de negocio es vender el mismo
+   servicio a empresas chicas, medianas y grandes, a distinto precio y con
+   distinto volumen/calidad de entrega según el plan — "a nosotros nos sirven
+   todos los negocios". Por eso el piso de calificación pasa a ser **por
+   tier**, no un número único: `zero/config.py::MIN_ICP_SCORE_BY_TIER` —
+   STARTER 50 (plan de entrada, prioriza volumen, sirve a pymes chicas sin
+   decisor verificable), GROWTH 60, SCALE 70, ENTERPRISE 80 (el que más paga
+   exige más precisión). `MIN_ICP_SCORE` (60) queda como default/fallback para
+   tiers sin entrada propia. `validate_lead`/`_validate_and_record` reciben
+   `tier` y usan `config.min_icp_score(tier)`. 6 tests nuevos (piso escala con
+   el tier, orden STARTER<GROWTH<SCALE<ENTERPRISE, fallback sin tier). 334/334
+   en verde. Fuera de alcance por ahora seguir puliendo el scraping en sí (ver
+   [[zero-scope-discipline]]) — esto es política, no mecanismo.
 3. **Outreach de calidad real** — ✅ evaluado en vivo (2026-07-04) con el modelo
    real (Ollama qwen2.5:7b) contra el lead real de mejor score de la prueba de
    arriba (Splash Piscinas). El mensaje en sí fue sólido (menciona bien

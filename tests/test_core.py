@@ -64,6 +64,33 @@ class GateTest(unittest.TestCase):
         self.assertFalse(ok)
         self.assertTrue(any(str(RECONTACT_BLACKOUT_DAYS) in f for f in fails))
 
+    def test_score_bar_scales_with_tier(self):
+        """Decisión de negocio (2026-07-04): el mismo servicio sirve a empresas
+        chicas, medianas y grandes a distinto precio — STARTER (plan de
+        entrada) prioriza volumen, ENTERPRISE (el que más paga) exige más
+        precisión. Un score de 55 (típico de una pyme real sin decisor
+        verificado, visto en vivo con 'pooledge') debe pasar en STARTER pero
+        no en SCALE/ENTERPRISE."""
+        from zero.config import min_icp_score
+        lead55 = _lead(score=55)
+        ok_starter, _ = self.z.validate_lead(lead55, exclusions=[], tier="STARTER")
+        ok_scale, _ = self.z.validate_lead(lead55, exclusions=[], tier="SCALE")
+        ok_enterprise, _ = self.z.validate_lead(lead55, exclusions=[], tier="ENTERPRISE")
+        self.assertTrue(ok_starter)
+        self.assertFalse(ok_scale)
+        self.assertFalse(ok_enterprise)
+        # orden esperado: a mayor tier, mayor exigencia
+        self.assertLess(min_icp_score("STARTER"), min_icp_score("GROWTH"))
+        self.assertLess(min_icp_score("GROWTH"), min_icp_score("SCALE"))
+        self.assertLess(min_icp_score("SCALE"), min_icp_score("ENTERPRISE"))
+
+    def test_no_tier_falls_back_to_default_bar(self):
+        from zero.config import MIN_ICP_SCORE
+        ok, _ = self.z.validate_lead(_lead(score=MIN_ICP_SCORE - 1), exclusions=[])
+        self.assertFalse(ok)
+        ok, _ = self.z.validate_lead(_lead(score=MIN_ICP_SCORE), exclusions=[])
+        self.assertTrue(ok)
+
 
 class ProspectorTest(unittest.TestCase):
     """Discovery must deliver the requested count and never repeat a company."""
@@ -300,9 +327,10 @@ class PipelineIntegrationTest(unittest.TestCase):
         d = z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8)
 
         self.assertEqual(d["summary"]["discovered"], 8)
-        # qualified is a subset, and every qualified lead clears the score bar
+        # qualified is a subset, and every qualified lead clears the GROWTH score bar
         self.assertLessEqual(d["summary"]["qualified"], 8)
-        self.assertTrue(all(l["score"] >= MIN_ICP_SCORE for l in d["qualified_leads"]))
+        from zero.config import min_icp_score
+        self.assertTrue(all(l["score"] >= min_icp_score("GROWTH") for l in d["qualified_leads"]))
         # every discovered lead is recorded in the CRM (qualified or disqualified)
         self.assertEqual(sum(crm.counts("acme").values()), 8)
 
