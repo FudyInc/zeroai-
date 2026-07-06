@@ -79,7 +79,16 @@ class ApiHttpTest(unittest.TestCase):
         cls.base = f"http://127.0.0.1:{cls.port}"
         repo_root = Path(__file__).resolve().parent.parent
         env = dict(os.environ)
-        env.pop("AUTH_PASSWORD", None)  # sin password -> /api/* queda abierto para probar
+        # Vacío, no ausente: zero/_env.py::load_env usa os.environ.setdefault, así
+        # que si la key falta del todo y existe un .env real en el repo (como en
+        # producción) con AUTH_PASSWORD configurada, el subproceso la vuelve a
+        # levantar de ahí y este test class deja de estar realmente "sin auth" —
+        # encontrado corriendo esta suite en el Ubuntu de producción, donde esto
+        # causaba 401 en vez de 200/404 en tres tests. Un valor vacío sí queda
+        # "presente" para setdefault, y auth_enabled() lo trata como deshabilitado
+        # (bool('') es False) — sin auth de verdad, sin importar qué haya en el
+        # .env del repo.
+        env["AUTH_PASSWORD"] = ""  # sin password -> /api/* queda abierto para probar
         env["WHATSAPP_APP_SECRET"] = cls.WHATSAPP_APP_SECRET
         cls.proc = subprocess.Popen(
             [sys.executable, "-m", "uvicorn", "api:app", "--port", str(cls.port),
