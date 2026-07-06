@@ -291,6 +291,64 @@ class PipelineIntegrationTest(unittest.TestCase):
         self.assertEqual(sum(crm.counts("acme").values()), 8)
 
 
+class QualifierMergeTest(unittest.TestCase):
+    """_merge_qualifier_scores: encontrado en vivo (2026-07-04, corriendo el
+    pipeline real con qwen2.5:7b contra empresas reales de piscinas) — el
+    modelo real a veces omite channel/email/phone/role al reescribir la lista
+    de leads calificados, y eso rompía el gate de campos requeridos por una
+    falla de fidelidad del modelo, no por un lead realmente incompleto. Solo
+    score/icp_reasons deben venir de QUALIFIER; todo lo demás, del lead que
+    PROSPECTOR ya encontró."""
+
+    def _raw(self):
+        return [
+            Lead(company="Splash Piscinas", role="por verificar", channel="email",
+                 email="ventas@splash.cl", phone=None, domain="splash.cl"),
+            Lead(company="Aguamundo Piscinas", role="por verificar", channel="whatsapp",
+                 email=None, phone="+56911112222", domain="aguamundo.cl"),
+        ]
+
+    def test_restores_fields_the_model_dropped(self):
+        from zero.orchestrator import _merge_qualifier_scores
+        # el modelo real solo devolvió company/score/icp_reasons — canal,
+        # email, teléfono y hasta el rol quedaron afuera (visto en vivo).
+        qual_out = [{"company": "Splash Piscinas", "score": 65, "icp_reasons": ["fit ok"]}]
+        merged = _merge_qualifier_scores(self._raw(), qual_out)
+        self.assertEqual(len(merged), 1)
+        lead = merged[0]
+        self.assertEqual(lead.score, 65)
+        self.assertEqual(lead.icp_reasons, ["fit ok"])
+        # restaurado desde el lead original, no del modelo:
+        self.assertEqual(lead.channel, "email")
+        self.assertEqual(lead.email, "ventas@splash.cl")
+        self.assertEqual(lead.domain, "splash.cl")
+        self.assertEqual(lead.role, "por verificar")
+
+    def test_company_name_matching_is_case_and_whitespace_insensitive(self):
+        from zero.orchestrator import _merge_qualifier_scores
+        qual_out = [{"company": "  splash PISCINAS  ", "score": 70, "icp_reasons": []}]
+        merged = _merge_qualifier_scores(self._raw(), qual_out)
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0].channel, "email")
+
+    def test_hallucinated_company_not_in_original_leads_is_dropped(self):
+        from zero.orchestrator import _merge_qualifier_scores
+        qual_out = [
+            {"company": "Splash Piscinas", "score": 70, "icp_reasons": ["ok"]},
+            {"company": "Empresa que el modelo inventó", "score": 90, "icp_reasons": ["ok"]},
+        ]
+        merged = _merge_qualifier_scores(self._raw(), qual_out)
+        self.assertEqual([l.company for l in merged], ["Splash Piscinas"])
+
+    def test_lead_the_model_forgot_entirely_is_simply_not_scored(self):
+        from zero.orchestrator import _merge_qualifier_scores
+        # el modelo solo calificó a una de las dos empresas originales
+        qual_out = [{"company": "Splash Piscinas", "score": 70, "icp_reasons": []}]
+        merged = _merge_qualifier_scores(self._raw(), qual_out)
+        self.assertEqual(len(merged), 1)
+        self.assertNotIn("Aguamundo Piscinas", [l.company for l in merged])
+
+
 class ExportTest(unittest.TestCase):
     """The deliverable CSV — what a client actually receives."""
 

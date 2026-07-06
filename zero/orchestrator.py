@@ -104,6 +104,33 @@ def build_info_summary(icp: Dict[str, Any], lead: Optional[Dict[str, Any]] = Non
     return "\n".join(lines)
 
 
+def _merge_qualifier_scores(raw_leads: List[Lead], qual_leads: List[Dict[str, Any]]) -> List[Lead]:
+    """QUALIFIER only OWES a score + icp_reasons per lead — every other field
+    (company, contacto, canal, dominio) must come from the lead PROSPECTOR already
+    found, never from the model re-typing it. Backends real (local/live) no
+    siempre devuelven el JSON completo que se les pasó: un modelo chico puede
+    omitir `channel`/`email`/`phone` o hasta `role` al reescribir la lista — visto
+    en vivo con qwen2.5:7b, de forma no determinista entre corridas. Confiar en
+    esos campos re-emitidos rompía el gate de campos requeridos por una falla de
+    fidelidad del modelo, no por un lead realmente incompleto.
+
+    Empareja por nombre de empresa (normalizado); una entrada del modelo que no
+    calce con ningún lead original (alucinada) se descarta en vez de confiar en
+    ella a ciegas."""
+    by_company = {(l.company or "").strip().lower(): l for l in raw_leads}
+    merged: List[Lead] = []
+    for qd in qual_leads:
+        base = by_company.get((qd.get("company") or "").strip().lower())
+        if base is None:
+            continue
+        merged.append(Lead.from_dict({
+            **base.to_dict(),
+            "score": qd.get("score"),
+            "icp_reasons": qd.get("icp_reasons"),
+        }))
+    return merged
+
+
 class Zero:
     def __init__(self, agents: Dict[str, Any], memory: Optional[SessionMemory] = None,
                  crm: Any = None, outbox: Optional[Outbox] = None,
@@ -313,7 +340,7 @@ class Zero:
         ))
         if qual.status == "error":
             return self._fail(client_id, "qualify", qual)
-        scored = [Lead.from_dict(d) for d in qual.result.get("leads", [])]
+        scored = _merge_qualifier_scores(raw_leads, qual.result.get("leads", []))
 
         # 3) VALIDATE against the qualified-lead definition -------------------
         qualified, rejected = self._validate_and_record(client_id, scored, exclusions)
