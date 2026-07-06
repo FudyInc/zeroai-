@@ -222,13 +222,27 @@ Motor real (que de verdad SOLUCIONE):
      verificar en Splash Piscinas"*. Nueva constante compartida
      `contracts.ROLE_UNVERIFIED`; `outreach.py` y `prospector.py` la tratan
      igual que un rol vacío/desconocido. Test de regresión agregado.
+   - **Firma inventada** (encontrada corriendo `main.py` real, tier STARTER, tras
+     arreglar los dos bugs de arriba): sin nadie con quién firmar, el modelo
+     real firmó literalmente **"Me llamo OUTREACH... Atentamente, OUTREACH"** —
+     usó el nombre interno del sub-agente como si fuera una persona, delatando
+     el mecanismo a un lead real. Causa: `run_pipeline` nunca le pasaba a
+     OUTREACH el vendedor asignado al cliente (Fernanda/Stéfano), a diferencia
+     de `converse_result` (CONCIERGE), que sí lo hacía. Arreglado: mismo patrón
+     `{name, tone}` de `vendor_for(client_id)` ahora viaja en `data.vendor` para
+     OUTREACH también; `prompts/outreach.md` instruye firmar con ese nombre si
+     viene, nunca inventar uno, y **nunca usar "OUTREACH" ni ningún nombre de
+     agente/rol interno como firma**. Modo mock actualizado para el mismo
+     contrato (firma con `data.vendor.name` si viene, sin firma de persona si
+     no). 3 tests nuevos (firma con vendor, nunca firma con el nombre del
+     agente, integración completa en `run_pipeline`).
    **Bug de mecanismo encontrado y arreglado en el camino**: QUALIFIER con
    backend real (probado con qwen2.5:7b, aplica a cualquier modelo real) a
    veces omitía `channel`/`email`/`phone`/`role` al reescribir el JSON —
    rechazaba leads perfectamente completos por una falla de fidelidad del
    modelo, no por datos faltantes. `_merge_qualifier_scores` en
    `orchestrator.py` restaura todo excepto `score`/`icp_reasons` desde el lead
-   original. 4 tests nuevos. 332/332 en verde.
+   original. 337/337 en verde.
 
 Canales reales:
 4. **Que al menos un canal ENVÍE de verdad** (email = el más viable) — ✅ **capa de envío

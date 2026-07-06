@@ -354,10 +354,16 @@ class Zero:
         messages: List[Dict[str, Any]] = []
         if write_outreach and qualified:
             self.memory.set_stage(client_id, "outreach")
+            # Persona del vendedor asignado (Fernanda/Stéfano/...): mismo patrón que
+            # converse_result (CONCIERGE) — solo name/tone, nunca el token/phone_id.
+            # Sin esto, OUTREACH no tiene con qué firmar y puede inventar un remitente
+            # (visto en vivo: firmaba como "OUTREACH", el nombre interno del agente).
+            vendor = self.vendor_for(client_id)
+            persona = {"name": vendor.get("name"), "tone": vendor.get("tone")}
             out = self.dispatch("OUTREACH", TaskPayload(
                 agent="OUTREACH", client_id=client_id, client_tier=tier,
                 instructions="Redacta el primer mensaje para cada lead calificado.",
-                data={"leads": [l.to_dict() for l in qualified], "icp": icp,
+                data={"leads": [l.to_dict() for l in qualified], "icp": icp, "vendor": persona,
                       "knowledge": self.memory.get_client_knowledge(client_id)[:4000]},
                 constraints=Constraints(channels=channels),
             ))

@@ -172,6 +172,28 @@ class OutreachTest(unittest.TestCase):
         self.assertNotIn("por verificar", body)
         self.assertIn("Splash Piscinas", body)
 
+    def test_signs_with_vendor_name_when_present(self):
+        o = build_agents(mock=True)["OUTREACH"]
+        task = TaskPayload(agent="OUTREACH", client_id="c", client_tier="GROWTH",
+                           instructions="x",
+                           data={"leads": [{"company": "Acme", "role": "CEO", "channel": "email"}],
+                                 "vendor": {"name": "Fernanda", "tone": "cercana"}},
+                           constraints=Constraints(channels=["email"]))
+        body = o.run(task).result["messages"][0]["body"]
+        self.assertIn("Fernanda", body)
+
+    def test_never_signs_with_the_agent_role_name(self):
+        """Encontrado en vivo (2026-07-04): sin data.vendor, el modelo real
+        firmaba literalmente como "OUTREACH" (su propio nombre de agente) —
+        el mock nunca debe hacer lo mismo cuando no hay vendor asignado."""
+        o = build_agents(mock=True)["OUTREACH"]
+        task = TaskPayload(agent="OUTREACH", client_id="c", client_tier="GROWTH",
+                           instructions="x",
+                           data={"leads": [{"company": "Acme", "role": "CEO", "channel": "email"}]},
+                           constraints=Constraints(channels=["email"]))
+        body = o.run(task).result["messages"][0]["body"]
+        self.assertNotIn("OUTREACH", body)
+
 
 class CRMTest(unittest.TestCase):
     def setUp(self):
@@ -333,6 +355,18 @@ class PipelineIntegrationTest(unittest.TestCase):
         self.assertTrue(all(l["score"] >= min_icp_score("GROWTH") for l in d["qualified_leads"]))
         # every discovered lead is recorded in the CRM (qualified or disqualified)
         self.assertEqual(sum(crm.counts("acme").values()), 8)
+
+    def test_outreach_signs_with_the_clients_assigned_vendor(self):
+        """Encontrado en vivo (2026-07-04): run_pipeline nunca le pasaba el
+        vendor asignado a OUTREACH — sin nadie con quién firmar, el modelo
+        real firmaba como "OUTREACH" (su propio nombre de agente). Mismo
+        patrón que converse_result (CONCIERGE) ya usaba para esto."""
+        crm = CRM(None)
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=crm)
+        z.memory.set_client_vendor("acme", "stefano")
+        d = z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8)
+        if d["outreach"]:
+            self.assertTrue(any("Stéfano" in m["body"] for m in d["outreach"]))
 
 
 class QualifierMergeTest(unittest.TestCase):

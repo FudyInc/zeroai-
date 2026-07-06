@@ -35,6 +35,12 @@ class Outreach(BaseAgent):
         allowed = task.constraints.channels or ["email"]
         tier = task.client_tier or "STARTER"
         touch = _TIER_TOUCH.get(tier, "")
+        # Firma con el vendedor asignado (Fernanda/Stéfano/...) si viene — mismo
+        # contrato que el prompt real (prompts/outreach.md): nunca se inventa un
+        # nombre, y sin vendor no hay firma de persona (nunca el nombre interno
+        # del agente, "OUTREACH", como firma — visto en vivo con el modelo real).
+        vendor_name = (task.data.get("vendor") or {}).get("name")
+        sign = f"\n\n{vendor_name}" if vendor_name else ""
 
         messages: List[Dict[str, Any]] = []
         for ld in leads:
@@ -56,14 +62,14 @@ class Outreach(BaseAgent):
                     f"de alta intención, ya calificados (score ≥ 70).",
                     touch,
                     "¿Te hago llegar una muestra esta semana?",
-                )
+                ) + sign
             elif channel == "whatsapp":
                 subject = None
                 body = _join(
                     f"{greeting} 👋 Generamos leads B2B calificados para empresas como {company}.",
                     touch,
                     "¿Te comparto 3 de ejemplo sin costo?",
-                )
+                ) + sign
             else:  # cold_call / linkedin / sdr_ai
                 subject = None
                 who = f"{name} ({role}, {company})" if (name or role_known) else f"el equipo de {company}"
