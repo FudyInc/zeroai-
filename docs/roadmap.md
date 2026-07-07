@@ -28,6 +28,18 @@ en el momento** — así una compresión de contexto no nos lo borra.
   primero con `grep` — no asumas el contrato de un prompt sin verificar contra el código.
 - Guardia automática: `tests/test_core.py::ApiRoutesTest` falla si `api.py` registra la
   misma ruta dos veces (justo el problema de hoy).
+- **Motor real (Ollama local) — ya activo en producción, verificado 2026-07-06.**
+  `LOCAL_MODEL`/`LOCAL_MODEL_URL` ya estaban seteados en el `.env` del Ubuntu (no
+  hizo falta tocar nada) y `api.py::_agents_best()` ya prioriza local sobre mock
+  cuando no hay `ANTHROPIC_API_KEY` — confirmado con `GET /api/config` mostrando
+  `local_model` y con `POST /api/whatsapp/simulate` devolviendo `"mode": "live"`.
+  **Latencia real medida** (3 llamadas a CONCIERGE vía el endpoint real, en el
+  Ryzen 7 9700X sin GPU): **~35s en frío** (modelo recién cargado en RAM por
+  Ollama tras estar inactivo) y **~7-9s en caliente** (llamadas seguidas). Para
+  WhatsApp esto es aceptable en caliente pero notorio en frío — si Diego quiere
+  bajar el caso frío, existe la opción gratis de subir el `keep_alive` de Ollama
+  (mantener el modelo cargado más tiempo en RAM), sin costo, pendiente de decidir
+  si vale la pena.
 
 ## 🎯 Plan de fiabilidad — "listo para el mercado" (2026-07-04) · 🟡 EN CURSO
 Criterio: no lanzar hasta que esto esté resuelto **de verdad**, no "se siente listo".
@@ -314,8 +326,12 @@ Operación:
    que el agente promete**: la oferta queda en `memory.pending_offers` y la aceptación
    del lead ("sí", "por acá", un correo) dispara el envío del resumen real
    (`build_info_summary`, fiel al ICP) por el canal elegido, con evento `info_sent`
-   en el CRM. Falta para real: número de WhatsApp Business + URL pública
-   (deploy/ngrok) para el webhook.
+   en el CRM. ~~Falta para real: número de WhatsApp Business + URL pública
+   (deploy/ngrok) para el webhook.~~ **La URL pública ya está resuelta** — ngrok
+   con dominio fijo (`handpick-monogamy-spiny.ngrok-free.dev`), ver
+   `docs/GO-LIVE.md` / `docs/estado-integraciones.md`. Solo falta el número de
+   WhatsApp Business real (bloqueado hoy por la verificación de cuenta personal
+   de Meta, ver más abajo en "Estado de infraestructura").
 
    **Auditado en vivo (2026-07-06)** con el modelo real (Ollama qwen2.5:7b)
    contra una conversación realista de "pooledge" (precio general, pedido con
