@@ -50,7 +50,9 @@ en el momento** — así una compresión de contexto no nos lo borra.
   vez de solo descartarlo después — más rápido de verdad. Sin efecto en
   qwen2.5 (el que usa hoy). 2 tests nuevos. El resto de lo encontrado ahí
   (scripts viejos de terminales Ptyxis, superados por los workspaces de
-  Conductor) se descartó, sin valor.
+  Conductor) se descartó, sin valor. Ambas carpetas (`/home/diego/zero`,
+  `/home/diego/zeroai-`) ya se **borraron** del Ubuntu — solo queda
+  `/home/diego/Desktop/zeroai`, la que corre de verdad (systemd).
 
 ## 🎯 Plan de fiabilidad — "listo para el mercado" (2026-07-04) · 🟡 EN CURSO
 Criterio: no lanzar hasta que esto esté resuelto **de verdad**, no "se siente listo".
