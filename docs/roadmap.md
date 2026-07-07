@@ -144,6 +144,21 @@ Orden acordado con Diego — no reordenar sin avisar:
      comportamiento externo. `.gitignore` cubre `*.json.bak`/`*.json.tmp`. 6
      tests nuevos (rotación, recuperación desde backup, ambos corruptos → error
      claro, extremo a extremo con `CRM` real).
+     **Simulacro real en Ubuntu de producción (2026-07-06)**: con copia de
+     seguridad extra hecha antes (`/tmp/backup-drill/`) y el backend detenido,
+     se corrompió a propósito el `state.json` real y se confirmó que
+     `make_memory()` se recupera solo desde `state.json.bak` (con el aviso por
+     stderr) y que el archivo se autorepara en el siguiente `save()`. Con
+     `crm.json` (que hoy **no tiene `.bak`** — no ha tenido una segunda
+     escritura desde que se desplegó este mecanismo) se confirmó el otro caso:
+     sin backup disponible, falla con un `RuntimeError` limpio, nunca pierde
+     datos en silencio. Ambos archivos reales restaurados exactos después del
+     simulacro (diff limpio contra la copia previa).
+     **Hallazgo operativo**: `zero-tunnel.service` tiene `Requires=
+     zero-backend.service` — detener el backend apaga el túnel en cascada
+     automáticamente, y **no vuelve solo** al reiniciar el backend; hay que
+     iniciar ambos servicios a mano. Bueno saberlo para cualquier
+     mantención futura que pare el backend un momento.
    - **Prueba de CONCIERGE con casos difíciles** — ✅ HECHO (2026-07-04). Un
      lead real puede escribir cualquier cosa — vacío, groserías, spam, inglés,
      un mensaje gigante — y el agente nunca puede romperse por eso. Probado a
