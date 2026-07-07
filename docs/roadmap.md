@@ -208,6 +208,23 @@ Orden acordado con Diego — no reordenar sin avisar:
      `test_api_http.py`, subiendo el tiempo total a ~1.8s por los dos
      subprocesos de uvicorn — el resto de la suite sigue en ~1s).
 
+**Auditoría de ANALYST (2026-07-06)** — cierra la ronda de auditar en vivo, con
+el modelo real, cada agente que redacta/opina algo de cara al negocio
+(OUTREACH, TRACKER, CONCIERGE, PITCHWRITER ya arriba). A diferencia de esos
+cuatro, **acá no se encontró ningún bug que arreglar**: se respetó siempre la
+regla de "nunca hagas la aritmética" (nunca devolvió conteos proyectados,
+solo tasas), y con muestra chica (2 contactados, vía `/api/forecast?client=
+acme` real) mantuvo las tasas base con una justificación correcta y corta.
+**Hallazgo de calibración (no un bug, no se arregló)**: con el modelo local
+(qwen2.5:7b), ANALYST es **demasiado conservador** — probado con 80
+contactados (muy por sobre el umbral de "muestra chica" que el propio prompt
+define en <20), igual dijo "muestra chica" y no ajustó nada. No es peligroso
+(el peor caso es un forecast un poco conservador de más, nunca inflado), pero
+en la práctica significa que hoy el "juicio" de ANALYST casi nunca ajusta las
+tasas con este modelo — puede mejorar con un modelo más grande (Anthropic)
+más adelante; no vale la pena forzarlo con más prompting (arriesga que
+empiece a inventar señales, un problema peor que ser conservador de más).
+
 ---
 
 ## Plan A — Pulido del dashboard (4 puntos) · ✅ COMPLETO
