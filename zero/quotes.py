@@ -104,7 +104,13 @@ def extract_request(message: str, pricing: Dict[str, Any]) -> List[Dict[str, Any
         qty, explicit = 1, False
         before = msg[: m.start()].rstrip()
         after = msg[m.end():].lstrip()
-        qm = re.search(r"(\d+)\s*$", before) or re.match(r"[x×]\s*(\d+)", after)
+        # El número no siempre queda pegado al nombre: "30 m2 de pastelón..." trae
+        # una palabra de unidad ("m2"/"metros"/"unidades") y/o "de" entre medio.
+        # Hasta 2 palabras de relleno entre el número y el ítem (encontrado en
+        # vivo: sin esto, "30 m2 de X" caía a qty=1 — cotización silenciosamente
+        # mal calculada, sin ningún error visible).
+        qm = (re.search(r"(\d+)(?:\s+[a-z0-9]+){0,2}\s*$", before)
+              or re.match(r"[x×]\s*(\d+)", after))
         if qm:
             qty, explicit = int(qm.group(1)), True
         else:

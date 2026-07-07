@@ -317,6 +317,33 @@ Operación:
    en el CRM. Falta para real: número de WhatsApp Business + URL pública
    (deploy/ngrok) para el webhook.
 
+   **Auditado en vivo (2026-07-06)** con el modelo real (Ollama qwen2.5:7b)
+   contra una conversación realista de "pooledge" (precio general, pedido con
+   cantidades reales, objeción, desconfianza, cierre de reunión) — con ficha y
+   lista de precios reales cargadas. Encontró 2 bugs reales, ambos arreglados:
+   - **Cotización mal calculada, en silencio**: pedir "50 metros de borde recto
+     y 30 m2 de pastelón antideslizante" calculó qty=1 en vez de 30 para el
+     segundo ítem, y descartó el primero por completo — el bloque de números
+     mostrado al lead ($11.305) no coincidía ni con la cantidad real ni con el
+     propio texto del modelo (que sí había calculado bien, $341.650, violando
+     encima la regla de "el LLM nunca hace la aritmética"). Causa raíz en
+     `zero/quotes.py::extract_request`: el regex de cantidad exigía el número
+     pegado al nombre del ítem, y fallaba con "30 m2 **de** X" (palabra de
+     unidad + preposición de por medio). Arreglado: tolera hasta 2 palabras de
+     relleno entre el número y el ítem. **Este módulo no tenía NINGÚN test
+     hasta hoy** — nuevo archivo `tests/test_quotes.py`, 18 tests.
+   - **Nombre de vendedor inconsistente**: en una respuesta el modelo se
+     presentó como "Fernanda" aunque el vendedor asignado a "pooledge" era
+     Stéfano — copió el nombre literal de los ejemplos de calibración del
+     prompt en vez de sustituirlo por `data.vendor.name` (la instrucción para
+     sustituirlo ya existía, pero un modelo chico a veces imita el ejemplo
+     literal). Arreglado: los ejemplos ahora usan `{NOMBRE}` como placeholder
+     explícito en vez de un nombre real plausible ("Fernanda"), con aviso
+     reforzado de que es una variable, no texto a copiar.
+   - También se reforzó la regla de "cero montos" en `prompts/concierge.md`
+     con una prohibición explícita de que el modelo haga la aritmética por su
+     cuenta, "aunque le parezca fácil".
+
 ## Formulario de ICP (mejorado, 2026-06-07)
 Antes capturaba 4 de 8 campos y era write-only. Ahora: los **8 campos** (`industry,
 sells, buyer_roles, company_size, regions, must_have, exclude, context`) en el modal
