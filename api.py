@@ -762,7 +762,17 @@ def forecast(client: str):
 @app.get("/api/config")
 def get_config():
     """Report which keys are configured — never returns the secret itself."""
+    # El motor que corre AHORA de verdad — no inferido de las keys presentes
+    # (que puede mentir: una key puede estar seteada y la construcción del
+    # backend fallar igual, ej. falta `pip install anthropic`), sino la misma
+    # función que decide el backend en cada request real (_agents_best).
+    _, engine_mode = _agents_best()
+    engine = None
+    if engine_mode == "live":
+        engine = "anthropic" if (os.environ.get("ANTHROPIC_API_KEY") or "").strip() else "local"
     return {
+        "engine_mode": engine_mode,   # "live" | "mock"
+        "engine": engine,             # "anthropic" | "local" | None (None si mock)
         "elevenlabs": bool(os.environ.get("ELEVENLABS_API_KEY")),
         "anthropic": bool(os.environ.get("ANTHROPIC_API_KEY")),
         # cerebro local (Ollama/vLLM) — gratis; activo si hay un nombre de modelo

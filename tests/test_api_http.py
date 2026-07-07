@@ -90,6 +90,12 @@ class ApiHttpTest(unittest.TestCase):
         # .env del repo.
         env["AUTH_PASSWORD"] = ""  # sin password -> /api/* queda abierto para probar
         env["WHATSAPP_APP_SECRET"] = cls.WHATSAPP_APP_SECRET
+        # Mismo problema que AUTH_PASSWORD arriba: en el Ubuntu real, el .env
+        # del repo trae LOCAL_MODEL configurado — sin fijarlo vacío acá, este
+        # test se comporta distinto según en qué máquina corra (mock en el Mac,
+        # "live" en producción) en vez de un mock determinista y predecible.
+        env["LOCAL_MODEL"] = ""
+        env["ANTHROPIC_API_KEY"] = ""
         cls.proc = subprocess.Popen(
             [sys.executable, "-m", "uvicorn", "api:app", "--port", str(cls.port),
              "--log-level", "warning"],
@@ -157,6 +163,19 @@ class ApiHttpTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("enabled", body)
         self.assertIn("authenticated", body)
+
+    def test_config_exposes_explicit_engine_mode(self):
+        """Antes había que inferir si el motor corría real o mock combinando
+        los campos `anthropic`/`local_model` a mano — ahora /api/config lo dice
+        directo, calculado con la misma función que decide el backend en cada
+        request real (_agents_best), no solo mirando qué keys están seteadas."""
+        status, body = self._get("/api/config")
+        self.assertEqual(status, 200)
+        self.assertIn("engine_mode", body)
+        self.assertIn("engine", body)
+        # Sin LOCAL_MODEL/ANTHROPIC_API_KEY (ver setUpClass) → mock, sin motor.
+        self.assertEqual(body["engine_mode"], "mock")
+        self.assertIsNone(body["engine"])
 
     def test_unknown_route_is_404_not_500(self):
         """Si esto alguna vez devuelve 500 en vez de 404, algo se rompió en el
