@@ -66,12 +66,14 @@ class LocalBackend:
         self.timeout = timeout
         self.temperature = temperature
         # Modelos razonadores (DeepSeek-R1, QwQ) piensan antes de responder — bien
-        # para calidad, pero mucho más lento. extract_json() ya sabe descartar el
-        # bloque <think>...</think> del texto de salida; esto va un paso más allá y
-        # le pide a Ollama que ni siquiera lo genere (parámetro `think`, soportado
-        # desde Ollama 0.9+) — más rápido de verdad, no solo se descarta después.
-        # Sin efecto en modelos no razonadores (qwen2.5, etc.) — Ollama ignora el
-        # campo si el modelo no lo soporta.
+        # para calidad, pero mucho más lento. `think: false` (Ollama 0.9+) le pide
+        # que se salte ese razonamiento por completo. Verificado en vivo
+        # (2026-07-06) contra deepseek-r1:7b real, vía este mismo endpoint
+        # (/v1/chat/completions): sin el flag, la respuesta trajo 97 tokens de
+        # razonamiento (en un campo `reasoning` aparte, no embebido en el texto —
+        # `content` ya venía limpio de todos modos); con el flag, solo 10 — ahorro
+        # real de tiempo, no un fix de parseo. Sin efecto en modelos no
+        # razonadores (qwen2.5, etc.) — Ollama ignora el campo si no aplica.
         self.no_think = any(tag in model.lower() for tag in ("r1", "qwq", "deepseek"))
 
     def _build_payload(self, system: str, user: str, max_tokens: int) -> Dict[str, Any]:

@@ -38,6 +38,21 @@ imperfecta de un LLM real.
 **Opción B — modelo local (destino de producción):**
 - Levanta Ollama/vLLM y corre con `--local` (usa `LocalBackend`, sin costo por token).
 
+### Config del servidor Ollama (si se reinstala la máquina)
+Por defecto Ollama descarga el modelo de la RAM a los 5 minutos de inactividad — el
+próximo mensaje después de eso paga el costo completo de recargarlo (~30s medido en
+el Ryzen 7 9700X sin GPU, contra ~7-9s con el modelo ya caliente). Se subió a **30
+minutos** con un override de systemd (no toca el `.service` original):
+```bash
+sudo mkdir -p /etc/systemd/system/ollama.service.d
+printf '[Service]\nEnvironment="OLLAMA_KEEP_ALIVE=30m"\n' | sudo tee /etc/systemd/system/ollama.service.d/override.conf
+sudo systemctl daemon-reload && sudo systemctl restart ollama.service
+```
+**Ojo:** el campo `keep_alive` por request **no** funciona pasado por
+`/v1/chat/completions` (el endpoint compatible con OpenAI que usa `LocalBackend`,
+verificado en vivo 2026-07-06) — solo lo respeta la API nativa de Ollama
+(`/api/chat`). Por eso el override va en el **servidor**, no en el código.
+
 ## Pasar un ICP por cliente (la adaptación)
 Vía API:
 ```json

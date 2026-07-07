@@ -35,20 +35,28 @@ en el momento** — así una compresión de contexto no nos lo borra.
   `local_model` y con `POST /api/whatsapp/simulate` devolviendo `"mode": "live"`.
   **Latencia real medida** (3 llamadas a CONCIERGE vía el endpoint real, en el
   Ryzen 7 9700X sin GPU): **~35s en frío** (modelo recién cargado en RAM por
-  Ollama tras estar inactivo) y **~7-9s en caliente** (llamadas seguidas). Para
-  WhatsApp esto es aceptable en caliente pero notorio en frío — si Diego quiere
-  bajar el caso frío, existe la opción gratis de subir el `keep_alive` de Ollama
-  (mantener el modelo cargado más tiempo en RAM), sin costo, pendiente de decidir
-  si vale la pena.
+  Ollama tras estar inactivo) y **~7-9s en caliente** (llamadas seguidas).
+  **Resuelto (2026-07-06)**: `OLLAMA_KEEP_ALIVE=30m` vía override de systemd en
+  el servidor (`/etc/systemd/system/ollama.service.d/override.conf`, ver
+  `docs/motor-real.md`) — sube el default de 5 a 30 minutos antes de descargar
+  el modelo de RAM, gratis, sin tocar código. Verificado en vivo con
+  `GET /api/ps` (`expires_at` confirmado a 30 min). **Hallazgo importante en el
+  camino**: el campo `keep_alive` por request NO funciona vía
+  `/v1/chat/completions` (el endpoint compatible con OpenAI que usa
+  `LocalBackend`) — solo la API nativa de Ollama lo respeta; por eso el fix es
+  a nivel de servidor, no de código.
   **Rescatado de código sin commitear** (2026-07-06) — al limpiar las carpetas
   duplicadas viejas en Ubuntu (`/home/diego/zero`, `/home/diego/zeroai-`, ver
   [[zero-branch-sprawl-lesson]]) apareció trabajo válido nunca subido a `main`:
   `--local-timeout` en el CLI (override opcional; el default sigue siendo el
   600s ya generoso de `LocalBackend`) y `no_think` — para modelos razonadores
   (DeepSeek-R1, QwQ; Diego tiene `deepseek-r1:7b` instalado) le pide a Ollama
-  que se salte el bloque de razonamiento (parámetro `think`, Ollama 0.9+) en
-  vez de solo descartarlo después — más rápido de verdad. Sin efecto en
-  qwen2.5 (el que usa hoy). 2 tests nuevos. El resto de lo encontrado ahí
+  que se salte el bloque de razonamiento (parámetro `think`, Ollama 0.9+).
+  **Verificado en vivo (2026-07-06)** contra `deepseek-r1:7b` real: sin el
+  flag, 97 tokens de razonamiento (en un campo `reasoning` aparte — no
+  embebido en el texto como se pensó al principio); con el flag, solo 10 —
+  ahorro real de tiempo/tokens, no un fix de parseo. Sin efecto en qwen2.5
+  (el que usa hoy). 2 tests nuevos. El resto de lo encontrado ahí
   (scripts viejos de terminales Ptyxis, superados por los workspaces de
   Conductor) se descartó, sin valor. Ambas carpetas (`/home/diego/zero`,
   `/home/diego/zeroai-`) ya se **borraron** del Ubuntu — solo queda
