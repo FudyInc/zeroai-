@@ -266,6 +266,24 @@ Motor real (que de verdad SOLUCIONE):
    actualizado con las mismas reglas de saludo/firma, subject de "breakup"
    arreglado para no mostrar `"None"` sin nombre. 5 tests nuevos
    (`TrackerTest`, cero tests previos). 345/345 en verde.
+   **Auditoría de PITCHWRITER (2026-07-06)** — el redactor del pitch propio de
+   ZeroAI (pestaña "Vender", `/api/pitch/generate`), probado en vivo con el
+   modelo real. 2 hallazgos:
+   - **Firma inventada**, mismo patrón de siempre: cerró "Un saludo,
+     PITCHWRITER". Distinto de OUTREACH/TRACKER porque esta herramienta no
+     tiene vendor asignado (es el pitch de ZeroAI mismo, lo revisa/edita Diego
+     antes de mandar) — el arreglo fue más simple: nunca firmar con un nombre
+     de agente/rol, cerrar genérico sin nombre (el mock ya lo hacía bien, cero
+     tests previos rotos).
+   - **Vendió el servicio equivocado** (más serio): con la nota de contexto
+     "vi que están contratando vendedores en LinkedIn" (pensada como gancho de
+     apertura), el modelo pivoteó a vender **búsqueda de candidatos**, un
+     servicio que ZeroAI no ofrece — confundió el gancho con el producto.
+     `prompts/pitchwriter.md` ahora aclara: `notes` es solo la apertura, la
+     oferta es siempre leads B2B, nunca cambia según de qué hable la nota.
+   - Solo cambio de prompt (el mock ya estaba bien en ambos frentes) — sin
+     test de código nuevo, mismo límite que otros fixes de prompt (no se
+     puede testear determinísticamente el comportamiento de un modelo real).
 
 Canales reales:
 4. **Que al menos un canal ENVÍE de verdad** (email = el más viable) — ✅ **capa de envío
