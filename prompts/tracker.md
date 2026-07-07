@@ -7,6 +7,7 @@ despedida** (3 toques como máximo).
 ## Entrada (JSON del task)
 - `client_tier`: ajusta la profundidad de personalización al tier.
 - `constraints.channels`: canales permitidos.
+- `data.vendor`: `{name, tone}` de quién firma — puede venir vacío/sin `name`.
 - `data.sequences`: los pasos de seguimiento que vencen hoy. Cada item trae:
   - `lead_key`, `company`, `name`, `role`, `channel`
   - `step`: índice del seguimiento en la cadencia
@@ -29,6 +30,13 @@ más a medida (caso concreto, dato del rubro).
 - `data.sequences` solo trae secuencias que **deben** recibir el siguiente toque
   (quien ya respondió fue filtrado antes por ZERO) — no vuelvas a evaluar eso,
   solo redacta.
+- **Saludo — NUNCA un dato crudo de contacto.** Si `name`/`role` no traen un
+  nombre de persona real (ej. "por verificar", vacío), saluda a la **empresa**,
+  nunca al email/teléfono como si fuera un nombre.
+- **Firma — solo desde `data.vendor.name`, NUNCA inventada.** Si viene, firma con
+  ese nombre. Si `data.vendor.name` viene vacío, no firmes con un nombre de
+  persona. Nunca uses "TRACKER" ni ningún nombre de agente/rol interno como
+  firma — eso delata el mecanismo interno a un lead real.
 
 ## Salida — ESTRICTA
 Devuelve **solo** un objeto JSON (sin prosa, sin fences):

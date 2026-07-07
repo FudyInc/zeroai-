@@ -430,11 +430,16 @@ class Zero:
             payload_seqs.append({**s, "kind": cadence.get("kind", "nudge")})
 
         self.memory.set_stage(client_id, "followup")
+        # Mismo patrón que OUTREACH (run_pipeline): sin esto, TRACKER no tiene
+        # con quién firmar y puede inventar un remitente (ej. su propio nombre
+        # de agente, "TRACKER").
+        vendor = self.vendor_for(client_id)
+        persona = {"name": vendor.get("name"), "tone": vendor.get("tone")}
         resp = self.dispatch("TRACKER", TaskPayload(
             agent="TRACKER", client_id=client_id,
             client_tier=cfg.get("segment", ""),
             instructions="Redacta el siguiente mensaje de seguimiento para cada secuencia vencida.",
-            data={"sequences": payload_seqs},
+            data={"sequences": payload_seqs, "vendor": persona},
             constraints=Constraints(channels=cfg["channels"]),
         ))
         if resp.status == "error":

@@ -195,6 +195,55 @@ class OutreachTest(unittest.TestCase):
         self.assertNotIn("OUTREACH", body)
 
 
+class TrackerTest(unittest.TestCase):
+    """Los seguimientos (TRACKER) — nunca tuvo tests dedicados hasta encontrar,
+    auditándolo en busca de las mismas fallas que OUTREACH (2026-07-06), un bug
+    real y 100% determinista en mock: sin nombre verificado, saludaba
+    "Hola Hola" (el fallback `name or "Hola"` metía el saludo genérico como si
+    fuera el nombre de la persona)."""
+
+    def _msg(self, kind, name=None, vendor=None):
+        t = build_agents(mock=True)["TRACKER"]
+        data = {"sequences": [{"lead_key": "k1", "company": "Splash Piscinas", "name": name,
+                               "role": "por verificar", "channel": "email", "step": 0, "kind": kind}]}
+        if vendor:
+            data["vendor"] = vendor
+        task = TaskPayload(agent="TRACKER", client_id="c", client_tier="GROWTH",
+                           instructions="x", data=data, constraints=Constraints(channels=["email"]))
+        return t.run(task).result["messages"][0]
+
+    def test_no_name_never_greets_with_a_doubled_hola(self):
+        for kind in ("nudge", "value", "breakup"):
+            m = self._msg(kind, name=None)
+            self.assertNotIn("Hola Hola", m["body"], kind)
+            self.assertTrue(m["body"].startswith("Hola,"), (kind, m["body"]))
+
+    def test_breakup_subject_never_shows_a_literal_none(self):
+        m = self._msg("breakup", name=None)
+        self.assertNotIn("None", m.get("subject") or "")
+
+    def test_signs_with_vendor_name_when_present(self):
+        m = self._msg("nudge", name="Ana", vendor={"name": "Fernanda", "tone": "cercana"})
+        self.assertIn("Fernanda", m["body"])
+
+    def test_never_signs_with_the_agent_role_name(self):
+        m = self._msg("nudge", name="Ana")
+        self.assertNotIn("TRACKER", m["body"])
+
+    def test_run_followups_threads_vendor_name_into_the_message(self):
+        """Extremo a extremo: run_followups con un vendedor asignado debe
+        pasarle data.vendor a TRACKER — mismo patrón que run_pipeline con
+        OUTREACH."""
+        crm = CRM(None)
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=crm)
+        z.memory.set_client_vendor("acme", "stefano")
+        z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8)
+        future = (datetime.now(timezone.utc) + timedelta(days=999)).isoformat()
+        d = z.run_followups("acme", as_of=future)
+        if d["followups"]:
+            self.assertTrue(any("Stéfano" in m["body"] for m in d["followups"]))
+
+
 class CRMTest(unittest.TestCase):
     def setUp(self):
         self.crm = CRM(None)

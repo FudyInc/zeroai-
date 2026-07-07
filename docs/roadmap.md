@@ -242,7 +242,18 @@ Motor real (que de verdad SOLUCIONE):
    rechazaba leads perfectamente completos por una falla de fidelidad del
    modelo, no por datos faltantes. `_merge_qualifier_scores` en
    `orchestrator.py` restaura todo excepto `score`/`icp_reasons` desde el lead
-   original. 337/337 en verde.
+   original.
+   **Auditoría de TRACKER (2026-07-06)** — mismo chequeo que a OUTREACH, ya que
+   compartía el mismo hueco (nunca tenía tests dedicados). Encontrado: un bug
+   **100% determinista, sin necesitar modelo real** — `name = s.get("name") or
+   "Hola"` metía el saludo genérico COMO SI fuera el nombre, produciendo
+   *"Hola Hola, te escribí hace unos días..."* para cualquier lead sin nombre
+   verificado (el caso más común en discovery web real). También sin
+   `data.vendor` (mismo hueco que tenía OUTREACH) — mismo arreglo: vendor
+   persona ahora viaja en `run_followups` → TRACKER, `prompts/tracker.md`
+   actualizado con las mismas reglas de saludo/firma, subject de "breakup"
+   arreglado para no mostrar `"None"` sin nombre. 5 tests nuevos
+   (`TrackerTest`, cero tests previos). 345/345 en verde.
 
 Canales reales:
 4. **Que al menos un canal ENVÍE de verdad** (email = el más viable) — ✅ **capa de envío
