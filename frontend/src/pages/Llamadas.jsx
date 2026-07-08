@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { Phone } from 'lucide-react'
 import { api } from '../lib/api'
-import { Card, Button, Input, Select, Skeleton } from '../components/ui'
+import { Card, Button, Input, Select, Skeleton, SectionTitle } from '../components/ui'
 
 export default function Llamadas() {
   const agentsQ = useQuery({ queryKey: ['assistants'], queryFn: api.assistants, retry: false })
@@ -60,7 +60,7 @@ export default function Llamadas() {
   return (
     <Card className="p-6 max-w-xl space-y-4">
       <div>
-        <div className="font-semibold">Llamar con un agente</div>
+        <SectionTitle>Llamar con un agente</SectionTitle>
         <div className="text-sm text-zinc-500">Elegí el agente de voz y llamá. Probá con tu celular primero.</div>
       </div>
 

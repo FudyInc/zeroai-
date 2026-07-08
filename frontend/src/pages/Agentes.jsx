@@ -116,7 +116,7 @@ export default function Agentes() {
                 </div>
                 <span className={'text-xs font-medium px-2 py-1 rounded-full ' + TONES[a.status.tone]}>{a.status.t}</span>
               </div>
-              <div className="font-semibold mt-3">{a.name}</div>
+              <div className="font-display font-bold tracking-tight text-brand mt-3">{a.name}</div>
               <div className="text-sm text-zinc-500 mt-1">{a.desc}</div>
               {a.activity && (
                 <div className="flex items-center gap-1.5 text-xs font-medium text-gold-deep mt-3 pt-3 border-t border-zinc-100">
