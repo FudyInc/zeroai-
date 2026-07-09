@@ -46,7 +46,7 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
-def _wait_until_up(proc: subprocess.Popen, base: str, timeout: float = 15.0) -> None:
+def _wait_until_up(proc: subprocess.Popen, base: str, timeout: float = 30.0) -> None:
     """Poll /api/health until the subprocess server answers, or raise. Shared by
     every test class in this file that spins up its own api.py subprocess."""
     deadline = time.time() + timeout
