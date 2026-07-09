@@ -64,6 +64,41 @@ def _wait_until_up(proc: subprocess.Popen, base: str, timeout: float = 30.0) -> 
     raise RuntimeError(f"el servidor no respondió a tiempo en {base}: {last_err}")
 
 
+def _spawn_uvicorn(argv: list[str], cwd: str, env: dict) -> subprocess.Popen:
+    return subprocess.Popen(
+        argv, cwd=cwd, env=env,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+
+
+def _start_and_wait(argv: list[str], cwd: str, env: dict, base: str) -> subprocess.Popen:
+    """Arranca el subproceso uvicorn y espera a que conteste /api/health, con UN
+    reintento completo (matar y relanzar) si el primer arranque no llega a tiempo.
+
+    Encontrado corriendo esta suite completa varias veces seguidas (2026-07-09):
+    en aislado, ApiHttpTest/ApiAuthHttpTest siempre arrancan en ~1-2s; pero dentro
+    de `unittest discover` completo (36 archivos, algunos con sus propios
+    subprocesos) el arranque de ESTE proceso puntual a veces se pasaba de 30s —
+    contención de CPU/proceso del entorno, no un problema de api.py. Subir el
+    timeout a mano no alcanzaba de forma confiable; un reintento sí, porque un
+    segundo arranque casi nunca compite con el mismo pico de carga que tumbó al
+    primero."""
+    proc = _spawn_uvicorn(argv, cwd, env)
+    try:
+        _wait_until_up(proc, base)
+        return proc
+    except Exception:
+        proc.kill()
+        proc.wait(timeout=5)
+    proc = _spawn_uvicorn(argv, cwd, env)
+    try:
+        _wait_until_up(proc, base)
+    except Exception:
+        proc.kill()
+        raise
+    return proc
+
+
 @unittest.skipUnless(_UVICORN_AVAILABLE, "uvicorn no instalado — este test es opcional, no núcleo")
 class ApiHttpTest(unittest.TestCase):
     """Levanta api.py real y prueba de punta a punta: petición -> FastAPI ->
@@ -96,17 +131,11 @@ class ApiHttpTest(unittest.TestCase):
         # "live" en producción) en vez de un mock determinista y predecible.
         env["LOCAL_MODEL"] = ""
         env["ANTHROPIC_API_KEY"] = ""
-        cls.proc = subprocess.Popen(
+        cls.proc = _start_and_wait(
             [sys.executable, "-m", "uvicorn", "api:app", "--port", str(cls.port),
              "--log-level", "warning"],
-            cwd=str(repo_root), env=env,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            str(repo_root), env, cls.base,
         )
-        try:
-            _wait_until_up(cls.proc, cls.base)
-        except Exception:
-            cls.proc.kill()
-            raise
 
     @classmethod
     def tearDownClass(cls):
@@ -239,17 +268,11 @@ class ApiAuthHttpTest(unittest.TestCase):
         env["AUTH_PASSWORD"] = cls.PASSWORD
         env.pop("SUPABASE_URL", None)
         env.pop("SUPABASE_KEY", None)
-        cls.proc = subprocess.Popen(
+        cls.proc = _start_and_wait(
             [sys.executable, "-m", "uvicorn", "api:app", "--port", str(cls.port),
              "--log-level", "warning"],
-            cwd=str(repo_root), env=env,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            str(repo_root), env, cls.base,
         )
-        try:
-            _wait_until_up(cls.proc, cls.base)
-        except Exception:
-            cls.proc.kill()
-            raise
 
     @classmethod
     def tearDownClass(cls):
