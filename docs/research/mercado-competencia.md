@@ -5,7 +5,7 @@ generación de leads B2B (foco LATAM/Chile), para nutrir decisiones de negocio
 de ZERO. No es un feature del producto — es un archivo de observación pasiva,
 actualizado por ciclos de `/loop`.
 
-**Última revisión:** 2026-07-04
+**Última revisión:** 2026-07-05
 
 ---
 
@@ -72,6 +72,29 @@ actualizado por ciclos de `/loop`.
   alternativa de menor riesgo percibido para el cliente.
 - Fuente: adstrategyglobal.com, LinkedIn Adstrategy (2026-07-04).
 
+### Clay (capa de orquestación GTM, no agencia ni AI SDR todo-en-uno)
+- **Qué hace:** plataforma de "arma tu propio stack" — enriquece listas de leads
+  combinando 100+ proveedores de datos en cascada, corre prompts de IA fila por
+  fila para generar variantes de mensaje personalizadas, y se integra con
+  herramientas de envío (p.ej. Smartlead) que hacen el disparo y cuidan la
+  entregabilidad. No entrega leads ni gestiona el outreach por sí sola — es la
+  capa de "pegamento" entre datos, IA y envío.
+- **Categoría distinta a lo ya registrado:** Lead Fishers/Adstrategy son
+  agencias con servicio humano; B2B Rocket/AiSDR son productos todo-en-uno de
+  agente IA. Clay es infraestructura componentizada — el cliente (o una
+  agencia) arma su propio pipeline con ella, no un servicio cerrado. Vale la
+  pena vigilarla porque es el modelo más parecido en filosofía a la arquitectura interna de ZERO
+  (`discovery.py` + `backends.py` como piezas intercambiables), pero Clay lo
+  vende como producto self-service en vez de operarlo como servicio gestionado.
+- **Precio:** plan gratuito (100 créditos de datos + 500 acciones/mes); "Launch"
+  US$185/mes (10,000 créditos + 2,500 acciones); "Growth" US$495/mes (6,000
+  créditos + 40,000 acciones, incluye auto-sync a CRM); "Enterprise" a medida.
+  Bajó precios de datos 50-90% en marzo 2026 tras renegociar con proveedores.
+- **Señal relevante:** el pricing 100% basado en uso (no por asiento) confirma
+  la tendencia que ya vimos en AiSDR — el mercado se está moviendo hacia cobrar
+  por volumen de trabajo hecho, no por licencia de herramienta.
+- Fuente: clay.com/pricing, resúmenes agregados de terceros (2026-07-05).
+
 ### Panorama general de precios (referencia, no una empresa específica)
 - Agencias regionales chilenas/LATAM tradicionales (SEO/Ads + lead-gen):
   desde US$500/mes (objetivos bajos) hasta US$1,500–4,000/mes (agresivo).
@@ -102,3 +125,10 @@ actualizado por ciclos de `/loop`.
   retainer) también compite en este mercado — es un modelo de riesgo distinto
   al de suscripción que usan Lead Fishers/B2B Rocket/AiSDR, y podría ser más
   atractivo para clientes reacios a comprometerse con un fee mensual fijo.
+- Clay confirma que hay un tercer arquetipo de competencia además de "agencia
+  con servicio humano" y "producto todo-en-uno de agente IA": infraestructura
+  self-service que el cliente (o una agencia) compone por su cuenta. No compite
+  directo con ZERO como entrega gestionada, pero sí es la opción que un cliente
+  técnico podría elegir para construir algo parecido por su cuenta a menor
+  costo — argumento a favor de que la ventaja de ZERO esté en la operación
+  gestionada + el gate de calidad, no solo en la arquitectura modular.
