@@ -28,8 +28,8 @@ export default function Dashboard() {
   const gate = pageState({ error: kpisQ.error || boardQ.error, onRetry: () => { kpisQ.refetch(); boardQ.refetch() } })
   if (gate) return gate
 
-  // Monocromo-marca (estilo Nexor): un solo acento en champagne gold — la métrica
-  // primaria — y el resto en slate. Nada de arcoíris genérico.
+  // Monocromo-marca: un solo acento en champagne gold — la métrica primaria — y
+  // el resto en slate. Nada de arcoíris genérico.
   const cards = [
     { label: 'Leads totales', value: kpis?.total, icon: Users, tone: 'gold' },
     { label: 'En pipeline', value: kpis?.in_pipeline, icon: GitBranch, tone: 'slate' },

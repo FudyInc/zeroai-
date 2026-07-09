@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '../lib/util'
 
-/* Superficie base. Estilo Nexor dentro de la marca: hairline cálido, sombra casi
-   plana (la profundidad viene del borde + contraste, no de drop-shadows), radio
-   16px. `interactive` agrega un lift sutil al hover. */
+/* Superficie base. Estilo editorial premium dentro de la marca: hairline cálido,
+   sombra casi plana (la profundidad viene del borde + contraste, no de
+   drop-shadows), radio 16px. `interactive` agrega un lift sutil al hover. */
 export function Card({ className, interactive, ...p }) {
   return (
     <div
@@ -17,8 +17,8 @@ export function Card({ className, interactive, ...p }) {
   )
 }
 
-/* Botones estilo Nexor: forma píldora. Primario = slate de marca; el resto,
-   neutros para acciones secundarias. */
+/* Botones: forma píldora. Primario = slate de marca; el resto, neutros para
+   acciones secundarias. */
 export function Button({ className, variant = 'primary', ...p }) {
   const variants = {
     primary: 'bg-brand text-white hover:bg-brand-ink shadow-sm',
