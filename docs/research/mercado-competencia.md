@@ -5,7 +5,12 @@ generación de leads B2B (foco LATAM/Chile), para nutrir decisiones de negocio
 de ZERO. No es un feature del producto — es un archivo de observación pasiva,
 actualizado por ciclos de `/loop`.
 
-**Última revisión:** 2026-07-05
+Desde el 2026-07-06 cada hallazgo nuevo incluye una **Importancia: N/10**
+(qué tan relevante es para las decisiones de negocio de ZERO específicamente,
+no qué tan grande es la empresa). Entradas anteriores a esa fecha no la tienen
+retroactivamente — no vale la pena reescribir hallazgos ya cerrados.
+
+**Última revisión:** 2026-07-06
 
 ---
 
@@ -94,6 +99,27 @@ actualizado por ciclos de `/loop`.
   la tendencia que ya vimos en AiSDR — el mercado se está moviendo hacia cobrar
   por volumen de trabajo hecho, no por licencia de herramienta.
 - Fuente: clay.com/pricing, resúmenes agregados de terceros (2026-07-05).
+
+### Smartlead (infra de envío de cold email, modelo white-label para agencias)
+- **Qué hace:** plataforma de envío de cold email (no busca ni califica leads —
+  solo dispara y protege entregabilidad) con arquitectura multi-tenant: cada
+  cliente de la agencia queda en un workspace aislado para que un problema de
+  reputación de un cliente no contamine a los demás.
+- **Modelo de reventa:** desde el plan "Pro" (US$94/mes) una agencia puede
+  agregar sub-cuentas de clientes pagando un add-on de white-label de
+  US$29/mes por cliente — la agencia revende la plataforma bajo su propia
+  marca sin que el cliente sepa que corre sobre Smartlead.
+- **Precio base:** "Base" US$39/mes, "Pro" US$94/mes, "Unlimited Smart"
+  US$174/mes (plan más popular), "Unlimited Prime" US$379/mes.
+- **Importancia para ZERO: 8/10.** No es un competidor directo (no ofrece
+  calificación ni CRM), pero el modelo white-label es la pieza que le falta a
+  cualquier agencia chilena/LATAM para ofrecer "su propia" plataforma de
+  outreach sin construir nada — reduce la barrera de entrada para que un
+  competidor tipo Lead Fishers o una agencia nueva monte algo que se vea como
+  un producto propio a bajísimo costo (US$29-379/mes vs. construir un backend).
+  Vale la pena vigilar si algún competidor empieza a venderse como "plataforma
+  propia" y en realidad es una reventa de esta capa.
+- Fuente: smartlead.ai/pricing (2026-07-06).
 
 ### Panorama general de precios (referencia, no una empresa específica)
 - Agencias regionales chilenas/LATAM tradicionales (SEO/Ads + lead-gen):
