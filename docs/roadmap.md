@@ -61,6 +61,43 @@ en el momento** — así una compresión de contexto no nos lo borra.
   Conductor) se descartó, sin valor. Ambas carpetas (`/home/diego/zero`,
   `/home/diego/zeroai-`) ya se **borraron** del Ubuntu — solo queda
   `/home/diego/Desktop/zeroai`, la que corre de verdad (systemd).
+- **Supabase real conectado (2026-07-09)** — Diego decidió activarlo ya que hay
+  plata real en juego (Vapi, ElevenLabs) y quiere las keys respaldadas.
+  Proyecto viejo **"zeroai-estudio-latam"** estaba `INACTIVE` (el plan gratis
+  lo pausó solo tras no usarse — confirma el riesgo real, no solo teórico).
+  Diego aclaró que ese proyecto es de otra cosa, así que se creó uno **nuevo y
+  dedicado, "zeroai"** (`lhdvybpgyexxypjtthce.supabase.co`, org FudyInc,
+  `sa-east-1`, plan gratis $0/mes). Se corrió `supabase_schema.sql`
+  (`crm_leads` + `app_state`) con **RLS activado desde el día 1** (el backend
+  usa la key `service_role`, que ignora RLS igual — cero riesgo de romper
+  nada, cero costo, solo más seguro por defecto). Se migraron los **22 leads
+  reales** de `crm.json` y todo `state.json` (clientes, ICP, secuencias,
+  vendedores) del Ubuntu de producción al proyecto nuevo — confirmado
+  funcionando de punta a punta sobre HTTP real (`/api/clients`, `/api/kpis`,
+  `/api/leads`, `/api/vendor`, `/api/knowledge`, todos leyendo de Supabase).
+  Las 2 tablas vacías creadas por error en el proyecto viejo quedaron
+  pendientes de decisión de Diego (borrarlas o no, es su proyecto).
+  **Keep-alive diario**: nuevo `scripts/supabase_keepalive.py` (GET liviano a
+  `app_state`) + `zero-supabase-keepalive.service`/`.timer` en systemd
+  (corre todos los días 9am, `Persistent=true` para no perderse si el PC
+  estaba apagado) — para que el plan gratis nunca vuelva a pausarse por
+  inactividad. Probado en vivo, responde OK.
+  **Límite honesto**: ningún código evita que alguien borre el proyecto a
+  mano desde el panel de Supabase, ni protege contra un cambio de política
+  del plan gratis — eso depende de que la cuenta de Diego esté segura (2FA).
+- **Vapi conectado (2026-07-09)** — API key (privada, nunca por chat, siempre
+  vía Configuración → tarjeta Vapi) guardada y activa (`vapi: true` en
+  `/api/config`). El frontend (`Llamadas.jsx`) ya arma el +56 de Chile
+  automático — sin cambios de código, solo faltaba la cuenta.
+- **Todas las terminales respaldadas en GitHub (2026-07-09)** — se encontró
+  trabajo real sin subir en varias: `dashboard` (2 archivos sin commitear +
+  la rama nunca pusheada), `landing` (la primera versión completa de la
+  landing, ni siquiera agregada a git), `debug` e
+  `investigacion-mercado-competencia` (commiteadas pero nunca pusheadas).
+  Las 4 quedaron commiteadas y subidas a GitHub con upstream configurado.
+  `core` se sincronizó (tenía 11 commits de atraso). Ninguna de las 3
+  terminales de MOTOR tenía trabajo propio todavía. 366/366 tests en verde
+  después de sincronizar todo.
 
 ## 🎯 Plan de fiabilidad — "listo para el mercado" (2026-07-04) · 🟡 EN CURSO
 Criterio: no lanzar hasta que esto esté resuelto **de verdad**, no "se siente listo".
