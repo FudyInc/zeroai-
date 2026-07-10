@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { NavLink } from 'react-router-dom'
+import { Link, NavLink } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   LayoutDashboard, Users, GitBranch, Bot, TrendingUp, Briefcase, Settings, Mail, Network, LogOut, Megaphone, X,
@@ -70,13 +70,16 @@ export default function Sidebar({ mobileOpen = false, onClose = () => {} }) {
         )}
       >
         <div className="h-[68px] flex items-center gap-3 px-[20px] border-b border-zinc-100 shrink-0">
-          <Mark />
-          <motion.div animate={{ opacity: open ? 1 : 0 }} transition={{ duration: 0.2 }} className="leading-tight whitespace-nowrap flex-1">
-            <div className="font-display font-extrabold text-[17px] tracking-tight">
-              <span className="text-brand">ZERO</span><span className="text-gold">AI</span>
-            </div>
-            <div className="text-xs text-pewter">Lead-gen B2B</div>
-          </motion.div>
+          <Link to="/" onClick={onClose} title="Ir al Dashboard"
+            className="flex items-center gap-3 flex-1 min-w-0 rounded-lg transition-opacity hover:opacity-70">
+            <Mark />
+            <motion.div animate={{ opacity: open ? 1 : 0 }} transition={{ duration: 0.2 }} className="leading-tight whitespace-nowrap">
+              <div className="font-display font-extrabold text-[17px] tracking-tight text-brand">
+                ZEROAI
+              </div>
+              <div className="text-xs text-pewter">Lead-gen B2B</div>
+            </motion.div>
+          </Link>
           {mobileOpen && (
             <button onClick={onClose} aria-label="Cerrar menú" className="md:hidden p-1.5 rounded-lg text-zinc-500 hover:bg-zinc-100">
               <X size={18} />

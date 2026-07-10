@@ -27,8 +27,8 @@ export default function Login({ onSuccess }) {
       <Card className="p-8 w-full max-w-sm">
         <div className="flex items-center gap-3 mb-1">
           <Mark />
-          <div className="font-display font-extrabold text-xl tracking-tight">
-            <span className="text-brand">ZERO</span><span className="text-gold">AI</span>
+          <div className="font-display font-extrabold text-xl tracking-tight text-brand">
+            ZEROAI
           </div>
         </div>
         <div className="text-sm text-zinc-500 mb-5">Ingresa tu contraseña de agencia.</div>
