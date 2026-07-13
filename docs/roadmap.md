@@ -262,6 +262,36 @@ tasas con este modelo — puede mejorar con un modelo más grande (Anthropic)
 más adelante; no vale la pena forzarlo con más prompting (arriesga que
 empiece a inventar señales, un problema peor que ser conservador de más).
 
+**Auditoría de MOTOR-llamadas (2026-07-13)** — auditoría de código (no en vivo,
+sin necesitar el PC de Ubuntu prendido) de `zero/calls.py` (Vapi, llamadas
+salientes) y `zero/voice.py` (ElevenLabs, texto→voz).
+- `zero/voice.py`: limpio, bien testeado, **sin bugs**. Confirmado que sigue
+  sin estar enchufado a `api.py` — es una herramienta CLI standalone, tal
+  como ya lo declara `docs/voice.md` ("solo la voz, no el agente de llamadas
+  completo").
+- `api.py` (`/api/assistants`, `/api/vapi/numbers`, `/api/call`): envuelven
+  `zero.calls` de forma limpia (`RuntimeError` → `HTTPException(400)`), sin
+  rutas de crash.
+- **Bug real encontrado y arreglado** en `zero/calls.py`: `list_assistants()`
+  y `list_phone_numbers()` asumían que la API de Vapi siempre devuelve una
+  lista JSON bare; si alguna vez la envolviera en un objeto (cambio de API,
+  un 200 con otra forma), el list comprehension reventaba con
+  `AttributeError` (iterando keys de un dict como si fueran items, llamando
+  `.get()` sobre un string). Arreglado con guardas `isinstance(data, list)`
+  (si no, devuelve `[]`) e `isinstance(x, dict)` filtrando items no-dict
+  dentro de la lista.
+- **Endurecido** `place_call()`: ahora valida que `number` no venga vacío
+  antes de armar el body (`Falta: número a llamar`), igual que ya validaba
+  key/agente/número de origen. Antes de esto, un número vacío llegaba
+  igual a Vapi y el error solo aparecía como un 4xx confuso desde su API.
+  Severidad baja en la práctica — el frontend (`Llamadas.jsx`) ya exige
+  exactamente 9 dígitos antes de llamar al endpoint — pero la función debe
+  ser segura igual si se invoca desde otro lado (script, otro cliente de la
+  API).
+- 8 tests nuevos en `tests/test_calls.py`: curl no disponible (en `_curl` y
+  en `place_call`), número vacío, y 3 tests de la respuesta envuelta/con
+  items no-dict de Vapi. 372/372 tests en verde.
+
 ---
 
 ## Plan A — Pulido del dashboard (4 puntos) · ✅ COMPLETO
