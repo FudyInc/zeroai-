@@ -1111,6 +1111,29 @@ class ConciergeTest(unittest.TestCase):
         self.assertEqual(no_meta[0]["to_phone_id"], "")
         self.assertEqual(parse_inbound({}), [])      # malformed → empty, no crash
 
+    def test_parse_inbound_formas_malformadas_nunca_revienta(self):
+        """El docstring de parse_inbound promete 'malformed payloads yield [],
+        never raise' — cada nivel del webhook de Meta (entry/changes/value/
+        messages) puede en teoría venir con otra forma; ninguna debe crashear."""
+        from zero.whatsapp_inbound import parse_inbound
+        casos = [
+            {"entry": "oops"},
+            {"entry": [{"changes": "oops"}]},
+            {"entry": [{"changes": [{"value": "oops"}]}]},
+            {"entry": [{"changes": [{"value": {"messages": "oops"}}]}]},
+            {"entry": [{"changes": [{"value": {"messages": ["oops"]}}]}]},
+            {"entry": ["oops"]},
+            {"entry": [{"changes": ["oops"]}]},
+        ]
+        for payload in casos:
+            self.assertEqual(parse_inbound(payload), [])
+        # el último caso (metadata malformada) sí debe rescatar el mensaje válido
+        # con to_phone_id vacío, en vez de descartarlo entero
+        rescatado = parse_inbound({"entry": [{"changes": [{"value": {
+            "metadata": "oops",
+            "messages": [{"from": "569", "type": "text", "text": {"body": "x"}}]}}]}]})
+        self.assertEqual(rescatado, [{"from": "569", "text": "x", "to_phone_id": ""}])
+
     def test_verify_meta_signature(self):
         """Sin esto, POST /api/webhooks/whatsapp aceptaría cualquier payload de
         cualquiera — verify_meta_signature es lo único que lo evita."""

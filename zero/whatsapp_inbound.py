@@ -45,17 +45,36 @@ def parse_inbound(payload: Dict[str, Any]) -> List[Dict[str, str]]:
     out: List[Dict[str, str]] = []
     if not isinstance(payload, dict):
         return out
-    for entry in payload.get("entry", []) or []:
-        for change in (entry.get("changes", []) or []):
-            value = change.get("value", {}) or {}
-            to_phone_id = str((value.get("metadata") or {}).get("phone_number_id") or "")
-            for m in (value.get("messages", []) or []):
+    entries = payload.get("entry") or []
+    if not isinstance(entries, list):
+        return out
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        changes = entry.get("changes") or []
+        if not isinstance(changes, list):
+            continue
+        for change in changes:
+            if not isinstance(change, dict):
+                continue
+            value = change.get("value") or {}
+            if not isinstance(value, dict):
+                continue
+            metadata = value.get("metadata") or {}
+            to_phone_id = str((metadata.get("phone_number_id") if isinstance(metadata, dict) else None) or "")
+            messages = value.get("messages") or []
+            if not isinstance(messages, list):
+                continue
+            for m in messages:
+                if not isinstance(m, dict):
+                    continue
                 frm = str(m.get("from") or "")
                 if not frm:
                     continue
                 mtype = m.get("type")
                 if mtype == "text":
-                    text = ((m.get("text") or {}).get("body")) or ""
+                    text_obj = m.get("text")
+                    text = (text_obj.get("body") if isinstance(text_obj, dict) else None) or ""
                 else:
                     text = f"[{mtype or 'mensaje'}]"
                 out.append({"from": frm, "text": text, "to_phone_id": to_phone_id})

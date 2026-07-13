@@ -124,5 +124,52 @@ class ContactExtractionTest(unittest.TestCase):
         self.assertEqual(src._first_phone('<a href="tel:+56972345678">tel</a>'), "+56972345678")
 
 
+class DecisionMakerEnrichmentTest(unittest.TestCase):
+    """Extracción de nombre+rol del decisor — hallado en vivo (2026-07-13,
+    auditando discovery.py contra un ICP de estudios contables) que un
+    testimonio tipo "Nombre Rol, Otra Empresa Ltda." podía capturar el
+    nombre de la empresa citada en vez de la persona."""
+
+    def test_testimonial_with_other_company_name_is_rejected(self):
+        src = _src([], {})
+        text = ('Gepa y la confianza es total." Roberto Fuentes Director, '
+                'Constructora Fuentes Ltda. "Excelente manejo de nuestras remuneraciones."')
+        name, role = src._extract_person(text, company="Gepa")
+        self.assertIsNone(name)
+        self.assertIsNone(role)
+
+    def test_real_decision_maker_is_still_found(self):
+        src = _src([], {})
+        text = "Conócenos — Marion Altamirano, Fundadora de ContablExpert."
+        name, role = src._extract_person(text, company="ContablExpert")
+        self.assertEqual(name, "Marion Altamirano")
+        self.assertEqual(role, "Fundadora")
+
+    def test_generic_business_words_still_rejected(self):
+        src = _src([], {})
+        text = "Nuestro equipo — Diseño Web, Gerente de todo el sitio."
+        name, role = src._extract_person(text, company="Pyme")
+        self.assertIsNone(name)
+
+    def test_testimonial_naming_a_real_person_still_rejected_by_quote(self):
+        # Mismo patrón, pero la empresa citada NO tiene ningún sufijo legal
+        # ("Ltda", "Constructora", etc.) — solo la comilla de cierre delata que
+        # es un testimonio de cliente, no la ficha del propio equipo.
+        src = _src([], {})
+        text = ('"El equipo es proactivo y siempre nos mantiene informados." '
+                'Carla Moreno Socia, Clínica Dental Moreno & Asociados')
+        name, role = src._extract_person(text, company="Gepa")
+        self.assertIsNone(name)
+        self.assertIsNone(role)
+
+    def test_team_bio_without_quote_still_found(self):
+        # Sin comilla de por medio (ficha de equipo real, no testimonio) el
+        # patrón "Rol, Nombre" sigue funcionando como antes.
+        src = _src([], {})
+        text = "Nuestro equipo: Directora, Andrea Salinas — 10 años de experiencia."
+        name, role = src._extract_person(text, company="Pyme")
+        self.assertEqual(name, "Andrea Salinas")
+
+
 if __name__ == "__main__":
     unittest.main()

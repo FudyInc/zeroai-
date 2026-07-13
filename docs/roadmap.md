@@ -292,6 +292,61 @@ salientes) y `zero/voice.py` (ElevenLabs, texto→voz).
   en `place_call`), número vacío, y 3 tests de la respuesta envuelta/con
   items no-dict de Vapi. 372/372 tests en verde.
 
+**Auditoría extendida — defensivo/webhooks/discovery (2026-07-13)** — continuación
+de la ronda anterior, tres frentes que no necesitan el PC de Ubuntu prendido.
+
+1. **Mismo patrón defensivo (isinstance ante respuesta envuelta) extendido a
+   `zero/metaads.py`** — la ruta REAL (`MetaAds`, `_graph`, `list_ad_accounts`,
+   Meta Graph API) tenía **cero tests** hasta ahora (solo `MockMetaAds` estaba
+   cubierto) y los mismos riesgos que `calls.py`: `data.get("data", [])`
+   reventaría si Graph alguna vez no devuelve un dict, y un `json.loads` que
+   fallara por una respuesta no-JSON se propagaba como excepción cruda en vez
+   de un `RuntimeError` claro. Arreglado con las mismas guardas
+   `isinstance` + degradar a `[]`/mensaje claro; `tests/test_metaads.py`
+   nuevo, 12 tests (antes 0) mockeando `urllib.request.urlopen`.
+   `zero/backends.py` y `zero/discovery.py` se revisaron también — ya estaban
+   bien defendidos (backends.py ya capturaba `KeyError/IndexError/TypeError`
+   de una respuesta rara; discovery.py nunca parsea JSON de una API, solo
+   HTML con regex + `try/except Exception: return None` en cada fetch).
+2. **Bug real encontrado y arreglado en `zero/whatsapp_inbound.py`**:
+   `parse_inbound()` — el parser del webhook público de Meta — prometía en su
+   propio docstring "malformed payloads yield [], never raise", pero si
+   `entry`/`changes`/`messages` venían con otra forma (string en vez de
+   lista, item no-dict) reventaba con `AttributeError` de verdad (confirmado
+   reproduciendo el crash antes de arreglarlo). Arreglado con guardas
+   `isinstance` en cada nivel del payload, ahora sí cumple lo que dice su
+   propio contrato. 9 tests nuevos en `tests/test_core.py`. El lado de envío
+   (`WhatsAppSender`/`Outbox`) ya estaba a salvo: `Outbox.send()` envuelve
+   cualquier excepción del sender en un `except Exception` genérico con
+   reintentos, así que un envío roto ya degradaba a `error` sin crashear —
+   no hizo falta tocarlo.
+3. **`zero/inbox.py` (IMAP) y CONCIERGE en vivo por WhatsApp**: sin poder
+   probar contra el modelo real (Ubuntu apagado), así que esta parte quedó en
+   auditoría de código — sin hallazgos nuevos (mismo agente CONCIERGE ya
+   auditado con casos difíciles por email; la lógica de ventana 24h/plantilla
+   en `orchestrator.py`/`channels.py` se revisó a mano y es correcta: la
+   respuesta a un lead que acaba de escribir nunca lleva
+   `whatsapp_send_type=template`, solo los follow-ups en frío lo llevan).
+4. **Bug real encontrado y arreglado en `zero/discovery.py`** (enriquecimiento
+   de decisor) — probado en vivo contra internet real con un ICP nuevo
+   ("estudios contables pymes Santiago", sin usar antes) para confirmar que
+   el filtrado seguía siendo confiable. Encontró un caso real en gepa.cl: la
+   página tiene testimonios de clientes tipo `"...excelente servicio." Roberto
+   Fuentes Director, Constructora Fuentes Ltda.` — el extractor de
+   nombre+rol capturaba el nombre de la OTRA EMPRESA citada en el testimonio
+   (o, en un segundo caso similar sin sufijo legal, el nombre de la persona
+   que da el testimonio) como si fuera el decisor de la empresa que se está
+   evaluando. Dos capas de arreglo: (a) lista de palabras de razón social
+   ("Ltda", "Constructora", "Inmobiliaria", etc.) sumada a `_NOT_NAME`; (b)
+   heurística barata — cuando el nombre solo aparece DESPUÉS del rol (sin uno
+   inmediatamente antes) y hay una comilla de cierre poco antes en el texto,
+   es casi seguro una cita de testimonio, no una ficha de equipo, y se
+   descarta. Verificado en vivo: antes del fix, Gepa traía un nombre falso;
+   después, ningún nombre (mejor no tener dato que tener uno inventado). 4
+   tests nuevos en `tests/test_discovery.py`.
+
+390/390 tests en verde tras los 4 hallazgos.
+
 ---
 
 ## Plan A — Pulido del dashboard (4 puntos) · ✅ COMPLETO
