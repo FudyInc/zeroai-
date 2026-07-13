@@ -14,6 +14,7 @@ from .config import (
     AVG_DEAL_VALUE_CLP,
     DEFAULT_VENDOR_ID,
     FORECAST_RATES,
+    MAX_INBOUND_MESSAGE_CHARS,
     RECONTACT_BLACKOUT_DAYS,
     REQUIRED_FIELDS,
     followup_step,
@@ -555,6 +556,11 @@ class Zero:
         (ICP + base de conocimiento + historial del diálogo). Pure drafting —
         doesn't send. Returns the full CONCIERGE result ({reply, intent}) so
         callers can act on the intent (e.g. pending offers)."""
+        # Un mensaje entrante desmedido (spam, copy-paste de un documento entero)
+        # puede hacer que un modelo chico abandone el esquema JSON pedido y
+        # devuelva algo irreconocible → reply vacío para el lead, en silencio.
+        # Visto en vivo (2026-07-13): 3000 repeticiones de "hola " bastaron.
+        message = (message or "")[:MAX_INBOUND_MESSAGE_CHARS]
         icp = self.memory.get_client_icp(client_id) if client_id else {}
         # La ficha de la empresa cargada desde el dashboard: acotada para que un
         # documento largo no reviente el presupuesto de contexto del modelo.

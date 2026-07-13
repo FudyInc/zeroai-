@@ -320,13 +320,45 @@ de la ronda anterior, tres frentes que no necesitan el PC de Ubuntu prendido.
    cualquier excepción del sender en un `except Exception` genérico con
    reintentos, así que un envío roto ya degradaba a `error` sin crashear —
    no hizo falta tocarlo.
-3. **`zero/inbox.py` (IMAP) y CONCIERGE en vivo por WhatsApp**: sin poder
-   probar contra el modelo real (Ubuntu apagado), así que esta parte quedó en
-   auditoría de código — sin hallazgos nuevos (mismo agente CONCIERGE ya
-   auditado con casos difíciles por email; la lógica de ventana 24h/plantilla
-   en `orchestrator.py`/`channels.py` se revisó a mano y es correcta: la
-   respuesta a un lead que acaba de escribir nunca lleva
-   `whatsapp_send_type=template`, solo los follow-ups en frío lo llevan).
+3. **CONCIERGE en vivo por WhatsApp, con Ubuntu prendido (2026-07-13, misma
+   tarde)** — 14 casos difíciles (mensaje vacío, solo emojis, "STOP" en
+   inglés, opt-out en español, grosería, mensaje gigante, multi-pregunta,
+   fuera de tema, intento de prompt injection, solo un link, mayúsculas
+   agresivas, inglés, "nombre" = número de teléfono) contra el modelo real
+   (qwen2.5:7b) vía `Zero.converse_result`, aislado en memoria (sin tocar
+   Supabase/CRM real). Ningún crash. La lógica de ventana 24h/plantilla en
+   `orchestrator.py`/`channels.py` se confirmó correcta (la respuesta a un
+   lead que acaba de escribir nunca lleva `whatsapp_send_type=template`, solo
+   los follow-ups en frío lo llevan). **Dos bugs reales encontrados y
+   arreglados:**
+   - **`intent` siempre `None` con el motor real** — causa raíz en
+     `zero/contracts.py`: `AgentResponse.from_dict()` "levanta" al `result`
+     solo las claves listadas en `_RESULT_KEYS` cuando el modelo responde sin
+     envoltorio `{"result": {...}}` — y ese es exactamente el esquema plano
+     que pide `prompts/concierge.md` (`{"reply", "intent"}`). Como `"intent"`
+     no estaba en la lista, se descartaba en silencio en CADA respuesta real
+     (confirmado comparando la salida cruda del modelo, que sí traía
+     `"intent": "pricing"`, contra el resultado ya parseado, que lo perdía).
+     Esto rompía sin avisar el flujo de "oferta pendiente" de
+     `handle_inbound` (`set_pending_offer` si `intent` es `info`/`objection`)
+     con el motor real — solo funcionaba en mock. Nadie lo vio antes porque
+     el mock nunca pasa por `from_dict`: exactamente el escenario que advierte
+     el CLAUDE.md de este repo ("el mock debe ser fiel al contrato... o da
+     falsa confianza"). Un test existente en `tests/test_contracts.py`
+     incluso **fijaba el bug como comportamiento esperado** — corregido junto
+     con el fix. Arreglo: se agregó `"intent"` a `_RESULT_KEYS`.
+   - **Mensaje entrante desmedido → reply vacío** — un mensaje degenerado
+     ("hola " × 3000) hizo que el modelo abandonara por completo el esquema
+     pedido y devolviera uno inventado (`{"greeting","message","options"}`,
+     JSON válido pero irreconocible para el contrato) → como ninguna clave
+     coincidía, la respuesta al lead quedaba vacía, sin romper nada pero sin
+     contestarle tampoco. Arreglo: nuevo `MAX_INBOUND_MESSAGE_CHARS = 2000`
+     en `config.py`, `Zero.converse_result` trunca el mensaje entrante antes
+     de pasarlo a CONCIERGE (mismo patrón que ya se usaba para `knowledge`).
+     Verificado en vivo: antes, "mensaje_gigante" volvía con `len=0`; después,
+     una respuesta normal.
+   - 4 tests nuevos (`tests/test_core.py`, `tests/test_contracts.py`
+     actualizado). 392/392 tests en verde, en el Mac y en Ubuntu por igual.
 4. **Bug real encontrado y arreglado en `zero/discovery.py`** (enriquecimiento
    de decisor) — probado en vivo contra internet real con un ICP nuevo
    ("estudios contables pymes Santiago", sin usar antes) para confirmar que

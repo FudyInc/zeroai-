@@ -305,6 +305,37 @@ class RobustnessTest(unittest.TestCase):
         ok, _ = z.validate_lead(lead, exclusions=[])   # would TypeError if score stayed a str
         self.assertTrue(ok)
 
+    def test_concierge_intent_survives_flat_response(self):
+        """Bug real hallado en vivo (2026-07-13) contra el modelo real: CONCIERGE
+        responde en esquema plano, sin envoltorio "result" — {"reply": ...,
+        "intent": ...} — tal como pide prompts/concierge.md. AgentResponse.from_dict
+        "levanta" solo las claves de _RESULT_KEYS al armar `result`; como "intent"
+        no estaba en esa lista, se perdía en silencio en CADA respuesta real,
+        aunque el modelo sí lo devolvía bien (confirmado comparando la salida
+        cruda del modelo contra el resultado ya parseado). Esto rompía sin avisar
+        el flujo de "oferta pendiente" en Zero.handle_inbound — nunca se activaba
+        con el motor real. El mock nunca pasa por from_dict, así que ningún test
+        existente (todos en mock) lo detectaba."""
+        from zero.contracts import AgentResponse
+        resp = AgentResponse.from_dict(
+            {"reply": "¡Hola! El plan más caro incluye todo.", "intent": "pricing"},
+            task_id="t1", agent="CONCIERGE",
+        )
+        self.assertEqual(resp.result.get("intent"), "pricing")
+        self.assertEqual(resp.result.get("reply"), "¡Hola! El plan más caro incluye todo.")
+
+    def test_converse_result_intent_survives_real_backend(self):
+        """Regresión de extremo a extremo del bug de arriba, pasando por
+        Zero.converse_result como lo hace el webhook real de WhatsApp."""
+        from unittest import mock as _mock
+        backend = _mock.Mock()
+        backend.complete.return_value = (
+            '{"reply": "Entendido, lo saco de la lista.", "intent": "optout"}'
+        )
+        z = Zero(build_agents(backend=backend), memory=SessionMemory(None))
+        res = z.converse_result("", "no me escriban más", channel="whatsapp")
+        self.assertEqual(res.get("intent"), "optout")
+
     def test_corrupt_crm_file_raises_clear_error(self):
         import os
         import tempfile
