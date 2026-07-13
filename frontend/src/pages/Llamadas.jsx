@@ -46,8 +46,13 @@ export default function Llamadas() {
 
   const agents = agentsQ.data || []
   const numbers = numbersQ.data || []
+  // Sin esto, el botón queda clickeable con las listas vacías y dispara una
+  // llamada al backend que ya sabemos que va a fallar (assistant_id/phone_id
+  // undefined) — mejor no dejar iniciar la acción si falta configurar algo en Vapi.
+  const missingSetup = !agents.length || !numbers.length
 
   const call = async () => {
+    if (missingSetup) { setMsg({ ok: false, t: 'Configura al menos un agente y un número de origen en Vapi primero.' }); return }
     const d = digits.replace(/\D/g, '')
     if (d.length !== 9) { setMsg({ ok: false, t: 'Escribe los 9 dígitos (el 9 + 8 más).' }); return }
     setBusy(true); setMsg(null)
@@ -87,7 +92,10 @@ export default function Llamadas() {
         <div className="flex gap-2">
           <span className="inline-flex items-center gap-1.5 border border-zinc-200 rounded-xl px-3 py-2 text-sm bg-zinc-50 whitespace-nowrap">🇨🇱 +56</span>
           <Input inputMode="numeric" maxLength={11} placeholder="9 1234 5678" value={digits} onChange={(e) => setDigits(e.target.value)} />
-          <Button variant="accent" onClick={call} disabled={busy}><Phone size={15} />{busy ? 'Llamando…' : 'Llamar'}</Button>
+          <Button variant="accent" onClick={call} disabled={busy || missingSetup}
+                  title={missingSetup ? 'Configura un agente y un número de origen en Vapi primero' : undefined}>
+            <Phone size={15} />{busy ? 'Llamando…' : 'Llamar'}
+          </Button>
         </div>
       </div>
 
