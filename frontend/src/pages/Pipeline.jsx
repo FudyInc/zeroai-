@@ -79,7 +79,7 @@ export default function Pipeline() {
                     onDragStart={() => { drag.current = { key: r.key, from: stage } }}
                     onDragEnd={() => { drag.current = null; setOver(null) }}
                     onClick={() => openLead(r.key)}
-                    className={'cursor-grab active:cursor-grabbing bg-white border border-zinc-200 rounded-xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all ' + (compact ? 'p-2.5' : 'p-3.5')}
+                    className={'cursor-grab active:cursor-grabbing bg-white border border-[#e8e3d9] rounded-xl shadow-[0_1px_2px_rgba(44,53,41,0.04)] hover:shadow-[0_14px_34px_-18px_rgba(44,53,41,0.20)] hover:-translate-y-0.5 transition-all ' + (compact ? 'p-2.5' : 'p-3.5')}
                   >
                     <div className="flex justify-between items-start gap-2">
                       <div className={'font-semibold ' + (compact ? 'text-sm' : '')}>{r.company}</div>

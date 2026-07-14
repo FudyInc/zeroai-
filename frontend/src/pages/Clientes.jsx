@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 import { ArrowRight, Wallet } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
-import { Card, Skeleton, Select, CountUp, pageState } from '../components/ui'
+import { Card, Skeleton, Select, CountUp, pageState, SectionTitle } from '../components/ui'
 import { useApp } from '../App'
 
 const clp = (n) => '$' + Math.round(n || 0).toLocaleString('es-CL')
@@ -52,7 +52,7 @@ export default function Clientes() {
           <motion.div key={a.client} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
             <Card interactive className="p-5">
               <div className="flex items-start justify-between">
-                <div className="font-semibold capitalize">{a.client}</div>
+                <SectionTitle className="capitalize">{a.client}</SectionTitle>
                 <div className="text-sm font-extrabold text-gold-deep tabular-nums">{a.price_clp ? clp(a.price_clp) : 'Custom'}</div>
               </div>
               <div className="text-xs text-zinc-400 mt-0.5">{a.leads_per_mo ? `${a.leads_per_mo} leads/mes` : 'leads a medida'}</div>
