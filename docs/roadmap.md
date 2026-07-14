@@ -28,6 +28,76 @@ en el momento** — así una compresión de contexto no nos lo borra.
   primero con `grep` — no asumas el contrato de un prompt sin verificar contra el código.
 - Guardia automática: `tests/test_core.py::ApiRoutesTest` falla si `api.py` registra la
   misma ruta dos veces (justo el problema de hoy).
+- **Motor real (Ollama local) — ya activo en producción, verificado 2026-07-06.**
+  `LOCAL_MODEL`/`LOCAL_MODEL_URL` ya estaban seteados en el `.env` del Ubuntu (no
+  hizo falta tocar nada) y `api.py::_agents_best()` ya prioriza local sobre mock
+  cuando no hay `ANTHROPIC_API_KEY` — confirmado con `GET /api/config` mostrando
+  `local_model` y con `POST /api/whatsapp/simulate` devolviendo `"mode": "live"`.
+  **Latencia real medida** (3 llamadas a CONCIERGE vía el endpoint real, en el
+  Ryzen 7 9700X sin GPU): **~35s en frío** (modelo recién cargado en RAM por
+  Ollama tras estar inactivo) y **~7-9s en caliente** (llamadas seguidas).
+  **Resuelto (2026-07-06)**: `OLLAMA_KEEP_ALIVE=30m` vía override de systemd en
+  el servidor (`/etc/systemd/system/ollama.service.d/override.conf`, ver
+  `docs/motor-real.md`) — sube el default de 5 a 30 minutos antes de descargar
+  el modelo de RAM, gratis, sin tocar código. Verificado en vivo con
+  `GET /api/ps` (`expires_at` confirmado a 30 min). **Hallazgo importante en el
+  camino**: el campo `keep_alive` por request NO funciona vía
+  `/v1/chat/completions` (el endpoint compatible con OpenAI que usa
+  `LocalBackend`) — solo la API nativa de Ollama lo respeta; por eso el fix es
+  a nivel de servidor, no de código.
+  **Rescatado de código sin commitear** (2026-07-06) — al limpiar las carpetas
+  duplicadas viejas en Ubuntu (`/home/diego/zero`, `/home/diego/zeroai-`, ver
+  [[zero-branch-sprawl-lesson]]) apareció trabajo válido nunca subido a `main`:
+  `--local-timeout` en el CLI (override opcional; el default sigue siendo el
+  600s ya generoso de `LocalBackend`) y `no_think` — para modelos razonadores
+  (DeepSeek-R1, QwQ; Diego tiene `deepseek-r1:7b` instalado) le pide a Ollama
+  que se salte el bloque de razonamiento (parámetro `think`, Ollama 0.9+).
+  **Verificado en vivo (2026-07-06)** contra `deepseek-r1:7b` real: sin el
+  flag, 97 tokens de razonamiento (en un campo `reasoning` aparte — no
+  embebido en el texto como se pensó al principio); con el flag, solo 10 —
+  ahorro real de tiempo/tokens, no un fix de parseo. Sin efecto en qwen2.5
+  (el que usa hoy). 2 tests nuevos. El resto de lo encontrado ahí
+  (scripts viejos de terminales Ptyxis, superados por los workspaces de
+  Conductor) se descartó, sin valor. Ambas carpetas (`/home/diego/zero`,
+  `/home/diego/zeroai-`) ya se **borraron** del Ubuntu — solo queda
+  `/home/diego/Desktop/zeroai`, la que corre de verdad (systemd).
+- **Supabase real conectado (2026-07-09)** — Diego decidió activarlo ya que hay
+  plata real en juego (Vapi, ElevenLabs) y quiere las keys respaldadas.
+  Proyecto viejo **"zeroai-estudio-latam"** estaba `INACTIVE` (el plan gratis
+  lo pausó solo tras no usarse — confirma el riesgo real, no solo teórico).
+  Diego aclaró que ese proyecto es de otra cosa, así que se creó uno **nuevo y
+  dedicado, "zeroai"** (`lhdvybpgyexxypjtthce.supabase.co`, org FudyInc,
+  `sa-east-1`, plan gratis $0/mes). Se corrió `supabase_schema.sql`
+  (`crm_leads` + `app_state`) con **RLS activado desde el día 1** (el backend
+  usa la key `service_role`, que ignora RLS igual — cero riesgo de romper
+  nada, cero costo, solo más seguro por defecto). Se migraron los **22 leads
+  reales** de `crm.json` y todo `state.json` (clientes, ICP, secuencias,
+  vendedores) del Ubuntu de producción al proyecto nuevo — confirmado
+  funcionando de punta a punta sobre HTTP real (`/api/clients`, `/api/kpis`,
+  `/api/leads`, `/api/vendor`, `/api/knowledge`, todos leyendo de Supabase).
+  Las 2 tablas vacías creadas por error en el proyecto viejo quedaron
+  pendientes de decisión de Diego (borrarlas o no, es su proyecto).
+  **Keep-alive diario**: nuevo `scripts/supabase_keepalive.py` (GET liviano a
+  `app_state`) + `zero-supabase-keepalive.service`/`.timer` en systemd
+  (corre todos los días 9am, `Persistent=true` para no perderse si el PC
+  estaba apagado) — para que el plan gratis nunca vuelva a pausarse por
+  inactividad. Probado en vivo, responde OK.
+  **Límite honesto**: ningún código evita que alguien borre el proyecto a
+  mano desde el panel de Supabase, ni protege contra un cambio de política
+  del plan gratis — eso depende de que la cuenta de Diego esté segura (2FA).
+- **Vapi conectado (2026-07-09)** — API key (privada, nunca por chat, siempre
+  vía Configuración → tarjeta Vapi) guardada y activa (`vapi: true` en
+  `/api/config`). El frontend (`Llamadas.jsx`) ya arma el +56 de Chile
+  automático — sin cambios de código, solo faltaba la cuenta.
+- **Todas las terminales respaldadas en GitHub (2026-07-09)** — se encontró
+  trabajo real sin subir en varias: `dashboard` (2 archivos sin commitear +
+  la rama nunca pusheada), `landing` (la primera versión completa de la
+  landing, ni siquiera agregada a git), `debug` e
+  `investigacion-mercado-competencia` (commiteadas pero nunca pusheadas).
+  Las 4 quedaron commiteadas y subidas a GitHub con upstream configurado.
+  `core` se sincronizó (tenía 11 commits de atraso). Ninguna de las 3
+  terminales de MOTOR tenía trabajo propio todavía. 366/366 tests en verde
+  después de sincronizar todo.
 
 ## 🎯 Plan de fiabilidad — "listo para el mercado" (2026-07-04) · 🟡 EN CURSO
 Criterio: no lanzar hasta que esto esté resuelto **de verdad**, no "se siente listo".
@@ -132,6 +202,21 @@ Orden acordado con Diego — no reordenar sin avisar:
      comportamiento externo. `.gitignore` cubre `*.json.bak`/`*.json.tmp`. 6
      tests nuevos (rotación, recuperación desde backup, ambos corruptos → error
      claro, extremo a extremo con `CRM` real).
+     **Simulacro real en Ubuntu de producción (2026-07-06)**: con copia de
+     seguridad extra hecha antes (`/tmp/backup-drill/`) y el backend detenido,
+     se corrompió a propósito el `state.json` real y se confirmó que
+     `make_memory()` se recupera solo desde `state.json.bak` (con el aviso por
+     stderr) y que el archivo se autorepara en el siguiente `save()`. Con
+     `crm.json` (que hoy **no tiene `.bak`** — no ha tenido una segunda
+     escritura desde que se desplegó este mecanismo) se confirmó el otro caso:
+     sin backup disponible, falla con un `RuntimeError` limpio, nunca pierde
+     datos en silencio. Ambos archivos reales restaurados exactos después del
+     simulacro (diff limpio contra la copia previa).
+     **Hallazgo operativo**: `zero-tunnel.service` tiene `Requires=
+     zero-backend.service` — detener el backend apaga el túnel en cascada
+     automáticamente, y **no vuelve solo** al reiniciar el backend; hay que
+     iniciar ambos servicios a mano. Bueno saberlo para cualquier
+     mantención futura que pare el backend un momento.
    - **Prueba de CONCIERGE con casos difíciles** — ✅ HECHO (2026-07-04). Un
      lead real puede escribir cualquier cosa — vacío, groserías, spam, inglés,
      un mensaje gigante — y el agente nunca puede romperse por eso. Probado a
@@ -159,6 +244,140 @@ Orden acordado con Diego — no reordenar sin avisar:
      clases). 6 tests nuevos. 327/327 tests en verde (13 de ellos en
      `test_api_http.py`, subiendo el tiempo total a ~1.8s por los dos
      subprocesos de uvicorn — el resto de la suite sigue en ~1s).
+
+**Auditoría de ANALYST (2026-07-06)** — cierra la ronda de auditar en vivo, con
+el modelo real, cada agente que redacta/opina algo de cara al negocio
+(OUTREACH, TRACKER, CONCIERGE, PITCHWRITER ya arriba). A diferencia de esos
+cuatro, **acá no se encontró ningún bug que arreglar**: se respetó siempre la
+regla de "nunca hagas la aritmética" (nunca devolvió conteos proyectados,
+solo tasas), y con muestra chica (2 contactados, vía `/api/forecast?client=
+acme` real) mantuvo las tasas base con una justificación correcta y corta.
+**Hallazgo de calibración (no un bug, no se arregló)**: con el modelo local
+(qwen2.5:7b), ANALYST es **demasiado conservador** — probado con 80
+contactados (muy por sobre el umbral de "muestra chica" que el propio prompt
+define en <20), igual dijo "muestra chica" y no ajustó nada. No es peligroso
+(el peor caso es un forecast un poco conservador de más, nunca inflado), pero
+en la práctica significa que hoy el "juicio" de ANALYST casi nunca ajusta las
+tasas con este modelo — puede mejorar con un modelo más grande (Anthropic)
+más adelante; no vale la pena forzarlo con más prompting (arriesga que
+empiece a inventar señales, un problema peor que ser conservador de más).
+
+**Auditoría de MOTOR-llamadas (2026-07-13)** — auditoría de código (no en vivo,
+sin necesitar el PC de Ubuntu prendido) de `zero/calls.py` (Vapi, llamadas
+salientes) y `zero/voice.py` (ElevenLabs, texto→voz).
+- `zero/voice.py`: limpio, bien testeado, **sin bugs**. Confirmado que sigue
+  sin estar enchufado a `api.py` — es una herramienta CLI standalone, tal
+  como ya lo declara `docs/voice.md` ("solo la voz, no el agente de llamadas
+  completo").
+- `api.py` (`/api/assistants`, `/api/vapi/numbers`, `/api/call`): envuelven
+  `zero.calls` de forma limpia (`RuntimeError` → `HTTPException(400)`), sin
+  rutas de crash.
+- **Bug real encontrado y arreglado** en `zero/calls.py`: `list_assistants()`
+  y `list_phone_numbers()` asumían que la API de Vapi siempre devuelve una
+  lista JSON bare; si alguna vez la envolviera en un objeto (cambio de API,
+  un 200 con otra forma), el list comprehension reventaba con
+  `AttributeError` (iterando keys de un dict como si fueran items, llamando
+  `.get()` sobre un string). Arreglado con guardas `isinstance(data, list)`
+  (si no, devuelve `[]`) e `isinstance(x, dict)` filtrando items no-dict
+  dentro de la lista.
+- **Endurecido** `place_call()`: ahora valida que `number` no venga vacío
+  antes de armar el body (`Falta: número a llamar`), igual que ya validaba
+  key/agente/número de origen. Antes de esto, un número vacío llegaba
+  igual a Vapi y el error solo aparecía como un 4xx confuso desde su API.
+  Severidad baja en la práctica — el frontend (`Llamadas.jsx`) ya exige
+  exactamente 9 dígitos antes de llamar al endpoint — pero la función debe
+  ser segura igual si se invoca desde otro lado (script, otro cliente de la
+  API).
+- 8 tests nuevos en `tests/test_calls.py`: curl no disponible (en `_curl` y
+  en `place_call`), número vacío, y 3 tests de la respuesta envuelta/con
+  items no-dict de Vapi. 372/372 tests en verde.
+
+**Auditoría extendida — defensivo/webhooks/discovery (2026-07-13)** — continuación
+de la ronda anterior, tres frentes que no necesitan el PC de Ubuntu prendido.
+
+1. **Mismo patrón defensivo (isinstance ante respuesta envuelta) extendido a
+   `zero/metaads.py`** — la ruta REAL (`MetaAds`, `_graph`, `list_ad_accounts`,
+   Meta Graph API) tenía **cero tests** hasta ahora (solo `MockMetaAds` estaba
+   cubierto) y los mismos riesgos que `calls.py`: `data.get("data", [])`
+   reventaría si Graph alguna vez no devuelve un dict, y un `json.loads` que
+   fallara por una respuesta no-JSON se propagaba como excepción cruda en vez
+   de un `RuntimeError` claro. Arreglado con las mismas guardas
+   `isinstance` + degradar a `[]`/mensaje claro; `tests/test_metaads.py`
+   nuevo, 12 tests (antes 0) mockeando `urllib.request.urlopen`.
+   `zero/backends.py` y `zero/discovery.py` se revisaron también — ya estaban
+   bien defendidos (backends.py ya capturaba `KeyError/IndexError/TypeError`
+   de una respuesta rara; discovery.py nunca parsea JSON de una API, solo
+   HTML con regex + `try/except Exception: return None` en cada fetch).
+2. **Bug real encontrado y arreglado en `zero/whatsapp_inbound.py`**:
+   `parse_inbound()` — el parser del webhook público de Meta — prometía en su
+   propio docstring "malformed payloads yield [], never raise", pero si
+   `entry`/`changes`/`messages` venían con otra forma (string en vez de
+   lista, item no-dict) reventaba con `AttributeError` de verdad (confirmado
+   reproduciendo el crash antes de arreglarlo). Arreglado con guardas
+   `isinstance` en cada nivel del payload, ahora sí cumple lo que dice su
+   propio contrato. 9 tests nuevos en `tests/test_core.py`. El lado de envío
+   (`WhatsAppSender`/`Outbox`) ya estaba a salvo: `Outbox.send()` envuelve
+   cualquier excepción del sender en un `except Exception` genérico con
+   reintentos, así que un envío roto ya degradaba a `error` sin crashear —
+   no hizo falta tocarlo.
+3. **CONCIERGE en vivo por WhatsApp, con Ubuntu prendido (2026-07-13, misma
+   tarde)** — 14 casos difíciles (mensaje vacío, solo emojis, "STOP" en
+   inglés, opt-out en español, grosería, mensaje gigante, multi-pregunta,
+   fuera de tema, intento de prompt injection, solo un link, mayúsculas
+   agresivas, inglés, "nombre" = número de teléfono) contra el modelo real
+   (qwen2.5:7b) vía `Zero.converse_result`, aislado en memoria (sin tocar
+   Supabase/CRM real). Ningún crash. La lógica de ventana 24h/plantilla en
+   `orchestrator.py`/`channels.py` se confirmó correcta (la respuesta a un
+   lead que acaba de escribir nunca lleva `whatsapp_send_type=template`, solo
+   los follow-ups en frío lo llevan). **Dos bugs reales encontrados y
+   arreglados:**
+   - **`intent` siempre `None` con el motor real** — causa raíz en
+     `zero/contracts.py`: `AgentResponse.from_dict()` "levanta" al `result`
+     solo las claves listadas en `_RESULT_KEYS` cuando el modelo responde sin
+     envoltorio `{"result": {...}}` — y ese es exactamente el esquema plano
+     que pide `prompts/concierge.md` (`{"reply", "intent"}`). Como `"intent"`
+     no estaba en la lista, se descartaba en silencio en CADA respuesta real
+     (confirmado comparando la salida cruda del modelo, que sí traía
+     `"intent": "pricing"`, contra el resultado ya parseado, que lo perdía).
+     Esto rompía sin avisar el flujo de "oferta pendiente" de
+     `handle_inbound` (`set_pending_offer` si `intent` es `info`/`objection`)
+     con el motor real — solo funcionaba en mock. Nadie lo vio antes porque
+     el mock nunca pasa por `from_dict`: exactamente el escenario que advierte
+     el CLAUDE.md de este repo ("el mock debe ser fiel al contrato... o da
+     falsa confianza"). Un test existente en `tests/test_contracts.py`
+     incluso **fijaba el bug como comportamiento esperado** — corregido junto
+     con el fix. Arreglo: se agregó `"intent"` a `_RESULT_KEYS`.
+   - **Mensaje entrante desmedido → reply vacío** — un mensaje degenerado
+     ("hola " × 3000) hizo que el modelo abandonara por completo el esquema
+     pedido y devolviera uno inventado (`{"greeting","message","options"}`,
+     JSON válido pero irreconocible para el contrato) → como ninguna clave
+     coincidía, la respuesta al lead quedaba vacía, sin romper nada pero sin
+     contestarle tampoco. Arreglo: nuevo `MAX_INBOUND_MESSAGE_CHARS = 2000`
+     en `config.py`, `Zero.converse_result` trunca el mensaje entrante antes
+     de pasarlo a CONCIERGE (mismo patrón que ya se usaba para `knowledge`).
+     Verificado en vivo: antes, "mensaje_gigante" volvía con `len=0`; después,
+     una respuesta normal.
+   - 4 tests nuevos (`tests/test_core.py`, `tests/test_contracts.py`
+     actualizado). 392/392 tests en verde, en el Mac y en Ubuntu por igual.
+4. **Bug real encontrado y arreglado en `zero/discovery.py`** (enriquecimiento
+   de decisor) — probado en vivo contra internet real con un ICP nuevo
+   ("estudios contables pymes Santiago", sin usar antes) para confirmar que
+   el filtrado seguía siendo confiable. Encontró un caso real en gepa.cl: la
+   página tiene testimonios de clientes tipo `"...excelente servicio." Roberto
+   Fuentes Director, Constructora Fuentes Ltda.` — el extractor de
+   nombre+rol capturaba el nombre de la OTRA EMPRESA citada en el testimonio
+   (o, en un segundo caso similar sin sufijo legal, el nombre de la persona
+   que da el testimonio) como si fuera el decisor de la empresa que se está
+   evaluando. Dos capas de arreglo: (a) lista de palabras de razón social
+   ("Ltda", "Constructora", "Inmobiliaria", etc.) sumada a `_NOT_NAME`; (b)
+   heurística barata — cuando el nombre solo aparece DESPUÉS del rol (sin uno
+   inmediatamente antes) y hay una comilla de cierre poco antes en el texto,
+   es casi seguro una cita de testimonio, no una ficha de equipo, y se
+   descarta. Verificado en vivo: antes del fix, Gepa traía un nombre falso;
+   después, ningún nombre (mejor no tener dato que tener uno inventado). 4
+   tests nuevos en `tests/test_discovery.py`.
+
+390/390 tests en verde tras los 4 hallazgos.
 
 ---
 
@@ -254,6 +473,24 @@ Motor real (que de verdad SOLUCIONE):
    actualizado con las mismas reglas de saludo/firma, subject de "breakup"
    arreglado para no mostrar `"None"` sin nombre. 5 tests nuevos
    (`TrackerTest`, cero tests previos). 345/345 en verde.
+   **Auditoría de PITCHWRITER (2026-07-06)** — el redactor del pitch propio de
+   ZeroAI (pestaña "Vender", `/api/pitch/generate`), probado en vivo con el
+   modelo real. 2 hallazgos:
+   - **Firma inventada**, mismo patrón de siempre: cerró "Un saludo,
+     PITCHWRITER". Distinto de OUTREACH/TRACKER porque esta herramienta no
+     tiene vendor asignado (es el pitch de ZeroAI mismo, lo revisa/edita Diego
+     antes de mandar) — el arreglo fue más simple: nunca firmar con un nombre
+     de agente/rol, cerrar genérico sin nombre (el mock ya lo hacía bien, cero
+     tests previos rotos).
+   - **Vendió el servicio equivocado** (más serio): con la nota de contexto
+     "vi que están contratando vendedores en LinkedIn" (pensada como gancho de
+     apertura), el modelo pivoteó a vender **búsqueda de candidatos**, un
+     servicio que ZeroAI no ofrece — confundió el gancho con el producto.
+     `prompts/pitchwriter.md` ahora aclara: `notes` es solo la apertura, la
+     oferta es siempre leads B2B, nunca cambia según de qué hable la nota.
+   - Solo cambio de prompt (el mock ya estaba bien en ambos frentes) — sin
+     test de código nuevo, mismo límite que otros fixes de prompt (no se
+     puede testear determinísticamente el comportamiento de un modelo real).
 
 Canales reales:
 4. **Que al menos un canal ENVÍE de verdad** (email = el más viable) — ✅ **capa de envío
@@ -314,8 +551,39 @@ Operación:
    que el agente promete**: la oferta queda en `memory.pending_offers` y la aceptación
    del lead ("sí", "por acá", un correo) dispara el envío del resumen real
    (`build_info_summary`, fiel al ICP) por el canal elegido, con evento `info_sent`
-   en el CRM. Falta para real: número de WhatsApp Business + URL pública
-   (deploy/ngrok) para el webhook.
+   en el CRM. ~~Falta para real: número de WhatsApp Business + URL pública
+   (deploy/ngrok) para el webhook.~~ **La URL pública ya está resuelta** — ngrok
+   con dominio fijo (`handpick-monogamy-spiny.ngrok-free.dev`), ver
+   `docs/GO-LIVE.md` / `docs/estado-integraciones.md`. Solo falta el número de
+   WhatsApp Business real (bloqueado hoy por la verificación de cuenta personal
+   de Meta, ver más abajo en "Estado de infraestructura").
+
+   **Auditado en vivo (2026-07-06)** con el modelo real (Ollama qwen2.5:7b)
+   contra una conversación realista de "pooledge" (precio general, pedido con
+   cantidades reales, objeción, desconfianza, cierre de reunión) — con ficha y
+   lista de precios reales cargadas. Encontró 2 bugs reales, ambos arreglados:
+   - **Cotización mal calculada, en silencio**: pedir "50 metros de borde recto
+     y 30 m2 de pastelón antideslizante" calculó qty=1 en vez de 30 para el
+     segundo ítem, y descartó el primero por completo — el bloque de números
+     mostrado al lead ($11.305) no coincidía ni con la cantidad real ni con el
+     propio texto del modelo (que sí había calculado bien, $341.650, violando
+     encima la regla de "el LLM nunca hace la aritmética"). Causa raíz en
+     `zero/quotes.py::extract_request`: el regex de cantidad exigía el número
+     pegado al nombre del ítem, y fallaba con "30 m2 **de** X" (palabra de
+     unidad + preposición de por medio). Arreglado: tolera hasta 2 palabras de
+     relleno entre el número y el ítem. **Este módulo no tenía NINGÚN test
+     hasta hoy** — nuevo archivo `tests/test_quotes.py`, 18 tests.
+   - **Nombre de vendedor inconsistente**: en una respuesta el modelo se
+     presentó como "Fernanda" aunque el vendedor asignado a "pooledge" era
+     Stéfano — copió el nombre literal de los ejemplos de calibración del
+     prompt en vez de sustituirlo por `data.vendor.name` (la instrucción para
+     sustituirlo ya existía, pero un modelo chico a veces imita el ejemplo
+     literal). Arreglado: los ejemplos ahora usan `{NOMBRE}` como placeholder
+     explícito en vez de un nombre real plausible ("Fernanda"), con aviso
+     reforzado de que es una variable, no texto a copiar.
+   - También se reforzó la regla de "cero montos" en `prompts/concierge.md`
+     con una prohibición explícita de que el modelo haga la aritmética por su
+     cuenta, "aunque le parezca fácil".
 
 ## Formulario de ICP (mejorado, 2026-06-07)
 Antes capturaba 4 de 8 campos y era write-only. Ahora: los **8 campos** (`industry,

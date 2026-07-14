@@ -5,7 +5,7 @@ import { DollarSign, Users, Target, Activity, Settings2, MapPin, Sparkles, Trend
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip } from 'recharts'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
-import { Card, CountUp, Skeleton, Button, Badge, Input, Spinner, pageState } from '../components/ui'
+import { Card, CountUp, Skeleton, Button, Badge, Input, Spinner, pageState, Eyebrow, SectionTitle } from '../components/ui'
 import { Segmented } from '../components/Segmented'
 import { useApp } from '../App'
 import { NoClient } from './Dashboard'
@@ -112,11 +112,11 @@ export default function Campanas() {
         {cards.map((c, i) => (
           <motion.div key={c.l} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }}>
             <Card interactive className="p-5 flex items-start justify-between">
-              <div>
-                <div className="text-sm text-zinc-500">{c.l}</div>
-                <div className="text-2xl font-extrabold mt-1 tabular-nums">{typeof c.v === 'number' ? <CountUp value={c.v} /> : c.v}</div>
+              <div className="min-w-0">
+                <Eyebrow>{c.l}</Eyebrow>
+                <div className="text-[28px] leading-none font-display font-extrabold tracking-tight text-brand mt-2.5 tabular-nums">{typeof c.v === 'number' ? <CountUp value={c.v} /> : c.v}</div>
               </div>
-              <div className={`w-10 h-10 rounded-xl grid place-items-center ${c.bg} ${c.fg}`}>
+              <div className={`w-10 h-10 rounded-xl grid place-items-center border border-brand/10 shrink-0 ${c.bg} ${c.fg}`}>
                 <c.icon size={18} />
               </div>
             </Card>
@@ -163,7 +163,7 @@ export default function Campanas() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <Card className="p-5 lg:col-span-2">
             <div className="flex items-center justify-between mb-1">
-              <div className="font-semibold flex items-center gap-2"><TrendingUp size={16} className="text-gold-deep" /> Tendencia de gasto (7 días)</div>
+              <SectionTitle className="flex items-center gap-2"><TrendingUp size={16} className="text-gold-deep" /> Tendencia de gasto (7 días)</SectionTitle>
               <Badge color="#8C929B">estimado</Badge>
             </div>
             <div className="text-xs text-zinc-400 mb-3">
@@ -190,7 +190,7 @@ export default function Campanas() {
           </Card>
 
           <Card className="p-5">
-            <div className="font-semibold mb-1">Leads por objetivo</div>
+            <SectionTitle className="mb-1">Leads por objetivo</SectionTitle>
             <div className="text-xs text-zinc-400 mb-3">Distribución real de leads del mes.</div>
             <div className="h-44">
               <ResponsiveContainer width="100%" height="100%">

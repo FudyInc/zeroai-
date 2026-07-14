@@ -1,6 +1,6 @@
 # Oferta — Agente de WhatsApp (Cristóbal) para empresas
 
-Cómo ZeroAI le vende esto a otras empresas. Estilo Nexor: **vende el resultado, no la
+Cómo ZeroAI le vende esto a otras empresas. Principio: **vende el resultado, no la
 tecnología.** Al cliente no le importa la IA — le importa vender más y atender mejor.
 
 ## Qué vendes (en 1 frase)
@@ -23,7 +23,7 @@ tecnología.** Al cliente no le importa la IA — le importa vender más y atend
 - **Fee mensual** por tener el agente activo (ej. US$X/mes según volumen), **+**
 - **Variable por resultado**: % de ventas cerradas, o por reunión agendada, o por ticket
   resuelto. → así el cliente ve ROI directo y tú escalas el ingreso.
-- Tu costo marginal es bajo (API) → margen alto, como Nexor.
+- Tu costo marginal es bajo (API) → margen alto, típico de un SaaS de agentes IA.
 
 ## El pitch (gancho)
 *"¿Cuántas ventas se te escapan por no contestar el WhatsApp a tiempo? Te pongo un agente

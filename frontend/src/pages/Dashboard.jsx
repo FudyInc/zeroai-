@@ -5,7 +5,7 @@ import { Users, GitBranch, Trophy, DollarSign, Plus, Rocket } from 'lucide-react
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Cell, Tooltip } from 'recharts'
 import { api } from '../lib/api'
 import { STAGES } from '../lib/util'
-import { Card, CountUp, Skeleton, Button, pageState } from '../components/ui'
+import { Card, CountUp, Skeleton, Button, pageState, Eyebrow, SectionTitle } from '../components/ui'
 import { Segmented } from '../components/Segmented'
 import { useApp } from '../App'
 
@@ -28,11 +28,13 @@ export default function Dashboard() {
   const gate = pageState({ error: kpisQ.error || boardQ.error, onRetry: () => { kpisQ.refetch(); boardQ.refetch() } })
   if (gate) return gate
 
+  // Monocromo-marca: un solo acento en champagne gold — la métrica primaria — y
+  // el resto en slate. Nada de arcoíris genérico.
   const cards = [
-    { label: 'Leads totales', value: kpis?.total, icon: Users, bg: '#eef2ff', fg: '#6366f1' },
-    { label: 'En pipeline', value: kpis?.in_pipeline, icon: GitBranch, bg: '#ecfdf5', fg: '#10b981' },
-    { label: 'Ganados', value: kpis?.won, icon: Trophy, bg: '#faf5ff', fg: '#a855f7' },
-    { label: 'Pipeline ganado', value: kpis?.pipeline_clp, prefix: '$', icon: DollarSign, bg: '#fff7ed', fg: '#f59e0b' },
+    { label: 'Leads totales', value: kpis?.total, icon: Users, tone: 'gold' },
+    { label: 'En pipeline', value: kpis?.in_pipeline, icon: GitBranch, tone: 'slate' },
+    { label: 'Ganados', value: kpis?.won, icon: Trophy, tone: 'slate' },
+    { label: 'Pipeline ganado', value: kpis?.pipeline_clp, prefix: '$', icon: DollarSign, tone: 'slate' },
   ]
 
   const inChart = (st) => chartG === 'todas' ? true : chartG === 'cerradas' ? CLOSED.includes(st) : OPEN.includes(st)
@@ -47,21 +49,26 @@ export default function Dashboard() {
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
-        {cards.map((c, i) => (
-          <motion.div key={c.label} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06, ease: [0.22, 1, 0.36, 1] }}>
-            <Card interactive className="p-5 flex items-start justify-between">
-              <div>
-                <div className="text-sm text-zinc-500">{c.label}</div>
-                <div className="text-3xl font-extrabold mt-1 tabular-nums">
-                  {kpisQ.isLoading ? <Skeleton className="h-8 w-16 mt-1" /> : <CountUp value={c.value ?? 0} prefix={c.prefix || ''} />}
+        {cards.map((c, i) => {
+          const chip = c.tone === 'gold'
+            ? 'bg-champagne/25 text-gold-deep border-champagne/60'
+            : 'bg-brand/[0.05] text-brand/90 border-brand/10'
+          return (
+            <motion.div key={c.label} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06, ease: [0.22, 1, 0.36, 1] }}>
+              <Card interactive className="p-5 flex items-start justify-between">
+                <div className="min-w-0">
+                  <Eyebrow>{c.label}</Eyebrow>
+                  <div className="text-[32px] leading-none font-display font-extrabold tracking-tight text-brand mt-2.5 tabular-nums">
+                    {kpisQ.isLoading ? <Skeleton className="h-8 w-20 mt-1" /> : <CountUp value={c.value ?? 0} prefix={c.prefix || ''} />}
+                  </div>
                 </div>
-              </div>
-              <div className="w-11 h-11 rounded-xl grid place-items-center" style={{ background: c.bg, color: c.fg }}>
-                <c.icon size={20} />
-              </div>
-            </Card>
-          </motion.div>
-        ))}
+                <div className={'w-10 h-10 rounded-xl grid place-items-center border shrink-0 ' + chip}>
+                  <c.icon size={18} />
+                </div>
+              </Card>
+            </motion.div>
+          )
+        })}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
@@ -69,8 +76,8 @@ export default function Dashboard() {
           <Card className="p-5">
             <div className="flex items-start justify-between gap-3 mb-4">
               <div>
-                <div className="font-semibold">Leads por etapa</div>
-                <div className="text-xs text-zinc-400">Distribución del embudo</div>
+                <Eyebrow>Embudo</Eyebrow>
+                <SectionTitle className="mt-0.5">Leads por etapa</SectionTitle>
               </div>
               <Segmented options={CHART_GROUPS} value={chartG} onChange={setChartG} />
             </div>
@@ -96,9 +103,10 @@ export default function Dashboard() {
 
         <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18 }}>
           <Card className="p-5 h-full">
-            <div className="font-semibold">Salud del embudo</div>
-            <div className="text-xs text-zinc-400">% de leads que pasó el filtro</div>
-            <div className="text-4xl font-extrabold text-gold-deep text-center mt-4 tabular-nums">
+            <Eyebrow>Salud</Eyebrow>
+            <SectionTitle className="mt-0.5">Salud del embudo</SectionTitle>
+            <div className="text-xs text-zinc-400 mt-0.5">% de leads que pasó el filtro</div>
+            <div className="text-[44px] leading-none font-display font-extrabold text-gold-deep text-center mt-5 tabular-nums tracking-tight">
               {boardQ.isLoading ? '—' : <CountUp value={pct} />}%
             </div>
             <div className="w-full h-2 bg-zinc-100 rounded-full mt-3 overflow-hidden">
@@ -136,8 +144,8 @@ export function NoClient() {
   return (
     <div className="max-w-lg mx-auto py-16 text-center">
       <div className="w-14 h-14 rounded-2xl bg-champagne/40 text-gold-deep grid place-items-center mx-auto mb-4"><Rocket size={26} /></div>
-      <h2 className="text-xl font-bold">Empieza con tu primer cliente</h2>
-      <p className="text-zinc-500 mt-1 mb-6">En un clic, ZeroAI descubre, califica y prepara leads B2B listos para contactar.</p>
+      <h2 className="text-2xl font-display font-bold tracking-tight text-brand">Empieza con tu primer cliente</h2>
+      <p className="text-zinc-500 mt-1.5 mb-6">En un clic, ZeroAI descubre, califica y prepara leads B2B listos para contactar.</p>
       <div className="text-left space-y-3 mb-7">
         {steps.map(([t, d], i) => (
           <div key={i} className="flex gap-3">
@@ -149,7 +157,7 @@ export function NoClient() {
           </div>
         ))}
       </div>
-      {openRun && <Button variant="accent" onClick={openRun}><Plus size={16} /> Buscar leads</Button>}
+      {openRun && <Button variant="accent" className="rounded-full px-6" onClick={openRun}><Plus size={16} /> Buscar leads</Button>}
     </div>
   )
 }

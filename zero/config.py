@@ -38,6 +38,17 @@ WHATSAPP_TEMPLATE = {
 OUTBOX_RETRY_ATTEMPTS = 3
 OUTBOX_RETRY_DELAY_SECONDS = 1.0
 
+# --- Mensaje entrante de un lead (CONCIERGE) ----------------------------------
+# Tope al mensaje que un lead escribe (WhatsApp/email) antes de pasarlo a
+# CONCIERGE. Hallado en vivo (2026-07-13) contra el modelo real (qwen2.5:7b):
+# un mensaje muy largo y degenerado ("hola " x3000) hizo que el modelo
+# abandonara por completo el esquema JSON pedido ({"reply","intent"}) e
+# inventara uno propio ({"greeting","message","options"}) — como ninguna de
+# esas claves está en el contrato, la respuesta al lead terminaba VACÍA (sin
+# romper nada, pero sin contestarle). WhatsApp real ya limita cada mensaje a
+# ~4096 caracteres; este tope es más chico a propósito, con margen.
+MAX_INBOUND_MESSAGE_CHARS = 2000
+
 # --- Client tiers ------------------------------------------------------------
 # leads_per_mo = None means "custom / negotiated".
 # price_clp = lo que el cliente paga por mes (el MRR de la agencia). ENTERPRISE = custom.

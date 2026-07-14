@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Mail, Sparkles, Send } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
-import { Card, Button, Input, Badge } from '../components/ui'
+import { Card, Button, Input, Badge, SectionTitle } from '../components/ui'
 import { Glow } from '../components/Glow'
 
 // Pon el mail de un prospecto → genera el pitch (editable) → envíalo por tu SMTP.
@@ -51,7 +51,7 @@ export default function Vender() {
       )}
 
       <Card className="p-6 space-y-3">
-        <div className="font-semibold flex items-center gap-2"><Mail size={16} /> A quién le escribes</div>
+        <SectionTitle className="flex items-center gap-2"><Mail size={16} /> A quién le escribes</SectionTitle>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="sm:col-span-2">
             <label className="block text-xs text-zinc-500 mb-1">Correo del prospecto *</label>
@@ -85,7 +85,7 @@ export default function Vender() {
       </Card>
 
       <Card className="p-6 space-y-3">
-        <div className="font-semibold">El correo (edítalo antes de enviar)</div>
+        <SectionTitle>El correo (edítalo antes de enviar)</SectionTitle>
         <div>
           <label className="block text-xs text-zinc-500 mb-1">Asunto</label>
           <Input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Leads B2B calificados para tu empresa" />

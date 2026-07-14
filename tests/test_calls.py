@@ -59,6 +59,12 @@ class TestCurl(unittest.TestCase):
                 calls._curl("GET", "x")
             self.assertIn("tiempo", str(cm.exception))
 
+    def test_sin_curl_lanza(self):
+        with _with_key(), mock.patch("zero.calls.shutil.which", return_value=None):
+            with self.assertRaises(RuntimeError) as cm:
+                calls._curl("GET", "assistant")
+            self.assertIn("curl", str(cm.exception))
+
 
 class TestListers(unittest.TestCase):
     def test_list_assistants_mapea(self):
@@ -75,6 +81,22 @@ class TestListers(unittest.TestCase):
             self.assertEqual(out[0]["number"], "+56 9")
             self.assertEqual(out[1]["number"], "p2")  # cae al id
 
+    def test_list_assistants_respuesta_envuelta_no_revienta(self):
+        # Si Vapi alguna vez devuelve un dict (envoltorio, error 200 con otra
+        # forma) en vez de una lista bare, no debe lanzar AttributeError.
+        with mock.patch("zero.calls._curl", return_value={"data": []}):
+            self.assertEqual(calls.list_assistants(), [])
+
+    def test_list_phone_numbers_respuesta_envuelta_no_revienta(self):
+        with mock.patch("zero.calls._curl", return_value={"data": []}):
+            self.assertEqual(calls.list_phone_numbers(), [])
+
+    def test_list_assistants_ignora_items_no_dict(self):
+        with mock.patch("zero.calls._curl", return_value=["oops", {"id": "1"}]):
+            out = calls.list_assistants()
+            self.assertEqual(len(out), 1)
+            self.assertEqual(out[0]["id"], "1")
+
 
 class TestPlaceCall(unittest.TestCase):
     def test_faltan_campos_lanza(self):
@@ -82,6 +104,19 @@ class TestPlaceCall(unittest.TestCase):
             with self.assertRaises(RuntimeError) as cm:
                 calls.place_call("+56911111111")
             self.assertIn("Falta", str(cm.exception))
+
+    def test_numero_vacio_lanza(self):
+        with _with_key(VAPI_ASSISTANT_ID="asst", VAPI_PHONE_NUMBER_ID="ph"):
+            with self.assertRaises(RuntimeError) as cm:
+                calls.place_call("   ")
+            self.assertIn("número a llamar", str(cm.exception))
+
+    def test_sin_curl_lanza(self):
+        with _with_key(VAPI_ASSISTANT_ID="asst", VAPI_PHONE_NUMBER_ID="ph"), \
+             mock.patch("zero.calls.shutil.which", return_value=None):
+            with self.assertRaises(RuntimeError) as cm:
+                calls.place_call("+56911111111")
+            self.assertIn("curl", str(cm.exception))
 
     def test_ok_devuelve_dict(self):
         with _with_key(VAPI_ASSISTANT_ID="asst", VAPI_PHONE_NUMBER_ID="ph"), \

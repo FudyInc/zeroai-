@@ -41,9 +41,9 @@ export default function Clientes() {
       <Card className="p-5 inline-flex items-center gap-4 bg-brand text-white">
         <div className="w-11 h-11 rounded-xl grid place-items-center bg-white/10"><Wallet size={20} /></div>
         <div>
-          <div className="text-xs text-champagne/80">Ingreso mensual (MRR)</div>
-          <div className="text-3xl font-extrabold tabular-nums">$<CountUp value={mrr_clp} /></div>
-          <div className="text-[11px] text-champagne/70">{accounts.length} cliente{accounts.length !== 1 ? 's' : ''} · CLP/mes</div>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.13em] text-champagne/80">Ingreso mensual (MRR)</div>
+          <div className="text-[32px] leading-none font-display font-extrabold tabular-nums mt-1.5">$<CountUp value={mrr_clp} /></div>
+          <div className="text-[11px] text-champagne/70 mt-1">{accounts.length} cliente{accounts.length !== 1 ? 's' : ''} · CLP/mes</div>
         </div>
       </Card>
 

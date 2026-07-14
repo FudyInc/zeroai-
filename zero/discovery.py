@@ -75,6 +75,12 @@ _NOT_NAME = {
     "creativa", "creativo", "branding", "consultora", "consultoria", "soluciones", "tecnología",
     "contador", "contadora", "auditor", "auditora", "contable", "contables", "abogado", "abogada",
     "ingeniero", "ingeniera", "consultor", "asesor", "asesora", "profesional", "profesionales",
+    # Sufijos/palabras de razón social — sin esto, un testimonio tipo "Roberto
+    # Fuentes Director, Constructora Fuentes Ltda." captura el NOMBRE DE OTRA
+    # EMPRESA citada como si fuera la persona (hallado en vivo, 2026-07-13,
+    # auditando discovery.py contra "estudios contables Santiago").
+    "ltda", "ltda.", "limitada", "spa", "eirl", "cia", "cía", "compañía", "compania",
+    "constructora", "inmobiliaria", "corp", "corp.", "hnos", "hermanos", "sociedad",
 }
 _ENRICH_PATHS = ("nosotros", "equipo", "quienes-somos", "sobre-nosotros", "about", "team")
 # SME sites often expose contact info only on the contact page, not the homepage.
@@ -240,6 +246,19 @@ class DuckDuckGoSource(DiscoverySource):
             role = _ROLE_CANON.get(m.group(1).lower(), m.group(1))
             before = _NAME_BEFORE_RE.search(text[max(0, m.start() - 50): m.start()])
             after = _NAME_AFTER_RE.search(text[m.end(): m.end() + 50])
+            if not before and after:
+                # Sin nombre inmediatamente antes del rol pero sí después con un
+                # separador ("Rol, Empresa") suele ser un testimonio de cliente
+                # ("...excelente servicio." Nombre Rol, Otra Empresa Ltda.), no un
+                # bio del propio equipo — cita a OTRA persona/empresa, no al dueño
+                # del sitio. Una comilla de cierre justo antes es la señal barata
+                # de que estamos dentro de una cita, no de una ficha de equipo.
+                # Hallado en vivo (2026-07-13) contra 2 sitios reales de estudios
+                # contables — sin este filtro se le atribuía a la empresa el
+                # nombre de OTRA empresa citada en el testimonio.
+                lookback = text[max(0, m.start() - 60): m.start()]
+                if any(q in lookback for q in '"\'“”‘’'):
+                    continue
             cand = (before or after)
             if not cand:
                 continue

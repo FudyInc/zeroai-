@@ -305,6 +305,37 @@ class RobustnessTest(unittest.TestCase):
         ok, _ = z.validate_lead(lead, exclusions=[])   # would TypeError if score stayed a str
         self.assertTrue(ok)
 
+    def test_concierge_intent_survives_flat_response(self):
+        """Bug real hallado en vivo (2026-07-13) contra el modelo real: CONCIERGE
+        responde en esquema plano, sin envoltorio "result" — {"reply": ...,
+        "intent": ...} — tal como pide prompts/concierge.md. AgentResponse.from_dict
+        "levanta" solo las claves de _RESULT_KEYS al armar `result`; como "intent"
+        no estaba en esa lista, se perdía en silencio en CADA respuesta real,
+        aunque el modelo sí lo devolvía bien (confirmado comparando la salida
+        cruda del modelo contra el resultado ya parseado). Esto rompía sin avisar
+        el flujo de "oferta pendiente" en Zero.handle_inbound — nunca se activaba
+        con el motor real. El mock nunca pasa por from_dict, así que ningún test
+        existente (todos en mock) lo detectaba."""
+        from zero.contracts import AgentResponse
+        resp = AgentResponse.from_dict(
+            {"reply": "¡Hola! El plan más caro incluye todo.", "intent": "pricing"},
+            task_id="t1", agent="CONCIERGE",
+        )
+        self.assertEqual(resp.result.get("intent"), "pricing")
+        self.assertEqual(resp.result.get("reply"), "¡Hola! El plan más caro incluye todo.")
+
+    def test_converse_result_intent_survives_real_backend(self):
+        """Regresión de extremo a extremo del bug de arriba, pasando por
+        Zero.converse_result como lo hace el webhook real de WhatsApp."""
+        from unittest import mock as _mock
+        backend = _mock.Mock()
+        backend.complete.return_value = (
+            '{"reply": "Entendido, lo saco de la lista.", "intent": "optout"}'
+        )
+        z = Zero(build_agents(backend=backend), memory=SessionMemory(None))
+        res = z.converse_result("", "no me escriban más", channel="whatsapp")
+        self.assertEqual(res.get("intent"), "optout")
+
     def test_corrupt_crm_file_raises_clear_error(self):
         import os
         import tempfile
@@ -1110,6 +1141,29 @@ class ConciergeTest(unittest.TestCase):
             {"from": "569", "type": "text", "text": {"body": "x"}}]}}]}]})
         self.assertEqual(no_meta[0]["to_phone_id"], "")
         self.assertEqual(parse_inbound({}), [])      # malformed → empty, no crash
+
+    def test_parse_inbound_formas_malformadas_nunca_revienta(self):
+        """El docstring de parse_inbound promete 'malformed payloads yield [],
+        never raise' — cada nivel del webhook de Meta (entry/changes/value/
+        messages) puede en teoría venir con otra forma; ninguna debe crashear."""
+        from zero.whatsapp_inbound import parse_inbound
+        casos = [
+            {"entry": "oops"},
+            {"entry": [{"changes": "oops"}]},
+            {"entry": [{"changes": [{"value": "oops"}]}]},
+            {"entry": [{"changes": [{"value": {"messages": "oops"}}]}]},
+            {"entry": [{"changes": [{"value": {"messages": ["oops"]}}]}]},
+            {"entry": ["oops"]},
+            {"entry": [{"changes": ["oops"]}]},
+        ]
+        for payload in casos:
+            self.assertEqual(parse_inbound(payload), [])
+        # el último caso (metadata malformada) sí debe rescatar el mensaje válido
+        # con to_phone_id vacío, en vez de descartarlo entero
+        rescatado = parse_inbound({"entry": [{"changes": [{"value": {
+            "metadata": "oops",
+            "messages": [{"from": "569", "type": "text", "text": {"body": "x"}}]}}]}]})
+        self.assertEqual(rescatado, [{"from": "569", "text": "x", "to_phone_id": ""}])
 
     def test_verify_meta_signature(self):
         """Sin esto, POST /api/webhooks/whatsapp aceptaría cualquier payload de

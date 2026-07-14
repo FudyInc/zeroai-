@@ -69,7 +69,19 @@ class AgentResponse:
     def ok(self) -> bool:
         return self.status == "done"
 
-    _RESULT_KEYS = ("leads", "messages", "rates", "reply", "recommendations", "plan", "subject", "body")
+    # "intent" (CONCIERGE): sin esto, el modelo real siempre lo devuelve pero
+    # from_dict lo descartaba en silencio (no había envoltorio "result" en su
+    # esquema plano) — encontrado en vivo (2026-07-13) contra el modelo real:
+    # `converse_result` SIEMPRE devolvía intent=None, aunque el modelo sí
+    # incluía el campo correcto ("pricing", "optout", etc. — confirmado
+    # comparando la salida cruda del modelo contra el resultado ya parseado).
+    # Esto rompía en silencio el flujo de "oferta pendiente" en
+    # `handle_inbound` (Zero.converse_result → set_pending_offer si intent es
+    # "info"/"objection"): nunca se activaba con el motor real, solo en mock
+    # (el mock nunca pasa por from_dict). Justo el caso que el CLAUDE.md de
+    # este repo advierte: un mock que diverge del contrato real da falsa
+    # confianza — los tests en verde no lo detectaban porque todos usan mock.
+    _RESULT_KEYS = ("leads", "messages", "rates", "reply", "recommendations", "plan", "subject", "body", "intent")
 
     @classmethod
     def from_dict(

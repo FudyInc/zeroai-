@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '../lib/util'
 
+/* Superficie base. Estilo editorial premium dentro de la marca: hairline cálido,
+   sombra casi plana (la profundidad viene del borde + contraste, no de
+   drop-shadows), radio 16px. `interactive` agrega un lift sutil al hover. */
 export function Card({ className, interactive, ...p }) {
   return (
     <div
       className={cn(
-        'bg-white border border-zinc-200/70 rounded-2xl shadow-[0_1px_3px_rgba(16,24,40,0.04),0_8px_24px_-12px_rgba(16,24,40,0.08)]',
-        interactive && 'transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_2px_6px_rgba(16,24,40,0.06),0_18px_44px_-16px_rgba(16,24,40,0.16)]',
+        'bg-white border border-[#e8e3d9] rounded-2xl shadow-[0_1px_2px_rgba(44,53,41,0.04)]',
+        interactive && 'transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_34px_-18px_rgba(44,53,41,0.20)] hover:border-[#ddd6c6]',
         className,
       )}
       {...p}
@@ -14,9 +17,11 @@ export function Card({ className, interactive, ...p }) {
   )
 }
 
+/* Botones: forma píldora. Primario = slate de marca; el resto, neutros para
+   acciones secundarias. */
 export function Button({ className, variant = 'primary', ...p }) {
   const variants = {
-    primary: 'bg-zinc-900 text-white hover:bg-zinc-800 shadow-sm',
+    primary: 'bg-brand text-white hover:bg-brand-ink shadow-sm',
     accent: 'bg-brand-grad text-white shadow-sm hover:brightness-105',
     soft: 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200',
     ghost: 'text-zinc-600 hover:bg-zinc-100',
@@ -24,7 +29,7 @@ export function Button({ className, variant = 'primary', ...p }) {
   return (
     <button
       className={cn(
-        'inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-all duration-150 active:scale-[.97] disabled:opacity-50 disabled:pointer-events-none',
+        'inline-flex items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all duration-150 active:scale-[.97] disabled:opacity-50 disabled:pointer-events-none',
         variants[variant], className,
       )}
       {...p}
@@ -38,6 +43,26 @@ export function Badge({ color = '#71717a', children, className }) {
       style={{ background: color + '1a', color }}>
       {children}
     </span>
+  )
+}
+
+/* Etiqueta "eyebrow" editorial (uppercase, tracking ancho, pewter) — el rótulo
+   pequeño que encabeza secciones y métricas en todo el dashboard. */
+export function Eyebrow({ children, className }) {
+  return (
+    <div className={cn('text-[11px] font-semibold uppercase tracking-[0.13em] text-pewter', className)}>
+      {children}
+    </div>
+  )
+}
+
+/* Título de sección: Montserrat display, tracking apretado, slate. Se usa junto
+   a <Eyebrow> para el patrón de cabecera consistente en cada página. */
+export function SectionTitle({ children, className }) {
+  return (
+    <div className={cn('font-display font-bold text-lg tracking-tight text-brand', className)}>
+      {children}
+    </div>
   )
 }
 
