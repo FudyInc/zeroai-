@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
@@ -17,12 +17,30 @@ const GROUPS = [
   { value: 'perdidos', label: 'Perdidos' },
 ]
 const PAGE = 50
+const viewKey = (client) => `zero_leads_view_${client}`
 
 export default function Leads() {
   const { client, openLead } = useApp()
   const qc = useQueryClient()
   const [q, setQ] = useState('')
   const [group, setGroup] = useState('todos')
+  // Recuerda la última búsqueda/filtro por cliente (localStorage) — útil para
+  // el equipo: retomar donde quedaste al volver a un cliente, sin re-filtrar.
+  const [loadedFor, setLoadedFor] = useState(null)
+
+  useEffect(() => {
+    if (!client || loadedFor === client) return
+    let saved = null
+    try { saved = JSON.parse(localStorage.getItem(viewKey(client)) || 'null') } catch { /* valor corrupto, se ignora */ }
+    setGroup(saved?.group || 'todos')
+    setQ(saved?.q || '')
+    setLoadedFor(client)
+  }, [client, loadedFor])
+
+  useEffect(() => {
+    if (!client || loadedFor !== client) return
+    localStorage.setItem(viewKey(client), JSON.stringify({ group, q }))
+  }, [client, loadedFor, group, q])
 
   const {
     data, isLoading, error, refetch, fetchNextPage, hasNextPage, isFetchingNextPage,

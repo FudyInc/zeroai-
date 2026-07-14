@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Mail, Phone, MessageCircle, Instagram, Linkedin, Clock } from 'lucide-react'
 import { api } from '../lib/api'
+import { repliedRecently } from '../lib/util'
 import { Card } from '../components/ui'
 import { useApp } from '../App'
 
@@ -18,22 +19,6 @@ const TONES = {
   warn: 'text-amber-700 bg-amber-50',
   soon: 'text-pewter bg-pewter/10',
   bad: 'text-rose-600 bg-rose-50',
-}
-
-const DAY_MS = 24 * 60 * 60 * 1000
-
-// Cuenta leads de un canal que pasaron a "replied" en las últimas 24h, usando
-// el historial del CRM (ya viene en /api/leads). null = sin datos todavía
-// (sin cliente, cargando o error) → la card simplemente no muestra la línea.
-function repliedRecently(leads, channel) {
-  if (!leads) return null
-  const cutoff = Date.now() - DAY_MS
-  return leads.filter((r) => {
-    if (r.channel !== channel || r.stage !== 'replied') return false
-    const ev = (r.history || []).slice().reverse()
-      .find((h) => h.event === 'stage' && (h.detail || '').includes('replied'))
-    return ev?.ts && new Date(ev.ts).getTime() >= cutoff
-  }).length
 }
 
 export default function Agentes() {

@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueries } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Users, GitBranch, Trophy, DollarSign, Plus, Rocket } from 'lucide-react'
+import { Users, GitBranch, Trophy, DollarSign, Plus, Rocket, Bell, CheckCircle2 } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Cell, Tooltip } from 'recharts'
 import { api } from '../lib/api'
-import { STAGES } from '../lib/util'
+import { STAGES, repliedRecently } from '../lib/util'
 import { Card, CountUp, Skeleton, Button, pageState, Eyebrow, SectionTitle } from '../components/ui'
 import { Segmented } from '../components/Segmented'
 import { useApp } from '../App'
@@ -18,7 +19,7 @@ const CHART_GROUPS = [
 ]
 
 export default function Dashboard() {
-  const { client } = useApp()
+  const { client, clients, setClient } = useApp()
   const [chartG, setChartG] = useState('todas')
   const kpisQ = useQuery({ queryKey: ['kpis', client], queryFn: () => api.kpis(client), enabled: !!client })
   const boardQ = useQuery({ queryKey: ['board', client], queryFn: () => api.board(client), enabled: !!client })
@@ -48,6 +49,8 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-5">
+      <NeedsAttention clients={clients} setClient={setClient} />
+
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
         {cards.map((c, i) => {
           const chip = c.tone === 'gold'
@@ -131,6 +134,60 @@ function Row({ c, l, v }) {
       <span className="text-zinc-600">{l}</span>
       <span className="ml-auto font-semibold tabular-nums">{v}</span>
     </div>
+  )
+}
+
+/* Feed cross-cliente: quién respondió en 24h y sigue sin acción humana. Útil
+   para un equipo — no hay que ir cliente por cliente para saber qué está
+   pendiente. Sin backend nuevo: reusa /api/leads por cliente (ya existente) y
+   el mismo cálculo que ya usaba Agentes.jsx (ahora compartido en lib/util). */
+function NeedsAttention({ clients, setClient }) {
+  const nav = useNavigate()
+  const list = clients || []
+  const results = useQueries({
+    queries: list.map((c) => ({
+      queryKey: ['leads', c, 'needs-attention'],
+      queryFn: () => api.leads(c, { group: 'todos', limit: 50 }),
+      staleTime: 60_000,
+    })),
+  })
+
+  const loading = results.some((r) => r.isLoading)
+  const rows = list
+    .map((c, i) => ({ client: c, n: repliedRecently(results[i]?.data?.leads, undefined) }))
+    .filter((r) => r.n)
+    .sort((a, b) => b.n - a.n)
+
+  const jump = (c) => { setClient(c); nav('/leads') }
+
+  if (loading) {
+    return <Card className="p-5"><Skeleton className="h-14 w-full" /></Card>
+  }
+
+  return (
+    <Card className="p-5">
+      <div className="flex items-center gap-2 mb-3">
+        <Bell size={16} className="text-gold-deep" />
+        <SectionTitle>Necesita tu atención</SectionTitle>
+      </div>
+      {rows.length === 0 ? (
+        <div className="text-sm text-zinc-400 flex items-center gap-2">
+          <CheckCircle2 size={15} className="text-gold-deep" /> Todo al día — nadie esperando respuesta hace más de 24h.
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {rows.map((r) => (
+            <button key={r.client} onClick={() => jump(r.client)}
+              className="w-full flex items-center justify-between gap-3 rounded-xl px-3 py-2 text-sm bg-zinc-50 hover:bg-zinc-100 transition-colors text-left">
+              <span className="font-medium capitalize truncate">{r.client}</span>
+              <span className="text-xs text-gold-deep font-semibold shrink-0">
+                {r.n} {r.n === 1 ? 'lead respondió' : 'leads respondieron'} en 24h
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </Card>
   )
 }
 

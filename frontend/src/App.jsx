@@ -3,13 +3,14 @@ import { Routes, Route, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Toaster } from 'sonner'
-import { Plus, Menu, ArrowLeft } from 'lucide-react'
+import { Plus, Menu, ArrowLeft, Search } from 'lucide-react'
 import { api } from './lib/api'
 import { Button, Input, Select } from './components/ui'
 import { Glow } from './components/Glow'
 import Sidebar from './components/Sidebar'
 import Login from './components/Login'
 import LeadModal from './components/LeadModal'
+import CommandPalette from './components/CommandPalette'
 import Dashboard from './pages/Dashboard'
 import Vender from './pages/Vender'
 import Campanas from './pages/Campanas'
@@ -50,6 +51,19 @@ export default function App() {
   const [title, sub] = TITLES[pathname] || ['ZeroAI', '']
   const [authed, setAuthed] = useState(null)   // null=checking · false=login · true=in
   const [navOpen, setNavOpen] = useState(false) // drawer móvil del sidebar
+  const [paletteOpen, setPaletteOpen] = useState(false)
+
+  // Cmd/Ctrl+K en cualquier parte de la app abre el buscador de páginas/clientes.
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setPaletteOpen((v) => !v)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   useEffect(() => {
     let alive = true
@@ -88,6 +102,10 @@ export default function App() {
               <div className="text-xs text-zinc-500 truncate">{sub}</div>
             </div>
             <div className="ml-auto flex items-center gap-2">
+              <button onClick={() => setPaletteOpen(true)} title="Buscar (⌘K)"
+                className="hidden sm:inline-flex items-center gap-1.5 text-xs text-zinc-400 border border-zinc-200 rounded-lg px-2.5 py-1.5 hover:bg-zinc-50 hover:text-zinc-600 transition-colors">
+                <Search size={13} /> <kbd className="font-sans">⌘K</kbd>
+              </button>
               {clients.length > 0 && (
                 <Select value={client || ''} onChange={(e) => setClient(e.target.value)}>
                   {clients.map((c) => <option key={c} value={c}>{c}</option>)}
@@ -128,6 +146,15 @@ export default function App() {
 
         <LeadModal client={client} leadKey={leadKey} onClose={() => setLeadKey(null)} />
         <RunModal open={runOpen} onClose={() => setRunOpen(false)} />
+        <CommandPalette
+          open={paletteOpen}
+          onClose={() => setPaletteOpen(false)}
+          pages={Object.entries(TITLES).map(([path, [label]]) => ({ path, label }))}
+          clients={clients}
+          currentClient={client}
+          onNavigate={nav}
+          onSelectClient={setClient}
+        />
         <Toaster richColors position="top-right" toastOptions={{ style: { borderRadius: '12px' } }} />
       </div>
     </AppCtx.Provider>
