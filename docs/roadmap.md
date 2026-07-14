@@ -633,3 +633,13 @@ enchufar la cuenta/key de pago para que funcionen de verdad:
 ## Lo que sigue (recomendación)
 Mientras no haya pagos: perfeccionar lo gratis. En curso: probar email real (SMTP
 ya configurado) y pulir el dashboard.
+
+## Pendiente de diseño — dashboard a monocromo (anotado 2026-07-13, no hacer aún)
+El rework visual del dashboard (Card/Button/Eyebrow/SectionTitle, paleta slate/pewter/
+champagne gold) está completo en las 12 páginas. Queda una decisión de diseño abierta,
+**no un bug**: el gráfico de barras del Dashboard y las columnas del Kanban/Leads usan
+colores **semánticos por etapa** (verde=ganado, rojo=descartado, etc.), no monocromo
+puro. Se dejó así a propósito porque esos colores codifican datos reales. Si en algún
+momento se quiere más fiel al monocromo, la opción es llevarlos a una escala slate/gold
+y diferenciar etapas solo por ícono o posición — pero es a demanda, Diego pidió
+explícitamente no tocarlo todavía.
