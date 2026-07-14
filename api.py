@@ -202,6 +202,18 @@ def leads(client: str, group: str = "todos", limit: int = 50, offset: int = 0):
     return {"leads": rows, "total": total, "limit": limit, "offset": offset}
 
 
+@app.get("/api/leads/search")
+def leads_search(q: str, limit: int = 20):
+    """Busca un lead por company/email/phone en TODOS los clientes a la vez — el
+    salto rápido cuando no se sabe de antemano en qué cuenta está (a diferencia
+    de /api/leads, que siempre exige ?client=). Cada resultado ya trae su propio
+    client_id (columna nativa del registro), no hace falta ningún wrapper extra."""
+    if len(q.strip()) < 2:
+        raise HTTPException(status_code=400, detail="query muy corta (mínimo 2 caracteres)")
+    rows = _crm().search(q, limit=limit)
+    return {"results": rows, "q": q, "limit": limit}
+
+
 def _client_meta_cfg(client: str) -> dict:
     """Marketing config del cliente (Meta), con fallback de zonas al ICP."""
     memory = make_memory(STATE_PATH)

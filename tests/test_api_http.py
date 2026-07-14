@@ -158,6 +158,31 @@ class ApiHttpTest(unittest.TestCase):
             detail = json.loads(e.read().decode("utf-8"))
             self.assertIn("no disponible", detail["detail"])
 
+    def test_leads_search_short_query_is_400(self):
+        """La validación de largo mínimo vive en api.py (HTTPException), no en
+        CRM.search() — por eso este chequeo tiene que ser sobre HTTP real, no
+        sobre la función en Python (igual razón que test_clients_endpoint arriba)."""
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            self._get("/api/leads/search?q=a")
+        self.assertEqual(cm.exception.code, 400)
+
+    def test_leads_search_shape_over_real_http(self):
+        """Nunca debe dar 500 — con CRM local o con Supabase (cuando está
+        configurado, esto pega de verdad, solo lectura, cero riesgo de
+        ensuciar datos). No se afirma contenido real: los datos de producción
+        cambian; solo se confirma el contrato de la respuesta. Mismo patrón que
+        test_clients_endpoint_over_real_http: un Supabase caído/pausado degrada
+        a 503 claro, nunca a un 500 crudo."""
+        try:
+            status, body = self._get("/api/leads/search?q=zzz-no-deberia-matchear-nada-real")
+            self.assertEqual(status, 200)
+            self.assertEqual(set(body), {"results", "q", "limit"})
+            self.assertEqual(body["results"], [])
+        except urllib.error.HTTPError as e:
+            self.assertEqual(e.code, 503, "un fallo de Supabase debe degradar a 503, nunca a 500")
+            detail = json.loads(e.read().decode("utf-8"))
+            self.assertIn("no disponible", detail["detail"])
+
     def test_auth_status_endpoint(self):
         status, body = self._get("/api/auth/status")
         self.assertEqual(status, 200)
