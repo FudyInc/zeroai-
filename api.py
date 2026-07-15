@@ -202,6 +202,18 @@ def leads(client: str, group: str = "todos", limit: int = 50, offset: int = 0):
     return {"leads": rows, "total": total, "limit": limit, "offset": offset}
 
 
+@app.get("/api/leads/search")
+def leads_search(q: str, limit: int = 20):
+    """Busca un lead por company/email/phone en TODOS los clientes a la vez — el
+    salto rápido cuando no se sabe de antemano en qué cuenta está (a diferencia
+    de /api/leads, que siempre exige ?client=). Cada resultado ya trae su propio
+    client_id (columna nativa del registro), no hace falta ningún wrapper extra."""
+    if len(q.strip()) < 2:
+        raise HTTPException(status_code=400, detail="query muy corta (mínimo 2 caracteres)")
+    rows = _crm().search(q, limit=limit)
+    return {"results": rows, "q": q, "limit": limit}
+
+
 def _client_meta_cfg(client: str) -> dict:
     """Marketing config del cliente (Meta), con fallback de zonas al ICP."""
     memory = make_memory(STATE_PATH)
@@ -762,7 +774,17 @@ def forecast(client: str):
 @app.get("/api/config")
 def get_config():
     """Report which keys are configured — never returns the secret itself."""
+    # El motor que corre AHORA de verdad — no inferido de las keys presentes
+    # (que puede mentir: una key puede estar seteada y la construcción del
+    # backend fallar igual, ej. falta `pip install anthropic`), sino la misma
+    # función que decide el backend en cada request real (_agents_best).
+    _, engine_mode = _agents_best()
+    engine = None
+    if engine_mode == "live":
+        engine = "anthropic" if (os.environ.get("ANTHROPIC_API_KEY") or "").strip() else "local"
     return {
+        "engine_mode": engine_mode,   # "live" | "mock"
+        "engine": engine,             # "anthropic" | "local" | None (None si mock)
         "elevenlabs": bool(os.environ.get("ELEVENLABS_API_KEY")),
         "anthropic": bool(os.environ.get("ANTHROPIC_API_KEY")),
         # cerebro local (Ollama/vLLM) — gratis; activo si hay un nombre de modelo

@@ -36,11 +36,15 @@ class AgentResponseParsingTest(unittest.TestCase):
         self.assertEqual(resp.agent, "QUALIFIER")
 
     def test_missing_envelope_lifts_known_keys_from_body(self):
-        # No "result" key, but the payload carries a known field directly.
+        # No "result" key, but the payload carries known fields directly — this
+        # IS exactly CONCIERGE's real schema (prompts/concierge.md): a flat
+        # {"reply", "intent"}, no "result" wrapper. Found live (2026-07-13)
+        # that "intent" used to get silently dropped here (missing from
+        # _RESULT_KEYS), breaking the pending-offer flow with the real model
+        # even though every test passed (the mock path never goes through
+        # from_dict, so this blind spot only showed up live).
         resp = AgentResponse.from_dict({"reply": "hola", "intent": "pricing"})
-        self.assertEqual(resp.result, {"reply": "hola"})
-        # "intent" is not a contract result key, so it is dropped, not lifted.
-        self.assertNotIn("intent", resp.result)
+        self.assertEqual(resp.result, {"reply": "hola", "intent": "pricing"})
         self.assertTrue(resp.ok)
 
     def test_lifts_multiple_known_keys(self):

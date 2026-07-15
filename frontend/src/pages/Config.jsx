@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2, AlertCircle, WifiOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
-import { Card, Button, Input, Skeleton, Badge } from '../components/ui'
+import { Card, Button, Input, Skeleton, Badge, SectionTitle } from '../components/ui'
 import AgentTester from '../components/AgentTester'
 
 export default function Config() {
@@ -117,14 +117,14 @@ export default function Config() {
       <Card className="p-6">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <div className="font-semibold flex items-center gap-2">
+            <SectionTitle className="flex items-center gap-2">
               Envío real
               {cfg?.outbox_live && (
                 <span className="text-sm text-gold-deep font-medium flex items-center gap-1">
                   <CheckCircle2 size={16} /> Activado
                 </span>
               )}
-            </div>
+            </SectionTitle>
             <div className="text-xs text-zinc-400 mt-0.5">
               {cfg?.outbox_live
                 ? 'Los mensajes se ENVÍAN de verdad por los canales conectados.'
@@ -180,7 +180,7 @@ function MetaAdsCard({ cfg, vals, set, save }) {
   return (
     <Card className="p-6">
       <div className="flex items-center justify-between">
-        <div className="font-semibold">Meta Ads (campañas)</div>
+        <SectionTitle>Meta Ads (campañas)</SectionTitle>
         <Badge color={status.color} className="inline-flex items-center gap-1">
           <status.icon size={12} /> {status.label}
         </Badge>
@@ -284,7 +284,7 @@ function IntegrationCard({ title, ok, hint, children }) {
   return (
     <Card className="p-6">
       <div className="flex items-center justify-between">
-        <div className="font-semibold">{title}</div>
+        <SectionTitle>{title}</SectionTitle>
         {ok && (
           <span className="text-sm text-gold-deep font-medium flex items-center gap-1">
             <CheckCircle2 size={16} /> Conectado

@@ -28,294 +28,158 @@ en el momento** — así una compresión de contexto no nos lo borra.
   primero con `grep` — no asumas el contrato de un prompt sin verificar contra el código.
 - Guardia automática: `tests/test_core.py::ApiRoutesTest` falla si `api.py` registra la
   misma ruta dos veces (justo el problema de hoy).
+- **Motor real (Ollama local) — ya activo en producción, verificado 2026-07-06.**
+  `LOCAL_MODEL`/`LOCAL_MODEL_URL` ya estaban seteados en el `.env` del Ubuntu (no
+  hizo falta tocar nada) y `api.py::_agents_best()` ya prioriza local sobre mock
+  cuando no hay `ANTHROPIC_API_KEY` — confirmado con `GET /api/config` mostrando
+  `local_model` y con `POST /api/whatsapp/simulate` devolviendo `"mode": "live"`.
+  **Latencia real medida** (3 llamadas a CONCIERGE vía el endpoint real, en el
+  Ryzen 7 9700X sin GPU): **~35s en frío** (modelo recién cargado en RAM por
+  Ollama tras estar inactivo) y **~7-9s en caliente** (llamadas seguidas).
+  **Resuelto (2026-07-06)**: `OLLAMA_KEEP_ALIVE=30m` vía override de systemd en
+  el servidor (`/etc/systemd/system/ollama.service.d/override.conf`, ver
+  `docs/motor-real.md`) — sube el default de 5 a 30 minutos antes de descargar
+  el modelo de RAM, gratis, sin tocar código. Verificado en vivo con
+  `GET /api/ps` (`expires_at` confirmado a 30 min). **Hallazgo importante en el
+  camino**: el campo `keep_alive` por request NO funciona vía
+  `/v1/chat/completions` (el endpoint compatible con OpenAI que usa
+  `LocalBackend`) — solo la API nativa de Ollama lo respeta; por eso el fix es
+  a nivel de servidor, no de código.
+  **Rescatado de código sin commitear** (2026-07-06) — al limpiar las carpetas
+  duplicadas viejas en Ubuntu (`/home/diego/zero`, `/home/diego/zeroai-`, ver
+  [[zero-branch-sprawl-lesson]]) apareció trabajo válido nunca subido a `main`:
+  `--local-timeout` en el CLI (override opcional; el default sigue siendo el
+  600s ya generoso de `LocalBackend`) y `no_think` — para modelos razonadores
+  (DeepSeek-R1, QwQ; Diego tiene `deepseek-r1:7b` instalado) le pide a Ollama
+  que se salte el bloque de razonamiento (parámetro `think`, Ollama 0.9+).
+  **Verificado en vivo (2026-07-06)** contra `deepseek-r1:7b` real: sin el
+  flag, 97 tokens de razonamiento (en un campo `reasoning` aparte — no
+  embebido en el texto como se pensó al principio); con el flag, solo 10 —
+  ahorro real de tiempo/tokens, no un fix de parseo. Sin efecto en qwen2.5
+  (el que usa hoy). 2 tests nuevos. El resto de lo encontrado ahí
+  (scripts viejos de terminales Ptyxis, superados por los workspaces de
+  Conductor) se descartó, sin valor. Ambas carpetas (`/home/diego/zero`,
+  `/home/diego/zeroai-`) ya se **borraron** del Ubuntu — solo queda
+  `/home/diego/Desktop/zeroai`, la que corre de verdad (systemd).
+- **Supabase real conectado (2026-07-09)** — Diego decidió activarlo ya que hay
+  plata real en juego (Vapi, ElevenLabs) y quiere las keys respaldadas.
+  Proyecto viejo **"zeroai-estudio-latam"** estaba `INACTIVE` (el plan gratis
+  lo pausó solo tras no usarse — confirma el riesgo real, no solo teórico).
+  Diego aclaró que ese proyecto es de otra cosa, así que se creó uno **nuevo y
+  dedicado, "zeroai"** (`lhdvybpgyexxypjtthce.supabase.co`, org FudyInc,
+  `sa-east-1`, plan gratis $0/mes). Se corrió `supabase_schema.sql`
+  (`crm_leads` + `app_state`) con **RLS activado desde el día 1** (el backend
+  usa la key `service_role`, que ignora RLS igual — cero riesgo de romper
+  nada, cero costo, solo más seguro por defecto). Se migraron los **22 leads
+  reales** de `crm.json` y todo `state.json` (clientes, ICP, secuencias,
+  vendedores) del Ubuntu de producción al proyecto nuevo — confirmado
+  funcionando de punta a punta sobre HTTP real (`/api/clients`, `/api/kpis`,
+  `/api/leads`, `/api/vendor`, `/api/knowledge`, todos leyendo de Supabase).
+  **Resuelto (2026-07-13):** las 2 tablas vacías con forma de ZeroAI que habían
+  quedado en el proyecto viejo no se tocan — Diego confirmó que ese proyecto
+  ("zeroai-estudio-latam") es de otra cosa suya, no de este repo. Solo se
+  trabaja en el proyecto **"zeroai"** (`lhdvybpgyexxypjtthce`); ver
+  [[zero-supabase-testing]].
+  **Keep-alive diario**: nuevo `scripts/supabase_keepalive.py` (GET liviano a
+  `app_state`) + `zero-supabase-keepalive.service`/`.timer` en systemd
+  (corre todos los días 9am, `Persistent=true` para no perderse si el PC
+  estaba apagado) — para que el plan gratis nunca vuelva a pausarse por
+  inactividad. Probado en vivo, responde OK.
+  **Límite honesto**: ningún código evita que alguien borre el proyecto a
+  mano desde el panel de Supabase, ni protege contra un cambio de política
+  del plan gratis — eso depende de que la cuenta de Diego esté segura (2FA).
+- **Vapi conectado (2026-07-09)** — API key (privada, nunca por chat, siempre
+  vía Configuración → tarjeta Vapi) guardada y activa (`vapi: true` en
+  `/api/config`). El frontend (`Llamadas.jsx`) ya arma el +56 de Chile
+  automático — sin cambios de código, solo faltaba la cuenta.
+- **Todas las terminales respaldadas en GitHub (2026-07-09)** — se encontró
+  trabajo real sin subir en varias: `dashboard` (2 archivos sin commitear +
+  la rama nunca pusheada), `landing` (la primera versión completa de la
+  landing, ni siquiera agregada a git), `debug` e
+  `investigacion-mercado-competencia` (commiteadas pero nunca pusheadas).
+  Las 4 quedaron commiteadas y subidas a GitHub con upstream configurado.
+  `core` se sincronizó (tenía 11 commits de atraso). Ninguna de las 3
+  terminales de MOTOR tenía trabajo propio todavía. 366/366 tests en verde
+  después de sincronizar todo.
 
 ## 🎯 Plan de fiabilidad — "listo para el mercado" (2026-07-04) · 🟡 EN CURSO
-Criterio: no lanzar hasta que esto esté resuelto **de verdad**, no "se siente listo".
-Orden acordado con Diego — no reordenar sin avisar:
+Criterio: no lanzar hasta que esto esté resuelto **de verdad**, no "se siente
+listo". Detalle completo de cada punto (bugs encontrados, causa raíz, archivos,
+tests) en [docs/roadmap-archive.md](roadmap-archive.md#plan-de-fiabilidad-detalle-completo).
 
-1. **Plantillas de WhatsApp Business (Meta)** — ✅ CÓDIGO LISTO (2026-07-04), falta
-   el paso manual de Diego. Confirmado en código: `WhatsAppSender.send()`
-   (`zero/channels.py`) siempre mandaba `type: "text"`. Meta EXIGE una plantilla
-   pre-aprobada para el primer contacto a un lead que nunca escribió, o cualquier
-   mensaje fuera de la ventana de 24h desde su último mensaje — un `type: "text"` en
-   frío es rechazado por la Graph API real. Afecta: `_send_first_touch` y
-   `run_followups` (orchestrator.py). NO afecta las respuestas dentro de
-   `handle_inbound` (son réplica a algo que el lead ya escribió, dentro de la ventana
-   de 24h — texto libre está bien ahí).
-   **Hecho:** `WHATSAPP_TEMPLATE` en `zero/config.py`; `WhatsAppSender` soporta
-   `type: "template"` (`_template_body`) y sigue soportando texto libre (`_text_body`)
-   para las respuestas; orchestrator marca `whatsapp_send_type: "template"` solo en
-   los dos puntos de contacto en frío; sin plantilla configurada, degrada a error
-   visible en el CRM (nunca manda texto libre que Meta rechazaría en silencio). 5
-   tests nuevos, 297/297 en verde. Instrucciones para Diego en `docs/GO-LIVE.md` §(c).
-   **Falta (fuera de código, manual):** Diego crea la plantilla en Meta Business
-   Manager, espera aprobación, y la anota en `WHATSAPP_TEMPLATE`.
-2. **Fragilidad del hosting** — ⏸️ PAUSADO A PROPÓSITO (2026-07-04). El backend
-   depende de un PC Ubuntu + túnel gratis de ngrok; si el PC se apaga/reinicia sin
-   querer, todo el producto cae. Decisión de Diego: **mientras esté en fase de
-   desarrollo/prueba, sin clientes reales, todo esto queda pausado** — ni VPS, ni
-   Supabase, ni siquiera UptimeRobot todavía. El foco ahora es el producto en sí
-   (punto 3 en adelante). Retomar recién cuando haya que salir al mercado:
-   - VPS barato (Hetzner/DigitalOcean, ~$4-6 USD/mes) — mismo código, mismos
-     `systemd`, máquina con energía/internet garantizados. Render descartado (ver
-     [[zero-hosting-decision]] — fricción con las keys). Vercel NO sirve para el
-     backend (serverless, sin proceso persistente, disco efímero — rompería el
-     fallback a `state.json`/`crm.json`); se queda con su rol actual, solo frontend.
-     Supabase (ya construido: `SupabaseCRM`/`SupabaseMemory`) sí encaja para la capa
-     de datos — ojo: el plan gratis pausa el proyecto tras ~1 semana sin actividad.
-   - Monitoreo con alerta (UptimeRobot gratis + push a iPhone) — pasos ya definidos,
-     ver commit anterior de esta sección; solo falta ejecutarlos cuando toque.
-   - BIOS del PC Ubuntu: "Restore on AC Power Loss" (auto-enciende al volver la luz).
-3. **Test end-to-end HTTP** — ✅ HECHO (2026-07-04). `tests/test_api_http.py`: levanta
-   `api.py` real como subproceso (`uvicorn`) y le pega con HTTP real (stdlib puro —
-   `subprocess`+`urllib`, SIN `httpx`/`TestClient`, cero dependencias nuevas más allá
-   de lo que `api.py` ya necesita). Corre solo, y se salta a sí mismo (skip limpio)
-   si `uvicorn` no está instalado — separado de `test_core.py`, que sigue siendo
-   100% stdlib.
-   **Encontró un bug real al primer uso:** `GET /api/clients` tiraba `500` crudo
-   cuando `SUPABASE_URL`/`SUPABASE_KEY` estaban configuradas pero Supabase no
-   respondía (`SupabaseError` sin capturar). Causa: `make_crm()`/`SupabaseCRM` cargan
-   perezoso a propósito (no hacen `SELECT *` — ver escalabilidad más abajo), así que
-   el fallo real aparece recién al primer query, no al construir el objeto —
-   `make_memory()` sí tenía ese fallback (con try/except en la construcción),
-   `make_crm()` no tenía ninguno.
-   **Arreglado:** manejador de excepción global en `api.py`
-   (`@app.exception_handler(SupabaseError)`) que convierte CUALQUIER `SupabaseError`
-   sin capturar, en cualquier endpoint, a un `503` con mensaje claro — en vez de un
-   `500` genérico. Cubre tanto `crm_supabase.py` como `memory_supabase.py` (comparten
-   la misma excepción). Test de regresión agregado. 302/302 tests en verde.
-4. Checklist de fiabilidad — ✅ CÓDIGO LISTO (2026-07-04). Los 4 ítems de código
-   (firma del webhook, reintentos de envío, backup de crm.json/state.json,
-   casos difíciles de CONCIERGE, expiración de sesión) están hechos y probados.
-   Quedan 2 puntos que son acción manual de Diego (anotados, no bloquean nada
-   de código): password real en vez de la de prueba, vendedores con números
-   reales de WhatsApp Business (en curso — bloqueado hoy por la verificación
-   de cuenta personal de Meta, ver docs/GO-LIVE.md §(c)). Prueba en móvil
-   **descartada a propósito** (2026-07-04): el dashboard es propietario, solo
-   la agencia lo opera, y siempre desde computador — no aporta nada probarlo
-   en celular.
-   - **Verificación de firma del webhook de Meta** — ✅ HECHO. `POST
-     /api/webhooks/whatsapp` no verificaba nada — cualquiera con la URL podía
-     mandar mensajes falsos haciéndose pasar por un lead (y hasta gatillar una
-     respuesta real con `OUTBOX_LIVE=1`). Agregado `verify_meta_signature` en
-     `zero/whatsapp_inbound.py` (HMAC-SHA256 contra `WHATSAPP_APP_SECRET`,
-     comparación con `hmac.compare_digest`); sin el secreto configurado, o con una
-     firma que no cuadra, el webhook rechaza con `403` — no hay forma de recibir
-     mensajes reales sin el secreto. `WHATSAPP_APP_SECRET` sumado a
-     `POST /api/config` y a `docs/GO-LIVE.md`. 4 tests nuevos (función aislada +
-     HTTP real). 306/306 tests en verde.
-   - **Reintentos de envío fallido** — ✅ HECHO (2026-07-04). `Outbox.send()` no
-     reintentaba nada: un corte de red momentáneo (timeout SMTP, blip de la Graph
-     API) degradaba el envío a `"error"` para siempre en el primer intento fallido,
-     sin darle ninguna chance a un problema transitorio. Agregado
-     `OUTBOX_RETRY_ATTEMPTS`/`OUTBOX_RETRY_DELAY_SECONDS` en `zero/config.py`
-     (3 intentos, 1s de espera entre cada uno, configurable por instancia);
-     `Outbox.send()` reintenta con esos parámetros y solo degrada a `"error"`
-     cuando se agotan todos los intentos. Nunca cambia el contrato (`Outbox`
-     sigue sin lanzar excepciones hacia afuera). 2 tests nuevos (reintenta y
-     luego funciona / se agotan los reintentos y degrada a error), más un ajuste
-     a un test viejo que sin querer empezó a dormir de verdad con la nueva
-     lógica (`retry_delay=0` en los tests, para no pagar el segundo real en cada
-     corrida de la suite). 308/308 tests en verde, ~1s (tiempo normal).
-   - **Backup de `crm.json`/`state.json`** — ✅ HECHO (2026-07-04). `CRM.save()` y
-     `SessionMemory.save()` escribían directo sobre el archivo — una escritura
-     cortada a mitad de camino (crash, corte de luz, disco lleno) podía dejarlo
-     corrupto, y sin ningún respaldo eso significaba perder todos los leads o
-     todo el estado de sesión de un saque (`_load()` ya avisaba con
-     `RuntimeError` en vez de arrancar vacío, pero no había forma de recuperarse).
-     Nuevo módulo compartido `zero/persistence.py` (`save_json`/`load_json`):
-     escritura atómica (temporal + `os.replace`, nunca deja un archivo a medio
-     escribir) que además rota la versión anterior a `<path>.bak` antes de
-     reemplazar; al leer, si el archivo principal está corrupto intenta el
-     `.bak` automáticamente (con aviso claro por stderr) antes de recién ahí
-     rendirse. `crm.py`/`memory.py` migrados a este módulo, sin cambiar su
-     comportamiento externo. `.gitignore` cubre `*.json.bak`/`*.json.tmp`. 6
-     tests nuevos (rotación, recuperación desde backup, ambos corruptos → error
-     claro, extremo a extremo con `CRM` real).
-   - **Prueba de CONCIERGE con casos difíciles** — ✅ HECHO (2026-07-04). Un
-     lead real puede escribir cualquier cosa — vacío, groserías, spam, inglés,
-     un mensaje gigante — y el agente nunca puede romperse por eso. Probado a
-     mano primero (mensaje vacío/blanco, solo emojis, 20.000 caracteres, `None`,
-     insultos con "estafa") y ninguno crashea; los 7 tests nuevos
-     (`ConciergeEdgeCasesTest`) lo dejan como regresión: mensaje vacío/blanco,
-     `data` sin la clave `message`, groserías (nunca las repite en la
-     respuesta), spam/sin sentido, "stop" en inglés (opt-out sin traducir
-     nada — misma keyword), mensaje de ~25.000 caracteres (con límite de tiempo
-     para descartar un ReDoS), y lead sin nombre (el saludo no debe romperse).
-   - **Expiración de sesión probada** — ✅ HECHO (2026-07-04). `zero/auth.py` ya
-     tenía tests unitarios de `valid_token()` (expira, password rotada, token
-     alterado), pero eso nunca probó que el middleware real de `api.py`
-     (`auth_guard`) de verdad lo aplique en cada request — la lógica podía
-     estar perfecta y el middleware roto, y los tests seguirían en verde.
-     Agregada `ApiAuthHttpTest` en `tests/test_api_http.py`: subproceso propio
-     con `AUTH_PASSWORD` configurado (separado de `ApiHttpTest`, que corre a
-     propósito sin password para probar los demás endpoints libremente),
-     probando sobre HTTP real: sin token → 401, token basura → 401, password
-     incorrecta en `/api/login` → 401, login con token válido → 200, **token
-     vencido firmado con la password real del servidor → 401** (el caso central:
-     firma válida pero expirado, para separar "token falso" de "token viejo"),
-     y que `/api/health`/`/api/auth/status` nunca piden token. Se extrajo
-     `_wait_until_up` como función compartida del archivo (la usaban ambas
-     clases). 6 tests nuevos. 327/327 tests en verde (13 de ellos en
-     `test_api_http.py`, subiendo el tiempo total a ~1.8s por los dos
-     subprocesos de uvicorn — el resto de la suite sigue en ~1s).
+**Abierto:**
+2. **Fragilidad del hosting** — ⏸️ PAUSADO A PROPÓSITO. El backend depende de un
+   PC Ubuntu + túnel gratis de ngrok; si se apaga/reinicia sin querer, todo el
+   producto cae. Decisión de Diego: mientras esté en fase de desarrollo/prueba,
+   sin clientes reales, esto queda pausado (ni VPS, ni UptimeRobot todavía). Plan
+   ya definido para cuando toque retomarlo (VPS barato, monitoreo con alerta,
+   BIOS "Restore on AC Power Loss") — detalle en el archivo.
+
+**Cerrado** (✅, detalle en el archivo):
+1. Plantillas de WhatsApp Business — código listo; falta el paso manual de Diego
+   (crear la plantilla en Meta Business Manager, esperar aprobación).
+3. Test end-to-end HTTP real (`tests/test_api_http.py`) — encontró y arregló un
+   500 crudo cuando Supabase no respondía.
+4. Checklist de fiabilidad (firma del webhook, reintentos de envío, backup de
+   crm.json/state.json con rotación `.bak` — incluye un simulacro real de
+   corrupción en Ubuntu de producción —, casos difíciles de CONCIERGE,
+   expiración de sesión) — todo hecho y probado.
+   Auditorías en vivo por agente/módulo con el modelo real — ANALYST (sin bugs,
+   solo un hallazgo de calibración), MOTOR-llamadas, defensivo/webhooks/
+   discovery, y CONCIERGE por WhatsApp — encontraron y arreglaron 6 bugs reales:
+   `intent` de CONCIERGE perdido en silencio, `AttributeError` en el webhook de
+   WhatsApp y en `list_assistants`/`metaads` si Vapi/Meta cambia de forma, falso
+   positivo de nombre en `discovery.py` (testimonios de clientes), y un mensaje
+   gigante que dejaba al lead sin respuesta.
+
+392/392 tests en verde.
 
 ---
 
-## Plan A — Pulido del dashboard (4 puntos) · ✅ COMPLETO
-1. **Pulido en TODAS las páginas** (animaciones, skeletons, estados carga/error/vacío) — ✅
-   commiteado (rework en las 9 vistas del frontend).
-2. **Drag & drop en el Pipeline** — ✅ presente en `frontend/src/pages/Pipeline.jsx`.
-3. **Formulario de ICP en "Buscar leads"** — ✅ en `frontend/src/App.jsx`; el backend
-   `/api/pipeline` acepta `icp`.
-4. **Búsqueda + filtros en Leads** — ✅ en `frontend/src/pages/Leads.jsx`.
+## Plan A — Pulido del dashboard · ✅ COMPLETO
+Los 4 puntos (pulido de las 9 vistas, drag & drop en Pipeline, formulario de ICP
+en "Buscar leads", búsqueda + filtros en Leads) — detalle en
+[docs/roadmap-archive.md](roadmap-archive.md#plan-a---pulido-del-dashboard).
 
 ## Integraciones + dashboard de configuración · ✅ COMPLETO
-Panel `IntegrationCard` en `frontend/src/pages/Config.jsx` + endpoint `/api/config`
-(`api.py`), guarda keys en `.env` local, nunca devuelve el secreto. Integraciones:
-- **Anthropic** (modo `--live`) · **ElevenLabs** (voz) · **Vapi** (llamadas) ·
-  **Supabase** (CRM en la nube).
+Panel `IntegrationCard` en Config + `/api/config` (Anthropic, ElevenLabs, Vapi,
+Supabase) — detalle en
+[docs/roadmap-archive.md](roadmap-archive.md#integraciones-y-dashboard-de-configuracion).
 
 ## Plan B — Motor real / "listo para el día 1" (checklist de 7) · 🟡 EN CURSO
-Motor real (que de verdad SOLUCIONE):
-1. **Calificación/score REAL** contra el ICP del cliente — ✅ commit `motor-real`
-   (prompts reales + `zero/icp.py` + camino real con parseo a prueba de balas).
-2. **Discovery real y confiable** — 🟡 parcial: `DuckDuckGoSource` sin key mejorada (✅ 2026-06-11: minería de directorios, fallback a /contacto, filtrado de señales de email/teléfono); falta
-   proveedor con key para cobertura mayor. Tests nuevos en `tests/test_discovery.py`; 6/6 PyMEs reales en vivo.
-   **Cuantificado en vivo (2026-07-04)** con el pipeline real completo (Ollama
-   qwen2.5:7b + `--discover web`) contra "pooledge" (venta de bordes de piscina
-   y pastelones — ex-empresa de Diego, la reabre), buscando "empresas
-   constructoras de piscinas en Chile": encontró **8/8 empresas reales y
-   legítimas** (Splash Piscinas, Aguamundo, MASPISCINAS, chilepiscinas.cl, …,
-   con email/teléfono real), pero **0/8 llegaron al mínimo de calificación
-   (70)** — mejor score 65 — de forma consistente por la misma causa:
-   PROSPECTOR no logra verificar un decisor real en sitios de PyMEs chicas
-   (`role` queda en `"por verificar"`), y QUALIFIER, bien calibrado, penaliza
-   fuerte esa falta de señal. No es un bug — es el límite real y ya conocido
-   del scraping sin key, ahora con un número concreto detrás.
-   **Decisión de Diego (2026-07-04):** el modelo de negocio es vender el mismo
-   servicio a empresas chicas, medianas y grandes, a distinto precio y con
-   distinto volumen/calidad de entrega según el plan — "a nosotros nos sirven
-   todos los negocios". Por eso el piso de calificación pasa a ser **por
-   tier**, no un número único: `zero/config.py::MIN_ICP_SCORE_BY_TIER` —
-   STARTER 50 (plan de entrada, prioriza volumen, sirve a pymes chicas sin
-   decisor verificable), GROWTH 60, SCALE 70, ENTERPRISE 80 (el que más paga
-   exige más precisión). `MIN_ICP_SCORE` (60) queda como default/fallback para
-   tiers sin entrada propia. `validate_lead`/`_validate_and_record` reciben
-   `tier` y usan `config.min_icp_score(tier)`. 6 tests nuevos (piso escala con
-   el tier, orden STARTER<GROWTH<SCALE<ENTERPRISE, fallback sin tier). 334/334
-   en verde. Fuera de alcance por ahora seguir puliendo el scraping en sí (ver
-   [[zero-scope-discipline]]) — esto es política, no mecanismo.
-3. **Outreach de calidad real** — ✅ evaluado en vivo (2026-07-04) con el modelo
-   real (Ollama qwen2.5:7b) contra el lead real de mejor score de la prueba de
-   arriba (Splash Piscinas). El mensaje en sí fue sólido (menciona bien
-   PoolEdge, el rubro del lead, tono profesional, CTA claro), pero encontró 2
-   bugs reales de calidad, ambos arreglados:
-   - **Saludo roto**: sin rol/nombre verificado, el modelo saludaba con el
-     **email crudo como si fuera un nombre** ("Hola ventas@splash.cl,") — se ve
-     robótico y le resta credibilidad al primer contacto. Arreglado con una
-     instrucción explícita en `prompts/outreach.md` (saludar a la empresa, nunca
-     citar el email/teléfono como nombre).
-   - **Rol placeholder citado como real**: incluso en modo mock, un lead con
-     `role="por verificar"` (el placeholder honesto de PROSPECTOR cuando no
-     hay decisor verificado) generaba mensajes tipo *"vi que lideras como por
-     verificar en Splash Piscinas"*. Nueva constante compartida
-     `contracts.ROLE_UNVERIFIED`; `outreach.py` y `prospector.py` la tratan
-     igual que un rol vacío/desconocido. Test de regresión agregado.
-   - **Firma inventada** (encontrada corriendo `main.py` real, tier STARTER, tras
-     arreglar los dos bugs de arriba): sin nadie con quién firmar, el modelo
-     real firmó literalmente **"Me llamo OUTREACH... Atentamente, OUTREACH"** —
-     usó el nombre interno del sub-agente como si fuera una persona, delatando
-     el mecanismo a un lead real. Causa: `run_pipeline` nunca le pasaba a
-     OUTREACH el vendedor asignado al cliente (Fernanda/Stéfano), a diferencia
-     de `converse_result` (CONCIERGE), que sí lo hacía. Arreglado: mismo patrón
-     `{name, tone}` de `vendor_for(client_id)` ahora viaja en `data.vendor` para
-     OUTREACH también; `prompts/outreach.md` instruye firmar con ese nombre si
-     viene, nunca inventar uno, y **nunca usar "OUTREACH" ni ningún nombre de
-     agente/rol interno como firma**. Modo mock actualizado para el mismo
-     contrato (firma con `data.vendor.name` si viene, sin firma de persona si
-     no). 3 tests nuevos (firma con vendor, nunca firma con el nombre del
-     agente, integración completa en `run_pipeline`).
-   **Bug de mecanismo encontrado y arreglado en el camino**: QUALIFIER con
-   backend real (probado con qwen2.5:7b, aplica a cualquier modelo real) a
-   veces omitía `channel`/`email`/`phone`/`role` al reescribir el JSON —
-   rechazaba leads perfectamente completos por una falla de fidelidad del
-   modelo, no por datos faltantes. `_merge_qualifier_scores` en
-   `orchestrator.py` restaura todo excepto `score`/`icp_reasons` desde el lead
-   original.
-   **Auditoría de TRACKER (2026-07-06)** — mismo chequeo que a OUTREACH, ya que
-   compartía el mismo hueco (nunca tenía tests dedicados). Encontrado: un bug
-   **100% determinista, sin necesitar modelo real** — `name = s.get("name") or
-   "Hola"` metía el saludo genérico COMO SI fuera el nombre, produciendo
-   *"Hola Hola, te escribí hace unos días..."* para cualquier lead sin nombre
-   verificado (el caso más común en discovery web real). También sin
-   `data.vendor` (mismo hueco que tenía OUTREACH) — mismo arreglo: vendor
-   persona ahora viaja en `run_followups` → TRACKER, `prompts/tracker.md`
-   actualizado con las mismas reglas de saludo/firma, subject de "breakup"
-   arreglado para no mostrar `"None"` sin nombre. 5 tests nuevos
-   (`TrackerTest`, cero tests previos). 345/345 en verde.
+Motor real (que de verdad SOLUCIONE). Detalle completo de cada punto (bugs
+encontrados, causa raíz, archivos, tests) en
+[docs/roadmap-archive.md](roadmap-archive.md#plan-b-detalle-completo).
 
-Canales reales:
-4. **Que al menos un canal ENVÍE de verdad** (email = el más viable) — ✅ **capa de envío
-   lista, mock-first**. `zero/channels.py`: abstracción `Outbox` + `MockSender` /
-   `EmailSender` (SMTP stdlib) / `WhatsAppSender` (Meta Cloud API). El orquestador envía
-   el primer toque (`run_pipeline`) y los follow-ups (`run_followups`); cada envío queda
-   en el historial del CRM. **Mock por defecto incluso con credenciales** — se envía de
-   verdad solo con `OUTBOX_LIVE=1` (interruptor "Activar envío real" en Config). Cards de
-   Email y WhatsApp en el dashboard. 3 tests nuevos.
-   **Probado en vivo (2026-07-06)**: SMTP real (Gmail) ya configurado y
-   `outbox_live: true` en producción. Confirmado punta a punta con 2 correos
-   reales — uno vía `/api/test-email` (send directo) y otro vía el `Outbox`
-   real (con reintentos) — ambos llegaron. Falta: el **agente conversacional de
-   WhatsApp** (entrante de dos vías, que se apoya en el loop de respuestas).
+**Abierto:**
+2. **Discovery real** — 🟡 parcial: `DuckDuckGoSource` sin key mejoró harto
+   (minería de directorios, extracción de decisor, filtrado de falsos
+   positivos), pero **falta un proveedor con key para cobertura mayor**. Límite
+   conocido y cuantificado en vivo: contra "pooledge" (piscinas), 8/8 empresas
+   reales encontradas, 0/8 sobre el mínimo de calificación por falta de decisor
+   verificable en sitios de PyMEs chicas — no es un bug, es el techo del
+   scraping sin key. Por eso el piso de calificación es por tier
+   (`MIN_ICP_SCORE_BY_TIER`), no un número único — decisión de negocio de Diego,
+   no algo que el scraping deba resolver solo.
 
-   **Hallazgo de robustez (no es bug de código, es riesgo operativo):** el
-   remitente es una cuenta de **Gmail personal** (`fudyfoodscl@gmail.com`), no
-   un dominio propio de negocio. Tres riesgos reales para cuando haya volumen:
-   límite de ~500 correos/día en Gmail gratis; mala entregabilidad (sin
-   SPF/DKIM de un dominio propio, más probable que cualquier filtro antispam
-   lo mande a spam); y riesgo a la cuenta personal si Gmail detecta un patrón
-   de envío masivo/frío. La solución completa (dominio propio + proveedor
-   dedicado tipo SES/Mailgun) es gasto — ya está en
-   "⏸️ Pendientes de PAGO" más abajo, no se toca ahora.
-
-   **Arreglado, gratis, en el camino**: el "From" del email salía con la
-   dirección pelada de la cuenta SMTP, sin decir de parte de quién escribía —
-   mismo problema de fondo que las firmas rotas de OUTREACH (ver Discovery/
-   Outreach arriba). `EmailSender` ahora arma el header `From` con el nombre
-   del vendedor asignado (ej. "Stéfano <cuenta@gmail.com>") cuando
-   `_deliver` (usado por `run_pipeline`/`run_followups`) se lo pasa — mismo
-   patrón que ya existía para WhatsApp/CONCIERGE
-   (`vendor_for(client_id)`). `_build_message` se separó a `@staticmethod`
-   para poder probarlo sin tocar la red. 3 tests nuevos. 340/340 en verde.
-
-Robustez:
-5. **Sin crasheos, maneja datos malos** — ✅ parseo tolerante + 40/40 tests.
-
-Operación:
-6. **Login / multi-cliente** — ✅ (2026-06-11): gate de un password (`zero/auth.py`,
-   tokens firmados por el propio password) + middleware en `api.py`; sin password
-   configurado queda abierto (dev).
-7. **Loop completo** (respuesta → acción) — ✅ **agente conversacional listo, mock-first**.
-   `register_reply` cierra la secuencia y mueve a `replied` (forward-only). Agente
-   **CONCIERGE** (`zero/agents/concierge.py` + `prompts/concierge.md`): responde preguntas
-   sobre el negocio del cliente usando su ICP, propone reunión, y **se transparenta como
-   IA** si le preguntan. `Zero.converse` (redacta) y `Zero.handle_inbound` (mapea entrante
-   → cierra loop → responde → envía). WhatsApp entrante: `zero/whatsapp_inbound.py` (parser)
-   + webhook `GET/POST /api/webhooks/whatsapp` (verificación Meta + recepción). Probador en
-   vivo: `POST /api/whatsapp/simulate` y card **"Probar el agente de respuestas"** en Config
-   (mock por intención; con Anthropic key responde el modelo real). **Detección automática
-   de respuestas** ✅ (2026-06-11): `zero/inbox.py` (abstracción `Inbox` + `MockInbox` /
-   `FileInbox` drop-box / `ImapInbox` stdlib con `INBOX_LIVE=1`). El orquestador corre
-   `check_replies()` antes de los follow-ups (`run_followups`): quien ya respondió no
-   recibe más toques. Acción `--action replies` y flag `--inbox` en el CLI. **Intents
-   ampliados + ofertas pendientes** ✅ (2026-06-11): CONCIERGE maneja objeciones,
-   desconfianza y "mándame info" (intents `objection/trust/info`), y ZERO **cumple lo
-   que el agente promete**: la oferta queda en `memory.pending_offers` y la aceptación
-   del lead ("sí", "por acá", un correo) dispara el envío del resumen real
-   (`build_info_summary`, fiel al ICP) por el canal elegido, con evento `info_sent`
-   en el CRM. Falta para real: número de WhatsApp Business + URL pública
-   (deploy/ngrok) para el webhook.
+**Cerrado** (✅, detalle en el archivo):
+1. Calificación/score real contra el ICP.
+3. Outreach de calidad real — evaluado en vivo, 3 bugs de calidad encontrados y
+   arreglados (saludo con email crudo, rol placeholder citado como real, firma
+   inventada con el nombre del agente — mismo patrón arreglado después en
+   TRACKER y PITCHWRITER). De paso: bug de QUALIFIER perdiendo campos con el
+   modelo real, arreglado con `_merge_qualifier_scores`.
+4. Canal de envío real (email) — probado en vivo con SMTP real (Gmail), 2
+   correos reales confirmados punta a punta. Riesgo operativo anotado: cuenta
+   Gmail personal, no dominio propio (límite de envío + entregabilidad) —
+   solución completa es gasto, en "Pendientes de pago" más abajo.
+5. Sin crasheos, maneja datos malos.
+6. Login / multi-cliente.
+7. Loop completo (respuesta → acción, CONCIERGE) — auditado en vivo dos veces
+   (2026-06-11 y 2026-07-06), encontró y arregló 4 bugs en total (cotización mal
+   calculada, nombre de vendedor inconsistente, y los 2 de la ronda de WhatsApp
+   más arriba). Falta el número de WhatsApp Business real (bloqueado por
+   verificación de cuenta personal de Meta, ver "Estado de infraestructura").
 
 ## Formulario de ICP (mejorado, 2026-06-07)
 Antes capturaba 4 de 8 campos y era write-only. Ahora: los **8 campos** (`industry,
@@ -326,7 +190,7 @@ en `state.json` (local) — pasarlo a la nube es parte de multi-tenant (#6).
 
 ---
 
-## Escalabilidad + multi-tenant (track combinado, 2026-06-07) · 🟡 EN CURSO
+## Escalabilidad + multi-tenant (track combinado, 2026-06-07) · ✅ COMPLETO
 Modelo decidido: **agencia, un solo dueño** (tú entras; los "clientes" son cuentas
 internas aisladas en datos, no entran ellos).
 1. **Lectura escalable** — ✅ `SupabaseCRM` ya no hace `SELECT *`: carga **por cliente**
@@ -352,16 +216,34 @@ Campañas; entra como `qualified` + tag "Meta Ads", mock por defecto). Falta: in
 reales (gasto/leads del endpoint de Meta).
 
 ## ⏸️ Pendientes de PAGO (hacer cuando Diego pueda pagar — ver [[zero-cost-policy]])
-Cero gasto por ahora. Estos están construidos **mock-first / con seam listo**; solo falta
-enchufar la cuenta/key de pago para que funcionen de verdad:
+Cero gasto salvo lo que Diego ya decidió activar (Vapi, Supabase — ver abajo).
+Todo esto está construido **mock-first / con seam listo**; solo falta
+enchufar la cuenta/key de pago para que funcione de verdad:
 - **Motor real con Anthropic** — calidad real de scoring/mensajes/agentes. (Alternativa
-  gratis: modelo local Ollama). 
+  gratis: modelo local Ollama).
 - **Meta Ads real**: insights (gasto/leads/CPL reales) y gestión que **aplica** el plan
   de Claude (pausar/presupuesto). (La cuenta de Meta nueva además tiene cooldown inicial.)
-- **Discovery con proveedor con key** — cobertura real de prospección.
-- **ElevenLabs** (clonación de voz) y **Vapi** (llamadas) — el agente de voz real.
+- **Discovery con proveedor con key** — cobertura real de prospección (ver Plan B #2).
+- **ElevenLabs** (clonación de voz) — key ya cargada, pero la función de voz
+  (`zero/voice.py`) sigue sin enchufarse al producto (solo CLI standalone hoy).
 - **Envío email/WhatsApp a volumen** (deliverability / proveedor dedicado tipo SES).
 
+**Ya conectado (no está pendiente):** Vapi (llamadas salientes, `/api/call` real
+vía dashboard) y Supabase (CRM/estado en la nube, proyecto "zeroai") — activados
+por decisión explícita de Diego pese a la política de cero gasto.
+
 ## Lo que sigue (recomendación)
-Mientras no haya pagos: perfeccionar lo gratis. En curso: probar email real (SMTP
-ya configurado) y pulir el dashboard.
+Mientras no haya más pagos: perfeccionar lo gratis. Rework visual del dashboard
+y la landing pública en curso, cada uno en su propia terminal (dashboard /
+landing). Backend: sin frentes de auditoría abiertos por ahora — ver
+"Pendientes de PAGO" arriba para lo que falta con presupuesto.
+
+## Pendiente de diseño — dashboard a monocromo (anotado 2026-07-13, no hacer aún)
+El rework visual del dashboard (Card/Button/Eyebrow/SectionTitle, paleta slate/pewter/
+champagne gold) está completo en las 12 páginas. Queda una decisión de diseño abierta,
+**no un bug**: el gráfico de barras del Dashboard y las columnas del Kanban/Leads usan
+colores **semánticos por etapa** (verde=ganado, rojo=descartado, etc.), no monocromo
+puro. Se dejó así a propósito porque esos colores codifican datos reales. Si en algún
+momento se quiere más fiel al monocromo, la opción es llevarlos a una escala slate/gold
+y diferenciar etapas solo por ícono o posición — pero es a demanda, Diego pidió
+explícitamente no tocarlo todavía.

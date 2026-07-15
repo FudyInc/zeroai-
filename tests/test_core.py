@@ -288,6 +288,57 @@ class CRMTest(unittest.TestCase):
         self.assertIn("won", out)
 
 
+class CRMSearchTest(unittest.TestCase):
+    """search() — el salto rápido cross-cliente: encontrar un lead sin saber de
+    antemano en qué cuenta está (a diferencia de list()/query(), que siempre
+    exigen client_id). Mismo estilo que find_by_contact/query de arriba."""
+
+    def setUp(self):
+        self.crm = CRM(None)
+        self.crm.upsert("acme", {"company": "Acme Corp", "email": "ceo@acme.cl",
+                                 "phone": "+56911111111", "score": 70})
+        self.crm.upsert("pooledge", {"company": "PoolEdge SpA", "email": "ventas@pooledge.cl",
+                                     "phone": "+56922222222", "score": 90})
+        self.crm.upsert("pooledge", {"company": "Otro Lead", "email": "otro@x.cl", "score": 40})
+
+    def test_matches_by_company_substring_across_clients(self):
+        # "acme" vive en un cliente, "pooledge" en otro — ambos deben aparecer
+        # sin pedirle a search() que sepa de antemano en qué cuenta buscar.
+        out = self.crm.search("acme")
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["client_id"], "acme")
+
+    def test_case_insensitive(self):
+        out = self.crm.search("ACME")
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["company"], "Acme Corp")
+
+    def test_matches_by_email_and_phone_too(self):
+        self.assertEqual(len(self.crm.search("ventas@pooledge")), 1)
+        self.assertEqual(len(self.crm.search("922222222")), 1)
+
+    def test_each_result_carries_its_client_id(self):
+        # No hace falta ningún wrapper nuevo — client_id ya es nativo del registro.
+        for rec in self.crm.search("pooledge"):
+            self.assertIn("client_id", rec)
+            self.assertTrue(rec["client_id"])
+
+    def test_respects_limit(self):
+        self.crm.upsert("c3", {"company": "Acme Norte", "email": "a@n.cl", "score": 10})
+        self.crm.upsert("c4", {"company": "Acme Sur", "email": "a@s.cl", "score": 20})
+        out = self.crm.search("acme", limit=2)
+        self.assertEqual(len(out), 2)
+        # el orden global sigue el mismo criterio que list()/query(): score desc
+        self.assertGreaterEqual(out[0]["score"], out[1]["score"])
+
+    def test_empty_or_short_query_returns_nothing(self):
+        self.assertEqual(self.crm.search(""), [])
+        self.assertEqual(self.crm.search("   "), [])
+
+    def test_no_match_returns_empty_list(self):
+        self.assertEqual(self.crm.search("empresa-que-no-existe-en-ningun-lado"), [])
+
+
 class RobustnessTest(unittest.TestCase):
     """A live model may deviate from the mock's clean contract — don't crash."""
 
@@ -304,6 +355,37 @@ class RobustnessTest(unittest.TestCase):
                                "email": "x@x.cl", "score": "92"})
         ok, _ = z.validate_lead(lead, exclusions=[])   # would TypeError if score stayed a str
         self.assertTrue(ok)
+
+    def test_concierge_intent_survives_flat_response(self):
+        """Bug real hallado en vivo (2026-07-13) contra el modelo real: CONCIERGE
+        responde en esquema plano, sin envoltorio "result" — {"reply": ...,
+        "intent": ...} — tal como pide prompts/concierge.md. AgentResponse.from_dict
+        "levanta" solo las claves de _RESULT_KEYS al armar `result`; como "intent"
+        no estaba en esa lista, se perdía en silencio en CADA respuesta real,
+        aunque el modelo sí lo devolvía bien (confirmado comparando la salida
+        cruda del modelo contra el resultado ya parseado). Esto rompía sin avisar
+        el flujo de "oferta pendiente" en Zero.handle_inbound — nunca se activaba
+        con el motor real. El mock nunca pasa por from_dict, así que ningún test
+        existente (todos en mock) lo detectaba."""
+        from zero.contracts import AgentResponse
+        resp = AgentResponse.from_dict(
+            {"reply": "¡Hola! El plan más caro incluye todo.", "intent": "pricing"},
+            task_id="t1", agent="CONCIERGE",
+        )
+        self.assertEqual(resp.result.get("intent"), "pricing")
+        self.assertEqual(resp.result.get("reply"), "¡Hola! El plan más caro incluye todo.")
+
+    def test_converse_result_intent_survives_real_backend(self):
+        """Regresión de extremo a extremo del bug de arriba, pasando por
+        Zero.converse_result como lo hace el webhook real de WhatsApp."""
+        from unittest import mock as _mock
+        backend = _mock.Mock()
+        backend.complete.return_value = (
+            '{"reply": "Entendido, lo saco de la lista.", "intent": "optout"}'
+        )
+        z = Zero(build_agents(backend=backend), memory=SessionMemory(None))
+        res = z.converse_result("", "no me escriban más", channel="whatsapp")
+        self.assertEqual(res.get("intent"), "optout")
 
     def test_corrupt_crm_file_raises_clear_error(self):
         import os
@@ -1110,6 +1192,29 @@ class ConciergeTest(unittest.TestCase):
             {"from": "569", "type": "text", "text": {"body": "x"}}]}}]}]})
         self.assertEqual(no_meta[0]["to_phone_id"], "")
         self.assertEqual(parse_inbound({}), [])      # malformed → empty, no crash
+
+    def test_parse_inbound_formas_malformadas_nunca_revienta(self):
+        """El docstring de parse_inbound promete 'malformed payloads yield [],
+        never raise' — cada nivel del webhook de Meta (entry/changes/value/
+        messages) puede en teoría venir con otra forma; ninguna debe crashear."""
+        from zero.whatsapp_inbound import parse_inbound
+        casos = [
+            {"entry": "oops"},
+            {"entry": [{"changes": "oops"}]},
+            {"entry": [{"changes": [{"value": "oops"}]}]},
+            {"entry": [{"changes": [{"value": {"messages": "oops"}}]}]},
+            {"entry": [{"changes": [{"value": {"messages": ["oops"]}}]}]},
+            {"entry": ["oops"]},
+            {"entry": [{"changes": ["oops"]}]},
+        ]
+        for payload in casos:
+            self.assertEqual(parse_inbound(payload), [])
+        # el último caso (metadata malformada) sí debe rescatar el mensaje válido
+        # con to_phone_id vacío, en vez de descartarlo entero
+        rescatado = parse_inbound({"entry": [{"changes": [{"value": {
+            "metadata": "oops",
+            "messages": [{"from": "569", "type": "text", "text": {"body": "x"}}]}}]}]})
+        self.assertEqual(rescatado, [{"from": "569", "text": "x", "to_phone_id": ""}])
 
     def test_verify_meta_signature(self):
         """Sin esto, POST /api/webhooks/whatsapp aceptaría cualquier payload de

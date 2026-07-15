@@ -6,7 +6,7 @@ import {
   Building2, Rocket, Cpu,
 } from 'lucide-react'
 import { api, BASE } from '../lib/api'
-import { Card, Button, Badge, Skeleton } from '../components/ui'
+import { Card, Button, Badge, Skeleton, SectionTitle } from '../components/ui'
 import { STAGES } from '../lib/util'
 import { useApp } from '../App'
 import AgentTester from '../components/AgentTester'
@@ -262,7 +262,7 @@ function StepHeader({ n, icon: Icon, title, sub }) {
         <span className="absolute -top-1.5 -right-1.5 w-[18px] h-[18px] rounded-full bg-zinc-900 text-white text-[10px] font-bold grid place-items-center">{n}</span>
       </div>
       <div>
-        <div className="font-semibold leading-tight">{title}</div>
+        <div className="font-display font-bold tracking-tight leading-tight text-brand">{title}</div>
         <div className="text-xs text-zinc-400 mt-0.5">{sub}</div>
       </div>
     </div>
@@ -306,9 +306,9 @@ function StatusCard({ cfg, webhookUrl }) {
   return (
     <Card className="p-6">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 font-semibold">
+        <SectionTitle className="flex items-center gap-2">
           <MessageCircle size={18} className="text-[#16a34a]" /> Conexión con Meta
-        </div>
+        </SectionTitle>
         <Badge color="#16a34a" className="inline-flex items-center gap-1">
           <CheckCircle2 size={12} /> Activo
         </Badge>
@@ -387,7 +387,7 @@ function ActivityCard({ leadsQ }) {
 
   return (
     <Card className="p-6">
-      <div className="font-semibold flex items-center gap-2 mb-1">
+      <div className="font-display font-bold tracking-tight text-brand flex items-center gap-2 mb-1">
         <Clock size={16} /> Actividad reciente (WhatsApp)
       </div>
       <div className="text-xs text-zinc-400 mt-0.5 mb-3">
