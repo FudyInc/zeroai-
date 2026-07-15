@@ -6,7 +6,7 @@ import {
   Building2, Rocket, Cpu,
 } from 'lucide-react'
 import { api, BASE } from '../lib/api'
-import { Card, Button, Badge, Skeleton } from '../components/ui'
+import { Card, Button, Badge, Skeleton, SectionTitle } from '../components/ui'
 import { STAGES } from '../lib/util'
 import { useApp } from '../App'
 import AgentTester from '../components/AgentTester'
@@ -306,9 +306,9 @@ function StatusCard({ cfg, webhookUrl }) {
   return (
     <Card className="p-6">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 font-semibold">
+        <SectionTitle className="flex items-center gap-2">
           <MessageCircle size={18} className="text-[#16a34a]" /> Conexión con Meta
-        </div>
+        </SectionTitle>
         <Badge color="#16a34a" className="inline-flex items-center gap-1">
           <CheckCircle2 size={12} /> Activo
         </Badge>

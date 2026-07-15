@@ -158,6 +158,31 @@ class ApiHttpTest(unittest.TestCase):
             detail = json.loads(e.read().decode("utf-8"))
             self.assertIn("no disponible", detail["detail"])
 
+    def test_leads_search_short_query_is_400(self):
+        """La validación de largo mínimo vive en api.py (HTTPException), no en
+        CRM.search() — por eso este chequeo tiene que ser sobre HTTP real, no
+        sobre la función en Python (igual razón que test_clients_endpoint arriba)."""
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            self._get("/api/leads/search?q=a")
+        self.assertEqual(cm.exception.code, 400)
+
+    def test_leads_search_shape_over_real_http(self):
+        """Nunca debe dar 500 — con CRM local o con Supabase (cuando está
+        configurado, esto pega de verdad, solo lectura, cero riesgo de
+        ensuciar datos). No se afirma contenido real: los datos de producción
+        cambian; solo se confirma el contrato de la respuesta. Mismo patrón que
+        test_clients_endpoint_over_real_http: un Supabase caído/pausado degrada
+        a 503 claro, nunca a un 500 crudo."""
+        try:
+            status, body = self._get("/api/leads/search?q=zzz-no-deberia-matchear-nada-real")
+            self.assertEqual(status, 200)
+            self.assertEqual(set(body), {"results", "q", "limit"})
+            self.assertEqual(body["results"], [])
+        except urllib.error.HTTPError as e:
+            self.assertEqual(e.code, 503, "un fallo de Supabase debe degradar a 503, nunca a 500")
+            detail = json.loads(e.read().decode("utf-8"))
+            self.assertIn("no disponible", detail["detail"])
+
     def test_auth_status_endpoint(self):
         status, body = self._get("/api/auth/status")
         self.assertEqual(status, 200)
@@ -327,9 +352,29 @@ class ApiAuthHttpTest(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 401)
 
     def test_open_endpoints_never_require_a_token(self):
-        for path in ("/api/health", "/api/auth/status"):
+        for path in ("/api/health", "/api/auth/status", "/api/public/plans"):
             status, _ = self._get(path)
             self.assertEqual(status, 200, path)
+
+    def test_public_plans_accessible_without_token_and_shape(self):
+        """La landing pública consume esto sin login — tiene que responder
+        incluso con AUTH_PASSWORD configurada (este test class corre con una
+        de verdad, a diferencia de ApiHttpTest de arriba). Nunca debe filtrar
+        MRR ni datos de clientes reales — solo segment/price_clp/leads_per_mo,
+        por tier."""
+        status, body = self._get("/api/public/plans")
+        self.assertEqual(status, 200)
+        self.assertEqual(set(body), {"plans"})
+        plans = body["plans"]
+        self.assertEqual(set(plans), {"STARTER", "GROWTH", "SCALE", "ENTERPRISE"})
+        for tier, info in plans.items():
+            self.assertEqual(set(info), {"segment", "price_clp", "leads_per_mo"}, tier)
+        # ENTERPRISE es a medida: se expone tal cual (None), la landing decide
+        # cómo mostrarlo (ej. "Hablar con nosotros").
+        self.assertIsNone(plans["ENTERPRISE"]["price_clp"])
+        self.assertIsNone(plans["ENTERPRISE"]["leads_per_mo"])
+        # Nunca debe verse nada de "mrr" ni pinta de dato de cliente real.
+        self.assertNotIn("mrr_clp", body)
 
 
 if __name__ == "__main__":

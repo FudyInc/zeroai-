@@ -146,6 +146,23 @@ class CRM:
                 return rec
         return None
 
+    def search(self, q: str, limit: int = 20) -> List[Dict[str, Any]]:
+        """Cross-client search by company/email/phone substring — for finding a
+        lead without already knowing which client account it belongs to (unlike
+        `list`/`query`, which always scope to one client). Case-insensitive."""
+        needle = (q or "").strip().lower()
+        if not needle:
+            return []
+        out: List[Dict[str, Any]] = []
+        for cid in self.client_ids():
+            for rec in self.list(cid):
+                if (needle in (rec.get("company") or "").lower()
+                        or needle in (rec.get("email") or "").lower()
+                        or needle in (rec.get("phone") or "").lower()):
+                    out.append(rec)
+        out.sort(key=lambda r: (-(r.get("score") or 0), r.get("company") or "", r.get("key") or ""))
+        return out[:limit]
+
     def list(self, client_id: Optional[str] = None, stage: Optional[str] = None,
              limit: Optional[int] = None, offset: int = 0) -> List[Dict[str, Any]]:
         self._ensure(client_id)

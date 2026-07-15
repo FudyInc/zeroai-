@@ -1,9 +1,9 @@
 import { createContext, useContext, useEffect, useState } from 'react'
-import { Routes, Route, useLocation } from 'react-router-dom'
+import { Routes, Route, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Toaster } from 'sonner'
-import { Plus, Menu } from 'lucide-react'
+import { Plus, Menu, ArrowLeft } from 'lucide-react'
 import { api } from './lib/api'
 import { Button, Input, Select } from './components/ui'
 import { Glow } from './components/Glow'
@@ -46,6 +46,7 @@ export default function App() {
   const [leadKey, setLeadKey] = useState(null)
   const [runOpen, setRunOpen] = useState(false)
   const { pathname } = useLocation()
+  const nav = useNavigate()
   const [title, sub] = TITLES[pathname] || ['ZeroAI', '']
   const [authed, setAuthed] = useState(null)   // null=checking · false=login · true=in
   const [navOpen, setNavOpen] = useState(false) // drawer móvil del sidebar
@@ -76,6 +77,12 @@ export default function App() {
               className="md:hidden p-2 -ml-1 rounded-lg text-zinc-600 hover:bg-zinc-100">
               <Menu size={20} />
             </button>
+            {pathname !== '/' && (
+              <button onClick={() => nav(-1)} aria-label="Volver" title="Volver"
+                className="p-2 rounded-lg text-zinc-600 hover:bg-zinc-100 shrink-0 -ml-1 md:ml-0">
+                <ArrowLeft size={18} />
+              </button>
+            )}
             <div className="min-w-0">
               <div className="font-display text-lg font-bold leading-tight truncate">{title}</div>
               <div className="text-xs text-zinc-500 truncate">{sub}</div>
