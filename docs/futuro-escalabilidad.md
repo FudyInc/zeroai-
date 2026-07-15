@@ -57,13 +57,20 @@ completo detrás de cada ítem).
   No es urgente — es la señal a vigilar: si las respuestas empiezan a demorar o
   encolarse, es momento de mirar esto.
 
-## 🎯 Estrategia — especialización vertical (diferenciación vs. competidores tipo Nexor)
+## 🎯 Estrategia — diferenciación vs. competidores
 
-Hoy ZeroAI es horizontal (cualquier rubro). Especializarse en 1-2 verticales (ej. PyMEs
-exportadoras, servicios B2B) daría calificación/mensajes mucho mejor calibrados que una
-herramienta genérica — pero es prematuro sin clientes reales que validen cuál vertical
-conviene. Revisar esta idea una vez que haya un patrón claro de qué tipo de cliente
-convierte mejor.
+Ver **[docs/research/mercado-competencia.md](research/mercado-competencia.md)**
+(investigación real, con precios y fuentes, de Lead Fishers, B2B Rocket, AiSDR,
+Adstrategy, Clay, Smartlead). Hallazgo clave de ese documento: hay un hueco de precio
+entre las agencias tradicionales chilenas/LATAM (US$500–1,500/mes, trabajo manual) y
+las plataformas de agentes IA (US$2,450–4,199/mes, EE.UU./global) — **ningún
+competidor observado combina agentes IA + precio de agencia regional + foco
+Chile/LATAM + gate de calificación estricto**. Es el espacio en blanco a apuntar.
+
+Especialización vertical (1-2 rubros, ej. PyMEs exportadoras) daría calificación/
+mensajes mejor calibrados que una herramienta horizontal — pero es prematuro sin
+clientes reales que validen cuál vertical conviene. Revisar una vez que haya un
+patrón claro de qué tipo de cliente convierte mejor.
 
 ## 🌐 Landing pública
 

@@ -218,14 +218,20 @@ reales (gasto/leads del endpoint de Meta).
 ## ⏸️ Pendientes de PAGO (hacer cuando Diego pueda pagar — ver [[zero-cost-policy]])
 Cero gasto salvo lo que Diego ya decidió activar (Vapi, Supabase — ver abajo).
 Todo esto está construido **mock-first / con seam listo**; solo falta
-enchufar la cuenta/key de pago para que funcione de verdad:
-- **Motor real con Anthropic** — calidad real de scoring/mensajes/agentes. (Alternativa
-  gratis: modelo local Ollama).
+enchufar la cuenta/key de pago para que funcione de verdad. **Contexto completo de
+cada ítem (por qué importa, qué destraba) en
+[docs/futuro-escalabilidad.md](futuro-escalabilidad.md)** — esta lista es solo el
+resumen corto.
+- ~~Motor real con Anthropic~~ — **ya no bloqueado**: la alternativa gratis (modelo
+  local Ollama) está activa en producción desde 2026-07-06 (ver sección de
+  infraestructura arriba). Anthropic de pago sigue siendo la opción si el volumen
+  supera lo que el PC sin GPU aguanta.
 - **Meta Ads real**: insights (gasto/leads/CPL reales) y gestión que **aplica** el plan
   de Claude (pausar/presupuesto). (La cuenta de Meta nueva además tiene cooldown inicial.)
 - **Discovery con proveedor con key** — cobertura real de prospección (ver Plan B #2).
-- **ElevenLabs** (clonación de voz) — key ya cargada, pero la función de voz
-  (`zero/voice.py`) sigue sin enchufarse al producto (solo CLI standalone hoy).
+- **ElevenLabs** (voz de Francisca, Voice ID real ya generado) — en curso de
+  conectarse al producto (`zero/voice.py` + sonido de teclado de fondo), ver
+  `docs/francisca-prompt.md`.
 - **Envío email/WhatsApp a volumen** (deliverability / proveedor dedicado tipo SES).
 
 **Ya conectado (no está pendiente):** Vapi (llamadas salientes, `/api/call` real
