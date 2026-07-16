@@ -62,7 +62,7 @@ TIERS = {
     },
     "GROWTH": {
         "segment": "Pro",
-        "price_clp": 100_000,
+        "price_clp": 200_000,
         "leads_per_mo": 200,
         "scoring": "advanced",     # client-specific ICP
         "channels": ["email", "whatsapp", "cold_call"],
