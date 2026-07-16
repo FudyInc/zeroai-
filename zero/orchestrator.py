@@ -203,11 +203,15 @@ class Zero:
 
     # --- qualified-lead gate -------------------------------------------------
     def validate_lead(
-        self, lead: Lead, exclusions: List[str], tier: Optional[str] = None
+        self, lead: Lead, exclusions: List[str], tier: Optional[str] = None,
+        client_id: Optional[str] = None,
     ) -> Tuple[bool, List[str]]:
         """A lead is deliverable only if it passes EVERY check. `tier` selects
         the score bar (config.min_icp_score) — el plan que paga más exige más
-        precisión; sin tier (ej. llamadas directas/tests) cae al default."""
+        precisión; sin tier (ej. llamadas directas/tests) cae al default.
+        `client_id` habilita el chequeo de opt-out (`crm.is_blocked`) — sin él
+        (llamadas directas/tests que no pasan cliente) ese chequeo se salta,
+        igual que ya hace `tier`."""
         fails: List[str] = []
         bar = min_icp_score(tier)
 
@@ -226,6 +230,12 @@ class Zero:
         last = self.memory.contacted.get(lead.key())
         if last and self._days_since(last) < RECONTACT_BLACKOUT_DAYS:
             fails.append(f"contactado hace <{RECONTACT_BLACKOUT_DAYS}d")
+
+        # Opt-out durable: un "no me interesa" de antes bloquea CUALQUIER
+        # campaña futura para este cliente, sin importar cuánto tiempo pase —
+        # a diferencia del blackout de arriba (temporal), esto nunca expira.
+        if client_id and self.crm and self.crm.is_blocked(client_id, lead.key()):
+            fails.append("optó por no ser contactado (opt-out)")
 
         return (not fails), fails
 
@@ -248,7 +258,7 @@ class Zero:
         qualified: List[Lead] = []
         rejected: List[Dict[str, Any]] = []
         for lead in scored:
-            ok, fails = self.validate_lead(lead, exclusions, tier=tier)
+            ok, fails = self.validate_lead(lead, exclusions, tier=tier, client_id=client_id)
             if ok:
                 qualified.append(lead)
             else:
@@ -424,6 +434,33 @@ class Zero:
                     "replies_detected": replies["matched"],
                     "notes": "no hay seguimientos pendientes"}
 
+        # Filtrar ANTES de pedirle a TRACKER que redacte nada: sin esto se le
+        # pediría un mensaje de todos modos para un lead bloqueado, solo para
+        # descartarlo después — con un backend real (Anthropic) eso es una
+        # llamada pagada tirada a la basura, no solo trabajo de más.
+        # Defensivo: un opt-out ya cierra su secuencia abierta al momento de
+        # detectarse (register_reply, en handle_inbound), así que esto
+        # normalmente no debería encontrar nada — pero si una secuencia queda
+        # abierta por otra vía (bloqueo aplicado fuera de handle_inbound,
+        # carrera entre procesos), nunca se manda un follow-up a un lead
+        # bloqueado. Se auto-repara: cierra la secuencia en vez de solo saltarla.
+        blocked = 0
+        if self.crm:
+            still_due = []
+            for s in due:
+                if self.crm.is_blocked(client_id, s["lead_key"]):
+                    self.memory.close_sequence_for_lead(client_id, s["lead_key"], reason="blocked")
+                    blocked += 1
+                else:
+                    still_due.append(s)
+            due = still_due
+        if not due:
+            self.memory.log("followup", client=client_id, advanced=0, sent=0, blocked=blocked)
+            self.memory.save()
+            return {"client_id": client_id, "followups": [], "advanced": 0, "sent": 0,
+                    "blocked": blocked, "replies_detected": replies["matched"],
+                    "notes": "no hay seguimientos pendientes"}
+
         # Attach each sequence's current cadence `kind` for TRACKER.
         payload_seqs = []
         for s in due:
@@ -449,7 +486,7 @@ class Zero:
         messages = resp.result.get("messages", [])
         by_lead = {m.get("lead_key"): m for m in messages}
         sent = 0
-        for s in due:
+        for s in due:   # `due` ya viene filtrado de bloqueados, arriba
             self.memory.mark_contacted(s["lead_key"])
             if self.crm:
                 cadence = followup_step(s["step"]) or {}
@@ -468,7 +505,8 @@ class Zero:
                 if res["status"] == "sent":
                     sent += 1
             self.memory.advance_sequence(s)
-        self.memory.log("followup", client=client_id, advanced=len(due), sent=sent)
+        advanced = len(due)   # `due` ya viene filtrado de bloqueados, arriba
+        self.memory.log("followup", client=client_id, advanced=advanced, sent=sent, blocked=blocked)
         self.memory.set_stage(client_id, "delivered")
         self.memory.save()
         if self.crm:
@@ -479,8 +517,9 @@ class Zero:
         )
         return {
             "client_id": client_id,
-            "advanced": len(due),
+            "advanced": advanced,
             "sent": sent,
+            "blocked": blocked,
             "delivery": "live" if self.outbox.live else "mock",
             "replies_detected": replies["matched"],
             "open_remaining": open_remaining,
@@ -634,11 +673,20 @@ class Zero:
 
     def import_ad_leads(self, client_id: str, leads: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Mete los leads de Meta Lead Ads al CRM (etapa qualified, tag 'Meta Ads') —
-        así un lead de un anuncio entra al mismo pipeline que el resto."""
+        así un lead de un anuncio entra al mismo pipeline que el resto. Nunca a
+        prueba de opt-out por defecto: alguien que ya dijo 'no me interesa' por
+        WhatsApp puede volver a aparecer acá con el mismo email/teléfono (mismo
+        lead_key) — se salta por completo, ni se registra ni se cuenta como
+        importado, para que quede a la vista que hay algo que Meta le sigue
+        mandando pero ZeroAI ya no le va a escribir."""
         if not self.crm:
-            return {"imported": 0, "client_id": client_id}
+            return {"imported": 0, "blocked": 0, "client_id": client_id}
         imported = 0
+        blocked = 0
         for ld in leads:
+            if self.crm.is_blocked_lead(client_id, ld):
+                blocked += 1
+                continue
             rec = self.crm.upsert(client_id, ld, stage="qualified")
             tags = rec.setdefault("tags", [])
             if "Meta Ads" not in tags:
@@ -646,9 +694,9 @@ class Zero:
             self.crm.log(client_id, rec["key"], "ad_lead", f"Meta Ads · {ld.get('campaign', '')}")
             imported += 1
         self.crm.save()
-        self.memory.log("ad_leads_import", client=client_id, count=imported)
+        self.memory.log("ad_leads_import", client=client_id, count=imported, blocked=blocked)
         self.memory.save()
-        return {"imported": imported, "client_id": client_id}
+        return {"imported": imported, "blocked": blocked, "client_id": client_id}
 
     def handle_inbound(self, from_contact: str, text: str,
                        channel: str = "whatsapp",
@@ -724,9 +772,18 @@ class Zero:
         if intent in ("info", "objection"):
             self.memory.set_pending_offer(client_id, key, intent)
             self.memory.save()
-        elif intent == "optout" and pending:
-            self.memory.clear_pending_offer(client_id, key)
-            self.memory.save()
+        elif intent == "optout":
+            if pending:
+                self.memory.clear_pending_offer(client_id, key)
+                self.memory.save()
+            # Bloqueo DURABLE, no solo anular la oferta pendiente de esta
+            # conversación — sin esto, nada impedía que este mismo contacto
+            # recibiera un mensaje nuevo en una campaña futura (run_pipeline,
+            # run_followups, import_ad_leads). Independiente de si había o no
+            # una oferta pendiente: "no me interesa" bloquea igual.
+            if self.crm:
+                self.crm.block(client_id, key, reason="optout")
+                self.crm.save()
         return {"matched": True, "company": rec.get("company"), "reply": reply,
                 "intent": intent, **out}
 

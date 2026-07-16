@@ -339,6 +339,62 @@ class CRMSearchTest(unittest.TestCase):
         self.assertEqual(self.crm.search("empresa-que-no-existe-en-ningun-lado"), [])
 
 
+class CRMBlockTest(unittest.TestCase):
+    """block()/is_blocked() — el opt-out durable, reusando `tags` (mismo campo
+    que ya usa import_ad_leads para "Meta Ads"), forward-only por construcción
+    porque `tags` no está en _FIELDS y upsert() nunca lo pisa."""
+
+    def setUp(self):
+        self.crm = CRM(None)
+        self.lead = {"company": "Acme", "email": "ceo@acme.cl", "score": 80}
+        self.crm.upsert("acme", self.lead)
+        self.key = "ceo@acme.cl"
+
+    def test_unblocked_by_default(self):
+        self.assertFalse(self.crm.is_blocked("acme", self.key))
+
+    def test_block_then_is_blocked(self):
+        self.crm.block("acme", self.key, reason="optout")
+        self.assertTrue(self.crm.is_blocked("acme", self.key))
+
+    def test_block_is_idempotent(self):
+        self.crm.block("acme", self.key)
+        self.crm.block("acme", self.key)
+        rec = self.crm.get("acme", self.key)
+        self.assertEqual(rec["tags"].count("no-contactar"), 1)
+        self.assertEqual(sum(1 for h in rec["history"] if h["event"] == "blocked"), 1)
+
+    def test_block_scoped_per_client(self):
+        # El mismo contacto (misma key) en OTRO cliente no queda bloqueado —
+        # el opt-out es por la relación con ESE cliente, no un registro global.
+        self.crm.upsert("otro_cliente", dict(self.lead))
+        self.crm.block("acme", self.key)
+        self.assertTrue(self.crm.is_blocked("acme", self.key))
+        self.assertFalse(self.crm.is_blocked("otro_cliente", self.key))
+
+    def test_block_survives_reupsert(self):
+        # Forward-only: el lead vuelve a aparecer en un discovery futuro (mismo
+        # lead_key) y upsert() refresca sus campos — el tag de bloqueo sigue ahí,
+        # nadie tiene que "recordar" no perderlo.
+        self.crm.block("acme", self.key)
+        self.crm.upsert("acme", {**self.lead, "score": 95})   # re-discovery, score nuevo
+        self.assertTrue(self.crm.is_blocked("acme", self.key))
+
+    def test_is_blocked_unknown_lead_is_false(self):
+        self.assertFalse(self.crm.is_blocked("acme", "no-existe@x.cl"))
+        self.assertFalse(self.crm.is_blocked("cliente-inexistente", self.key))
+
+    def test_block_unknown_lead_returns_none(self):
+        self.assertIsNone(self.crm.block("acme", "no-existe@x.cl"))
+
+    def test_is_blocked_lead_from_raw_dict(self):
+        # El mismo helper, pero calculando la key a partir de un dict crudo —
+        # así lo usa import_ad_leads, ANTES de decidir si conviene upsertear.
+        self.crm.block("acme", self.key)
+        self.assertTrue(self.crm.is_blocked_lead("acme", {"email": "ceo@acme.cl"}))
+        self.assertFalse(self.crm.is_blocked_lead("acme", {"email": "otro@x.cl"}))
+
+
 class RobustnessTest(unittest.TestCase):
     """A live model may deviate from the mock's clean contract — don't crash."""
 
@@ -1419,6 +1475,24 @@ class PendingOfferTest(unittest.TestCase):
         r3 = z.handle_inbound(sender, "ok")
         self.assertNotEqual(r3["intent"], "fulfill")     # y la oferta quedó anulada
 
+    def test_rejection_blocks_lead_durably(self):
+        # No solo se anula la oferta pendiente de ESTA conversación — el lead
+        # queda bloqueado de forma durable (opt-out), no solo hasta que se
+        # cierre esta secuencia.
+        z, crm, lead, sender = self._zero()
+        z.handle_inbound(sender, "mándame más información")
+        z.handle_inbound(sender, "no gracias, no me interesa")
+        self.assertTrue(crm.is_blocked("acme", lead["key"]))
+
+    def test_optout_without_pending_offer_still_blocks(self):
+        # Antes, sin oferta pendiente, un optout no hacía NADA (el branch
+        # exigía `pending`) — un "no me interesa" directo, sin haber pedido
+        # info antes, debe bloquear igual.
+        z, crm, lead, sender = self._zero()
+        r = z.handle_inbound(sender, "no me interesa, gracias")
+        self.assertEqual(r["intent"], "optout")
+        self.assertTrue(crm.is_blocked("acme", lead["key"]))
+
     def test_pending_offer_wins_over_concierge_accept(self):
         # CONCIERGE clasificaría "dale, vamos" como su propio intent 'accept',
         # pero con una oferta pendiente el orquestador debe cumplirla primero
@@ -1427,6 +1501,75 @@ class PendingOfferTest(unittest.TestCase):
         z.handle_inbound(sender, "mándame más información")
         r2 = z.handle_inbound(sender, "dale, vamos")
         self.assertEqual(r2["intent"], "fulfill")
+
+
+class OptOutDurabilityTest(unittest.TestCase):
+    """El opt-out debe sobrevivir a que el contacto reaparezca en un discovery
+    futuro (run_pipeline), en un seguimiento vencido (run_followups) o en un
+    lead de Meta Ads (import_ad_leads) — los 3 puntos donde el orquestador
+    decide A QUIÉN contactar. Sin esto, contactar dos veces a quien ya dijo
+    que no arriesga quejas de spam y sanciones en WhatsApp/Meta."""
+
+    def _zero(self):
+        crm = CRM(None)
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=crm)
+        return z, crm
+
+    def test_run_pipeline_never_recontacts_a_blocked_lead(self):
+        z, crm = self._zero()
+        z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8)
+        lead = crm.list("acme", "nurturing")[0]
+        sender = lead.get("email") or "".join(c for c in lead["phone"] if c.isdigit())
+        z.handle_inbound(sender, "no me interesa, gracias")
+        self.assertTrue(crm.is_blocked("acme", lead["key"]))
+
+        # Re-descubrimiento: mismo client_id + query — el mock de PROSPECTOR es
+        # determinista (seed = client_id|query|intento), así que el MISMO
+        # contacto vuelve a aparecer, como pasaría con un discovery real.
+        res = z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8)
+        qualified_keys = {l["key"] for l in res["qualified_leads"]}
+        self.assertNotIn(lead["key"], qualified_keys, "un lead bloqueado no debe calificar de nuevo")
+        rejected_keys = {r["company"] for r in res["rejected"]}
+        self.assertIn(lead["company"], rejected_keys, "debe aparecer como rechazado, no desaparecer en silencio")
+        # el registro real en CRM sigue bloqueado, no se le pisó el tag al re-upsertear
+        self.assertTrue(crm.is_blocked("acme", lead["key"]))
+
+    def test_run_followups_skips_and_closes_sequence_for_blocked_lead(self):
+        z, crm = self._zero()
+        z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8)
+        lead = crm.list("acme", "nurturing")[0]
+        # Bloqueo aplicado directo en CRM (ej. una acción manual futura), SIN
+        # pasar por handle_inbound — la secuencia de follow-up sigue abierta,
+        # como si el bloqueo hubiera llegado por otra vía.
+        crm.block("acme", lead["key"], reason="manual")
+        due_before = z.memory.due_sequences("acme", as_of="2099-01-01T00:00:00+00:00")
+        self.assertTrue(any(s["lead_key"] == lead["key"] for s in due_before))
+
+        res = z.run_followups("acme", as_of="2099-01-01T00:00:00+00:00")
+        self.assertGreaterEqual(res["blocked"], 1)
+        due_after = z.memory.due_sequences("acme", as_of="2099-01-01T00:00:00+00:00")
+        self.assertFalse(any(s["lead_key"] == lead["key"] for s in due_after),
+                         "la secuencia del lead bloqueado debe quedar cerrada, no solo saltada")
+        sent_keys = {m.get("lead_key") for m in res["followups"]}
+        self.assertNotIn(lead["key"], sent_keys)
+
+    def test_import_ad_leads_skips_a_blocked_contact(self):
+        z, crm = self._zero()
+        crm.upsert("acme", {"company": "Bloqueada SpA", "email": "no@bloqueada.cl", "score": 80})
+        crm.block("acme", "no@bloqueada.cl", reason="optout")
+
+        result = z.import_ad_leads("acme", [
+            {"company": "Bloqueada SpA", "email": "no@bloqueada.cl", "campaign": "Leads B2B"},
+            {"company": "Nueva SpA", "email": "hola@nueva.cl", "campaign": "Leads B2B"},
+        ])
+        self.assertEqual(result["imported"], 1)
+        self.assertEqual(result["blocked"], 1)
+        # el lead bloqueado NUNCA se re-etiqueta "Meta Ads" ni pasa a qualified
+        rec = crm.get("acme", "no@bloqueada.cl")
+        self.assertNotIn("Meta Ads", rec.get("tags") or [])
+        self.assertNotEqual(rec["stage"], "qualified")
+        # el otro lead, sin relación, entra normal
+        self.assertEqual(crm.get("acme", "hola@nueva.cl")["stage"], "qualified")
 
 
 class ScalabilityTest(unittest.TestCase):
