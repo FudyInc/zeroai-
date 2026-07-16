@@ -58,9 +58,10 @@ async def supabase_error_handler(request: Request, exc: SupabaseError):
         status_code=503,
     )
 
-# Endpoints reachable without a token: login, health, auth status, and the Meta
-# webhook (Meta calls it with its own verify token, not ours).
-_OPEN_PATHS = {"/api/login", "/api/health", "/api/auth/status"}
+# Endpoints reachable without a token: login, health, auth status, the public
+# plans (landing pública, sin login), and the Meta webhook (Meta calls it with
+# its own verify token, not ours).
+_OPEN_PATHS = {"/api/login", "/api/health", "/api/auth/status", "/api/public/plans"}
 
 
 @app.middleware("http")
@@ -132,6 +133,15 @@ def clients():
 
 _PLANS = {k: {"segment": v["segment"], "price_clp": v.get("price_clp"),
               "leads_per_mo": v.get("leads_per_mo")} for k, v in TIERS.items()}
+
+
+@app.get("/api/public/plans")
+def public_plans():
+    """Endpoint público (sin login, en _OPEN_PATHS) — la landing lo consume en
+    vivo en vez de tener los planes hardcodeados. Reutiliza _PLANS tal cual:
+    ese dict ya está filtrado a segment/price_clp/leads_per_mo, nunca MRR ni
+    datos de clientes reales — eso lo sigue protegiendo el login en /api/accounts."""
+    return {"plans": _PLANS}
 
 
 @app.get("/api/accounts")

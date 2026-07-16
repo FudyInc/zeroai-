@@ -375,9 +375,29 @@ class ApiAuthHttpTest(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 401)
 
     def test_open_endpoints_never_require_a_token(self):
-        for path in ("/api/health", "/api/auth/status"):
+        for path in ("/api/health", "/api/auth/status", "/api/public/plans"):
             status, _ = self._get(path)
             self.assertEqual(status, 200, path)
+
+    def test_public_plans_accessible_without_token_and_shape(self):
+        """La landing pública consume esto sin login — tiene que responder
+        incluso con AUTH_PASSWORD configurada (este test class corre con una
+        de verdad, a diferencia de ApiHttpTest de arriba). Nunca debe filtrar
+        MRR ni datos de clientes reales — solo segment/price_clp/leads_per_mo,
+        por tier."""
+        status, body = self._get("/api/public/plans")
+        self.assertEqual(status, 200)
+        self.assertEqual(set(body), {"plans"})
+        plans = body["plans"]
+        self.assertEqual(set(plans), {"STARTER", "GROWTH", "SCALE", "ENTERPRISE"})
+        for tier, info in plans.items():
+            self.assertEqual(set(info), {"segment", "price_clp", "leads_per_mo"}, tier)
+        # ENTERPRISE es a medida: se expone tal cual (None), la landing decide
+        # cómo mostrarlo (ej. "Hablar con nosotros").
+        self.assertIsNone(plans["ENTERPRISE"]["price_clp"])
+        self.assertIsNone(plans["ENTERPRISE"]["leads_per_mo"])
+        # Nunca debe verse nada de "mrr" ni pinta de dato de cliente real.
+        self.assertNotIn("mrr_clp", body)
 
 
 if __name__ == "__main__":
