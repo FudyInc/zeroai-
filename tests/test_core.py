@@ -1621,44 +1621,111 @@ class ScalabilityTest(unittest.TestCase):
 
 
 class AuthTest(unittest.TestCase):
-    """Single-password agency gate: tokens signed by the password itself."""
+    """Login por persona: cada cuenta vive en un users.json local (gitignored,
+    mismo patrón que crm.json/state.json), tokens firmados con el hash de ESA
+    cuenta — cambiar/borrar una cuenta invalida solo sus propios tokens."""
 
     def setUp(self):
         import os
-        self._prev = os.environ.get("AUTH_PASSWORD")
-        os.environ["AUTH_PASSWORD"] = "s3cret"
+        import tempfile
+        from zero import auth
+        self._tmpdir = tempfile.mkdtemp()
+        self._prev = os.environ.get("AUTH_USERS_PATH")
+        # _users_path() lee AUTH_USERS_PATH en vivo en cada llamada (nunca lo
+        # cachea a nivel de módulo), así que alcanza con setear la env var —
+        # sin necesidad de reload.
+        os.environ["AUTH_USERS_PATH"] = os.path.join(self._tmpdir, "users.json")
+        self.auth = auth
+        self.auth.add_user("diego", "s3cret")
 
     def tearDown(self):
         import os
+        import shutil
         if self._prev is None:
-            os.environ.pop("AUTH_PASSWORD", None)
+            os.environ.pop("AUTH_USERS_PATH", None)
         else:
-            os.environ["AUTH_PASSWORD"] = self._prev
+            os.environ["AUTH_USERS_PATH"] = self._prev
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
 
     def test_password_and_token_roundtrip(self):
-        from zero import auth
+        auth = self.auth
         self.assertTrue(auth.auth_enabled())
-        self.assertTrue(auth.verify_password("s3cret"))
-        self.assertFalse(auth.verify_password("nope"))
-        tok = auth.make_token()
+        self.assertTrue(auth.verify_password("diego", "s3cret"))
+        self.assertFalse(auth.verify_password("diego", "nope"))
+        tok = auth.make_token("diego")
         self.assertTrue(auth.valid_token(tok))
+        self.assertEqual(auth.token_username(tok), "diego")
         self.assertFalse(auth.valid_token(tok + "x"))      # tampered
         self.assertFalse(auth.valid_token("garbage"))
 
-    def test_expired_and_password_change_invalidate(self):
-        from zero import auth
-        import os
-        self.assertFalse(auth.valid_token(auth.make_token(ttl=-1)))   # expired
-        tok = auth.make_token()
-        os.environ["AUTH_PASSWORD"] = "rotated"                       # rotate
-        self.assertFalse(auth.valid_token(tok))                       # old token dies
+    def test_unknown_username_never_authenticates(self):
+        auth = self.auth
+        self.assertFalse(auth.verify_password("nadie", "cualquiera"))
+        self.assertIsNone(auth.make_token("nadie"))
 
-    def test_disabled_when_no_password(self):
-        from zero import auth
-        import os
-        os.environ.pop("AUTH_PASSWORD", None)
+    def test_login_invalid_for_wrong_password(self):
+        auth = self.auth
+        self.assertFalse(auth.verify_password("diego", "contraseña-mala"))
+
+    def test_one_users_token_does_not_work_as_another(self):
+        # el corazón del modelo por-persona: un token firmado para "lucas"
+        # nunca debe validar como si fuera de "diego", y viceversa.
+        auth = self.auth
+        auth.add_user("lucas", "otra-clave")
+        tok_diego = auth.make_token("diego")
+        tok_lucas = auth.make_token("lucas")
+        self.assertEqual(auth.token_username(tok_diego), "diego")
+        self.assertEqual(auth.token_username(tok_lucas), "lucas")
+        self.assertNotEqual(tok_diego, tok_lucas)
+        # y no se puede "franken-mezclar" el username de uno con la firma del otro
+        exp = tok_lucas.split(".")[1]
+        sig = tok_lucas.split(".")[2]
+        forged = f"diego.{exp}.{sig}"
+        self.assertFalse(auth.valid_token(forged))
+
+    def test_expired_token_invalidates(self):
+        auth = self.auth
+        self.assertIsNone(auth.token_username(auth.make_token("diego", ttl=-1)))
+
+    def test_revoke_one_user_does_not_affect_others(self):
+        # borrar/cambiar la cuenta de UNA persona invalida SU token — sin
+        # tocar los tokens de las demás cuentas ya emitidos.
+        auth = self.auth
+        auth.add_user("lucas", "otra-clave")
+        tok_diego = auth.make_token("diego")
+        tok_lucas = auth.make_token("lucas")
+
+        auth.remove_user("lucas")
+        self.assertFalse(auth.valid_token(tok_lucas))     # revocado
+        self.assertTrue(auth.valid_token(tok_diego))       # diego, intacto
+
+    def test_changing_password_invalidates_old_token(self):
+        auth = self.auth
+        old_tok = auth.make_token("diego")
+        auth.add_user("diego", "clave-nueva")   # mismo username = reset
+        self.assertFalse(auth.valid_token(old_tok))
+        self.assertTrue(auth.verify_password("diego", "clave-nueva"))
+        self.assertFalse(auth.verify_password("diego", "s3cret"))
+
+    def test_invalid_username_rejected(self):
+        auth = self.auth
+        with self.assertRaises(ValueError):
+            auth.add_user("con.punto", "x")   # rompería el parseo del token
+        with self.assertRaises(ValueError):
+            auth.add_user("", "x")
+
+    def test_disabled_when_no_users(self):
+        auth = self.auth
+        auth.remove_user("diego")
         self.assertFalse(auth.auth_enabled())
-        self.assertFalse(auth.valid_token(auth.make_token()))
+        self.assertIsNone(auth.make_token("diego"))
+        self.assertEqual(auth.list_users(), [])
+
+    def test_list_users_never_exposes_hash(self):
+        auth = self.auth
+        auth.add_user("lucas", "otra-clave")
+        names = auth.list_users()
+        self.assertEqual(names, ["diego", "lucas"])
 
 
 class MetaAdsTest(unittest.TestCase):

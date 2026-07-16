@@ -22,9 +22,11 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 import urllib.error
@@ -123,7 +125,13 @@ class ApiHttpTest(unittest.TestCase):
         # "presente" para setdefault, y auth_enabled() lo trata como deshabilitado
         # (bool('') es False) — sin auth de verdad, sin importar qué haya en el
         # .env del repo.
-        env["AUTH_PASSWORD"] = ""  # sin password -> /api/* queda abierto para probar
+        env["AUTH_PASSWORD"] = ""  # legado, zero/auth.py ya no lo lee — inofensivo, se deja
+        # Mismo problema que describe el comentario de arriba, ahora para el modelo
+        # por-persona: si alguna vez existe un users.json REAL en la raíz del repo
+        # (una vez Diego dé de alta cuentas de verdad), este subproceso no debe
+        # heredarlo — apunta a un archivo que a propósito no existe, así
+        # auth_enabled() da False sin importar qué haya en el repo real.
+        env["AUTH_USERS_PATH"] = os.path.join(tempfile.mkdtemp(), "users.json")
         env["WHATSAPP_APP_SECRET"] = cls.WHATSAPP_APP_SECRET
         # Mismo problema que AUTH_PASSWORD arriba: en el Ubuntu real, el .env
         # del repo trae LOCAL_MODEL configurado — sin fijarlo vacío acá, este
@@ -275,22 +283,39 @@ class ApiHttpTest(unittest.TestCase):
 
 @unittest.skipUnless(_UVICORN_AVAILABLE, "uvicorn no instalado — este test es opcional, no núcleo")
 class ApiAuthHttpTest(unittest.TestCase):
-    """Prueba la expiración de sesión de punta a punta, sobre HTTP real —
-    zero/auth.py ya tiene tests unitarios de valid_token(), pero eso no prueba
-    que el middleware de api.py (auth_guard) realmente lo aplique en cada
-    request. Corre en un subproceso PROPIO (con AUTH_PASSWORD configurado)
-    separado de ApiHttpTest de arriba, que corre a propósito sin password
-    para poder probar los demás endpoints libremente."""
+    """Prueba el login por-persona de punta a punta, sobre HTTP real —
+    zero/auth.py ya tiene tests unitarios de valid_token()/token_username(),
+    pero eso no prueba que el middleware de api.py (auth_guard) realmente lo
+    aplique en cada request. Corre en un subproceso PROPIO (con una cuenta
+    real dada de alta en un users.json temporal) separado de ApiHttpTest de
+    arriba, que corre a propósito sin cuentas para poder probar los demás
+    endpoints libremente."""
 
+    USERNAME = "diego"
     PASSWORD = "s3cret-para-el-test"
 
     @classmethod
     def setUpClass(cls):
+        from zero import auth
         cls.port = _free_port()
         cls.base = f"http://127.0.0.1:{cls.port}"
         repo_root = Path(__file__).resolve().parent.parent
+        cls._tmpdir = tempfile.mkdtemp()
+        cls.users_path = os.path.join(cls._tmpdir, "users.json")
+        # auth.add_user() lee/escribe AUTH_USERS_PATH en vivo — se lo apunta
+        # acá (este proceso) solo para crear el archivo; después se le pasa
+        # el MISMO path al subproceso de abajo, para que lea la misma cuenta.
+        prev = os.environ.get("AUTH_USERS_PATH")
+        os.environ["AUTH_USERS_PATH"] = cls.users_path
+        try:
+            auth.add_user(cls.USERNAME, cls.PASSWORD)
+        finally:
+            if prev is None:
+                os.environ.pop("AUTH_USERS_PATH", None)
+            else:
+                os.environ["AUTH_USERS_PATH"] = prev
         env = dict(os.environ)
-        env["AUTH_PASSWORD"] = cls.PASSWORD
+        env["AUTH_USERS_PATH"] = cls.users_path
         env.pop("SUPABASE_URL", None)
         env.pop("SUPABASE_KEY", None)
         cls.proc = _start_and_wait(
@@ -302,14 +327,14 @@ class ApiAuthHttpTest(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         proc = getattr(cls, "proc", None)
-        if proc is None:
-            return
-        proc.terminate()
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait(timeout=5)
+        if proc is not None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+        shutil.rmtree(getattr(cls, "_tmpdir", "") or "", ignore_errors=True)
 
     def _get(self, path: str, token: str | None = None):
         headers = {"Authorization": f"Bearer {token}"} if token else {}
@@ -317,10 +342,10 @@ class ApiAuthHttpTest(unittest.TestCase):
         with urllib.request.urlopen(req, timeout=5) as r:
             return r.status, json.loads(r.read().decode("utf-8"))
 
-    def _login(self, password: str) -> str:
+    def _login(self, username: str, password: str) -> str:
         req = urllib.request.Request(
             f"{self.base}/api/login", method="POST",
-            data=json.dumps({"password": password}).encode("utf-8"),
+            data=json.dumps({"username": username, "password": password}).encode("utf-8"),
             headers={"Content-Type": "application/json"},
         )
         with urllib.request.urlopen(req, timeout=5) as r:
@@ -339,7 +364,17 @@ class ApiAuthHttpTest(unittest.TestCase):
     def test_login_with_wrong_password_is_401(self):
         req = urllib.request.Request(
             f"{self.base}/api/login", method="POST",
-            data=json.dumps({"password": "password-incorrecta"}).encode("utf-8"),
+            data=json.dumps({"username": self.USERNAME, "password": "password-incorrecta"}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req, timeout=5)
+        self.assertEqual(ctx.exception.code, 401)
+
+    def test_login_with_unknown_username_is_401(self):
+        req = urllib.request.Request(
+            f"{self.base}/api/login", method="POST",
+            data=json.dumps({"username": "nadie-dado-de-alta", "password": self.PASSWORD}).encode("utf-8"),
             headers={"Content-Type": "application/json"},
         )
         with self.assertRaises(urllib.error.HTTPError) as ctx:
@@ -347,29 +382,35 @@ class ApiAuthHttpTest(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 401)
 
     def test_login_then_protected_endpoint_with_valid_token_works(self):
-        token = self._login(self.PASSWORD)
+        token = self._login(self.USERNAME, self.PASSWORD)
         status, body = self._get("/api/vendors", token=token)
         self.assertEqual(status, 200)
         self.assertIn("vendors", body)
 
+    def test_auth_status_reports_username_when_authenticated(self):
+        token = self._login(self.USERNAME, self.PASSWORD)
+        status, body = self._get("/api/auth/status", token=token)
+        self.assertEqual(status, 200)
+        self.assertEqual(body["username"], self.USERNAME)
+
     def test_expired_token_is_rejected_over_real_http(self):
         """El corazón de 'expiración de sesión probada': un token vencido —
-        firmado con la MISMA password real del servidor, así que la firma es
-        válida — debe ser rechazado igual, porque ya pasó su tiempo de vida.
-        Se firma con zero.auth directamente (no hay forma de esperar 7 días en
-        un test) usando la misma AUTH_PASSWORD que el subproceso, para producir
-        un token con firma legítima pero `exp` en el pasado."""
-        import os
-        prev = os.environ.get("AUTH_PASSWORD")
-        os.environ["AUTH_PASSWORD"] = self.PASSWORD
+        firmado con el MISMO hash de password real que el subproceso ya tiene
+        guardado en users.json, así que la firma es válida — debe ser
+        rechazado igual, porque ya pasó su tiempo de vida. Se firma con
+        zero.auth directamente (no hay forma de esperar 7 días en un test)
+        apuntando al mismo AUTH_USERS_PATH que usa el subproceso, para
+        producir un token con firma legítima pero `exp` en el pasado."""
+        prev = os.environ.get("AUTH_USERS_PATH")
+        os.environ["AUTH_USERS_PATH"] = self.users_path
         try:
             from zero import auth
-            expired = auth.make_token(ttl=-10)
+            expired = auth.make_token(self.USERNAME, ttl=-10)
         finally:
             if prev is None:
-                os.environ.pop("AUTH_PASSWORD", None)
+                os.environ.pop("AUTH_USERS_PATH", None)
             else:
-                os.environ["AUTH_PASSWORD"] = prev
+                os.environ["AUTH_USERS_PATH"] = prev
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self._get("/api/vendors", token=expired)
         self.assertEqual(ctx.exception.code, 401)
@@ -381,10 +422,10 @@ class ApiAuthHttpTest(unittest.TestCase):
 
     def test_public_plans_accessible_without_token_and_shape(self):
         """La landing pública consume esto sin login — tiene que responder
-        incluso con AUTH_PASSWORD configurada (este test class corre con una
-        de verdad, a diferencia de ApiHttpTest de arriba). Nunca debe filtrar
-        MRR ni datos de clientes reales — solo segment/price_clp/leads_per_mo,
-        por tier."""
+        incluso con una cuenta real configurada (este test class corre con
+        una de verdad, a diferencia de ApiHttpTest de arriba). Nunca debe
+        filtrar MRR ni datos de clientes reales — solo
+        segment/price_clp/leads_per_mo, por tier."""
         status, body = self._get("/api/public/plans")
         self.assertEqual(status, 200)
         self.assertEqual(set(body), {"plans"})

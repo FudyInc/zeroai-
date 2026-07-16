@@ -66,7 +66,8 @@ _OPEN_PATHS = {"/api/login", "/api/health", "/api/auth/status", "/api/public/pla
 
 @app.middleware("http")
 async def auth_guard(request: Request, call_next):
-    """Single-password gate. No password set → open (dev). Set one → token required."""
+    """Per-person login gate. Sin cuentas dadas de alta (users.json vacío o
+    ausente) → abierto (dev). Con al menos una cuenta → token requerido."""
     from zero.auth import auth_enabled, valid_token
     path = request.url.path
     needs = (
@@ -82,23 +83,29 @@ async def auth_guard(request: Request, call_next):
 
 
 class Login(BaseModel):
+    username: str
     password: str
 
 
 @app.post("/api/login")
 def login(body: Login):
     from zero.auth import make_token, verify_password
-    if not verify_password(body.password):
-        raise HTTPException(status_code=401, detail="Contraseña incorrecta")
-    return {"token": make_token()}
+    if not verify_password(body.username, body.password):
+        raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
+    token = make_token(body.username)
+    if not token:   # carrera rarísima: el usuario se borró justo entremedio
+        raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
+    return {"token": token}
 
 
 @app.get("/api/auth/status")
 def auth_status(request: Request):
-    from zero.auth import auth_enabled, valid_token
+    from zero.auth import auth_enabled, token_username
     token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
     enabled = auth_enabled()
-    return {"enabled": enabled, "authenticated": (not enabled) or valid_token(token)}
+    username = token_username(token) if token else None
+    return {"enabled": enabled, "authenticated": (not enabled) or username is not None,
+            "username": username}
 
 
 def _crm():
