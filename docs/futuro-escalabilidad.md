@@ -47,6 +47,27 @@ completo detrás de cada ítem).
   atendiendo distintos clientes en paralelo, este proceso de alta hay que empezarlo con
   antelación, no el mismo día que se necesita.
 
+## 📸 Instagram — canal nuevo, viable SOLO para mensajes entrantes (verificado 2026-07-15)
+
+Investigado contra las políticas reales de Meta (no asumido): **DMs en frío (contactar
+gente que nunca escribió) siguen prohibidos sin excepción** — sin API que lo permita,
+riesgo real de restricción de cuenta (7 días la primera vez, 30 días la segunda). Por
+eso `Agentes.jsx` lo marca "No viable" hoy — y para DMs en frío, sigue siendo correcto.
+
+**Lo que SÍ es viable y oficial:** responder DMs que el lead ya envió (o respuestas a
+comentarios/historias), vía la **API de Mensajería de Instagram** — misma familia de
+API que WhatsApp Business, mismas reglas (ventana de 24h, límite de 200 DMs
+automáticos/hora).
+
+**Bloqueante — paso manual de Diego, no código:**
+1. Cuenta de Instagram **Business/Creator vinculada a una Página de Facebook**.
+2. Meta debe **aprobar el permiso de Mensajería de Instagram** para la app (revisión
+   de Meta, no instantánea — mismo tipo de espera que la plantilla de WhatsApp).
+
+Recién con eso aprobado tiene sentido un prompt de código (nuevo `InstagramSender` en
+`zero/channels.py`, webhook entrante, adaptar CONCIERGE al canal) — construirlo antes
+sería trabajo sin nada real contra qué probarlo.
+
 ## 🖥️ Modelo local (Ollama) — límites de escala
 
 - El modelo local activado hoy corre en un PC **sin GPU** (Ryzen 7 9700X, 16GB RAM) —

@@ -10,7 +10,7 @@ Desde el 2026-07-06 cada hallazgo nuevo incluye una **Importancia: N/10**
 no qué tan grande es la empresa). Entradas anteriores a esa fecha no la tienen
 retroactivamente — no vale la pena reescribir hallazgos ya cerrados.
 
-**Última revisión:** 2026-07-06
+**Última revisión:** 2026-07-14
 
 ---
 
@@ -121,6 +121,28 @@ retroactivamente — no vale la pena reescribir hallazgos ya cerrados.
   propia" y en realidad es una reventa de esta capa.
 - Fuente: smartlead.ai/pricing (2026-07-06).
 
+### Nexor (getnexor.ai) — startup chilena, agentes de venta por voz/WhatsApp
+- **Qué hace:** agentes de IA que contactan, califican y convierten leads 24/7
+  por llamada, WhatsApp, email e Instagram. Diferencial fuerte: voz sintética
+  "ABC1 chilena" con ruido de oficina de fondo para sonar humana en llamadas de
+  venta directa — no solo agenda reuniones, también vende por teléfono.
+- **Quiénes son:** fundada por Ian Lee (ex-Examedi, telemedicina Chile/México,
+  levantó +US$17M de General Catalyst/8VC/Quiet Capital antes de los 25 años) y
+  Gabriel Cid. Recién cerraron ronda con **Andreessen Horowitz (a16z)**.
+- **Tracción:** US$340,000 facturados en 6 meses. Se preparaban para mudarse a
+  San Francisco a fines de julio para entrar a Speedrun (programa tipo Y
+  Combinator enfocado en IA).
+- **Precio:** no público.
+- **Importancia: 9/10.** Es el competidor más cercano encontrado hasta ahora:
+  chilena, agentes de IA (mismo lenguaje que ZERO), fundador con historial de
+  levantar capital serio y ya validado por a16z. La diferenciación por voz +
+  WhatsApp es un ángulo que ZERO tiene explorado (ver `docs/oferta-whatsapp.md`,
+  agente Fernanda) pero Nexor ya lo está vendiendo con tracción real y respaldo
+  de inversionistas de primer nivel. Vigilar de cerca: mensajes, pricing cuando
+  lo publiquen, y si expanden vertical más allá de venta directa hacia
+  calificación B2B pura.
+- Fuente: ecosistemastartup.com, df.cl, getnexor.ai (2026-07-14).
+
 ### Panorama general de precios (referencia, no una empresa específica)
 - Agencias regionales chilenas/LATAM tradicionales (SEO/Ads + lead-gen):
   desde US$500/mes (objetivos bajos) hasta US$1,500–4,000/mes (agresivo).
@@ -158,3 +180,11 @@ retroactivamente — no vale la pena reescribir hallazgos ya cerrados.
   técnico podría elegir para construir algo parecido por su cuenta a menor
   costo — argumento a favor de que la ventaja de ZERO esté en la operación
   gestionada + el gate de calidad, no solo en la arquitectura modular.
+- Nexor es, hasta ahora, el hallazgo más importante del documento: mismo país,
+  mismo lenguaje de producto (agentes IA), fundador con track record y capital
+  de a16z validándolo. No tiene (públicamente) el gate de calificación estricto
+  de ZERO ni un CRM propio — compite más en "vender por voz/WhatsApp" que en
+  "entregar leads calificados a un CRM". Pero su velocidad de tracción
+  (US$340K en 6 meses) es una señal de que el mercado chileno de agentes IA de
+  ventas se está calentando rápido. Justifica revisar mensajes y pricing de
+  Nexor en cada ciclo futuro, no solo una vez.
