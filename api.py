@@ -58,9 +58,10 @@ async def supabase_error_handler(request: Request, exc: SupabaseError):
         status_code=503,
     )
 
-# Endpoints reachable without a token: login, health, auth status, and the Meta
-# webhook (Meta calls it with its own verify token, not ours).
-_OPEN_PATHS = {"/api/login", "/api/health", "/api/auth/status"}
+# Endpoints reachable without a token: login, health, auth status, the public
+# plans (landing pública, sin login), and the Meta webhook (Meta calls it with
+# its own verify token, not ours).
+_OPEN_PATHS = {"/api/login", "/api/health", "/api/auth/status", "/api/public/plans"}
 
 
 @app.middleware("http")
@@ -134,6 +135,15 @@ _PLANS = {k: {"segment": v["segment"], "price_clp": v.get("price_clp"),
               "leads_per_mo": v.get("leads_per_mo")} for k, v in TIERS.items()}
 
 
+@app.get("/api/public/plans")
+def public_plans():
+    """Endpoint público (sin login, en _OPEN_PATHS) — la landing lo consume en
+    vivo en vez de tener los planes hardcodeados. Reutiliza _PLANS tal cual:
+    ese dict ya está filtrado a segment/price_clp/leads_per_mo, nunca MRR ni
+    datos de clientes reales — eso lo sigue protegiendo el login en /api/accounts."""
+    return {"plans": _PLANS}
+
+
 @app.get("/api/accounts")
 def accounts():
     """Clientes con su plan y precio + MRR de la agencia (lo que facturas al mes)."""
@@ -200,6 +210,18 @@ def leads(client: str, group: str = "todos", limit: int = 50, offset: int = 0):
     counts = crm.counts(client)
     total = sum(counts.values()) if stages is None else sum(counts.get(s, 0) for s in stages)
     return {"leads": rows, "total": total, "limit": limit, "offset": offset}
+
+
+@app.get("/api/leads/search")
+def leads_search(q: str, limit: int = 20):
+    """Busca un lead por company/email/phone en TODOS los clientes a la vez — el
+    salto rápido cuando no se sabe de antemano en qué cuenta está (a diferencia
+    de /api/leads, que siempre exige ?client=). Cada resultado ya trae su propio
+    client_id (columna nativa del registro), no hace falta ningún wrapper extra."""
+    if len(q.strip()) < 2:
+        raise HTTPException(status_code=400, detail="query muy corta (mínimo 2 caracteres)")
+    rows = _crm().search(q, limit=limit)
+    return {"results": rows, "q": q, "limit": limit}
 
 
 def _client_meta_cfg(client: str) -> dict:

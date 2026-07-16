@@ -46,7 +46,7 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
-def _wait_until_up(proc: subprocess.Popen, base: str, timeout: float = 15.0) -> None:
+def _wait_until_up(proc: subprocess.Popen, base: str, timeout: float = 30.0) -> None:
     """Poll /api/health until the subprocess server answers, or raise. Shared by
     every test class in this file that spins up its own api.py subprocess."""
     deadline = time.time() + timeout
@@ -62,6 +62,41 @@ def _wait_until_up(proc: subprocess.Popen, base: str, timeout: float = 15.0) -> 
             last_err = e
         time.sleep(0.3)
     raise RuntimeError(f"el servidor no respondió a tiempo en {base}: {last_err}")
+
+
+def _spawn_uvicorn(argv: list[str], cwd: str, env: dict) -> subprocess.Popen:
+    return subprocess.Popen(
+        argv, cwd=cwd, env=env,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+
+
+def _start_and_wait(argv: list[str], cwd: str, env: dict, base: str) -> subprocess.Popen:
+    """Arranca el subproceso uvicorn y espera a que conteste /api/health, con UN
+    reintento completo (matar y relanzar) si el primer arranque no llega a tiempo.
+
+    Encontrado corriendo esta suite completa varias veces seguidas (2026-07-09):
+    en aislado, ApiHttpTest/ApiAuthHttpTest siempre arrancan en ~1-2s; pero dentro
+    de `unittest discover` completo (36 archivos, algunos con sus propios
+    subprocesos) el arranque de ESTE proceso puntual a veces se pasaba de 30s —
+    contención de CPU/proceso del entorno, no un problema de api.py. Subir el
+    timeout a mano no alcanzaba de forma confiable; un reintento sí, porque un
+    segundo arranque casi nunca compite con el mismo pico de carga que tumbó al
+    primero."""
+    proc = _spawn_uvicorn(argv, cwd, env)
+    try:
+        _wait_until_up(proc, base)
+        return proc
+    except Exception:
+        proc.kill()
+        proc.wait(timeout=5)
+    proc = _spawn_uvicorn(argv, cwd, env)
+    try:
+        _wait_until_up(proc, base)
+    except Exception:
+        proc.kill()
+        raise
+    return proc
 
 
 @unittest.skipUnless(_UVICORN_AVAILABLE, "uvicorn no instalado — este test es opcional, no núcleo")
@@ -96,17 +131,11 @@ class ApiHttpTest(unittest.TestCase):
         # "live" en producción) en vez de un mock determinista y predecible.
         env["LOCAL_MODEL"] = ""
         env["ANTHROPIC_API_KEY"] = ""
-        cls.proc = subprocess.Popen(
+        cls.proc = _start_and_wait(
             [sys.executable, "-m", "uvicorn", "api:app", "--port", str(cls.port),
              "--log-level", "warning"],
-            cwd=str(repo_root), env=env,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            str(repo_root), env, cls.base,
         )
-        try:
-            _wait_until_up(cls.proc, cls.base)
-        except Exception:
-            cls.proc.kill()
-            raise
 
     @classmethod
     def tearDownClass(cls):
@@ -153,6 +182,31 @@ class ApiHttpTest(unittest.TestCase):
             status, body = self._get("/api/clients")
             self.assertEqual(status, 200)
             self.assertIn("clients", body)
+        except urllib.error.HTTPError as e:
+            self.assertEqual(e.code, 503, "un fallo de Supabase debe degradar a 503, nunca a 500")
+            detail = json.loads(e.read().decode("utf-8"))
+            self.assertIn("no disponible", detail["detail"])
+
+    def test_leads_search_short_query_is_400(self):
+        """La validación de largo mínimo vive en api.py (HTTPException), no en
+        CRM.search() — por eso este chequeo tiene que ser sobre HTTP real, no
+        sobre la función en Python (igual razón que test_clients_endpoint arriba)."""
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            self._get("/api/leads/search?q=a")
+        self.assertEqual(cm.exception.code, 400)
+
+    def test_leads_search_shape_over_real_http(self):
+        """Nunca debe dar 500 — con CRM local o con Supabase (cuando está
+        configurado, esto pega de verdad, solo lectura, cero riesgo de
+        ensuciar datos). No se afirma contenido real: los datos de producción
+        cambian; solo se confirma el contrato de la respuesta. Mismo patrón que
+        test_clients_endpoint_over_real_http: un Supabase caído/pausado degrada
+        a 503 claro, nunca a un 500 crudo."""
+        try:
+            status, body = self._get("/api/leads/search?q=zzz-no-deberia-matchear-nada-real")
+            self.assertEqual(status, 200)
+            self.assertEqual(set(body), {"results", "q", "limit"})
+            self.assertEqual(body["results"], [])
         except urllib.error.HTTPError as e:
             self.assertEqual(e.code, 503, "un fallo de Supabase debe degradar a 503, nunca a 500")
             detail = json.loads(e.read().decode("utf-8"))
@@ -239,17 +293,11 @@ class ApiAuthHttpTest(unittest.TestCase):
         env["AUTH_PASSWORD"] = cls.PASSWORD
         env.pop("SUPABASE_URL", None)
         env.pop("SUPABASE_KEY", None)
-        cls.proc = subprocess.Popen(
+        cls.proc = _start_and_wait(
             [sys.executable, "-m", "uvicorn", "api:app", "--port", str(cls.port),
              "--log-level", "warning"],
-            cwd=str(repo_root), env=env,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            str(repo_root), env, cls.base,
         )
-        try:
-            _wait_until_up(cls.proc, cls.base)
-        except Exception:
-            cls.proc.kill()
-            raise
 
     @classmethod
     def tearDownClass(cls):
@@ -327,9 +375,29 @@ class ApiAuthHttpTest(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 401)
 
     def test_open_endpoints_never_require_a_token(self):
-        for path in ("/api/health", "/api/auth/status"):
+        for path in ("/api/health", "/api/auth/status", "/api/public/plans"):
             status, _ = self._get(path)
             self.assertEqual(status, 200, path)
+
+    def test_public_plans_accessible_without_token_and_shape(self):
+        """La landing pública consume esto sin login — tiene que responder
+        incluso con AUTH_PASSWORD configurada (este test class corre con una
+        de verdad, a diferencia de ApiHttpTest de arriba). Nunca debe filtrar
+        MRR ni datos de clientes reales — solo segment/price_clp/leads_per_mo,
+        por tier."""
+        status, body = self._get("/api/public/plans")
+        self.assertEqual(status, 200)
+        self.assertEqual(set(body), {"plans"})
+        plans = body["plans"]
+        self.assertEqual(set(plans), {"STARTER", "GROWTH", "SCALE", "ENTERPRISE"})
+        for tier, info in plans.items():
+            self.assertEqual(set(info), {"segment", "price_clp", "leads_per_mo"}, tier)
+        # ENTERPRISE es a medida: se expone tal cual (None), la landing decide
+        # cómo mostrarlo (ej. "Hablar con nosotros").
+        self.assertIsNone(plans["ENTERPRISE"]["price_clp"])
+        self.assertIsNone(plans["ENTERPRISE"]["leads_per_mo"])
+        # Nunca debe verse nada de "mrr" ni pinta de dato de cliente real.
+        self.assertNotIn("mrr_clp", body)
 
 
 if __name__ == "__main__":

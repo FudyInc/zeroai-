@@ -109,6 +109,18 @@ class SupabaseCRM(CRM):
                     return self._row_to_rec(row)
         return None
 
+    def search(self, q: str, limit: int = 20) -> List[Dict[str, Any]]:
+        """Cross-client search, server-side — the one query that intentionally
+        spans every account (no client_id filter), same sort as query()."""
+        needle = (q or "").strip()
+        if not needle:
+            return []
+        v = urllib.parse.quote(needle, safe="")
+        path = (f"{self.TABLE}?or=(company.ilike.*{v}*,email.ilike.*{v}*,phone.ilike.*{v}*)"
+                f"&order=score.desc.nullslast,company.asc&limit={int(limit)}")
+        rows = self._req("GET", path) or []
+        return [self._row_to_rec(r) for r in rows]
+
     def save(self) -> None:
         if not self.leads:
             return

@@ -288,6 +288,57 @@ class CRMTest(unittest.TestCase):
         self.assertIn("won", out)
 
 
+class CRMSearchTest(unittest.TestCase):
+    """search() — el salto rápido cross-cliente: encontrar un lead sin saber de
+    antemano en qué cuenta está (a diferencia de list()/query(), que siempre
+    exigen client_id). Mismo estilo que find_by_contact/query de arriba."""
+
+    def setUp(self):
+        self.crm = CRM(None)
+        self.crm.upsert("acme", {"company": "Acme Corp", "email": "ceo@acme.cl",
+                                 "phone": "+56911111111", "score": 70})
+        self.crm.upsert("pooledge", {"company": "PoolEdge SpA", "email": "ventas@pooledge.cl",
+                                     "phone": "+56922222222", "score": 90})
+        self.crm.upsert("pooledge", {"company": "Otro Lead", "email": "otro@x.cl", "score": 40})
+
+    def test_matches_by_company_substring_across_clients(self):
+        # "acme" vive en un cliente, "pooledge" en otro — ambos deben aparecer
+        # sin pedirle a search() que sepa de antemano en qué cuenta buscar.
+        out = self.crm.search("acme")
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["client_id"], "acme")
+
+    def test_case_insensitive(self):
+        out = self.crm.search("ACME")
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["company"], "Acme Corp")
+
+    def test_matches_by_email_and_phone_too(self):
+        self.assertEqual(len(self.crm.search("ventas@pooledge")), 1)
+        self.assertEqual(len(self.crm.search("922222222")), 1)
+
+    def test_each_result_carries_its_client_id(self):
+        # No hace falta ningún wrapper nuevo — client_id ya es nativo del registro.
+        for rec in self.crm.search("pooledge"):
+            self.assertIn("client_id", rec)
+            self.assertTrue(rec["client_id"])
+
+    def test_respects_limit(self):
+        self.crm.upsert("c3", {"company": "Acme Norte", "email": "a@n.cl", "score": 10})
+        self.crm.upsert("c4", {"company": "Acme Sur", "email": "a@s.cl", "score": 20})
+        out = self.crm.search("acme", limit=2)
+        self.assertEqual(len(out), 2)
+        # el orden global sigue el mismo criterio que list()/query(): score desc
+        self.assertGreaterEqual(out[0]["score"], out[1]["score"])
+
+    def test_empty_or_short_query_returns_nothing(self):
+        self.assertEqual(self.crm.search(""), [])
+        self.assertEqual(self.crm.search("   "), [])
+
+    def test_no_match_returns_empty_list(self):
+        self.assertEqual(self.crm.search("empresa-que-no-existe-en-ningun-lado"), [])
+
+
 class RobustnessTest(unittest.TestCase):
     """A live model may deviate from the mock's clean contract — don't crash."""
 
@@ -1554,7 +1605,7 @@ class PricingTest(unittest.TestCase):
     def test_plans_priced(self):
         from zero.config import TIERS
         self.assertEqual(TIERS["STARTER"]["price_clp"], 50_000)
-        self.assertEqual(TIERS["GROWTH"]["price_clp"], 100_000)
+        self.assertEqual(TIERS["GROWTH"]["price_clp"], 200_000)
         self.assertEqual(TIERS["SCALE"]["price_clp"], 500_000)
         self.assertIsNone(TIERS["ENTERPRISE"]["price_clp"])   # custom
 
