@@ -42,6 +42,7 @@ export const api = {
   leads: (c, { group = 'todos', limit = 50, offset = 0 } = {}) =>
     req(`/api/leads?client=${q(c)}&group=${q(group)}&limit=${limit}&offset=${offset}`),
   lead: (c, k) => req('/api/leads/' + q(k) + '?client=' + q(c)),
+  searchLeads: (query, limit = 20) => req(`/api/leads/search?q=${q(query)}&limit=${limit}`),
   moveStage: (c, k, stage) =>
     req('/api/leads/' + q(k) + '/stage?client=' + q(c), {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stage }),

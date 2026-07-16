@@ -154,6 +154,7 @@ export default function App() {
           currentClient={client}
           onNavigate={nav}
           onSelectClient={setClient}
+          onOpenLead={setLeadKey}
         />
         <Toaster richColors position="top-right" toastOptions={{ style: { borderRadius: '12px' } }} />
       </div>
