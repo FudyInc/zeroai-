@@ -337,3 +337,128 @@ document.querySelectorAll(".faq-q").forEach((btn) => {
     btn.setAttribute("aria-expanded", String(!expanded));
   });
 });
+
+// ---- Precios (fetch en vivo desde /api/public/plans) -------------------
+// Mismo criterio que frontend/src/lib/api.js (VITE_API_URL): en desarrollo
+// local pega directo al backend en :8800; en producción usa la URL pública
+// del backend. La landing no tiene build step (sin Vite), así que no hay una
+// env var real que inyectar aquí — esta constante cumple el mismo rol a mano.
+//
+// GET /api/public/plans ya existe y está desplegado (CORE, 2026-07-15) — sin
+// login, exento en _OPEN_PATHS. Igual se deja el estado de error de abajo para
+// cualquier falla de red/backend caído: nunca mostramos precios inventados
+// como fallback.
+const PRICING_API_BASE =
+  location.hostname === "localhost" || location.hostname === "127.0.0.1"
+    ? "http://localhost:8800"
+    : "https://handpick-monogamy-spiny.ngrok-free.dev"; // URL pública conocida (ngrok fijo) — confirmar con CORE si cambió
+
+(() => {
+  const grid = document.querySelector("#pricingGrid");
+  if (!grid) return;
+
+  // Copy propio de cada plan: no viene del backend (el backend solo manda
+  // segment/price_clp/leads_per_mo), así que vive acá, a mano, alineado con
+  // zero/config.py::TIERS. Sin Instagram ni LinkedIn/SDR-AI como promesa:
+  // esos canales están en config.py pero se envían mock/borrador, no reales
+  // (ver zero/channels.py: SENDABLE = ("email", "whatsapp")).
+  // Política de precio fijo (2026-07-15, decisión de Diego): STARTER/GROWTH/SCALE
+  // incluyen las plantillas de WhatsApp en el precio del plan — sin cobro extra
+  // por plantilla ni por mensaje. ENTERPRISE queda fuera de esta garantía (volumen
+  // y condiciones se negocian aparte, es para empresas más grandes).
+  const PLAN_COPY = {
+    STARTER: {
+      highlight: false,
+      checks: [
+        "Scoring ICP genérico",
+        "Contacto por email y WhatsApp",
+        "Plantillas de WhatsApp incluidas, sin cobros extra",
+      ],
+    },
+    GROWTH: {
+      highlight: true,
+      checks: [
+        "Scoring ICP a tu medida",
+        "Email, WhatsApp y llamadas",
+        "Plantillas de WhatsApp incluidas, sin cobros extra",
+      ],
+    },
+    SCALE: {
+      highlight: false,
+      checks: [
+        "Scoring con señales de intención de compra",
+        "Email, WhatsApp y llamadas a mayor volumen",
+        "Plantillas de WhatsApp incluidas, sin cobros extra",
+      ],
+    },
+    ENTERPRISE: {
+      highlight: false,
+      checks: [
+        "Modelo de scoring por vertical",
+        "Canales y volumen a medida",
+        "Condiciones de WhatsApp se acuerdan a medida",
+      ],
+    },
+  };
+  const ORDER = ["STARTER", "GROWTH", "SCALE", "ENTERPRISE"];
+
+  const clp = (n) => new Intl.NumberFormat("es-CL").format(n);
+
+  const bindChatButtons = (root) => {
+    root.querySelectorAll("[data-chat-open]").forEach((btn) => {
+      btn.addEventListener("click", openChat);
+    });
+  };
+
+  const renderError = () => {
+    grid.innerHTML =
+      '<p class="pricing-error">No pudimos cargar los precios en este momento. ' +
+      '<button type="button" data-chat-open>Escríbenos</button> y te los confirmamos al tiro.</p>';
+    bindChatButtons(grid);
+  };
+
+  const renderPlans = (plans) => {
+    const cards = ORDER.filter((key) => plans[key]).map((key) => {
+      const p = plans[key];
+      const copy = PLAN_COPY[key] || { checks: [], highlight: false };
+      const priceBlock =
+        p.price_clp != null
+          ? `<div class="price-amount"><strong>$${clp(p.price_clp)}</strong><span>CLP/mes</span></div>`
+          : '<div class="price-amount price-amount-custom"><strong>A medida</strong></div>';
+      const leadsLine =
+        p.leads_per_mo != null
+          ? `<p class="price-leads">${clp(p.leads_per_mo)} leads calificados/mes</p>`
+          : '<p class="price-leads">Volumen a medida</p>';
+      const checksHtml = copy.checks.map((c) => `<li>${c}</li>`).join("");
+      const badge = copy.highlight ? '<span class="price-badge">Más elegido</span>' : "";
+      return (
+        `<article class="price-card${copy.highlight ? " price-card-featured" : ""}">` +
+        badge +
+        `<span class="price-segment">${p.segment}</span>` +
+        priceBlock +
+        leadsLine +
+        `<ul class="price-checks">${checksHtml}</ul>` +
+        '<button class="btn btn-dark" type="button" data-chat-open>Hablar con Fernanda</button>' +
+        "</article>"
+      );
+    });
+
+    grid.innerHTML =
+      cards.join("") +
+      '<p class="pricing-note">¿Necesitas algo distinto? El plan Enterprise se arma a medida — habla con nosotros.</p>';
+    bindChatButtons(grid);
+  };
+
+  fetch(PRICING_API_BASE + "/api/public/plans", {
+    headers: { "ngrok-skip-browser-warning": "true" },
+  })
+    .then((r) => {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    })
+    .then((data) => {
+      if (!data || !data.plans) throw new Error("Respuesta sin plans");
+      renderPlans(data.plans);
+    })
+    .catch(() => renderError());
+})();
