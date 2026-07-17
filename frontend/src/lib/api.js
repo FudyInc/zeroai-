@@ -59,6 +59,7 @@ export const api = {
   setMarketing: (c, body) =>
     req('/api/marketing?client=' + q(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   forecast: (c) => req('/api/forecast?client=' + q(c)),
+  finance: (month) => req('/api/finance' + (month ? '?month=' + q(month) : '')),
   runPipeline: (body) =>
     req('/api/pipeline', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   testEmail: (to) =>

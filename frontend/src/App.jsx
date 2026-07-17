@@ -11,6 +11,7 @@ import Sidebar from './components/Sidebar'
 import Login from './components/Login'
 import LeadModal from './components/LeadModal'
 import CommandPalette from './components/CommandPalette'
+import { canSeePage } from './lib/roles'
 import Dashboard from './pages/Dashboard'
 import Vender from './pages/Vender'
 import Campanas from './pages/Campanas'
@@ -23,6 +24,7 @@ import Llamadas from './pages/Llamadas'
 import Whatsapp from './pages/Whatsapp'
 import Agentes from './pages/Agentes'
 import Config from './pages/Config'
+import Finanzas from './pages/Finanzas'
 
 const AppCtx = createContext(null)
 export const useApp = () => useContext(AppCtx)
@@ -38,6 +40,7 @@ const TITLES = {
   '/whatsapp': ['WhatsApp', 'En 3 pasos deja un agente atendiendo: ficha, quién atiende, desplegar — prueba, estado y actividad'],
   '/forecast': ['Forecast', 'Proyección de pipeline'],
   '/clientes': ['Clientes', 'Tus cuentas'],
+  '/finanzas': ['Finanzas', 'Entra, sale y margen de la agencia'],
   '/arquitectura': ['Arquitectura', 'Cómo está armado ZeroAI por dentro'],
   '/config': ['Configuración', 'Ajustes y conexiones'],
 }
@@ -51,6 +54,8 @@ export default function App() {
   const [title, sub] = TITLES[pathname] || ['ZeroAI', '']
   const [authed, setAuthed] = useState(null)   // null=checking · false=login · true=in
   const [username, setUsername] = useState(null)
+  const [role, setRole] = useState(null)         // "admin" | "cro" | "cto" | null
+  const [authEnabled, setAuthEnabled] = useState(false) // false = sin cuentas dadas de alta (mock/dev), sin restricciones
   const [navOpen, setNavOpen] = useState(false) // drawer móvil del sidebar
   const [paletteOpen, setPaletteOpen] = useState(false)
 
@@ -67,12 +72,15 @@ export default function App() {
   }, [])
 
   const refreshAuth = () => api.authStatus()
-    .then((s) => { setAuthed(s.authenticated); setUsername(s.username || null) })
+    .then((s) => {
+      setAuthed(s.authenticated); setUsername(s.username || null)
+      setRole(s.role || null); setAuthEnabled(!!s.enabled)
+    })
     .catch(() => setAuthed(true))
 
   useEffect(() => {
     refreshAuth()
-    const onUnauth = () => { setAuthed(false); setUsername(null) }
+    const onUnauth = () => { setAuthed(false); setUsername(null); setRole(null); setAuthEnabled(false) }
     window.addEventListener('zero-unauth', onUnauth)
     return () => window.removeEventListener('zero-unauth', onUnauth)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -88,7 +96,7 @@ export default function App() {
   return (
     <AppCtx.Provider value={{ client, setClient, clients, openLead: setLeadKey, openRun: () => setRunOpen(true) }}>
       <div className="min-h-screen flex text-zinc-900 bg-[radial-gradient(120%_120%_at_100%_0%,#f2f1ec_0%,#f4f4f4_45%,#f6f5f2_100%)]">
-        <Sidebar mobileOpen={navOpen} onClose={() => setNavOpen(false)} username={username} />
+        <Sidebar mobileOpen={navOpen} onClose={() => setNavOpen(false)} username={username} role={role} authEnabled={authEnabled} />
         <div className="flex-1 min-w-0">
           <header className="h-[68px] sticky top-0 z-20 bg-white/80 backdrop-blur border-b border-zinc-200 flex items-center px-4 md:px-8 gap-3">
             <button onClick={() => setNavOpen(true)} aria-label="Abrir menú"
@@ -138,6 +146,7 @@ export default function App() {
                 <Route path="/pipeline" element={<Pipeline />} />
                 <Route path="/forecast" element={<Forecast />} />
                 <Route path="/clientes" element={<Clientes />} />
+                <Route path="/finanzas" element={<Finanzas />} />
                 <Route path="/arquitectura" element={<Arquitectura />} />
                 <Route path="/agentes" element={<Agentes />} />
                 <Route path="/llamadas" element={<Llamadas />} />
@@ -153,7 +162,9 @@ export default function App() {
         <CommandPalette
           open={paletteOpen}
           onClose={() => setPaletteOpen(false)}
-          pages={Object.entries(TITLES).map(([path, [label]]) => ({ path, label }))}
+          pages={Object.entries(TITLES)
+            .filter(([path]) => canSeePage(path, role, authEnabled))
+            .map(([path, [label]]) => ({ path, label }))}
           clients={clients}
           currentClient={client}
           onNavigate={nav}

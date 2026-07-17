@@ -2,10 +2,11 @@ import { useState } from 'react'
 import { Link, NavLink } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  LayoutDashboard, Users, GitBranch, Bot, TrendingUp, Briefcase, Settings, Mail, Network, LogOut, Megaphone, X, User,
+  LayoutDashboard, Users, GitBranch, Bot, TrendingUp, Briefcase, Settings, Mail, Network, LogOut, Megaphone, X, User, Wallet, AlertTriangle,
 } from 'lucide-react'
 import { cn } from '../lib/util'
 import { api } from '../lib/api'
+import { canSeePage } from '../lib/roles'
 
 const SECTIONS = [
   {
@@ -26,6 +27,7 @@ const SECTIONS = [
   {
     title: 'Cuenta', items: [
       { to: '/clientes', label: 'Clientes', icon: Briefcase },
+      { to: '/finanzas', label: 'Finanzas', icon: Wallet },
       { to: '/arquitectura', label: 'Arquitectura', icon: Network },
       { to: '/config', label: 'Configuración', icon: Settings },
     ],
@@ -41,9 +43,13 @@ function Mark() {
 /* Escritorio: colapsado muestra solo íconos y se expande al pasar el mouse.
    Móvil (<md): drawer fijo fuera de pantalla; se abre con el botón del header
    (mobileOpen/onClose vienen de App) y se cierra al navegar o tocar el fondo. */
-export default function Sidebar({ mobileOpen = false, onClose = () => {}, username = null }) {
+export default function Sidebar({ mobileOpen = false, onClose = () => {}, username = null, role = null, authEnabled = false }) {
   const [hover, setHover] = useState(false)
   const open = hover || mobileOpen
+  const visibleSections = SECTIONS
+    .map((sec) => ({ ...sec, items: sec.items.filter((i) => canSeePage(i.to, role, authEnabled)) }))
+    .filter((sec) => sec.items.length > 0)
+  const noRoleAssigned = authEnabled && !role
   const reveal = (text) => (
     <motion.span animate={{ opacity: open ? 1 : 0, width: open ? 'auto' : 0 }} transition={{ duration: 0.2 }}
       className="whitespace-nowrap overflow-hidden">{text}</motion.span>
@@ -88,7 +94,13 @@ export default function Sidebar({ mobileOpen = false, onClose = () => {}, userna
         </div>
 
         <nav className="p-3 flex-1 space-y-4 overflow-y-auto overflow-x-hidden">
-          {SECTIONS.map((sec) => (
+          {noRoleAssigned && (
+            <div className="flex items-center gap-3 text-amber-700 bg-amber-50 rounded-xl px-3 py-2" title="Sin rol asignado — contacta al administrador">
+              <AlertTriangle size={18} className="shrink-0" />
+              {reveal(<span className="text-xs">Sin rol asignado — contacta al administrador.</span>)}
+            </div>
+          )}
+          {visibleSections.map((sec) => (
             <div key={sec.title} className="space-y-0.5">
               <div className="h-4 px-3 flex items-end">
                 <motion.span animate={{ opacity: open ? 1 : 0 }} transition={{ duration: 0.2 }}
