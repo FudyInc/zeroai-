@@ -179,6 +179,22 @@ AVG_DEAL_VALUE_CLP = 1_000_000   # valor promedio por cierre, en CLP (ajustable)
 IVA_RATE = 0.19   # IVA Chile
 
 
+# --- Finanzas de la AGENCIA (zero/finance.py) ----------------------------------
+# Qué rubros de costo existen para ZeroAI — la política. Las cifras reales nunca
+# van aquí ni en ningún archivo versionado: viven en finance.json (local,
+# gitignorado, mismo trato que crm.json). Un costo con rubro desconocido cae en
+# "otros" en vez de perderse.
+FINANCE_COST_CATEGORIES = (
+    "vapi",         # llamadas (por minuto, USD → anotar ya convertido a CLP)
+    "elevenlabs",   # voz Francisca (por caracteres)
+    "supabase",     # hoy plan gratis ($0)
+    "dominio",      # 1 cifra al año
+    "vps",          # hipotético (si se migra del PC Ubuntu)
+    "anthropic",    # solo si se activa --live (motor local gratis desde 2026-07)
+    "otros",
+)
+
+
 # --- CRM pipeline stages -----------------------------------------------------
 # The lifecycle a lead moves through in ZERO's system of record. Ordered; the
 # CRM board renders them left→right. ZERO advances the first ones automatically;

@@ -36,6 +36,7 @@ from zero._supabase import SupabaseError
 
 CRM_PATH = "crm.json"
 STATE_PATH = "state.json"
+FINANCE_PATH = "finance.json"   # costos de la agencia — local, gitignorado
 
 app = FastAPI(title="ZERO API", version="0.1.0",
               description="Lead-gen B2B — pipeline y CRM por HTTP")
@@ -144,9 +145,10 @@ def public_plans():
     return {"plans": _PLANS}
 
 
-@app.get("/api/accounts")
-def accounts():
-    """Clientes con su plan y precio + MRR de la agencia (lo que facturas al mes)."""
+def _accounts_and_mrr():
+    """Cuentas activas del CRM con su plan + MRR (suma de precios de lista).
+    Único cálculo de "cuánto entra" del sistema — /api/accounts y /api/finance
+    lo comparten para que nunca cuenten distinto."""
     memory = make_memory(STATE_PATH)
     out, mrr = [], 0
     for c in _crm().client_ids():
@@ -156,7 +158,31 @@ def accounts():
             mrr += price
         out.append({"client": c, "tier": tier, "price_clp": price,
                     "leads_per_mo": TIERS.get(tier, {}).get("leads_per_mo")})
+    return out, mrr
+
+
+@app.get("/api/accounts")
+def accounts():
+    """Clientes con su plan y precio + MRR de la agencia (lo que facturas al mes)."""
+    out, mrr = _accounts_and_mrr()
     return {"accounts": out, "mrr_clp": mrr, "plans": _PLANS}
+
+
+@app.get("/api/finance")
+def finance(month: Optional[str] = None):
+    """Finanzas de la agencia: entra (MRR) / sale (costos) / margen del mes, más
+    historial para tendencia. Siempre detrás de login (jamás en _OPEN_PATHS):
+    expone el MRR real. Costos desde finance.json local (gitignorado); sin
+    archivo responde cifras de ejemplo con source="mock"."""
+    from zero.finance import finance_summary, valid_month
+    if month is not None and not valid_month(month):
+        raise HTTPException(status_code=400, detail=f"mes inválido: {month!r} (formato AAAA-MM)")
+    _, mrr = _accounts_and_mrr()
+    try:
+        return finance_summary(FINANCE_PATH, mrr_clp=mrr, month=month)
+    except RuntimeError as e:
+        # finance.json corrupto: avisar y no tocar el archivo (regla de la casa).
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 class PlanChange(BaseModel):
