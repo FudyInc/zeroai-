@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, NavLink } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  LayoutDashboard, Users, GitBranch, Bot, TrendingUp, Briefcase, Settings, Mail, Network, LogOut, Megaphone, X,
+  LayoutDashboard, Users, GitBranch, Bot, TrendingUp, Briefcase, Settings, Mail, Network, LogOut, Megaphone, X, User,
 } from 'lucide-react'
 import { cn } from '../lib/util'
 import { api } from '../lib/api'
@@ -41,7 +41,7 @@ function Mark() {
 /* Escritorio: colapsado muestra solo íconos y se expande al pasar el mouse.
    Móvil (<md): drawer fijo fuera de pantalla; se abre con el botón del header
    (mobileOpen/onClose vienen de App) y se cierra al navegar o tocar el fondo. */
-export default function Sidebar({ mobileOpen = false, onClose = () => {} }) {
+export default function Sidebar({ mobileOpen = false, onClose = () => {}, username = null }) {
   const [hover, setHover] = useState(false)
   const open = hover || mobileOpen
   const reveal = (text) => (
@@ -111,6 +111,12 @@ export default function Sidebar({ mobileOpen = false, onClose = () => {} }) {
         </nav>
 
         <div className="p-3 border-t border-zinc-100 space-y-1">
+          {username && (
+            <div className="flex items-center gap-3 px-3 py-2 text-sm text-zinc-500" title={'Conectado como ' + username}>
+              <User size={18} className="shrink-0 text-pewter" />
+              {reveal(<span className="truncate">Conectado como <span className="font-semibold text-zinc-700">{username}</span></span>)}
+            </div>
+          )}
           <button onClick={() => api.logout()} title="Cerrar sesión"
             className="flex items-center gap-3 px-3 py-2 rounded-xl text-sm text-zinc-500 hover:bg-zinc-50 hover:text-zinc-800 transition-colors w-full">
             <LogOut size={18} className="shrink-0" />

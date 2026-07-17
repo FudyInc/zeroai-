@@ -50,6 +50,7 @@ export default function App() {
   const nav = useNavigate()
   const [title, sub] = TITLES[pathname] || ['ZeroAI', '']
   const [authed, setAuthed] = useState(null)   // null=checking · false=login · true=in
+  const [username, setUsername] = useState(null)
   const [navOpen, setNavOpen] = useState(false) // drawer móvil del sidebar
   const [paletteOpen, setPaletteOpen] = useState(false)
 
@@ -65,13 +66,16 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
+  const refreshAuth = () => api.authStatus()
+    .then((s) => { setAuthed(s.authenticated); setUsername(s.username || null) })
+    .catch(() => setAuthed(true))
+
   useEffect(() => {
-    let alive = true
-    api.authStatus().then((s) => alive && setAuthed(s.authenticated)).catch(() => alive && setAuthed(true))
-    const onUnauth = () => setAuthed(false)
+    refreshAuth()
+    const onUnauth = () => { setAuthed(false); setUsername(null) }
     window.addEventListener('zero-unauth', onUnauth)
-    return () => { alive = false; window.removeEventListener('zero-unauth', onUnauth) }
-  }, [])
+    return () => window.removeEventListener('zero-unauth', onUnauth)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data: clients = [] } = useQuery({ queryKey: ['clients'], queryFn: api.clients, enabled: authed === true })
   useEffect(() => {
@@ -79,12 +83,12 @@ export default function App() {
   }, [clients, client])
 
   if (authed === null) return <div className="min-h-screen grid place-items-center text-zinc-400">Cargando…</div>
-  if (authed === false) return <Login onSuccess={() => setAuthed(true)} />
+  if (authed === false) return <Login onSuccess={refreshAuth} />
 
   return (
     <AppCtx.Provider value={{ client, setClient, clients, openLead: setLeadKey, openRun: () => setRunOpen(true) }}>
       <div className="min-h-screen flex text-zinc-900 bg-[radial-gradient(120%_120%_at_100%_0%,#f2f1ec_0%,#f4f4f4_45%,#f6f5f2_100%)]">
-        <Sidebar mobileOpen={navOpen} onClose={() => setNavOpen(false)} />
+        <Sidebar mobileOpen={navOpen} onClose={() => setNavOpen(false)} username={username} />
         <div className="flex-1 min-w-0">
           <header className="h-[68px] sticky top-0 z-20 bg-white/80 backdrop-blur border-b border-zinc-200 flex items-center px-4 md:px-8 gap-3">
             <button onClick={() => setNavOpen(true)} aria-label="Abrir menú"

@@ -10,6 +10,7 @@ function Mark() {
 }
 
 export default function Login({ onSuccess }) {
+  const [user, setUser] = useState('')
   const [pw, setPw] = useState('')
   const [show, setShow] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -18,7 +19,7 @@ export default function Login({ onSuccess }) {
   const submit = async (e) => {
     e.preventDefault()
     setBusy(true); setErr('')
-    try { await api.login(pw); onSuccess() }
+    try { await api.login(user, pw); onSuccess() }
     catch (e) { setErr(e.message) } finally { setBusy(false) }
   }
 
@@ -31,10 +32,11 @@ export default function Login({ onSuccess }) {
             ZEROAI
           </div>
         </div>
-        <div className="text-sm text-zinc-500 mb-5">Ingresa tu contraseña de agencia.</div>
+        <div className="text-sm text-zinc-500 mb-5">Ingresa tu usuario y contraseña.</div>
         <form onSubmit={submit} className="space-y-3">
+          <Input value={user} onChange={(e) => setUser(e.target.value)} placeholder="Usuario" autoFocus className="w-full" />
           <div className="relative">
-            <Input type={show ? 'text' : 'password'} autoFocus value={pw} onChange={(e) => setPw(e.target.value)} placeholder="Contraseña" className="w-full pr-10" />
+            <Input type={show ? 'text' : 'password'} value={pw} onChange={(e) => setPw(e.target.value)} placeholder="Contraseña" className="w-full pr-10" />
             <button type="button" onClick={() => setShow((v) => !v)} aria-label={show ? 'Ocultar contraseña' : 'Mostrar contraseña'}
               className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600">
               {show ? <EyeOff size={16} /> : <Eye size={16} />}
