@@ -1621,44 +1621,247 @@ class ScalabilityTest(unittest.TestCase):
 
 
 class AuthTest(unittest.TestCase):
-    """Single-password agency gate: tokens signed by the password itself."""
+    """Login por persona: cada cuenta vive en un users.json local (gitignored,
+    mismo patrón que crm.json/state.json), tokens firmados con el hash de ESA
+    cuenta — cambiar/borrar una cuenta invalida solo sus propios tokens."""
 
     def setUp(self):
         import os
-        self._prev = os.environ.get("AUTH_PASSWORD")
-        os.environ["AUTH_PASSWORD"] = "s3cret"
+        import tempfile
+        from zero import auth
+        self._tmpdir = tempfile.mkdtemp()
+        self._prev = os.environ.get("AUTH_USERS_PATH")
+        # _users_path() lee AUTH_USERS_PATH en vivo en cada llamada (nunca lo
+        # cachea a nivel de módulo), así que alcanza con setear la env var —
+        # sin necesidad de reload.
+        os.environ["AUTH_USERS_PATH"] = os.path.join(self._tmpdir, "users.json")
+        self.auth = auth
+        self.auth.add_user("diego", "s3cret")
+
+    def tearDown(self):
+        import os
+        import shutil
+        if self._prev is None:
+            os.environ.pop("AUTH_USERS_PATH", None)
+        else:
+            os.environ["AUTH_USERS_PATH"] = self._prev
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def test_password_and_token_roundtrip(self):
+        auth = self.auth
+        self.assertTrue(auth.auth_enabled())
+        self.assertTrue(auth.verify_password("diego", "s3cret"))
+        self.assertFalse(auth.verify_password("diego", "nope"))
+        tok = auth.make_token("diego")
+        self.assertTrue(auth.valid_token(tok))
+        self.assertEqual(auth.token_username(tok), "diego")
+        self.assertFalse(auth.valid_token(tok + "x"))      # tampered
+        self.assertFalse(auth.valid_token("garbage"))
+
+    def test_unknown_username_never_authenticates(self):
+        auth = self.auth
+        self.assertFalse(auth.verify_password("nadie", "cualquiera"))
+        self.assertIsNone(auth.make_token("nadie"))
+
+    def test_login_invalid_for_wrong_password(self):
+        auth = self.auth
+        self.assertFalse(auth.verify_password("diego", "contraseña-mala"))
+
+    def test_one_users_token_does_not_work_as_another(self):
+        # el corazón del modelo por-persona: un token firmado para "lucas"
+        # nunca debe validar como si fuera de "diego", y viceversa.
+        auth = self.auth
+        auth.add_user("lucas", "otra-clave")
+        tok_diego = auth.make_token("diego")
+        tok_lucas = auth.make_token("lucas")
+        self.assertEqual(auth.token_username(tok_diego), "diego")
+        self.assertEqual(auth.token_username(tok_lucas), "lucas")
+        self.assertNotEqual(tok_diego, tok_lucas)
+        # y no se puede "franken-mezclar" el username de uno con la firma del otro
+        exp = tok_lucas.split(".")[1]
+        sig = tok_lucas.split(".")[2]
+        forged = f"diego.{exp}.{sig}"
+        self.assertFalse(auth.valid_token(forged))
+
+    def test_expired_token_invalidates(self):
+        auth = self.auth
+        self.assertIsNone(auth.token_username(auth.make_token("diego", ttl=-1)))
+
+    def test_revoke_one_user_does_not_affect_others(self):
+        # borrar/cambiar la cuenta de UNA persona invalida SU token — sin
+        # tocar los tokens de las demás cuentas ya emitidos.
+        auth = self.auth
+        auth.add_user("lucas", "otra-clave")
+        tok_diego = auth.make_token("diego")
+        tok_lucas = auth.make_token("lucas")
+
+        auth.remove_user("lucas")
+        self.assertFalse(auth.valid_token(tok_lucas))     # revocado
+        self.assertTrue(auth.valid_token(tok_diego))       # diego, intacto
+
+    def test_changing_password_invalidates_old_token(self):
+        auth = self.auth
+        old_tok = auth.make_token("diego")
+        auth.add_user("diego", "clave-nueva")   # mismo username = reset
+        self.assertFalse(auth.valid_token(old_tok))
+        self.assertTrue(auth.verify_password("diego", "clave-nueva"))
+        self.assertFalse(auth.verify_password("diego", "s3cret"))
+
+    def test_invalid_username_rejected(self):
+        auth = self.auth
+        with self.assertRaises(ValueError):
+            auth.add_user("con.punto", "x")   # rompería el parseo del token
+        with self.assertRaises(ValueError):
+            auth.add_user("", "x")
+
+    def test_disabled_when_no_users(self):
+        auth = self.auth
+        auth.remove_user("diego")
+        self.assertFalse(auth.auth_enabled())
+        self.assertIsNone(auth.make_token("diego"))
+        self.assertEqual(auth.list_users(), [])
+
+    def test_list_users_never_exposes_hash(self):
+        auth = self.auth
+        auth.add_user("lucas", "otra-clave")
+        names = auth.list_users()
+        self.assertEqual(names, ["diego", "lucas"])
+
+
+class SupabaseJWTAuthTest(unittest.TestCase):
+    """Login vía Supabase Auth (Google), con rol en app_metadata — el camino
+    real, sobre el modelo por-persona de arriba. Los JWTs de prueba se arman
+    a mano con la misma codificación que produce Supabase (HS256, base64url,
+    sin pyjwt — mismo criterio stdlib-only que el resto del módulo)."""
+
+    SECRET = "un-jwt-secret-de-prueba-bien-largo-para-el-test"
+
+    def setUp(self):
+        import os
+        self._prev = os.environ.get("SUPABASE_JWT_SECRET")
+        os.environ["SUPABASE_JWT_SECRET"] = self.SECRET
 
     def tearDown(self):
         import os
         if self._prev is None:
-            os.environ.pop("AUTH_PASSWORD", None)
+            os.environ.pop("SUPABASE_JWT_SECRET", None)
         else:
-            os.environ["AUTH_PASSWORD"] = self._prev
+            os.environ["SUPABASE_JWT_SECRET"] = self._prev
 
-    def test_password_and_token_roundtrip(self):
-        from zero import auth
-        self.assertTrue(auth.auth_enabled())
-        self.assertTrue(auth.verify_password("s3cret"))
-        self.assertFalse(auth.verify_password("nope"))
-        tok = auth.make_token()
-        self.assertTrue(auth.valid_token(tok))
-        self.assertFalse(auth.valid_token(tok + "x"))      # tampered
-        self.assertFalse(auth.valid_token("garbage"))
+    @staticmethod
+    def _b64url(data: bytes) -> str:
+        import base64
+        return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
 
-    def test_expired_and_password_change_invalidate(self):
+    def _make_jwt(self, *, email="test@zeroai.cl", role="admin", exp_delta=3600,
+                  secret=None, alg="HS256", app_metadata=None):
+        import hashlib
+        import hmac
+        import json
+        import time
+        header = {"alg": alg, "typ": "JWT"}
+        if app_metadata is None:
+            app_metadata = {"role": role} if role is not None else {}
+        payload = {"email": email, "exp": int(time.time()) + exp_delta,
+                  "app_metadata": app_metadata}
+        header_b64 = self._b64url(json.dumps(header).encode())
+        payload_b64 = self._b64url(json.dumps(payload).encode())
+        key = (secret if secret is not None else self.SECRET).encode("utf-8")
+        sig = hmac.new(key, f"{header_b64}.{payload_b64}".encode("ascii"), hashlib.sha256).digest()
+        return f"{header_b64}.{payload_b64}.{self._b64url(sig)}"
+
+    def test_valid_jwt_with_role_authenticates(self):
         from zero import auth
+        identity = auth.token_identity(self._make_jwt(role="admin"))
+        self.assertEqual(identity["role"], "admin")
+        self.assertEqual(identity["email"], "test@zeroai.cl")
+        self.assertEqual(identity["source"], "supabase")
+
+    def test_cro_role_roundtrip(self):
+        from zero import auth
+        identity = auth.token_identity(self._make_jwt(role="cro", email="lucas@zeroai.cl"))
+        self.assertEqual(identity["role"], "cro")
+        self.assertEqual(identity["username"], "lucas@zeroai.cl")
+
+    def test_jwt_with_no_role_authenticates_but_role_is_none(self):
+        # Fail closed: se autentica (sabemos quién es) pero sin rol asignado
+        # — es el caller (auth_guard) el que decide qué hacer con eso (403).
+        from zero import auth
+        identity = auth.token_identity(self._make_jwt(role=None))
+        self.assertIsNotNone(identity)
+        self.assertIsNone(identity["role"])
+
+    def test_user_metadata_role_is_never_trusted(self):
+        # app_metadata es lo único confiable — user_metadata lo puede editar
+        # el propio usuario vía API, nunca debe otorgar un rol.
+        from zero import auth
+        # fuerza un token con "role" solo en user_metadata, no app_metadata
+        import base64, hashlib, hmac, json, time
+        header = {"alg": "HS256", "typ": "JWT"}
+        payload = {"email": "x@x.cl", "exp": int(time.time()) + 3600,
+                  "user_metadata": {"role": "admin"}}
+        h = self._b64url(json.dumps(header).encode())
+        p = self._b64url(json.dumps(payload).encode())
+        sig = hmac.new(self.SECRET.encode(), f"{h}.{p}".encode(), hashlib.sha256).digest()
+        forged = f"{h}.{p}.{self._b64url(sig)}"
+        identity = auth.token_identity(forged)
+        self.assertIsNotNone(identity)
+        self.assertIsNone(identity["role"])
+
+    def test_tampered_signature_rejected(self):
+        from zero import auth
+        tok = self._make_jwt()
+        tampered = tok[:-4] + "xxxx"
+        self.assertIsNone(auth.verify_supabase_jwt(tampered))
+        self.assertIsNone(auth.token_identity(tampered))
+
+    def test_expired_jwt_rejected(self):
+        from zero import auth
+        self.assertIsNone(auth.verify_supabase_jwt(self._make_jwt(exp_delta=-10)))
+
+    def test_wrong_secret_rejected(self):
+        from zero import auth
+        tok = self._make_jwt(secret="otro-secreto-completamente-distinto")
+        self.assertIsNone(auth.verify_supabase_jwt(tok))
+
+    def test_non_hs256_alg_rejected(self):
+        # nunca aceptar "none" (ni ningún otro alg) aunque venga "bien firmado"
+        from zero import auth
+        self.assertIsNone(auth.verify_supabase_jwt(self._make_jwt(alg="none")))
+
+    def test_garbage_token_never_crashes(self):
+        from zero import auth
+        for bad in ("", "garbage", "a.b", "a.b.c.d", "...", None):
+            self.assertIsNone(auth.verify_supabase_jwt(bad))
+            self.assertIsNone(auth.token_identity(bad))
+
+    def test_no_secret_configured_disables_jwt_path(self):
         import os
-        self.assertFalse(auth.valid_token(auth.make_token(ttl=-1)))   # expired
-        tok = auth.make_token()
-        os.environ["AUTH_PASSWORD"] = "rotated"                       # rotate
-        self.assertFalse(auth.valid_token(tok))                       # old token dies
-
-    def test_disabled_when_no_password(self):
         from zero import auth
+        tok = self._make_jwt()
+        os.environ.pop("SUPABASE_JWT_SECRET", None)
+        self.assertIsNone(auth.verify_supabase_jwt(tok))
+
+    def test_local_login_still_works_as_fallback_with_admin_role(self):
+        # el modelo por-persona (users.json) sigue andando sin cambios — se le
+        # asigna "admin" (documentado a propósito: es un hueco transicional).
         import os
-        os.environ.pop("AUTH_PASSWORD", None)
-        self.assertFalse(auth.auth_enabled())
-        self.assertFalse(auth.valid_token(auth.make_token()))
+        import tempfile
+        from zero import auth
+        tmpdir = tempfile.mkdtemp()
+        prev = os.environ.get("AUTH_USERS_PATH")
+        os.environ["AUTH_USERS_PATH"] = os.path.join(tmpdir, "users.json")
+        try:
+            auth.add_user("diego", "clave-local")
+            tok = auth.make_token("diego")
+            identity = auth.token_identity(tok)
+            self.assertEqual(identity["role"], "admin")
+            self.assertEqual(identity["source"], "local")
+        finally:
+            if prev is None:
+                os.environ.pop("AUTH_USERS_PATH", None)
+            else:
+                os.environ["AUTH_USERS_PATH"] = prev
 
 
 class MetaAdsTest(unittest.TestCase):

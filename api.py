@@ -64,11 +64,50 @@ async def supabase_error_handler(request: Request, exc: SupabaseError):
 # its own verify token, not ours).
 _OPEN_PATHS = {"/api/login", "/api/health", "/api/auth/status", "/api/public/plans"}
 
+# --- rol "cro" (ej. Lucas): a qué (método, ruta) tiene acceso -----------------
+# Todo lo que NO matchee acá exige rol "admin" — fail closed por diseño: una
+# ruta nueva que no se agregue a esta lista queda solo para admin
+# automáticamente, nunca abierta a cro por accidente.
+#
+# Construido grepeando qué llama CADA PÁGINA real del dashboard (no adivinado
+# — ver el prompt/auditoría que dejó esto documentado), mapeado a las páginas
+# que Diego nombró como visibles para "cro": Clientes, Forecast, Campañas,
+# Vender, Pipeline — más lo que usan los componentes GLOBALES del shell
+# (selector de cliente, modal "Buscar leads", LeadModal, CommandPalette), que
+# no están atados a una sola página pero corren en cualquiera de ellas.
+_CRO_ALLOWED = (
+    ("GET", "/api/clients"),          # selector de cliente (global, App.jsx)
+    ("GET", "/api/accounts"),         # Clientes.jsx
+    ("POST", "/api/accounts"),        # Clientes.jsx (cambiar plan)
+    ("GET", "/api/forecast"),         # Forecast.jsx
+    ("GET", "/api/campaigns"),        # Campañas.jsx (incluye /campaigns/optimize)
+    ("GET", "/api/marketing"),        # Campañas.jsx
+    ("POST", "/api/marketing"),       # Campañas.jsx
+    ("POST", "/api/campaigns"),       # Campañas.jsx (sync-leads)
+    ("POST", "/api/pitch"),           # Vender.jsx (generate/send)
+    ("GET", "/api/emails"),           # Vender.jsx
+    ("GET", "/api/board"),            # Pipeline.jsx
+    ("GET", "/api/leads"),            # Pipeline/LeadModal/CommandPalette (leads, /search, /{key})
+    ("POST", "/api/leads"),           # LeadModal (mover etapa, responder)
+    ("GET", "/api/icp"),              # modal global "Buscar leads"
+    ("POST", "/api/pipeline"),        # modal global "Buscar leads" (dispara el pipeline)
+)
+
+
+def _cro_may_access(method: str, path: str) -> bool:
+    for m, prefix in _CRO_ALLOWED:
+        if method == m and (path == prefix or path.startswith(prefix + "/")):
+            return True
+    return False
+
 
 @app.middleware("http")
 async def auth_guard(request: Request, call_next):
-    """Single-password gate. No password set → open (dev). Set one → token required."""
-    from zero.auth import auth_enabled, valid_token
+    """Login gate — dos mecanismos: JWT de Supabase Auth (Google, con rol en
+    app_metadata) o el modelo local por-persona (users.json, fallback
+    transicional, sin roles = admin). Sin ninguno de los dos configurados
+    (ni users.json con cuentas, ni SUPABASE_JWT_SECRET) → abierto (dev)."""
+    from zero.auth import auth_enabled, token_identity
     path = request.url.path
     needs = (
         auth_enabled() and path.startswith("/api")
@@ -77,29 +116,47 @@ async def auth_guard(request: Request, call_next):
     )
     if needs:
         token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
-        if not valid_token(token):
+        identity = token_identity(token)
+        if identity is None:
             return JSONResponse({"detail": "no autorizado"}, status_code=401)
+        role = identity.get("role")
+        if role is None:
+            return JSONResponse({"detail": "sin rol asignado"}, status_code=403)
+        if role != "admin" and not (role == "cro" and _cro_may_access(request.method, path)):
+            return JSONResponse({"detail": "sin permiso para este recurso"}, status_code=403)
+        request.state.auth = identity
     return await call_next(request)
 
 
 class Login(BaseModel):
+    username: str
     password: str
 
 
 @app.post("/api/login")
 def login(body: Login):
     from zero.auth import make_token, verify_password
-    if not verify_password(body.password):
-        raise HTTPException(status_code=401, detail="Contraseña incorrecta")
-    return {"token": make_token()}
+    if not verify_password(body.username, body.password):
+        raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
+    token = make_token(body.username)
+    if not token:   # carrera rarísima: el usuario se borró justo entremedio
+        raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
+    return {"token": token}
 
 
 @app.get("/api/auth/status")
 def auth_status(request: Request):
-    from zero.auth import auth_enabled, valid_token
+    from zero.auth import auth_enabled, token_identity
     token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
     enabled = auth_enabled()
-    return {"enabled": enabled, "authenticated": (not enabled) or valid_token(token)}
+    identity = token_identity(token) if token else None
+    # "authenticated" refleja login de verdad, no también "tiene permiso para
+    # todo" — un JWT válido sin rol asignado sigue contando como autenticado
+    # acá (el 403 de fail-closed pasa en auth_guard, no en este status check).
+    authenticated = (not enabled) or identity is not None
+    return {"enabled": enabled, "authenticated": authenticated,
+            "username": identity.get("username") if identity else None,
+            "role": identity.get("role") if identity else None}
 
 
 def _crm():
