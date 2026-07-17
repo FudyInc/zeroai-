@@ -23,9 +23,31 @@ Replaces the old single-AUTH_PASSWORD model — that env var is no longer read
 here. See the top of this repo's docs/roadmap.md if AUTH_PASSWORD is still
 referenced anywhere outside this module (Config UI) after this change; that's
 a separate, already-flagged follow-up, not something this module depends on.
+
+--- Supabase Auth (Google login) + roles, 2026-07-16 ---------------------------
+Second, PREFERRED login path on top of the per-person model above (added, not
+replacing it — the per-person model stays as a transitional fallback, see
+`token_identity()`). Diego turned on Google as a provider in Supabase Auth's
+own panel (a manual step, already done); the frontend does the OAuth dance
+with Supabase directly and hands this backend the resulting JWT.
+
+Supabase Auth JWTs are HS256, signed with the project's JWT Secret (Settings →
+API → JWT Secret — a DIFFERENT value from SUPABASE_KEY/service_role, loaded
+here from `SUPABASE_JWT_SECRET`). Verified locally (signature + `exp`), no
+network call per request — same trust model as the per-person tokens above,
+just a different signer. Stdlib only: base64 + hmac, no PyJWT dependency.
+
+Roles live in the token's `app_metadata` (never `user_metadata` — that one a
+user can edit about themselves via the Supabase client API, so it can't be
+trusted for authorization). Diego assigns `app_metadata.role` by hand from the
+Supabase panel per person — no admin endpoint here for that yet. A JWT that
+verifies but carries no role is authenticated with nobody home: fail closed,
+never treated as "sees everything" (see `token_identity()`'s `role: None`
+case, and `api.py::auth_guard`, which turns that into a 403, not a free pass).
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import json
@@ -68,7 +90,7 @@ def _save_users(users: Dict[str, Dict[str, Any]]) -> None:
 
 
 def auth_enabled() -> bool:
-    return bool(_load_users())
+    return bool(_load_users()) or bool(os.environ.get("SUPABASE_JWT_SECRET"))
 
 
 def _hash_password(password: str, salt: bytes, iterations: int = PBKDF2_ITERATIONS) -> str:
@@ -179,3 +201,82 @@ def token_username(token: str) -> Optional[str]:
 
 def valid_token(token: str) -> bool:
     return token_username(token) is not None
+
+
+# --- Supabase Auth (Google login) — JWT verification, local, no network ------
+def _b64url_decode(seg: str) -> bytes:
+    return base64.urlsafe_b64decode(seg + "=" * (-len(seg) % 4))
+
+
+def _supabase_jwt_secret() -> Optional[bytes]:
+    s = os.environ.get("SUPABASE_JWT_SECRET")
+    return s.encode("utf-8") if s else None
+
+
+def verify_supabase_jwt(token: str) -> Optional[Dict[str, Any]]:
+    """Firma HS256 + `exp` de un JWT de Supabase Auth, verificados en el
+    proceso (sin llamar a la red). Devuelve el payload decodificado si es
+    válido; None ante CUALQUIER problema (sin secreto configurado, formato
+    raro, firma mala, `alg` que no sea HS256, vencido) — nunca lanza, el
+    caller (`token_identity`) lo trata igual que "no es este tipo de token"
+    y sigue probando el modelo local."""
+    secret = _supabase_jwt_secret()
+    if not secret or not token:
+        return None
+    try:
+        header_b64, payload_b64, sig_b64 = token.split(".")
+        header = json.loads(_b64url_decode(header_b64))
+        payload = json.loads(_b64url_decode(payload_b64))
+        actual_sig = _b64url_decode(sig_b64)
+    except Exception:
+        return None
+    if header.get("alg") != "HS256":   # nunca aceptar "none" ni otro algoritmo
+        return None
+    expected_sig = hmac.new(secret, f"{header_b64}.{payload_b64}".encode("ascii"),
+                            hashlib.sha256).digest()
+    if not hmac.compare_digest(expected_sig, actual_sig):
+        return None
+    try:
+        if float(payload.get("exp")) <= time.time():
+            return None
+    except (TypeError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def supabase_role(payload: Dict[str, Any]) -> Optional[str]:
+    """`app_metadata.role`, asignado a mano por Diego desde el panel de
+    Supabase — nunca `user_metadata` (eso lo puede editar el propio usuario,
+    no sirve para autorización)."""
+    app_meta = payload.get("app_metadata")
+    role = app_meta.get("role") if isinstance(app_meta, dict) else None
+    return role if isinstance(role, str) and role else None
+
+
+def token_identity(token: str) -> Optional[Dict[str, Any]]:
+    """Identidad para un token de CUALQUIER mecanismo soportado — el punto
+    único que usa api.py::auth_guard. None si la autenticación en sí falla
+    (token vencido/mal firmado/con formato raro/usuario local desconocido):
+    eso es un 401 para el caller. Si la autenticación es válida pero no trae
+    rol utilizable (JWT de Supabase sin app_metadata.role), igual devuelve
+    una identidad — con `role: None` — para que el caller pueda distinguir
+    "no sé quién eres" (401) de "sé quién eres, pero no tienes permiso
+    asignado" (403, fail closed, nunca 've todo por defecto').
+
+    Prueba primero Supabase (el camino real, con roles); si el token no es
+    un JWT de Supabase válido, cae al modelo local por-persona (users.json)
+    como fallback transicional — ese modelo no tiene roles, así que se le
+    asigna "admin" (ve todo). Es un hueco a propósito, documentado: mientras
+    dure la transición, cualquier cuenta local dada de alta con add_user()
+    tiene acceso total, sin restricción de "cro" — no uses el modelo local
+    para alguien a quien de verdad quieras limitar a un rol acotado; dale
+    login real de Google en Supabase en cambio."""
+    payload = verify_supabase_jwt(token)
+    if payload is not None:
+        email = payload.get("email")
+        return {"email": email, "username": email, "role": supabase_role(payload),
+                "source": "supabase"}
+    username = token_username(token)
+    if username is not None:
+        return {"email": None, "username": username, "role": "admin", "source": "local"}
+    return None

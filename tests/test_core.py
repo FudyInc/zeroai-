@@ -1728,6 +1728,142 @@ class AuthTest(unittest.TestCase):
         self.assertEqual(names, ["diego", "lucas"])
 
 
+class SupabaseJWTAuthTest(unittest.TestCase):
+    """Login vía Supabase Auth (Google), con rol en app_metadata — el camino
+    real, sobre el modelo por-persona de arriba. Los JWTs de prueba se arman
+    a mano con la misma codificación que produce Supabase (HS256, base64url,
+    sin pyjwt — mismo criterio stdlib-only que el resto del módulo)."""
+
+    SECRET = "un-jwt-secret-de-prueba-bien-largo-para-el-test"
+
+    def setUp(self):
+        import os
+        self._prev = os.environ.get("SUPABASE_JWT_SECRET")
+        os.environ["SUPABASE_JWT_SECRET"] = self.SECRET
+
+    def tearDown(self):
+        import os
+        if self._prev is None:
+            os.environ.pop("SUPABASE_JWT_SECRET", None)
+        else:
+            os.environ["SUPABASE_JWT_SECRET"] = self._prev
+
+    @staticmethod
+    def _b64url(data: bytes) -> str:
+        import base64
+        return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+    def _make_jwt(self, *, email="test@zeroai.cl", role="admin", exp_delta=3600,
+                  secret=None, alg="HS256", app_metadata=None):
+        import hashlib
+        import hmac
+        import json
+        import time
+        header = {"alg": alg, "typ": "JWT"}
+        if app_metadata is None:
+            app_metadata = {"role": role} if role is not None else {}
+        payload = {"email": email, "exp": int(time.time()) + exp_delta,
+                  "app_metadata": app_metadata}
+        header_b64 = self._b64url(json.dumps(header).encode())
+        payload_b64 = self._b64url(json.dumps(payload).encode())
+        key = (secret if secret is not None else self.SECRET).encode("utf-8")
+        sig = hmac.new(key, f"{header_b64}.{payload_b64}".encode("ascii"), hashlib.sha256).digest()
+        return f"{header_b64}.{payload_b64}.{self._b64url(sig)}"
+
+    def test_valid_jwt_with_role_authenticates(self):
+        from zero import auth
+        identity = auth.token_identity(self._make_jwt(role="admin"))
+        self.assertEqual(identity["role"], "admin")
+        self.assertEqual(identity["email"], "test@zeroai.cl")
+        self.assertEqual(identity["source"], "supabase")
+
+    def test_cro_role_roundtrip(self):
+        from zero import auth
+        identity = auth.token_identity(self._make_jwt(role="cro", email="lucas@zeroai.cl"))
+        self.assertEqual(identity["role"], "cro")
+        self.assertEqual(identity["username"], "lucas@zeroai.cl")
+
+    def test_jwt_with_no_role_authenticates_but_role_is_none(self):
+        # Fail closed: se autentica (sabemos quién es) pero sin rol asignado
+        # — es el caller (auth_guard) el que decide qué hacer con eso (403).
+        from zero import auth
+        identity = auth.token_identity(self._make_jwt(role=None))
+        self.assertIsNotNone(identity)
+        self.assertIsNone(identity["role"])
+
+    def test_user_metadata_role_is_never_trusted(self):
+        # app_metadata es lo único confiable — user_metadata lo puede editar
+        # el propio usuario vía API, nunca debe otorgar un rol.
+        from zero import auth
+        # fuerza un token con "role" solo en user_metadata, no app_metadata
+        import base64, hashlib, hmac, json, time
+        header = {"alg": "HS256", "typ": "JWT"}
+        payload = {"email": "x@x.cl", "exp": int(time.time()) + 3600,
+                  "user_metadata": {"role": "admin"}}
+        h = self._b64url(json.dumps(header).encode())
+        p = self._b64url(json.dumps(payload).encode())
+        sig = hmac.new(self.SECRET.encode(), f"{h}.{p}".encode(), hashlib.sha256).digest()
+        forged = f"{h}.{p}.{self._b64url(sig)}"
+        identity = auth.token_identity(forged)
+        self.assertIsNotNone(identity)
+        self.assertIsNone(identity["role"])
+
+    def test_tampered_signature_rejected(self):
+        from zero import auth
+        tok = self._make_jwt()
+        tampered = tok[:-4] + "xxxx"
+        self.assertIsNone(auth.verify_supabase_jwt(tampered))
+        self.assertIsNone(auth.token_identity(tampered))
+
+    def test_expired_jwt_rejected(self):
+        from zero import auth
+        self.assertIsNone(auth.verify_supabase_jwt(self._make_jwt(exp_delta=-10)))
+
+    def test_wrong_secret_rejected(self):
+        from zero import auth
+        tok = self._make_jwt(secret="otro-secreto-completamente-distinto")
+        self.assertIsNone(auth.verify_supabase_jwt(tok))
+
+    def test_non_hs256_alg_rejected(self):
+        # nunca aceptar "none" (ni ningún otro alg) aunque venga "bien firmado"
+        from zero import auth
+        self.assertIsNone(auth.verify_supabase_jwt(self._make_jwt(alg="none")))
+
+    def test_garbage_token_never_crashes(self):
+        from zero import auth
+        for bad in ("", "garbage", "a.b", "a.b.c.d", "...", None):
+            self.assertIsNone(auth.verify_supabase_jwt(bad))
+            self.assertIsNone(auth.token_identity(bad))
+
+    def test_no_secret_configured_disables_jwt_path(self):
+        import os
+        from zero import auth
+        tok = self._make_jwt()
+        os.environ.pop("SUPABASE_JWT_SECRET", None)
+        self.assertIsNone(auth.verify_supabase_jwt(tok))
+
+    def test_local_login_still_works_as_fallback_with_admin_role(self):
+        # el modelo por-persona (users.json) sigue andando sin cambios — se le
+        # asigna "admin" (documentado a propósito: es un hueco transicional).
+        import os
+        import tempfile
+        from zero import auth
+        tmpdir = tempfile.mkdtemp()
+        prev = os.environ.get("AUTH_USERS_PATH")
+        os.environ["AUTH_USERS_PATH"] = os.path.join(tmpdir, "users.json")
+        try:
+            auth.add_user("diego", "clave-local")
+            tok = auth.make_token("diego")
+            identity = auth.token_identity(tok)
+            self.assertEqual(identity["role"], "admin")
+            self.assertEqual(identity["source"], "local")
+        finally:
+            if prev is None:
+                os.environ.pop("AUTH_USERS_PATH", None)
+            else:
+                os.environ["AUTH_USERS_PATH"] = prev
+
+
 class MetaAdsTest(unittest.TestCase):
     """Mock de campañas fiel al contrato y determinista por cliente."""
 
