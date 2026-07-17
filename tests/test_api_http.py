@@ -544,6 +544,39 @@ class ApiSupabaseAuthHttpTest(unittest.TestCase):
             self._get("/api/config", token=self._jwt(role="cro"))
         self.assertEqual(ctx.exception.code, 403)
 
+    def test_cto_jwt_passes_allowed_route(self):
+        status, body = self._get("/api/forecast?client=acme",
+                                 token=self._jwt(role="cto", email="alejandro@zeroai.cl"))
+        self.assertEqual(status, 200)
+
+    def test_cto_jwt_gets_403_outside_allowed_routes(self):
+        # Campañas/Vender/Clientes son de "cro" — cto (Alejandro) queda
+        # dedicado a Leads/Pipeline/Forecast, sin esto.
+        for path in ("/api/accounts", "/api/campaigns?client=acme", "/api/emails"):
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                self._get(path, token=self._jwt(role="cto"))
+            self.assertEqual(ctx.exception.code, 403, path)
+
+    def test_cto_jwt_gets_403_on_finance(self):
+        # /api/finance es EXCLUSIVO de cro — ni siquiera cto lo tiene.
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/api/finance", token=self._jwt(role="cto"))
+        self.assertEqual(ctx.exception.code, 403)
+
+    def test_cro_jwt_gets_403_on_leads_only_routes_reserved_for_cto(self):
+        # cro no tiene /api/kpis (exclusivo de cto en esta tabla) — confirma
+        # que las listas de cada rol son independientes, no una unión.
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/api/kpis?client=acme", token=self._jwt(role="cro"))
+        self.assertEqual(ctx.exception.code, 403)
+
+    def test_cro_and_cto_share_pipeline_and_forecast(self):
+        for role in ("cro", "cto"):
+            status, _ = self._get("/api/board?client=acme", token=self._jwt(role=role))
+            self.assertEqual(status, 200, role)
+            status, _ = self._get("/api/forecast?client=acme", token=self._jwt(role=role))
+            self.assertEqual(status, 200, role)
+
     def test_expired_jwt_is_401(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self._get("/api/vendors", token=self._jwt(role="admin", exp_delta=-10))

@@ -63,38 +63,60 @@ async def supabase_error_handler(request: Request, exc: SupabaseError):
 # its own verify token, not ours).
 _OPEN_PATHS = {"/api/login", "/api/health", "/api/auth/status", "/api/public/plans"}
 
-# --- rol "cro" (ej. Lucas): a qué (método, ruta) tiene acceso -----------------
-# Todo lo que NO matchee acá exige rol "admin" — fail closed por diseño: una
-# ruta nueva que no se agregue a esta lista queda solo para admin
-# automáticamente, nunca abierta a cro por accidente.
+# --- roles no-admin: a qué (método, ruta) tiene acceso cada uno --------------
+# Todo lo que NO matchee acá para un rol dado exige "admin" — fail closed por
+# diseño: una ruta nueva que no se agregue a estas listas queda solo para
+# admin automáticamente, nunca abierta a un rol por accidente. "admin" (Diego)
+# nunca pasa por esta tabla — ve todo siempre (ver auth_guard).
 #
 # Construido grepeando qué llama CADA PÁGINA real del dashboard (no adivinado
-# — ver el prompt/auditoría que dejó esto documentado), mapeado a las páginas
-# que Diego nombró como visibles para "cro": Clientes, Forecast, Campañas,
-# Vender, Pipeline — más lo que usan los componentes GLOBALES del shell
-# (selector de cliente, modal "Buscar leads", LeadModal, CommandPalette), que
-# no están atados a una sola página pero corren en cualquiera de ellas.
-_CRO_ALLOWED = (
-    ("GET", "/api/clients"),          # selector de cliente (global, App.jsx)
-    ("GET", "/api/accounts"),         # Clientes.jsx
-    ("POST", "/api/accounts"),        # Clientes.jsx (cambiar plan)
-    ("GET", "/api/forecast"),         # Forecast.jsx
-    ("GET", "/api/campaigns"),        # Campañas.jsx (incluye /campaigns/optimize)
-    ("GET", "/api/marketing"),        # Campañas.jsx
-    ("POST", "/api/marketing"),       # Campañas.jsx
-    ("POST", "/api/campaigns"),       # Campañas.jsx (sync-leads)
-    ("POST", "/api/pitch"),           # Vender.jsx (generate/send)
-    ("GET", "/api/emails"),           # Vender.jsx
-    ("GET", "/api/board"),            # Pipeline.jsx
-    ("GET", "/api/leads"),            # Pipeline/LeadModal/CommandPalette (leads, /search, /{key})
-    ("POST", "/api/leads"),           # LeadModal (mover etapa, responder)
-    ("GET", "/api/icp"),              # modal global "Buscar leads"
-    ("POST", "/api/pipeline"),        # modal global "Buscar leads" (dispara el pipeline)
-)
+# — ver el prompt/auditoría que dejó esto documentado), mapeado a las
+# personas/áreas que Diego asignó (2026-07-17):
+#   - "cro" (Lucas): Clientes, Campañas, Vender, Forecast — más Finanzas,
+#     EXCLUSIVO de este rol (ni siquiera "cto" lo tiene).
+#   - "cto" (Alejandro): operación de Leads/Pipeline/Forecast — dedicado full
+#     a esa área, sin Campañas/Vender/Clientes/Finanzas.
+#   - Pipeline (el board) y Forecast son compartidos por los dos — son la
+#     vista operativa común de "en qué está cada lead" y "cómo viene el mes";
+#     Diego no pidió sacárselos a Lucas al darle esas páginas a Alejandro.
+_ROLE_ALLOWED: dict = {
+    "cro": (
+        ("GET", "/api/clients"),          # selector de cliente (global, App.jsx)
+        ("GET", "/api/accounts"),         # Clientes.jsx
+        ("POST", "/api/accounts"),        # Clientes.jsx (cambiar plan)
+        ("GET", "/api/forecast"),         # Forecast.jsx (compartido con cto)
+        ("GET", "/api/campaigns"),        # Campañas.jsx (incluye /campaigns/optimize)
+        ("GET", "/api/marketing"),        # Campañas.jsx
+        ("POST", "/api/marketing"),       # Campañas.jsx
+        ("POST", "/api/campaigns"),       # Campañas.jsx (sync-leads)
+        ("POST", "/api/pitch"),           # Vender.jsx (generate/send)
+        ("GET", "/api/emails"),           # Vender.jsx
+        ("GET", "/api/board"),            # Pipeline.jsx (compartido con cto)
+        ("GET", "/api/leads"),            # Pipeline/LeadModal/CommandPalette
+        ("POST", "/api/leads"),           # LeadModal (mover etapa, responder)
+        ("GET", "/api/icp"),              # modal global "Buscar leads"
+        ("POST", "/api/pipeline"),        # modal global "Buscar leads"
+        # Finanzas — EXCLUSIVO de cro, "cto" no lo tiene. La ruta todavía no
+        # existe en este archivo (GET /api/finance está en revisión, ver
+        # workspace FINANZAS) — se deja lista acá de antemano para que, apenas
+        # se mergee, Lucas no quede bloqueado por el fail-closed por defecto.
+        ("GET", "/api/finance"),
+    ),
+    "cto": (
+        ("GET", "/api/clients"),          # selector de cliente (global, App.jsx)
+        ("GET", "/api/leads"),            # Leads.jsx / Pipeline / LeadModal
+        ("POST", "/api/leads"),           # LeadModal (mover etapa, responder)
+        ("GET", "/api/board"),            # Pipeline.jsx (compartido con cro)
+        ("GET", "/api/forecast"),         # Forecast.jsx (compartido con cro)
+        ("GET", "/api/kpis"),             # Dashboard.jsx (overview de leads/pipeline)
+        ("GET", "/api/icp"),              # modal global "Buscar leads"
+        ("POST", "/api/pipeline"),        # modal global "Buscar leads" (operar el pipeline)
+    ),
+}
 
 
-def _cro_may_access(method: str, path: str) -> bool:
-    for m, prefix in _CRO_ALLOWED:
+def _role_may_access(role: str, method: str, path: str) -> bool:
+    for m, prefix in _ROLE_ALLOWED.get(role, ()):
         if method == m and (path == prefix or path.startswith(prefix + "/")):
             return True
     return False
@@ -121,7 +143,7 @@ async def auth_guard(request: Request, call_next):
         role = identity.get("role")
         if role is None:
             return JSONResponse({"detail": "sin rol asignado"}, status_code=403)
-        if role != "admin" and not (role == "cro" and _cro_may_access(request.method, path)):
+        if role != "admin" and not _role_may_access(role, request.method, path):
             return JSONResponse({"detail": "sin permiso para este recurso"}, status_code=403)
         request.state.auth = identity
     return await call_next(request)
