@@ -4,6 +4,7 @@ __pycache__/
 state.json
 crm.json
 inbox.json
+finance.json
 users.json
 *.json.bak
 *.json.tmp
