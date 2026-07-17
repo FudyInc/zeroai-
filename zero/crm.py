@@ -16,6 +16,13 @@ from .persistence import load_json, save_json
 
 _FIELDS = ("company", "name", "role", "email", "phone", "domain", "score", "channel", "icp_reasons")
 
+# Opt-out permanente — reusa el campo `tags` que ya existe (mismo campo que usa
+# import_ad_leads para "Meta Ads"), en vez de inventar uno paralelo. `tags` NO
+# está en _FIELDS, así que upsert() nunca lo pisa al refrescar un lead que
+# vuelve a aparecer en un discovery futuro — el bloqueo es forward-only por
+# construcción, no por una regla aparte que haya que recordar mantener.
+BLOCK_TAG = "no-contactar"
+
 # Funnel progression order, for forward-only automatic transitions. `disqualified`
 # sits beside `qualified`; both terminal stages share the highest rank so a re-run
 # can't drag a closed lead backwards.
@@ -126,6 +133,35 @@ class CRM:
 
     def _event(self, rec: Dict[str, Any], event: str, detail: Optional[str]) -> None:
         rec.setdefault("history", []).append({"ts": _now(), "event": event, "detail": detail})
+
+    # --- opt-out (durable, forward-only) --------------------------------------
+    def block(self, client_id: str, key: str, reason: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Marca un lead como bloqueado (opt-out) para este cliente — no una
+        pausa temporal, no se revierte solo porque el contacto vuelve a
+        aparecer en un discovery/Meta Ads futuro. Idempotente: llamarlo dos
+        veces no duplica el tag ni el evento de historial."""
+        self._ensure(client_id)
+        rec = self.leads.get(self._rid(client_id, key))
+        if rec is None:
+            return None
+        tags = rec.setdefault("tags", [])
+        if BLOCK_TAG not in tags:
+            tags.append(BLOCK_TAG)
+            rec["updated"] = _now()
+            self._event(rec, "blocked", reason or "opt-out")
+        return rec
+
+    def is_blocked(self, client_id: str, key: str) -> bool:
+        """¿Este lead (ya en el CRM) está bloqueado?"""
+        self._ensure(client_id)
+        rec = self.leads.get(self._rid(client_id, key))
+        return bool(rec and BLOCK_TAG in (rec.get("tags") or []))
+
+    def is_blocked_lead(self, client_id: str, lead: Dict[str, Any]) -> bool:
+        """Como is_blocked, pero a partir de un dict de lead crudo (discovery,
+        Meta Ads) — para decidir SI conviene registrarlo/contactarlo, no solo
+        consultar un registro que ya existe."""
+        return self.is_blocked(client_id, lead_key(lead))
 
     # --- queries -------------------------------------------------------------
     def get(self, client_id: str, key: str) -> Optional[Dict[str, Any]]:

@@ -36,6 +36,7 @@ from zero._supabase import SupabaseError
 
 CRM_PATH = "crm.json"
 STATE_PATH = "state.json"
+FINANCE_PATH = "finance.json"   # costos de la agencia — local, gitignorado
 
 app = FastAPI(title="ZERO API", version="0.1.0",
               description="Lead-gen B2B — pipeline y CRM por HTTP")
@@ -63,11 +64,74 @@ async def supabase_error_handler(request: Request, exc: SupabaseError):
 # its own verify token, not ours).
 _OPEN_PATHS = {"/api/login", "/api/health", "/api/auth/status", "/api/public/plans"}
 
+# --- roles no-admin: a qué (método, ruta) tiene acceso cada uno --------------
+# Todo lo que NO matchee acá para un rol dado exige "admin" — fail closed por
+# diseño: una ruta nueva que no se agregue a estas listas queda solo para
+# admin automáticamente, nunca abierta a un rol por accidente. "admin" (Diego)
+# nunca pasa por esta tabla — ve todo siempre (ver auth_guard).
+#
+# Construido grepeando qué llama CADA PÁGINA real del dashboard (no adivinado
+# — ver el prompt/auditoría que dejó esto documentado), mapeado a las
+# personas/áreas que Diego asignó (2026-07-17):
+#   - "cro" (Lucas): Clientes, Campañas, Vender, Forecast — más Finanzas,
+#     EXCLUSIVO de este rol (ni siquiera "cto" lo tiene).
+#   - "cto" (Alejandro): operación de Leads/Pipeline/Forecast — dedicado full
+#     a esa área, sin Campañas/Vender/Clientes/Finanzas.
+#   - Pipeline (el board), Forecast y el Dashboard/KPIs de inicio son
+#     compartidos por los dos — son la vista operativa común de "en qué está
+#     cada lead" y "cómo viene el mes"; Diego no pidió sacárselos a Lucas al
+#     darle esas páginas a Alejandro.
+_ROLE_ALLOWED: dict = {
+    "cro": (
+        ("GET", "/api/clients"),          # selector de cliente (global, App.jsx)
+        ("GET", "/api/accounts"),         # Clientes.jsx
+        ("POST", "/api/accounts"),        # Clientes.jsx (cambiar plan)
+        ("GET", "/api/forecast"),         # Forecast.jsx (compartido con cto)
+        ("GET", "/api/campaigns"),        # Campañas.jsx (incluye /campaigns/optimize)
+        ("GET", "/api/marketing"),        # Campañas.jsx
+        ("POST", "/api/marketing"),       # Campañas.jsx
+        ("POST", "/api/campaigns"),       # Campañas.jsx (sync-leads)
+        ("POST", "/api/pitch"),           # Vender.jsx (generate/send)
+        ("GET", "/api/emails"),           # Vender.jsx
+        ("GET", "/api/board"),            # Pipeline.jsx (compartido con cto)
+        ("GET", "/api/leads"),            # Pipeline/LeadModal/CommandPalette
+        ("POST", "/api/leads"),           # LeadModal (mover etapa, responder)
+        ("GET", "/api/kpis"),             # Dashboard.jsx home (compartido con cto)
+        ("GET", "/api/icp"),              # modal global "Buscar leads"
+        ("POST", "/api/pipeline"),        # modal global "Buscar leads"
+        # Finanzas — EXCLUSIVO de cro, "cto" no lo tiene. La ruta todavía no
+        # existe en este archivo (GET /api/finance está en revisión, ver
+        # workspace FINANZAS) — se deja lista acá de antemano para que, apenas
+        # se mergee, Lucas no quede bloqueado por el fail-closed por defecto.
+        ("GET", "/api/finance"),
+    ),
+    "cto": (
+        ("GET", "/api/clients"),          # selector de cliente (global, App.jsx)
+        ("GET", "/api/leads"),            # Leads.jsx / Pipeline / LeadModal
+        ("POST", "/api/leads"),           # LeadModal (mover etapa, responder)
+        ("GET", "/api/board"),            # Pipeline.jsx (compartido con cro)
+        ("GET", "/api/forecast"),         # Forecast.jsx (compartido con cro)
+        ("GET", "/api/kpis"),             # Dashboard.jsx (overview de leads/pipeline)
+        ("GET", "/api/icp"),              # modal global "Buscar leads"
+        ("POST", "/api/pipeline"),        # modal global "Buscar leads" (operar el pipeline)
+    ),
+}
+
+
+def _role_may_access(role: str, method: str, path: str) -> bool:
+    for m, prefix in _ROLE_ALLOWED.get(role, ()):
+        if method == m and (path == prefix or path.startswith(prefix + "/")):
+            return True
+    return False
+
 
 @app.middleware("http")
 async def auth_guard(request: Request, call_next):
-    """Single-password gate. No password set → open (dev). Set one → token required."""
-    from zero.auth import auth_enabled, valid_token
+    """Login gate — dos mecanismos: JWT de Supabase Auth (Google, con rol en
+    app_metadata) o el modelo local por-persona (users.json, fallback
+    transicional, sin roles = admin). Sin ninguno de los dos configurados
+    (ni users.json con cuentas, ni SUPABASE_JWT_SECRET) → abierto (dev)."""
+    from zero.auth import auth_enabled, token_identity
     path = request.url.path
     needs = (
         auth_enabled() and path.startswith("/api")
@@ -76,29 +140,47 @@ async def auth_guard(request: Request, call_next):
     )
     if needs:
         token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
-        if not valid_token(token):
+        identity = token_identity(token)
+        if identity is None:
             return JSONResponse({"detail": "no autorizado"}, status_code=401)
+        role = identity.get("role")
+        if role is None:
+            return JSONResponse({"detail": "sin rol asignado"}, status_code=403)
+        if role != "admin" and not _role_may_access(role, request.method, path):
+            return JSONResponse({"detail": "sin permiso para este recurso"}, status_code=403)
+        request.state.auth = identity
     return await call_next(request)
 
 
 class Login(BaseModel):
+    username: str
     password: str
 
 
 @app.post("/api/login")
 def login(body: Login):
     from zero.auth import make_token, verify_password
-    if not verify_password(body.password):
-        raise HTTPException(status_code=401, detail="Contraseña incorrecta")
-    return {"token": make_token()}
+    if not verify_password(body.username, body.password):
+        raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
+    token = make_token(body.username)
+    if not token:   # carrera rarísima: el usuario se borró justo entremedio
+        raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
+    return {"token": token}
 
 
 @app.get("/api/auth/status")
 def auth_status(request: Request):
-    from zero.auth import auth_enabled, valid_token
+    from zero.auth import auth_enabled, token_identity
     token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
     enabled = auth_enabled()
-    return {"enabled": enabled, "authenticated": (not enabled) or valid_token(token)}
+    identity = token_identity(token) if token else None
+    # "authenticated" refleja login de verdad, no también "tiene permiso para
+    # todo" — un JWT válido sin rol asignado sigue contando como autenticado
+    # acá (el 403 de fail-closed pasa en auth_guard, no en este status check).
+    authenticated = (not enabled) or identity is not None
+    return {"enabled": enabled, "authenticated": authenticated,
+            "username": identity.get("username") if identity else None,
+            "role": identity.get("role") if identity else None}
 
 
 def _crm():
@@ -144,9 +226,10 @@ def public_plans():
     return {"plans": _PLANS}
 
 
-@app.get("/api/accounts")
-def accounts():
-    """Clientes con su plan y precio + MRR de la agencia (lo que facturas al mes)."""
+def _accounts_and_mrr():
+    """Cuentas activas del CRM con su plan + MRR (suma de precios de lista).
+    Único cálculo de "cuánto entra" del sistema — /api/accounts y /api/finance
+    lo comparten para que nunca cuenten distinto."""
     memory = make_memory(STATE_PATH)
     out, mrr = [], 0
     for c in _crm().client_ids():
@@ -156,7 +239,31 @@ def accounts():
             mrr += price
         out.append({"client": c, "tier": tier, "price_clp": price,
                     "leads_per_mo": TIERS.get(tier, {}).get("leads_per_mo")})
+    return out, mrr
+
+
+@app.get("/api/accounts")
+def accounts():
+    """Clientes con su plan y precio + MRR de la agencia (lo que facturas al mes)."""
+    out, mrr = _accounts_and_mrr()
     return {"accounts": out, "mrr_clp": mrr, "plans": _PLANS}
+
+
+@app.get("/api/finance")
+def finance(month: Optional[str] = None):
+    """Finanzas de la agencia: entra (MRR) / sale (costos) / margen del mes, más
+    historial para tendencia. Siempre detrás de login (jamás en _OPEN_PATHS):
+    expone el MRR real. Costos desde finance.json local (gitignorado); sin
+    archivo responde cifras de ejemplo con source="mock"."""
+    from zero.finance import finance_summary, valid_month
+    if month is not None and not valid_month(month):
+        raise HTTPException(status_code=400, detail=f"mes inválido: {month!r} (formato AAAA-MM)")
+    _, mrr = _accounts_and_mrr()
+    try:
+        return finance_summary(FINANCE_PATH, mrr_clp=mrr, month=month)
+    except RuntimeError as e:
+        # finance.json corrupto: avisar y no tocar el archivo (regla de la casa).
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 class PlanChange(BaseModel):

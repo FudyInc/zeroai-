@@ -339,6 +339,62 @@ class CRMSearchTest(unittest.TestCase):
         self.assertEqual(self.crm.search("empresa-que-no-existe-en-ningun-lado"), [])
 
 
+class CRMBlockTest(unittest.TestCase):
+    """block()/is_blocked() — el opt-out durable, reusando `tags` (mismo campo
+    que ya usa import_ad_leads para "Meta Ads"), forward-only por construcción
+    porque `tags` no está en _FIELDS y upsert() nunca lo pisa."""
+
+    def setUp(self):
+        self.crm = CRM(None)
+        self.lead = {"company": "Acme", "email": "ceo@acme.cl", "score": 80}
+        self.crm.upsert("acme", self.lead)
+        self.key = "ceo@acme.cl"
+
+    def test_unblocked_by_default(self):
+        self.assertFalse(self.crm.is_blocked("acme", self.key))
+
+    def test_block_then_is_blocked(self):
+        self.crm.block("acme", self.key, reason="optout")
+        self.assertTrue(self.crm.is_blocked("acme", self.key))
+
+    def test_block_is_idempotent(self):
+        self.crm.block("acme", self.key)
+        self.crm.block("acme", self.key)
+        rec = self.crm.get("acme", self.key)
+        self.assertEqual(rec["tags"].count("no-contactar"), 1)
+        self.assertEqual(sum(1 for h in rec["history"] if h["event"] == "blocked"), 1)
+
+    def test_block_scoped_per_client(self):
+        # El mismo contacto (misma key) en OTRO cliente no queda bloqueado —
+        # el opt-out es por la relación con ESE cliente, no un registro global.
+        self.crm.upsert("otro_cliente", dict(self.lead))
+        self.crm.block("acme", self.key)
+        self.assertTrue(self.crm.is_blocked("acme", self.key))
+        self.assertFalse(self.crm.is_blocked("otro_cliente", self.key))
+
+    def test_block_survives_reupsert(self):
+        # Forward-only: el lead vuelve a aparecer en un discovery futuro (mismo
+        # lead_key) y upsert() refresca sus campos — el tag de bloqueo sigue ahí,
+        # nadie tiene que "recordar" no perderlo.
+        self.crm.block("acme", self.key)
+        self.crm.upsert("acme", {**self.lead, "score": 95})   # re-discovery, score nuevo
+        self.assertTrue(self.crm.is_blocked("acme", self.key))
+
+    def test_is_blocked_unknown_lead_is_false(self):
+        self.assertFalse(self.crm.is_blocked("acme", "no-existe@x.cl"))
+        self.assertFalse(self.crm.is_blocked("cliente-inexistente", self.key))
+
+    def test_block_unknown_lead_returns_none(self):
+        self.assertIsNone(self.crm.block("acme", "no-existe@x.cl"))
+
+    def test_is_blocked_lead_from_raw_dict(self):
+        # El mismo helper, pero calculando la key a partir de un dict crudo —
+        # así lo usa import_ad_leads, ANTES de decidir si conviene upsertear.
+        self.crm.block("acme", self.key)
+        self.assertTrue(self.crm.is_blocked_lead("acme", {"email": "ceo@acme.cl"}))
+        self.assertFalse(self.crm.is_blocked_lead("acme", {"email": "otro@x.cl"}))
+
+
 class RobustnessTest(unittest.TestCase):
     """A live model may deviate from the mock's clean contract — don't crash."""
 
@@ -1419,6 +1475,24 @@ class PendingOfferTest(unittest.TestCase):
         r3 = z.handle_inbound(sender, "ok")
         self.assertNotEqual(r3["intent"], "fulfill")     # y la oferta quedó anulada
 
+    def test_rejection_blocks_lead_durably(self):
+        # No solo se anula la oferta pendiente de ESTA conversación — el lead
+        # queda bloqueado de forma durable (opt-out), no solo hasta que se
+        # cierre esta secuencia.
+        z, crm, lead, sender = self._zero()
+        z.handle_inbound(sender, "mándame más información")
+        z.handle_inbound(sender, "no gracias, no me interesa")
+        self.assertTrue(crm.is_blocked("acme", lead["key"]))
+
+    def test_optout_without_pending_offer_still_blocks(self):
+        # Antes, sin oferta pendiente, un optout no hacía NADA (el branch
+        # exigía `pending`) — un "no me interesa" directo, sin haber pedido
+        # info antes, debe bloquear igual.
+        z, crm, lead, sender = self._zero()
+        r = z.handle_inbound(sender, "no me interesa, gracias")
+        self.assertEqual(r["intent"], "optout")
+        self.assertTrue(crm.is_blocked("acme", lead["key"]))
+
     def test_pending_offer_wins_over_concierge_accept(self):
         # CONCIERGE clasificaría "dale, vamos" como su propio intent 'accept',
         # pero con una oferta pendiente el orquestador debe cumplirla primero
@@ -1427,6 +1501,75 @@ class PendingOfferTest(unittest.TestCase):
         z.handle_inbound(sender, "mándame más información")
         r2 = z.handle_inbound(sender, "dale, vamos")
         self.assertEqual(r2["intent"], "fulfill")
+
+
+class OptOutDurabilityTest(unittest.TestCase):
+    """El opt-out debe sobrevivir a que el contacto reaparezca en un discovery
+    futuro (run_pipeline), en un seguimiento vencido (run_followups) o en un
+    lead de Meta Ads (import_ad_leads) — los 3 puntos donde el orquestador
+    decide A QUIÉN contactar. Sin esto, contactar dos veces a quien ya dijo
+    que no arriesga quejas de spam y sanciones en WhatsApp/Meta."""
+
+    def _zero(self):
+        crm = CRM(None)
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=crm)
+        return z, crm
+
+    def test_run_pipeline_never_recontacts_a_blocked_lead(self):
+        z, crm = self._zero()
+        z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8)
+        lead = crm.list("acme", "nurturing")[0]
+        sender = lead.get("email") or "".join(c for c in lead["phone"] if c.isdigit())
+        z.handle_inbound(sender, "no me interesa, gracias")
+        self.assertTrue(crm.is_blocked("acme", lead["key"]))
+
+        # Re-descubrimiento: mismo client_id + query — el mock de PROSPECTOR es
+        # determinista (seed = client_id|query|intento), así que el MISMO
+        # contacto vuelve a aparecer, como pasaría con un discovery real.
+        res = z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8)
+        qualified_keys = {l["key"] for l in res["qualified_leads"]}
+        self.assertNotIn(lead["key"], qualified_keys, "un lead bloqueado no debe calificar de nuevo")
+        rejected_keys = {r["company"] for r in res["rejected"]}
+        self.assertIn(lead["company"], rejected_keys, "debe aparecer como rechazado, no desaparecer en silencio")
+        # el registro real en CRM sigue bloqueado, no se le pisó el tag al re-upsertear
+        self.assertTrue(crm.is_blocked("acme", lead["key"]))
+
+    def test_run_followups_skips_and_closes_sequence_for_blocked_lead(self):
+        z, crm = self._zero()
+        z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8)
+        lead = crm.list("acme", "nurturing")[0]
+        # Bloqueo aplicado directo en CRM (ej. una acción manual futura), SIN
+        # pasar por handle_inbound — la secuencia de follow-up sigue abierta,
+        # como si el bloqueo hubiera llegado por otra vía.
+        crm.block("acme", lead["key"], reason="manual")
+        due_before = z.memory.due_sequences("acme", as_of="2099-01-01T00:00:00+00:00")
+        self.assertTrue(any(s["lead_key"] == lead["key"] for s in due_before))
+
+        res = z.run_followups("acme", as_of="2099-01-01T00:00:00+00:00")
+        self.assertGreaterEqual(res["blocked"], 1)
+        due_after = z.memory.due_sequences("acme", as_of="2099-01-01T00:00:00+00:00")
+        self.assertFalse(any(s["lead_key"] == lead["key"] for s in due_after),
+                         "la secuencia del lead bloqueado debe quedar cerrada, no solo saltada")
+        sent_keys = {m.get("lead_key") for m in res["followups"]}
+        self.assertNotIn(lead["key"], sent_keys)
+
+    def test_import_ad_leads_skips_a_blocked_contact(self):
+        z, crm = self._zero()
+        crm.upsert("acme", {"company": "Bloqueada SpA", "email": "no@bloqueada.cl", "score": 80})
+        crm.block("acme", "no@bloqueada.cl", reason="optout")
+
+        result = z.import_ad_leads("acme", [
+            {"company": "Bloqueada SpA", "email": "no@bloqueada.cl", "campaign": "Leads B2B"},
+            {"company": "Nueva SpA", "email": "hola@nueva.cl", "campaign": "Leads B2B"},
+        ])
+        self.assertEqual(result["imported"], 1)
+        self.assertEqual(result["blocked"], 1)
+        # el lead bloqueado NUNCA se re-etiqueta "Meta Ads" ni pasa a qualified
+        rec = crm.get("acme", "no@bloqueada.cl")
+        self.assertNotIn("Meta Ads", rec.get("tags") or [])
+        self.assertNotEqual(rec["stage"], "qualified")
+        # el otro lead, sin relación, entra normal
+        self.assertEqual(crm.get("acme", "hola@nueva.cl")["stage"], "qualified")
 
 
 class ScalabilityTest(unittest.TestCase):
@@ -1478,44 +1621,247 @@ class ScalabilityTest(unittest.TestCase):
 
 
 class AuthTest(unittest.TestCase):
-    """Single-password agency gate: tokens signed by the password itself."""
+    """Login por persona: cada cuenta vive en un users.json local (gitignored,
+    mismo patrón que crm.json/state.json), tokens firmados con el hash de ESA
+    cuenta — cambiar/borrar una cuenta invalida solo sus propios tokens."""
 
     def setUp(self):
         import os
-        self._prev = os.environ.get("AUTH_PASSWORD")
-        os.environ["AUTH_PASSWORD"] = "s3cret"
+        import tempfile
+        from zero import auth
+        self._tmpdir = tempfile.mkdtemp()
+        self._prev = os.environ.get("AUTH_USERS_PATH")
+        # _users_path() lee AUTH_USERS_PATH en vivo en cada llamada (nunca lo
+        # cachea a nivel de módulo), así que alcanza con setear la env var —
+        # sin necesidad de reload.
+        os.environ["AUTH_USERS_PATH"] = os.path.join(self._tmpdir, "users.json")
+        self.auth = auth
+        self.auth.add_user("diego", "s3cret")
+
+    def tearDown(self):
+        import os
+        import shutil
+        if self._prev is None:
+            os.environ.pop("AUTH_USERS_PATH", None)
+        else:
+            os.environ["AUTH_USERS_PATH"] = self._prev
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def test_password_and_token_roundtrip(self):
+        auth = self.auth
+        self.assertTrue(auth.auth_enabled())
+        self.assertTrue(auth.verify_password("diego", "s3cret"))
+        self.assertFalse(auth.verify_password("diego", "nope"))
+        tok = auth.make_token("diego")
+        self.assertTrue(auth.valid_token(tok))
+        self.assertEqual(auth.token_username(tok), "diego")
+        self.assertFalse(auth.valid_token(tok + "x"))      # tampered
+        self.assertFalse(auth.valid_token("garbage"))
+
+    def test_unknown_username_never_authenticates(self):
+        auth = self.auth
+        self.assertFalse(auth.verify_password("nadie", "cualquiera"))
+        self.assertIsNone(auth.make_token("nadie"))
+
+    def test_login_invalid_for_wrong_password(self):
+        auth = self.auth
+        self.assertFalse(auth.verify_password("diego", "contraseña-mala"))
+
+    def test_one_users_token_does_not_work_as_another(self):
+        # el corazón del modelo por-persona: un token firmado para "lucas"
+        # nunca debe validar como si fuera de "diego", y viceversa.
+        auth = self.auth
+        auth.add_user("lucas", "otra-clave")
+        tok_diego = auth.make_token("diego")
+        tok_lucas = auth.make_token("lucas")
+        self.assertEqual(auth.token_username(tok_diego), "diego")
+        self.assertEqual(auth.token_username(tok_lucas), "lucas")
+        self.assertNotEqual(tok_diego, tok_lucas)
+        # y no se puede "franken-mezclar" el username de uno con la firma del otro
+        exp = tok_lucas.split(".")[1]
+        sig = tok_lucas.split(".")[2]
+        forged = f"diego.{exp}.{sig}"
+        self.assertFalse(auth.valid_token(forged))
+
+    def test_expired_token_invalidates(self):
+        auth = self.auth
+        self.assertIsNone(auth.token_username(auth.make_token("diego", ttl=-1)))
+
+    def test_revoke_one_user_does_not_affect_others(self):
+        # borrar/cambiar la cuenta de UNA persona invalida SU token — sin
+        # tocar los tokens de las demás cuentas ya emitidos.
+        auth = self.auth
+        auth.add_user("lucas", "otra-clave")
+        tok_diego = auth.make_token("diego")
+        tok_lucas = auth.make_token("lucas")
+
+        auth.remove_user("lucas")
+        self.assertFalse(auth.valid_token(tok_lucas))     # revocado
+        self.assertTrue(auth.valid_token(tok_diego))       # diego, intacto
+
+    def test_changing_password_invalidates_old_token(self):
+        auth = self.auth
+        old_tok = auth.make_token("diego")
+        auth.add_user("diego", "clave-nueva")   # mismo username = reset
+        self.assertFalse(auth.valid_token(old_tok))
+        self.assertTrue(auth.verify_password("diego", "clave-nueva"))
+        self.assertFalse(auth.verify_password("diego", "s3cret"))
+
+    def test_invalid_username_rejected(self):
+        auth = self.auth
+        with self.assertRaises(ValueError):
+            auth.add_user("con.punto", "x")   # rompería el parseo del token
+        with self.assertRaises(ValueError):
+            auth.add_user("", "x")
+
+    def test_disabled_when_no_users(self):
+        auth = self.auth
+        auth.remove_user("diego")
+        self.assertFalse(auth.auth_enabled())
+        self.assertIsNone(auth.make_token("diego"))
+        self.assertEqual(auth.list_users(), [])
+
+    def test_list_users_never_exposes_hash(self):
+        auth = self.auth
+        auth.add_user("lucas", "otra-clave")
+        names = auth.list_users()
+        self.assertEqual(names, ["diego", "lucas"])
+
+
+class SupabaseJWTAuthTest(unittest.TestCase):
+    """Login vía Supabase Auth (Google), con rol en app_metadata — el camino
+    real, sobre el modelo por-persona de arriba. Los JWTs de prueba se arman
+    a mano con la misma codificación que produce Supabase (HS256, base64url,
+    sin pyjwt — mismo criterio stdlib-only que el resto del módulo)."""
+
+    SECRET = "un-jwt-secret-de-prueba-bien-largo-para-el-test"
+
+    def setUp(self):
+        import os
+        self._prev = os.environ.get("SUPABASE_JWT_SECRET")
+        os.environ["SUPABASE_JWT_SECRET"] = self.SECRET
 
     def tearDown(self):
         import os
         if self._prev is None:
-            os.environ.pop("AUTH_PASSWORD", None)
+            os.environ.pop("SUPABASE_JWT_SECRET", None)
         else:
-            os.environ["AUTH_PASSWORD"] = self._prev
+            os.environ["SUPABASE_JWT_SECRET"] = self._prev
 
-    def test_password_and_token_roundtrip(self):
-        from zero import auth
-        self.assertTrue(auth.auth_enabled())
-        self.assertTrue(auth.verify_password("s3cret"))
-        self.assertFalse(auth.verify_password("nope"))
-        tok = auth.make_token()
-        self.assertTrue(auth.valid_token(tok))
-        self.assertFalse(auth.valid_token(tok + "x"))      # tampered
-        self.assertFalse(auth.valid_token("garbage"))
+    @staticmethod
+    def _b64url(data: bytes) -> str:
+        import base64
+        return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
 
-    def test_expired_and_password_change_invalidate(self):
+    def _make_jwt(self, *, email="test@zeroai.cl", role="admin", exp_delta=3600,
+                  secret=None, alg="HS256", app_metadata=None):
+        import hashlib
+        import hmac
+        import json
+        import time
+        header = {"alg": alg, "typ": "JWT"}
+        if app_metadata is None:
+            app_metadata = {"role": role} if role is not None else {}
+        payload = {"email": email, "exp": int(time.time()) + exp_delta,
+                  "app_metadata": app_metadata}
+        header_b64 = self._b64url(json.dumps(header).encode())
+        payload_b64 = self._b64url(json.dumps(payload).encode())
+        key = (secret if secret is not None else self.SECRET).encode("utf-8")
+        sig = hmac.new(key, f"{header_b64}.{payload_b64}".encode("ascii"), hashlib.sha256).digest()
+        return f"{header_b64}.{payload_b64}.{self._b64url(sig)}"
+
+    def test_valid_jwt_with_role_authenticates(self):
         from zero import auth
+        identity = auth.token_identity(self._make_jwt(role="admin"))
+        self.assertEqual(identity["role"], "admin")
+        self.assertEqual(identity["email"], "test@zeroai.cl")
+        self.assertEqual(identity["source"], "supabase")
+
+    def test_cro_role_roundtrip(self):
+        from zero import auth
+        identity = auth.token_identity(self._make_jwt(role="cro", email="lucas@zeroai.cl"))
+        self.assertEqual(identity["role"], "cro")
+        self.assertEqual(identity["username"], "lucas@zeroai.cl")
+
+    def test_jwt_with_no_role_authenticates_but_role_is_none(self):
+        # Fail closed: se autentica (sabemos quién es) pero sin rol asignado
+        # — es el caller (auth_guard) el que decide qué hacer con eso (403).
+        from zero import auth
+        identity = auth.token_identity(self._make_jwt(role=None))
+        self.assertIsNotNone(identity)
+        self.assertIsNone(identity["role"])
+
+    def test_user_metadata_role_is_never_trusted(self):
+        # app_metadata es lo único confiable — user_metadata lo puede editar
+        # el propio usuario vía API, nunca debe otorgar un rol.
+        from zero import auth
+        # fuerza un token con "role" solo en user_metadata, no app_metadata
+        import base64, hashlib, hmac, json, time
+        header = {"alg": "HS256", "typ": "JWT"}
+        payload = {"email": "x@x.cl", "exp": int(time.time()) + 3600,
+                  "user_metadata": {"role": "admin"}}
+        h = self._b64url(json.dumps(header).encode())
+        p = self._b64url(json.dumps(payload).encode())
+        sig = hmac.new(self.SECRET.encode(), f"{h}.{p}".encode(), hashlib.sha256).digest()
+        forged = f"{h}.{p}.{self._b64url(sig)}"
+        identity = auth.token_identity(forged)
+        self.assertIsNotNone(identity)
+        self.assertIsNone(identity["role"])
+
+    def test_tampered_signature_rejected(self):
+        from zero import auth
+        tok = self._make_jwt()
+        tampered = tok[:-4] + "xxxx"
+        self.assertIsNone(auth.verify_supabase_jwt(tampered))
+        self.assertIsNone(auth.token_identity(tampered))
+
+    def test_expired_jwt_rejected(self):
+        from zero import auth
+        self.assertIsNone(auth.verify_supabase_jwt(self._make_jwt(exp_delta=-10)))
+
+    def test_wrong_secret_rejected(self):
+        from zero import auth
+        tok = self._make_jwt(secret="otro-secreto-completamente-distinto")
+        self.assertIsNone(auth.verify_supabase_jwt(tok))
+
+    def test_non_hs256_alg_rejected(self):
+        # nunca aceptar "none" (ni ningún otro alg) aunque venga "bien firmado"
+        from zero import auth
+        self.assertIsNone(auth.verify_supabase_jwt(self._make_jwt(alg="none")))
+
+    def test_garbage_token_never_crashes(self):
+        from zero import auth
+        for bad in ("", "garbage", "a.b", "a.b.c.d", "...", None):
+            self.assertIsNone(auth.verify_supabase_jwt(bad))
+            self.assertIsNone(auth.token_identity(bad))
+
+    def test_no_secret_configured_disables_jwt_path(self):
         import os
-        self.assertFalse(auth.valid_token(auth.make_token(ttl=-1)))   # expired
-        tok = auth.make_token()
-        os.environ["AUTH_PASSWORD"] = "rotated"                       # rotate
-        self.assertFalse(auth.valid_token(tok))                       # old token dies
-
-    def test_disabled_when_no_password(self):
         from zero import auth
+        tok = self._make_jwt()
+        os.environ.pop("SUPABASE_JWT_SECRET", None)
+        self.assertIsNone(auth.verify_supabase_jwt(tok))
+
+    def test_local_login_still_works_as_fallback_with_admin_role(self):
+        # el modelo por-persona (users.json) sigue andando sin cambios — se le
+        # asigna "admin" (documentado a propósito: es un hueco transicional).
         import os
-        os.environ.pop("AUTH_PASSWORD", None)
-        self.assertFalse(auth.auth_enabled())
-        self.assertFalse(auth.valid_token(auth.make_token()))
+        import tempfile
+        from zero import auth
+        tmpdir = tempfile.mkdtemp()
+        prev = os.environ.get("AUTH_USERS_PATH")
+        os.environ["AUTH_USERS_PATH"] = os.path.join(tmpdir, "users.json")
+        try:
+            auth.add_user("diego", "clave-local")
+            tok = auth.make_token("diego")
+            identity = auth.token_identity(tok)
+            self.assertEqual(identity["role"], "admin")
+            self.assertEqual(identity["source"], "local")
+        finally:
+            if prev is None:
+                os.environ.pop("AUTH_USERS_PATH", None)
+            else:
+                os.environ["AUTH_USERS_PATH"] = prev
 
 
 class MetaAdsTest(unittest.TestCase):

@@ -20,11 +20,16 @@ Run alone:  python3 -m unittest tests.test_api_http -v
 """
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 import urllib.error
@@ -99,6 +104,25 @@ def _start_and_wait(argv: list[str], cwd: str, env: dict, base: str) -> subproce
     return proc
 
 
+def _b64url(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def _make_supabase_jwt(secret: str, *, email: str = "test@zeroai.cl",
+                       role: str | None = "admin", exp_delta: int = 3600) -> str:
+    """Arma un JWT con la misma forma/firma que produce Supabase Auth (HS256,
+    base64url, app_metadata.role) — sin pyjwt, para probar zero/auth.py y el
+    auth_guard de api.py sin depender de una cuenta real de Supabase."""
+    header = {"alg": "HS256", "typ": "JWT"}
+    app_metadata = {"role": role} if role is not None else {}
+    payload = {"email": email, "exp": int(time.time()) + exp_delta, "app_metadata": app_metadata}
+    header_b64 = _b64url(json.dumps(header).encode())
+    payload_b64 = _b64url(json.dumps(payload).encode())
+    sig = hmac.new(secret.encode("utf-8"), f"{header_b64}.{payload_b64}".encode("ascii"),
+                   hashlib.sha256).digest()
+    return f"{header_b64}.{payload_b64}.{_b64url(sig)}"
+
+
 @unittest.skipUnless(_UVICORN_AVAILABLE, "uvicorn no instalado — este test es opcional, no núcleo")
 class ApiHttpTest(unittest.TestCase):
     """Levanta api.py real y prueba de punta a punta: petición -> FastAPI ->
@@ -123,7 +147,13 @@ class ApiHttpTest(unittest.TestCase):
         # "presente" para setdefault, y auth_enabled() lo trata como deshabilitado
         # (bool('') es False) — sin auth de verdad, sin importar qué haya en el
         # .env del repo.
-        env["AUTH_PASSWORD"] = ""  # sin password -> /api/* queda abierto para probar
+        env["AUTH_PASSWORD"] = ""  # legado, zero/auth.py ya no lo lee — inofensivo, se deja
+        # Mismo problema que describe el comentario de arriba, ahora para el modelo
+        # por-persona: si alguna vez existe un users.json REAL en la raíz del repo
+        # (una vez Diego dé de alta cuentas de verdad), este subproceso no debe
+        # heredarlo — apunta a un archivo que a propósito no existe, así
+        # auth_enabled() da False sin importar qué haya en el repo real.
+        env["AUTH_USERS_PATH"] = os.path.join(tempfile.mkdtemp(), "users.json")
         env["WHATSAPP_APP_SECRET"] = cls.WHATSAPP_APP_SECRET
         # Mismo problema que AUTH_PASSWORD arriba: en el Ubuntu real, el .env
         # del repo trae LOCAL_MODEL configurado — sin fijarlo vacío acá, este
@@ -275,24 +305,45 @@ class ApiHttpTest(unittest.TestCase):
 
 @unittest.skipUnless(_UVICORN_AVAILABLE, "uvicorn no instalado — este test es opcional, no núcleo")
 class ApiAuthHttpTest(unittest.TestCase):
-    """Prueba la expiración de sesión de punta a punta, sobre HTTP real —
-    zero/auth.py ya tiene tests unitarios de valid_token(), pero eso no prueba
-    que el middleware de api.py (auth_guard) realmente lo aplique en cada
-    request. Corre en un subproceso PROPIO (con AUTH_PASSWORD configurado)
-    separado de ApiHttpTest de arriba, que corre a propósito sin password
-    para poder probar los demás endpoints libremente."""
+    """Prueba el login por-persona de punta a punta, sobre HTTP real —
+    zero/auth.py ya tiene tests unitarios de valid_token()/token_username(),
+    pero eso no prueba que el middleware de api.py (auth_guard) realmente lo
+    aplique en cada request. Corre en un subproceso PROPIO (con una cuenta
+    real dada de alta en un users.json temporal) separado de ApiHttpTest de
+    arriba, que corre a propósito sin cuentas para poder probar los demás
+    endpoints libremente."""
 
+    USERNAME = "diego"
     PASSWORD = "s3cret-para-el-test"
 
     @classmethod
     def setUpClass(cls):
+        from zero import auth
         cls.port = _free_port()
         cls.base = f"http://127.0.0.1:{cls.port}"
         repo_root = Path(__file__).resolve().parent.parent
+        cls._tmpdir = tempfile.mkdtemp()
+        cls.users_path = os.path.join(cls._tmpdir, "users.json")
+        # auth.add_user() lee/escribe AUTH_USERS_PATH en vivo — se lo apunta
+        # acá (este proceso) solo para crear el archivo; después se le pasa
+        # el MISMO path al subproceso de abajo, para que lea la misma cuenta.
+        prev = os.environ.get("AUTH_USERS_PATH")
+        os.environ["AUTH_USERS_PATH"] = cls.users_path
+        try:
+            auth.add_user(cls.USERNAME, cls.PASSWORD)
+        finally:
+            if prev is None:
+                os.environ.pop("AUTH_USERS_PATH", None)
+            else:
+                os.environ["AUTH_USERS_PATH"] = prev
         env = dict(os.environ)
-        env["AUTH_PASSWORD"] = cls.PASSWORD
-        env.pop("SUPABASE_URL", None)
-        env.pop("SUPABASE_KEY", None)
+        env["AUTH_USERS_PATH"] = cls.users_path
+        # Vacío, no ausente: si falta del todo, zero/_env.py::load_env() (usa
+        # os.environ.setdefault) lo vuelve a levantar del .env real del repo
+        # — que en esta máquina apunta a un proyecto Supabase roto (mismo
+        # gotcha ya documentado arriba para AUTH_PASSWORD/LOCAL_MODEL).
+        env["SUPABASE_URL"] = ""
+        env["SUPABASE_KEY"] = ""
         cls.proc = _start_and_wait(
             [sys.executable, "-m", "uvicorn", "api:app", "--port", str(cls.port),
              "--log-level", "warning"],
@@ -302,14 +353,14 @@ class ApiAuthHttpTest(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         proc = getattr(cls, "proc", None)
-        if proc is None:
-            return
-        proc.terminate()
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait(timeout=5)
+        if proc is not None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+        shutil.rmtree(getattr(cls, "_tmpdir", "") or "", ignore_errors=True)
 
     def _get(self, path: str, token: str | None = None):
         headers = {"Authorization": f"Bearer {token}"} if token else {}
@@ -317,10 +368,10 @@ class ApiAuthHttpTest(unittest.TestCase):
         with urllib.request.urlopen(req, timeout=5) as r:
             return r.status, json.loads(r.read().decode("utf-8"))
 
-    def _login(self, password: str) -> str:
+    def _login(self, username: str, password: str) -> str:
         req = urllib.request.Request(
             f"{self.base}/api/login", method="POST",
-            data=json.dumps({"password": password}).encode("utf-8"),
+            data=json.dumps({"username": username, "password": password}).encode("utf-8"),
             headers={"Content-Type": "application/json"},
         )
         with urllib.request.urlopen(req, timeout=5) as r:
@@ -339,7 +390,17 @@ class ApiAuthHttpTest(unittest.TestCase):
     def test_login_with_wrong_password_is_401(self):
         req = urllib.request.Request(
             f"{self.base}/api/login", method="POST",
-            data=json.dumps({"password": "password-incorrecta"}).encode("utf-8"),
+            data=json.dumps({"username": self.USERNAME, "password": "password-incorrecta"}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req, timeout=5)
+        self.assertEqual(ctx.exception.code, 401)
+
+    def test_login_with_unknown_username_is_401(self):
+        req = urllib.request.Request(
+            f"{self.base}/api/login", method="POST",
+            data=json.dumps({"username": "nadie-dado-de-alta", "password": self.PASSWORD}).encode("utf-8"),
             headers={"Content-Type": "application/json"},
         )
         with self.assertRaises(urllib.error.HTTPError) as ctx:
@@ -347,29 +408,35 @@ class ApiAuthHttpTest(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 401)
 
     def test_login_then_protected_endpoint_with_valid_token_works(self):
-        token = self._login(self.PASSWORD)
+        token = self._login(self.USERNAME, self.PASSWORD)
         status, body = self._get("/api/vendors", token=token)
         self.assertEqual(status, 200)
         self.assertIn("vendors", body)
 
+    def test_auth_status_reports_username_when_authenticated(self):
+        token = self._login(self.USERNAME, self.PASSWORD)
+        status, body = self._get("/api/auth/status", token=token)
+        self.assertEqual(status, 200)
+        self.assertEqual(body["username"], self.USERNAME)
+
     def test_expired_token_is_rejected_over_real_http(self):
         """El corazón de 'expiración de sesión probada': un token vencido —
-        firmado con la MISMA password real del servidor, así que la firma es
-        válida — debe ser rechazado igual, porque ya pasó su tiempo de vida.
-        Se firma con zero.auth directamente (no hay forma de esperar 7 días en
-        un test) usando la misma AUTH_PASSWORD que el subproceso, para producir
-        un token con firma legítima pero `exp` en el pasado."""
-        import os
-        prev = os.environ.get("AUTH_PASSWORD")
-        os.environ["AUTH_PASSWORD"] = self.PASSWORD
+        firmado con el MISMO hash de password real que el subproceso ya tiene
+        guardado en users.json, así que la firma es válida — debe ser
+        rechazado igual, porque ya pasó su tiempo de vida. Se firma con
+        zero.auth directamente (no hay forma de esperar 7 días en un test)
+        apuntando al mismo AUTH_USERS_PATH que usa el subproceso, para
+        producir un token con firma legítima pero `exp` en el pasado."""
+        prev = os.environ.get("AUTH_USERS_PATH")
+        os.environ["AUTH_USERS_PATH"] = self.users_path
         try:
             from zero import auth
-            expired = auth.make_token(ttl=-10)
+            expired = auth.make_token(self.USERNAME, ttl=-10)
         finally:
             if prev is None:
-                os.environ.pop("AUTH_PASSWORD", None)
+                os.environ.pop("AUTH_USERS_PATH", None)
             else:
-                os.environ["AUTH_PASSWORD"] = prev
+                os.environ["AUTH_USERS_PATH"] = prev
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self._get("/api/vendors", token=expired)
         self.assertEqual(ctx.exception.code, 401)
@@ -381,10 +448,10 @@ class ApiAuthHttpTest(unittest.TestCase):
 
     def test_public_plans_accessible_without_token_and_shape(self):
         """La landing pública consume esto sin login — tiene que responder
-        incluso con AUTH_PASSWORD configurada (este test class corre con una
-        de verdad, a diferencia de ApiHttpTest de arriba). Nunca debe filtrar
-        MRR ni datos de clientes reales — solo segment/price_clp/leads_per_mo,
-        por tier."""
+        incluso con una cuenta real configurada (este test class corre con
+        una de verdad, a diferencia de ApiHttpTest de arriba). Nunca debe
+        filtrar MRR ni datos de clientes reales — solo
+        segment/price_clp/leads_per_mo, por tier."""
         status, body = self._get("/api/public/plans")
         self.assertEqual(status, 200)
         self.assertEqual(set(body), {"plans"})
@@ -398,6 +465,140 @@ class ApiAuthHttpTest(unittest.TestCase):
         self.assertIsNone(plans["ENTERPRISE"]["leads_per_mo"])
         # Nunca debe verse nada de "mrr" ni pinta de dato de cliente real.
         self.assertNotIn("mrr_clp", body)
+
+
+@unittest.skipUnless(_UVICORN_AVAILABLE, "uvicorn no instalado — este test es opcional, no núcleo")
+class ApiSupabaseAuthHttpTest(unittest.TestCase):
+    """Login vía Supabase Auth (Google) + roles, sobre HTTP real — el
+    auth_guard de api.py tiene que aplicar el rol en cada request, no basta
+    con que zero/auth.py lo calcule bien aislado (ver SupabaseJWTAuthTest en
+    test_core.py para esos). Subproceso PROPIO con SUPABASE_JWT_SECRET
+    configurado y SIN cuentas locales (AUTH_USERS_PATH apunta a un archivo
+    que a propósito no existe) — así el único camino de auth activo es el
+    JWT; el fallback local (que da "admin" gratis) no debe contaminar las
+    pruebas de restricción por rol."""
+
+    JWT_SECRET = "otro-jwt-secret-de-prueba-para-http"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.port = _free_port()
+        cls.base = f"http://127.0.0.1:{cls.port}"
+        repo_root = Path(__file__).resolve().parent.parent
+        env = dict(os.environ)
+        env["SUPABASE_JWT_SECRET"] = cls.JWT_SECRET
+        env["AUTH_USERS_PATH"] = os.path.join(tempfile.mkdtemp(), "users.json")
+        # Vacío, no ausente: si falta del todo, zero/_env.py::load_env() (usa
+        # os.environ.setdefault) lo vuelve a levantar del .env real del repo
+        # — que en esta máquina apunta a un proyecto Supabase roto (mismo
+        # gotcha ya documentado arriba para AUTH_PASSWORD/LOCAL_MODEL).
+        env["SUPABASE_URL"] = ""
+        env["SUPABASE_KEY"] = ""
+        cls.proc = _start_and_wait(
+            [sys.executable, "-m", "uvicorn", "api:app", "--port", str(cls.port),
+             "--log-level", "warning"],
+            str(repo_root), env, cls.base,
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        proc = getattr(cls, "proc", None)
+        if proc is not None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+
+    def _get(self, path: str, token: str | None = None):
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        req = urllib.request.Request(f"{self.base}{path}", headers=headers)
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return r.status, json.loads(r.read().decode("utf-8"))
+
+    def _jwt(self, **kw) -> str:
+        return _make_supabase_jwt(self.JWT_SECRET, **kw)
+
+    def test_admin_jwt_passes_any_route(self):
+        # /api/vendors no está en la lista de rutas permitidas para "cro" —
+        # solo un admin debería poder verla.
+        status, body = self._get("/api/vendors", token=self._jwt(role="admin"))
+        self.assertEqual(status, 200)
+        self.assertIn("vendors", body)
+
+    def test_cro_jwt_passes_allowed_route(self):
+        status, body = self._get("/api/clients", token=self._jwt(role="cro", email="lucas@zeroai.cl"))
+        self.assertEqual(status, 200)
+        self.assertIn("clients", body)
+
+    def test_cro_jwt_gets_403_outside_allowed_routes(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/api/vendors", token=self._jwt(role="cro"))
+        self.assertEqual(ctx.exception.code, 403)
+
+    def test_cro_jwt_gets_403_on_config(self):
+        # el caso "dudoso" reportado a Diego: /api/config queda SOLO admin,
+        # aunque Vender.jsx lea una parte de ahí — ver REPORT.
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/api/config", token=self._jwt(role="cro"))
+        self.assertEqual(ctx.exception.code, 403)
+
+    def test_cto_jwt_passes_allowed_route(self):
+        status, body = self._get("/api/forecast?client=acme",
+                                 token=self._jwt(role="cto", email="alejandro@zeroai.cl"))
+        self.assertEqual(status, 200)
+
+    def test_cto_jwt_gets_403_outside_allowed_routes(self):
+        # Campañas/Vender/Clientes son de "cro" — cto (Alejandro) queda
+        # dedicado a Leads/Pipeline/Forecast, sin esto.
+        for path in ("/api/accounts", "/api/campaigns?client=acme", "/api/emails"):
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                self._get(path, token=self._jwt(role="cto"))
+            self.assertEqual(ctx.exception.code, 403, path)
+
+    def test_cto_jwt_gets_403_on_finance(self):
+        # /api/finance es EXCLUSIVO de cro — ni siquiera cto lo tiene.
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/api/finance", token=self._jwt(role="cto"))
+        self.assertEqual(ctx.exception.code, 403)
+
+    def test_cro_and_cto_share_dashboard_pipeline_and_forecast(self):
+        # Vista operativa común de ambos roles — el home (KPIs), el board de
+        # Pipeline y Forecast. cro además tiene su propio set exclusivo
+        # (Clientes/Campañas/Vender/Finanzas) probado en los tests de arriba.
+        for role in ("cro", "cto"):
+            status, _ = self._get("/api/kpis?client=acme", token=self._jwt(role=role))
+            self.assertEqual(status, 200, role)
+            status, _ = self._get("/api/board?client=acme", token=self._jwt(role=role))
+            self.assertEqual(status, 200, role)
+            status, _ = self._get("/api/forecast?client=acme", token=self._jwt(role=role))
+            self.assertEqual(status, 200, role)
+
+    def test_expired_jwt_is_401(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/api/vendors", token=self._jwt(role="admin", exp_delta=-10))
+        self.assertEqual(ctx.exception.code, 401)
+
+    def test_tampered_jwt_is_401(self):
+        tok = self._jwt(role="admin")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/api/vendors", token=tok[:-4] + "xxxx")
+        self.assertEqual(ctx.exception.code, 401)
+
+    def test_jwt_without_role_is_403(self):
+        # fail closed: autenticado (firma OK) pero sin app_metadata.role → 403,
+        # nunca "ve todo por defecto".
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/api/clients", token=self._jwt(role=None))
+        self.assertEqual(ctx.exception.code, 403)
+
+    def test_auth_status_reports_role(self):
+        status, body = self._get("/api/auth/status",
+                                 token=self._jwt(role="cro", email="lucas@zeroai.cl"))
+        self.assertEqual(status, 200)
+        self.assertEqual(body["role"], "cro")
+        self.assertEqual(body["username"], "lucas@zeroai.cl")
 
 
 if __name__ == "__main__":
