@@ -563,15 +563,13 @@ class ApiSupabaseAuthHttpTest(unittest.TestCase):
             self._get("/api/finance", token=self._jwt(role="cto"))
         self.assertEqual(ctx.exception.code, 403)
 
-    def test_cro_jwt_gets_403_on_leads_only_routes_reserved_for_cto(self):
-        # cro no tiene /api/kpis (exclusivo de cto en esta tabla) — confirma
-        # que las listas de cada rol son independientes, no una unión.
-        with self.assertRaises(urllib.error.HTTPError) as ctx:
-            self._get("/api/kpis?client=acme", token=self._jwt(role="cro"))
-        self.assertEqual(ctx.exception.code, 403)
-
-    def test_cro_and_cto_share_pipeline_and_forecast(self):
+    def test_cro_and_cto_share_dashboard_pipeline_and_forecast(self):
+        # Vista operativa común de ambos roles — el home (KPIs), el board de
+        # Pipeline y Forecast. cro además tiene su propio set exclusivo
+        # (Clientes/Campañas/Vender/Finanzas) probado en los tests de arriba.
         for role in ("cro", "cto"):
+            status, _ = self._get("/api/kpis?client=acme", token=self._jwt(role=role))
+            self.assertEqual(status, 200, role)
             status, _ = self._get("/api/board?client=acme", token=self._jwt(role=role))
             self.assertEqual(status, 200, role)
             status, _ = self._get("/api/forecast?client=acme", token=self._jwt(role=role))

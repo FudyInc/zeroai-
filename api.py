@@ -77,9 +77,10 @@ _OPEN_PATHS = {"/api/login", "/api/health", "/api/auth/status", "/api/public/pla
 #     EXCLUSIVO de este rol (ni siquiera "cto" lo tiene).
 #   - "cto" (Alejandro): operación de Leads/Pipeline/Forecast — dedicado full
 #     a esa área, sin Campañas/Vender/Clientes/Finanzas.
-#   - Pipeline (el board) y Forecast son compartidos por los dos — son la
-#     vista operativa común de "en qué está cada lead" y "cómo viene el mes";
-#     Diego no pidió sacárselos a Lucas al darle esas páginas a Alejandro.
+#   - Pipeline (el board), Forecast y el Dashboard/KPIs de inicio son
+#     compartidos por los dos — son la vista operativa común de "en qué está
+#     cada lead" y "cómo viene el mes"; Diego no pidió sacárselos a Lucas al
+#     darle esas páginas a Alejandro.
 _ROLE_ALLOWED: dict = {
     "cro": (
         ("GET", "/api/clients"),          # selector de cliente (global, App.jsx)
@@ -95,6 +96,7 @@ _ROLE_ALLOWED: dict = {
         ("GET", "/api/board"),            # Pipeline.jsx (compartido con cto)
         ("GET", "/api/leads"),            # Pipeline/LeadModal/CommandPalette
         ("POST", "/api/leads"),           # LeadModal (mover etapa, responder)
+        ("GET", "/api/kpis"),             # Dashboard.jsx home (compartido con cto)
         ("GET", "/api/icp"),              # modal global "Buscar leads"
         ("POST", "/api/pipeline"),        # modal global "Buscar leads"
         # Finanzas — EXCLUSIVO de cro, "cto" no lo tiene. La ruta todavía no
