@@ -340,10 +340,17 @@ class ApiAuthHttpTest(unittest.TestCase):
         env["AUTH_USERS_PATH"] = cls.users_path
         # Vacío, no ausente: si falta del todo, zero/_env.py::load_env() (usa
         # os.environ.setdefault) lo vuelve a levantar del .env real del repo
-        # — que en esta máquina apunta a un proyecto Supabase roto (mismo
-        # gotcha ya documentado arriba para AUTH_PASSWORD/LOCAL_MODEL).
+        # — mismo gotcha ya documentado arriba para AUTH_PASSWORD/LOCAL_MODEL.
+        # En el Mac de desarrollo SUPABASE_URL apunta a un proyecto roto; en
+        # el Ubuntu de producción LOCAL_MODEL apunta a un Ollama real —
+        # cualquiera de los dos deja este test class a merced de una red o un
+        # modelo real (encontrado corriendo esta suite en producción por
+        # primera vez: /api/forecast entero se puso a esperar a Ollama de
+        # verdad y voló el timeout de 5s del test).
         env["SUPABASE_URL"] = ""
         env["SUPABASE_KEY"] = ""
+        env["LOCAL_MODEL"] = ""
+        env["ANTHROPIC_API_KEY"] = ""
         cls.proc = _start_and_wait(
             [sys.executable, "-m", "uvicorn", "api:app", "--port", str(cls.port),
              "--log-level", "warning"],
@@ -490,10 +497,17 @@ class ApiSupabaseAuthHttpTest(unittest.TestCase):
         env["AUTH_USERS_PATH"] = os.path.join(tempfile.mkdtemp(), "users.json")
         # Vacío, no ausente: si falta del todo, zero/_env.py::load_env() (usa
         # os.environ.setdefault) lo vuelve a levantar del .env real del repo
-        # — que en esta máquina apunta a un proyecto Supabase roto (mismo
-        # gotcha ya documentado arriba para AUTH_PASSWORD/LOCAL_MODEL).
+        # — mismo gotcha ya documentado arriba para AUTH_PASSWORD/LOCAL_MODEL.
+        # En el Mac de desarrollo SUPABASE_URL apunta a un proyecto roto; en
+        # el Ubuntu de producción LOCAL_MODEL apunta a un Ollama real —
+        # cualquiera de los dos deja este test class a merced de una red o un
+        # modelo real (encontrado corriendo esta suite en producción por
+        # primera vez: /api/forecast entero se puso a esperar a Ollama de
+        # verdad y voló el timeout de 5s del test).
         env["SUPABASE_URL"] = ""
         env["SUPABASE_KEY"] = ""
+        env["LOCAL_MODEL"] = ""
+        env["ANTHROPIC_API_KEY"] = ""
         cls.proc = _start_and_wait(
             [sys.executable, "-m", "uvicorn", "api:app", "--port", str(cls.port),
              "--log-level", "warning"],
