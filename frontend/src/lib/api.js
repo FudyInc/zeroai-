@@ -1,3 +1,5 @@
+import { supabase } from './supabase'
+
 // En dev: '' → el proxy de Vite manda /api a localhost:8800.
 // En prod (Vercel): definí VITE_API_URL con la URL del backend en Render.
 export const BASE = import.meta.env.VITE_API_URL || ''
@@ -91,7 +93,14 @@ export const api = {
   login: (username, password) =>
     req('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) })
       .then((d) => { setToken(d.token); return d }),
-  logout: () => { setToken(null); window.location.reload() },
+  // Redirige a Google; a la vuelta, App.jsx toma la sesión vía
+  // supabase.auth.onAuthStateChange y la guarda con setToken (mismo lugar de
+  // verdad que el login local).
+  signInWithGoogle: () => supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } }),
+  logout: () => {
+    setToken(null)
+    supabase.auth.signOut().finally(() => window.location.reload())
+  },
   metaadsAccounts: () => req('/api/metaads/accounts').then((d) => d.accounts),
   whatsappStatus: () => req('/api/whatsapp/status'),
   config: () => req('/api/config'),

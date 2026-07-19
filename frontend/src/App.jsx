@@ -4,8 +4,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Toaster } from 'sonner'
 import { Plus, Menu, ArrowLeft, Search } from 'lucide-react'
-import { api } from './lib/api'
-import { Button, Input, Select } from './components/ui'
+import { api, setToken } from './lib/api'
+import { supabase } from './lib/supabase'
+import { Button, Input, Select, Card } from './components/ui'
 import { Glow } from './components/Glow'
 import Sidebar from './components/Sidebar'
 import Login from './components/Login'
@@ -85,6 +86,20 @@ export default function App() {
     return () => window.removeEventListener('zero-unauth', onUnauth)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Login con Google: al volver del redirect (o si ya había sesión activa),
+  // Supabase dispara este evento con el JWT — lo guardamos con el MISMO
+  // mecanismo que usa el login local (setToken) y refrescamos el status
+  // contra nuestro backend, que es quien de verdad decide rol/permiso.
+  useEffect(() => {
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.access_token) {
+        setToken(session.access_token)
+        refreshAuth()
+      }
+    })
+    return () => sub.subscription.unsubscribe()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   const { data: clients = [] } = useQuery({ queryKey: ['clients'], queryFn: api.clients, enabled: authed === true })
   useEffect(() => {
     if (!client && clients.length) setClient(clients[0])
@@ -92,6 +107,10 @@ export default function App() {
 
   if (authed === null) return <div className="min-h-screen grid place-items-center text-zinc-400">Cargando…</div>
   if (authed === false) return <Login onSuccess={refreshAuth} />
+  // Login válido (Google u otro) pero sin app_metadata.role asignado todavía
+  // en Supabase — el backend ya bloquea todo con 403 (fail closed); acá se
+  // corta ANTES de intentar cargar páginas, para no mostrar una app rota.
+  if (authEnabled && !role) return <NoRoleScreen username={username} onLogout={() => api.logout()} />
 
   return (
     <AppCtx.Provider value={{ client, setClient, clients, openLead: setLeadKey, openRun: () => setRunOpen(true) }}>
@@ -174,6 +193,22 @@ export default function App() {
         <Toaster richColors position="top-right" toastOptions={{ style: { borderRadius: '12px' } }} />
       </div>
     </AppCtx.Provider>
+  )
+}
+
+function NoRoleScreen({ username, onLogout }) {
+  return (
+    <div className="min-h-screen grid place-items-center bg-[radial-gradient(120%_120%_at_100%_0%,#f2f1ec_0%,#f4f4f4_45%,#f6f5f2_100%)] p-4">
+      <Card className="p-8 w-full max-w-sm text-center">
+        <div className="font-display font-bold text-lg tracking-tight text-brand mb-2">Cuenta reconocida, sin rol asignado</div>
+        <div className="text-sm text-zinc-500 mb-1">
+          {username ? <>Tu cuenta (<b className="text-zinc-700">{username}</b>) inició sesión bien</> : 'Tu cuenta inició sesión bien'},
+          pero todavía no tiene un rol asignado en ZeroAI.
+        </div>
+        <div className="text-sm text-zinc-500 mb-6">Avisale a Diego para que te asigne uno.</div>
+        <Button variant="soft" onClick={onLogout} className="w-full">Salir</Button>
+      </Card>
+    </div>
   )
 }
 
