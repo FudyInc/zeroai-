@@ -180,7 +180,8 @@ def auth_status(request: Request):
     authenticated = (not enabled) or identity is not None
     return {"enabled": enabled, "authenticated": authenticated,
             "username": identity.get("username") if identity else None,
-            "role": identity.get("role") if identity else None}
+            "role": identity.get("role") if identity else None,
+            "full_name": identity.get("full_name") if identity else None}
 
 
 def _crm():

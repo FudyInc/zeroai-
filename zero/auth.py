@@ -375,6 +375,22 @@ def supabase_role(payload: Dict[str, Any]) -> Optional[str]:
     return role if isinstance(role, str) and role else None
 
 
+def supabase_full_name(payload: Dict[str, Any]) -> Optional[str]:
+    """Nombre real de la persona (`user_metadata.full_name`, o `.name` si
+    Google no mandó el primero — confirmado en vivo, 2026-07-17, contra una
+    cuenta real: Google manda AMBOS, idénticos, pero no hay garantía de que
+    siempre sea así). A diferencia de `supabase_role`, esto SÍ lee
+    `user_metadata` a propósito — es solo para mostrar un nombre en la UI,
+    nunca para autorización, así que el riesgo de que el usuario lo edite él
+    mismo (vía la API de Supabase) no aplica acá: en el peor caso, alguien
+    cambia cómo se ve SU PROPIO nombre en pantalla."""
+    user_meta = payload.get("user_metadata")
+    if not isinstance(user_meta, dict):
+        return None
+    name = user_meta.get("full_name") or user_meta.get("name")
+    return name if isinstance(name, str) and name else None
+
+
 def token_identity(token: str) -> Optional[Dict[str, Any]]:
     """Identidad para un token de CUALQUIER mecanismo soportado — el punto
     único que usa api.py::auth_guard. None si la autenticación en sí falla
@@ -397,8 +413,9 @@ def token_identity(token: str) -> Optional[Dict[str, Any]]:
     if payload is not None:
         email = payload.get("email")
         return {"email": email, "username": email, "role": supabase_role(payload),
-                "source": "supabase"}
+                "full_name": supabase_full_name(payload), "source": "supabase"}
     username = token_username(token)
     if username is not None:
-        return {"email": None, "username": username, "role": "admin", "source": "local"}
+        return {"email": None, "username": username, "role": "admin",
+                "full_name": None, "source": "local"}
     return None

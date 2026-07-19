@@ -109,13 +109,17 @@ def _b64url(data: bytes) -> str:
 
 
 def _make_supabase_jwt(secret: str, *, email: str = "test@zeroai.cl",
-                       role: str | None = "admin", exp_delta: int = 3600) -> str:
+                       role: str | None = "admin", exp_delta: int = 3600,
+                       full_name: str | None = None) -> str:
     """Arma un JWT con la misma forma/firma que produce Supabase Auth (HS256,
-    base64url, app_metadata.role) — sin pyjwt, para probar zero/auth.py y el
-    auth_guard de api.py sin depender de una cuenta real de Supabase."""
+    base64url, app_metadata.role, user_metadata.full_name) — sin pyjwt, para
+    probar zero/auth.py y el auth_guard de api.py sin depender de una cuenta
+    real de Supabase."""
     header = {"alg": "HS256", "typ": "JWT"}
     app_metadata = {"role": role} if role is not None else {}
-    payload = {"email": email, "exp": int(time.time()) + exp_delta, "app_metadata": app_metadata}
+    user_metadata = {"full_name": full_name} if full_name is not None else {}
+    payload = {"email": email, "exp": int(time.time()) + exp_delta,
+              "app_metadata": app_metadata, "user_metadata": user_metadata}
     header_b64 = _b64url(json.dumps(header).encode())
     payload_b64 = _b64url(json.dumps(payload).encode())
     sig = hmac.new(secret.encode("utf-8"), f"{header_b64}.{payload_b64}".encode("ascii"),
@@ -617,6 +621,17 @@ class ApiSupabaseAuthHttpTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body["role"], "cro")
         self.assertEqual(body["username"], "lucas@zeroai.cl")
+
+    def test_auth_status_reports_full_name(self):
+        status, body = self._get("/api/auth/status", token=self._jwt(
+            role="admin", email="diego@zeroai.cl", full_name="Diego Mardones"))
+        self.assertEqual(status, 200)
+        self.assertEqual(body["full_name"], "Diego Mardones")
+
+    def test_auth_status_full_name_none_without_user_metadata(self):
+        status, body = self._get("/api/auth/status", token=self._jwt(role="admin"))
+        self.assertEqual(status, 200)
+        self.assertIsNone(body["full_name"])
 
 
 if __name__ == "__main__":

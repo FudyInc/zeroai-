@@ -1764,7 +1764,7 @@ class SupabaseJWTAuthTest(unittest.TestCase):
         return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
 
     def _make_jwt(self, *, email="test@zeroai.cl", role="admin", exp_delta=3600,
-                  secret=None, alg="HS256", app_metadata=None):
+                  secret=None, alg="HS256", app_metadata=None, user_metadata=None):
         import hashlib
         import hmac
         import json
@@ -1773,7 +1773,7 @@ class SupabaseJWTAuthTest(unittest.TestCase):
         if app_metadata is None:
             app_metadata = {"role": role} if role is not None else {}
         payload = {"email": email, "exp": int(time.time()) + exp_delta,
-                  "app_metadata": app_metadata}
+                  "app_metadata": app_metadata, "user_metadata": user_metadata or {}}
         header_b64 = self._b64url(json.dumps(header).encode())
         payload_b64 = self._b64url(json.dumps(payload).encode())
         key = (secret if secret is not None else self.SECRET).encode("utf-8")
@@ -1792,6 +1792,38 @@ class SupabaseJWTAuthTest(unittest.TestCase):
         identity = auth.token_identity(self._make_jwt(role="cro", email="lucas@zeroai.cl"))
         self.assertEqual(identity["role"], "cro")
         self.assertEqual(identity["username"], "lucas@zeroai.cl")
+
+    def test_full_name_from_user_metadata(self):
+        from zero import auth
+        identity = auth.token_identity(
+            self._make_jwt(user_metadata={"full_name": "Diego Mardones"}))
+        self.assertEqual(identity["full_name"], "Diego Mardones")
+
+    def test_full_name_falls_back_to_name(self):
+        # Confirmado en vivo (2026-07-17) contra una cuenta real: Google manda
+        # ambos, pero por si algún proveedor solo manda "name".
+        from zero import auth
+        identity = auth.token_identity(self._make_jwt(user_metadata={"name": "Lucas Roman"}))
+        self.assertEqual(identity["full_name"], "Lucas Roman")
+
+    def test_full_name_prefers_full_name_over_name(self):
+        from zero import auth
+        identity = auth.token_identity(self._make_jwt(
+            user_metadata={"full_name": "Diego Mardones", "name": "otro nombre"}))
+        self.assertEqual(identity["full_name"], "Diego Mardones")
+
+    def test_full_name_is_none_without_user_metadata(self):
+        from zero import auth
+        identity = auth.token_identity(self._make_jwt(user_metadata={}))
+        self.assertIsNone(identity["full_name"])
+
+    def test_full_name_never_used_for_authorization(self):
+        # user_metadata puede traer CUALQUIER cosa (lo edita el propio
+        # usuario) — no debe filtrarse a "role" bajo ninguna circunstancia.
+        from zero import auth
+        identity = auth.token_identity(self._make_jwt(
+            role="cro", user_metadata={"role": "admin", "full_name": "Alguien"}))
+        self.assertEqual(identity["role"], "cro")   # solo app_metadata manda
 
     def test_jwt_with_no_role_authenticates_but_role_is_none(self):
         # Fail closed: se autentica (sabemos quién es) pero sin rol asignado
@@ -1867,6 +1899,7 @@ class SupabaseJWTAuthTest(unittest.TestCase):
             identity = auth.token_identity(tok)
             self.assertEqual(identity["role"], "admin")
             self.assertEqual(identity["source"], "local")
+            self.assertIsNone(identity["full_name"])   # el modelo local no tiene nombre real
         finally:
             if prev is None:
                 os.environ.pop("AUTH_USERS_PATH", None)
