@@ -1864,6 +1864,161 @@ class SupabaseJWTAuthTest(unittest.TestCase):
                 os.environ["AUTH_USERS_PATH"] = prev
 
 
+class SupabaseES256AuthTest(unittest.TestCase):
+    """ES256 — lo que Supabase usa DE VERDAD para los tokens que emite Google
+    Auth en proyectos nuevos (confirmado en vivo, 2026-07-17, contra el JWKS
+    real del proyecto). HS256 (SupabaseJWTAuthTest arriba) sigue andando,
+    pero un JWT real de Google llega firmado así, no con el secreto
+    compartido — esto prueba ese camino con un par de claves EC real,
+    generado localmente (nunca pega contra Supabase de verdad)."""
+
+    def setUp(self):
+        import os
+        from zero import auth
+        self.auth = auth
+        self._prev_url = os.environ.get("SUPABASE_URL")
+        os.environ["SUPABASE_URL"] = "https://fake-project.supabase.co"
+        # Cache de JWKS es estado de módulo — nunca debe filtrarse entre tests.
+        auth._JWKS_CACHE["keys"] = {}
+        auth._JWKS_CACHE["fetched_at"] = 0.0
+
+        from cryptography.hazmat.primitives.asymmetric import ec
+        self.private_key = ec.generate_private_key(ec.SECP256R1())
+        self.kid = "test-kid-1"
+
+    def tearDown(self):
+        import os
+        if self._prev_url is None:
+            os.environ.pop("SUPABASE_URL", None)
+        else:
+            os.environ["SUPABASE_URL"] = self._prev_url
+        self.auth._JWKS_CACHE["keys"] = {}
+        self.auth._JWKS_CACHE["fetched_at"] = 0.0
+
+    @staticmethod
+    def _b64url(data: bytes) -> str:
+        import base64
+        return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+    def _jwk_dict(self, kid=None):
+        pub = self.private_key.public_key().public_numbers()
+        size = 32   # P-256: coordenadas de 32 bytes
+        return {
+            "kty": "EC", "crv": "P-256", "alg": "ES256", "use": "sig",
+            "kid": kid if kid is not None else self.kid,
+            "x": self._b64url(pub.x.to_bytes(size, "big")),
+            "y": self._b64url(pub.y.to_bytes(size, "big")),
+        }
+
+    def _mock_jwks_response(self, jwks_body: dict):
+        import json as _json
+        from unittest import mock
+        cm = mock.MagicMock()
+        cm.__enter__.return_value.read.return_value = _json.dumps(jwks_body).encode("utf-8")
+        cm.__exit__.return_value = False
+        return mock.patch("zero.auth.urllib.request.urlopen", return_value=cm)
+
+    def _make_es256_jwt(self, *, email="test@zeroai.cl", role="admin", exp_delta=3600,
+                        kid=None, private_key=None):
+        import json as _json
+        import time as _time
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives.asymmetric import utils as ec_utils
+        header = {"alg": "ES256", "typ": "JWT", "kid": kid if kid is not None else self.kid}
+        app_metadata = {"role": role} if role is not None else {}
+        payload = {"email": email, "exp": int(_time.time()) + exp_delta, "app_metadata": app_metadata}
+        h = self._b64url(_json.dumps(header).encode())
+        p = self._b64url(_json.dumps(payload).encode())
+        signing_input = f"{h}.{p}".encode("ascii")
+        key = private_key if private_key is not None else self.private_key
+        der_sig = key.sign(signing_input, ec.ECDSA(hashes.SHA256()))
+        r, s = ec_utils.decode_dss_signature(der_sig)
+        raw_sig = r.to_bytes(32, "big") + s.to_bytes(32, "big")
+        return f"{h}.{p}.{self._b64url(raw_sig)}"
+
+    def test_valid_es256_jwt_verifies_against_real_jwks(self):
+        with self._mock_jwks_response({"keys": [self._jwk_dict()]}):
+            identity = self.auth.token_identity(self._make_es256_jwt(role="admin"))
+        self.assertEqual(identity["role"], "admin")
+        self.assertEqual(identity["source"], "supabase")
+
+    def test_es256_cro_role_roundtrip(self):
+        with self._mock_jwks_response({"keys": [self._jwk_dict()]}):
+            identity = self.auth.token_identity(
+                self._make_es256_jwt(role="cro", email="lucas@zeroai.cl"))
+        self.assertEqual(identity["role"], "cro")
+        self.assertEqual(identity["username"], "lucas@zeroai.cl")
+
+    def test_es256_wrong_key_rejected(self):
+        # firmado con una clave DISTINTA a la que expone el JWKS — no debe
+        # verificar aunque el kid coincida.
+        from cryptography.hazmat.primitives.asymmetric import ec as _ec
+        other_key = _ec.generate_private_key(_ec.SECP256R1())
+        tok = self._make_es256_jwt(private_key=other_key)
+        with self._mock_jwks_response({"keys": [self._jwk_dict()]}):
+            self.assertIsNone(self.auth.verify_supabase_jwt(tok))
+
+    def test_es256_unknown_kid_forces_refresh_then_fails(self):
+        tok = self._make_es256_jwt(kid="kid-que-no-esta-en-el-jwks")
+        with self._mock_jwks_response({"keys": [self._jwk_dict()]}):
+            self.assertIsNone(self.auth.verify_supabase_jwt(tok))
+
+    def test_es256_expired_rejected(self):
+        with self._mock_jwks_response({"keys": [self._jwk_dict()]}):
+            self.assertIsNone(self.auth.verify_supabase_jwt(self._make_es256_jwt(exp_delta=-10)))
+
+    def test_es256_malformed_signature_never_crashes(self):
+        h = self._b64url(b'{"alg":"ES256","typ":"JWT","kid":"test-kid-1"}')
+        p = self._b64url(b'{"email":"x@x.cl","exp":9999999999,"app_metadata":{"role":"admin"}}')
+        with self._mock_jwks_response({"keys": [self._jwk_dict()]}):
+            for bad_sig in ("", "no-es-base64!!", self._b64url(b"corto"), self._b64url(b"x" * 100)):
+                self.assertIsNone(self.auth.verify_supabase_jwt(f"{h}.{p}.{bad_sig}"))
+
+    def test_jwks_cache_avoids_refetching(self):
+        from unittest import mock
+        with self._mock_jwks_response({"keys": [self._jwk_dict()]}) as mocked:
+            tok1 = self._make_es256_jwt()
+            self.assertIsNotNone(self.auth.verify_supabase_jwt(tok1))
+            tok2 = self._make_es256_jwt(email="otro@zeroai.cl")
+            self.assertIsNotNone(self.auth.verify_supabase_jwt(tok2))
+            self.assertEqual(mocked.call_count, 1, "el segundo token no debería volver a pedir el JWKS")
+
+    def test_jwks_network_failure_degrades_to_none_never_crashes(self):
+        from unittest import mock
+        tok = self._make_es256_jwt()
+        with mock.patch("zero.auth.urllib.request.urlopen", side_effect=OSError("sin red")):
+            self.assertIsNone(self.auth.verify_supabase_jwt(tok))
+
+    def test_hs256_still_works_alongside_es256(self):
+        # el soporte nuevo no debe pisar el camino viejo — mismo test que
+        # SupabaseJWTAuthTest, confirmado de nuevo acá porque ambos comparten
+        # la misma función ahora.
+        import os
+        prev = os.environ.get("SUPABASE_JWT_SECRET")
+        os.environ["SUPABASE_JWT_SECRET"] = "un-secreto-hs256-de-prueba"
+        try:
+            import base64
+            import hashlib
+            import hmac
+            import json as _json
+            import time as _time
+            header = {"alg": "HS256", "typ": "JWT"}
+            payload = {"email": "hs256@zeroai.cl", "exp": int(_time.time()) + 3600,
+                      "app_metadata": {"role": "admin"}}
+            h = self._b64url(_json.dumps(header).encode())
+            p = self._b64url(_json.dumps(payload).encode())
+            sig = hmac.new(b"un-secreto-hs256-de-prueba", f"{h}.{p}".encode(), hashlib.sha256).digest()
+            tok = f"{h}.{p}.{self._b64url(sig)}"
+            identity = self.auth.token_identity(tok)
+            self.assertEqual(identity["role"], "admin")
+        finally:
+            if prev is None:
+                os.environ.pop("SUPABASE_JWT_SECRET", None)
+            else:
+                os.environ["SUPABASE_JWT_SECRET"] = prev
+
+
 class MetaAdsTest(unittest.TestCase):
     """Mock de campañas fiel al contrato y determinista por cliente."""
 

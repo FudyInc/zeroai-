@@ -5,3 +5,10 @@ anthropic>=0.40.0
 # HTTP API (api.py) — the backend a web frontend talks to:
 fastapi>=0.110
 uvicorn[standard]>=0.29
+
+# zero/auth.py — verifying ES256 (elliptic curve) JWTs from Supabase Auth's
+# Google login. This is the ONE justified exception to the stdlib-only core:
+# Python's stdlib has no usable ECDSA/P-256 verification primitive, and
+# hand-rolling asymmetric crypto verification is a real security risk, not
+# a place to save a dependency. Nothing else in zero/*.py uses this.
+cryptography>=42.0
