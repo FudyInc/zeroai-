@@ -55,6 +55,7 @@ export default function App() {
   const [title, sub] = TITLES[pathname] || ['ZeroAI', '']
   const [authed, setAuthed] = useState(null)   // null=checking · false=login · true=in
   const [username, setUsername] = useState(null)
+  const [fullName, setFullName] = useState(null) // nombre real (Google), si el backend lo manda — hoy puede no venir
   const [role, setRole] = useState(null)         // "admin" | "cro" | "cto" | null
   const [authEnabled, setAuthEnabled] = useState(false) // false = sin cuentas dadas de alta (mock/dev), sin restricciones
   const [navOpen, setNavOpen] = useState(false) // drawer móvil del sidebar
@@ -75,13 +76,14 @@ export default function App() {
   const refreshAuth = () => api.authStatus()
     .then((s) => {
       setAuthed(s.authenticated); setUsername(s.username || null)
+      setFullName(s.full_name || null)
       setRole(s.role || null); setAuthEnabled(!!s.enabled)
     })
     .catch(() => setAuthed(true))
 
   useEffect(() => {
     refreshAuth()
-    const onUnauth = () => { setAuthed(false); setUsername(null); setRole(null); setAuthEnabled(false) }
+    const onUnauth = () => { setAuthed(false); setUsername(null); setFullName(null); setRole(null); setAuthEnabled(false) }
     window.addEventListener('zero-unauth', onUnauth)
     return () => window.removeEventListener('zero-unauth', onUnauth)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -115,7 +117,7 @@ export default function App() {
   return (
     <AppCtx.Provider value={{ client, setClient, clients, openLead: setLeadKey, openRun: () => setRunOpen(true) }}>
       <div className="min-h-screen flex text-zinc-900 bg-[radial-gradient(120%_120%_at_100%_0%,#f2f1ec_0%,#f4f4f4_45%,#f6f5f2_100%)]">
-        <Sidebar mobileOpen={navOpen} onClose={() => setNavOpen(false)} username={username} role={role} authEnabled={authEnabled} />
+        <Sidebar mobileOpen={navOpen} onClose={() => setNavOpen(false)} username={username} fullName={fullName} role={role} authEnabled={authEnabled} />
         <div className="flex-1 min-w-0">
           <header className="h-[68px] sticky top-0 z-20 bg-white/80 backdrop-blur border-b border-zinc-200 flex items-center px-4 md:px-8 gap-3">
             <button onClick={() => setNavOpen(true)} aria-label="Abrir menú"

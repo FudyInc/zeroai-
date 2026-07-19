@@ -32,3 +32,7 @@ export function canSeePage(path, role, authEnabled) {
   if (!role) return false
   return (PAGE_ROLES[path] || []).includes(role)
 }
+
+// Solo para mostrar — el rol real (permisos) sigue siendo "admin"/"cro"/"cto"
+// en todo el backend; esto es la etiqueta que ve el humano en el sidebar.
+export const ROLE_LABELS = { admin: 'CEO', cro: 'CRO', cto: 'CTO' }
