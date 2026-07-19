@@ -1635,6 +1635,12 @@ class AuthTest(unittest.TestCase):
         # cachea a nivel de módulo), así que alcanza con setear la env var —
         # sin necesidad de reload.
         os.environ["AUTH_USERS_PATH"] = os.path.join(self._tmpdir, "users.json")
+        # Mismo aislamiento para el tercer mecanismo de auth_enabled(): en el
+        # Ubuntu de producción SUPABASE_JWT_SECRET está configurado de verdad
+        # — sin vaciarlo acá, test_disabled_when_no_users da falso positivo
+        # (auth_enabled() sigue en True por ese lado, no por users.json).
+        self._prev_jwt_secret = os.environ.get("SUPABASE_JWT_SECRET")
+        os.environ["SUPABASE_JWT_SECRET"] = ""
         self.auth = auth
         self.auth.add_user("diego", "s3cret")
 
@@ -1645,6 +1651,10 @@ class AuthTest(unittest.TestCase):
             os.environ.pop("AUTH_USERS_PATH", None)
         else:
             os.environ["AUTH_USERS_PATH"] = self._prev
+        if self._prev_jwt_secret is None:
+            os.environ.pop("SUPABASE_JWT_SECRET", None)
+        else:
+            os.environ["SUPABASE_JWT_SECRET"] = self._prev_jwt_secret
         shutil.rmtree(self._tmpdir, ignore_errors=True)
 
     def test_password_and_token_roundtrip(self):

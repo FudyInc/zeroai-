@@ -154,6 +154,10 @@ class ApiHttpTest(unittest.TestCase):
         # heredarlo — apunta a un archivo que a propósito no existe, así
         # auth_enabled() da False sin importar qué haya en el repo real.
         env["AUTH_USERS_PATH"] = os.path.join(tempfile.mkdtemp(), "users.json")
+        # Mismo gotcha otra vez, ahora para el tercer mecanismo de auth_enabled():
+        # en el Ubuntu de producción SUPABASE_JWT_SECRET SÍ está configurado de
+        # verdad — sin vaciarlo acá, este subproceso "sin auth" deja de estarlo.
+        env["SUPABASE_JWT_SECRET"] = ""
         env["WHATSAPP_APP_SECRET"] = cls.WHATSAPP_APP_SECRET
         # Mismo problema que AUTH_PASSWORD arriba: en el Ubuntu real, el .env
         # del repo trae LOCAL_MODEL configurado — sin fijarlo vacío acá, este
