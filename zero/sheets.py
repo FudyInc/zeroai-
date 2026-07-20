@@ -1,7 +1,8 @@
 """Google Sheets — sincroniza Finanzas y la cartera de Leads a un Sheet real,
 en vivo, sin que nadie tenga que descargar ni pegar nada a mano (pedido por
-Diego, 2026-07-20). Pensado para correr desde `scripts/sync_sheets.py` vía
-systemd timer — ver ese archivo.
+Diego, 2026-07-20), con formato y un gráfico de tendencia listos (pedido el
+mismo día, en la misma conversación). Pensado para correr desde
+`scripts/sync_sheets.py` vía systemd timer — ver ese archivo.
 
 Cuenta de servicio de Google Cloud (server-to-server), no OAuth de usuario:
 sin login humano en cada corrida. Necesita en el entorno:
@@ -23,7 +24,7 @@ import os
 import time
 import urllib.error
 import urllib.request
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
@@ -41,6 +42,13 @@ _SCOPE = "https://www.googleapis.com/auth/spreadsheets"
 # proceso corto (systemd timer), así que en la práctica esto solo evita
 # pedir un token nuevo si se llama a sync_all() más de una vez por corrida.
 _TOKEN_CACHE: Dict[str, Any] = {"token": None, "expires_at": 0.0}
+
+# Paleta aproximada de marca (slate/champagne gold) para encabezados — un
+# Sheet no necesita calzar pixel a pixel con el dashboard, solo verse
+# cuidado y no genérico.
+_SLATE = {"red": 0.20, "green": 0.24, "blue": 0.31}
+_CHAMPAGNE = {"red": 0.93, "green": 0.87, "blue": 0.73}
+_WHITE = {"red": 1, "green": 1, "blue": 1}
 
 
 class SheetsError(RuntimeError):
@@ -133,22 +141,35 @@ def _request(method: str, path: str, token: str, body: Any = None) -> Any:
         raise SheetsError(f"no se pudo contactar la Sheets API: {e}") from e
 
 
-def _ensure_tab(spreadsheet_id: str, title: str, token: str) -> None:
+def _get_meta(spreadsheet_id: str, token: str) -> Dict[str, Any]:
+    return _request("GET", f"{spreadsheet_id}?fields=sheets(properties,charts)", token) or {}
+
+
+def _ensure_tab(spreadsheet_id: str, title: str, token: str,
+                meta: Optional[Dict[str, Any]] = None) -> Tuple[int, Dict[str, Any]]:
     """Crea la pestaña si no existe todavía — así el Sheet se arma solo la
-    primera vez, sin que Diego tenga que crear "Finanzas"/"Leads" a mano."""
-    meta = _request("GET", spreadsheet_id, token) or {}
-    titles = {s.get("properties", {}).get("title") for s in meta.get("sheets", [])}
-    if title in titles:
-        return
+    primera vez, sin que Diego tenga que crear "Finanzas"/"Leads" a mano.
+    Devuelve (sheetId, metadata-ya-fresca) — el sheetId numérico interno
+    hace falta para las requests de formato/gráficos (distinto del título)."""
+    meta = meta if meta is not None else _get_meta(spreadsheet_id, token)
+    for s in meta.get("sheets", []):
+        props = s.get("properties", {})
+        if props.get("title") == title:
+            return props.get("sheetId"), meta
     _request("POST", f"{spreadsheet_id}:batchUpdate", token,
              {"requests": [{"addSheet": {"properties": {"title": title}}}]})
+    meta = _get_meta(spreadsheet_id, token)
+    for s in meta.get("sheets", []):
+        props = s.get("properties", {})
+        if props.get("title") == title:
+            return props.get("sheetId"), meta
+    raise SheetsError(f"no se pudo crear/encontrar la pestaña {title!r}")
 
 
-def _write_tab(spreadsheet_id: str, title: str, rows: List[List[Any]], token: str) -> None:
+def _write_values(spreadsheet_id: str, title: str, rows: List[List[Any]], token: str) -> None:
     """Limpia la pestaña y la reescribe entera desde A1 — idempotente: cada
     sincronización deja el Sheet como el estado ACTUAL, nunca acumula filas
     de corridas anteriores."""
-    _ensure_tab(spreadsheet_id, title, token)
     _request("POST", f"{spreadsheet_id}/values/{title}:clear", token, {})
     if not rows:
         return
@@ -158,35 +179,210 @@ def _write_tab(spreadsheet_id: str, title: str, rows: List[List[Any]], token: st
     )
 
 
+def _batch_update(spreadsheet_id: str, requests: List[Dict[str, Any]], token: str) -> None:
+    if requests:
+        _request("POST", f"{spreadsheet_id}:batchUpdate", token, {"requests": requests})
+
+
 def _cell(v: Any) -> Any:
     """None -> celda vacía en vez de la palabra "None" pegada en el Sheet."""
     return "" if v is None else v
 
 
-def build_finance_rows(data: Dict[str, Any]) -> List[List[Any]]:
-    """Mismo dato que ya muestra Finanzas.jsx — solo aplanado a filas."""
-    rows: List[List[Any]] = [
-        ["ZeroAI — Finanzas de la agencia"],
-        [f"Mes: {data.get('month')}", f"Fuente: {data.get('source')}"],
-        [],
-        ["Resumen"],
-        ["Ingresos (MRR, CLP)", _cell(data.get("mrr_clp"))],
-        ["Costos totales (CLP)", _cell(data.get("costs_clp"))],
-        ["Margen (CLP)", _cell(data.get("margin_clp"))],
-        ["Margen (%)", _cell(data.get("margin_pct"))],
-        [],
-        ["Costos por categoría"],
-        ["Categoría", "Monto (CLP)", "Nota"],
-    ]
+# --- Finanzas: filas + layout (para poder formatear/graficar con precisión) ---
+
+def build_finance_rows(data: Dict[str, Any]) -> Tuple[List[List[Any]], Dict[str, int]]:
+    """Mismo dato que ya muestra Finanzas.jsx, aplanado a filas — más un
+    "layout" con los índices de fila (0-based) de cada sección, para que el
+    formato y el gráfico se apliquen a las celdas correctas sin adivinar,
+    sin importar cuántas categorías de costo o meses de histórico haya."""
+    rows: List[List[Any]] = [["ZeroAI — Finanzas de la agencia"]]
+    rows.append([f"Mes: {data.get('month')}", f"Fuente: {data.get('source')}"])
+    rows.append([])
+    resumen_header_row = len(rows)
+    rows.append(["Resumen"])
+    resumen_start_row = len(rows)
+    rows.append(["Ingresos (MRR, CLP)", _cell(data.get("mrr_clp"))])
+    rows.append(["Costos totales (CLP)", _cell(data.get("costs_clp"))])
+    rows.append(["Margen (CLP)", _cell(data.get("margin_clp"))])
+    margin_pct_row = len(rows)
+    rows.append(["Margen (%)", _cell(data.get("margin_pct"))])
+    resumen_end_row = len(rows)   # exclusivo
+    rows.append([])
+    costs_header_row = len(rows)
+    rows.append(["Costos por categoría"])
+    costs_columns_row = len(rows)
+    rows.append(["Categoría", "Monto (CLP)", "Nota"])
+    costs_start_row = len(rows)
     for c in data.get("costs") or []:
         rows.append([_cell(c.get("category")), _cell(c.get("amount_clp")), _cell(c.get("note"))])
+    costs_end_row = len(rows)   # exclusivo
     rows.append([])
+    historico_header_row = len(rows)
     rows.append(["Histórico mensual"])
+    historico_columns_row = len(rows)
     rows.append(["Mes", "MRR (CLP)", "Costos (CLP)", "Margen (CLP)"])
+    historico_start_row = len(rows)
     for h in data.get("history") or []:
         rows.append([_cell(h.get("month")), _cell(h.get("mrr_clp")),
                     _cell(h.get("costs_clp")), _cell(h.get("margin_clp"))])
-    return rows
+    historico_end_row = len(rows)   # exclusivo
+
+    layout = {
+        "resumen_header_row": resumen_header_row,
+        "resumen_start_row": resumen_start_row,
+        "resumen_end_row": resumen_end_row,
+        "margin_pct_row": margin_pct_row,
+        "costs_header_row": costs_header_row,
+        "costs_columns_row": costs_columns_row,
+        "costs_start_row": costs_start_row,
+        "costs_end_row": costs_end_row,
+        "historico_header_row": historico_header_row,
+        "historico_columns_row": historico_columns_row,
+        "historico_start_row": historico_start_row,
+        "historico_end_row": historico_end_row,
+    }
+    return rows, layout
+
+
+def _section_title_fmt(sheet_id: int, row: int) -> Dict[str, Any]:
+    return {"repeatCell": {
+        "range": {"sheetId": sheet_id, "startRowIndex": row, "endRowIndex": row + 1,
+                  "startColumnIndex": 0, "endColumnIndex": 4},
+        "cell": {"userEnteredFormat": {
+            "textFormat": {"bold": True, "fontSize": 11, "foregroundColor": _WHITE},
+            "backgroundColor": _SLATE,
+        }},
+        "fields": "userEnteredFormat(textFormat,backgroundColor)",
+    }}
+
+
+def _column_header_fmt(sheet_id: int, row: int, n_cols: int) -> Dict[str, Any]:
+    return {"repeatCell": {
+        "range": {"sheetId": sheet_id, "startRowIndex": row, "endRowIndex": row + 1,
+                  "startColumnIndex": 0, "endColumnIndex": n_cols},
+        "cell": {"userEnteredFormat": {
+            "textFormat": {"bold": True}, "backgroundColor": _CHAMPAGNE,
+        }},
+        "fields": "userEnteredFormat(textFormat,backgroundColor)",
+    }}
+
+
+def _currency_fmt(sheet_id: int, r1: int, r2: int, c1: int, c2: int) -> Dict[str, Any]:
+    return {"repeatCell": {
+        "range": {"sheetId": sheet_id, "startRowIndex": r1, "endRowIndex": r2,
+                  "startColumnIndex": c1, "endColumnIndex": c2},
+        "cell": {"userEnteredFormat": {"numberFormat": {"type": "CURRENCY", "pattern": '"$"#,##0'}}},
+        "fields": "userEnteredFormat.numberFormat",
+    }}
+
+
+def _percent_fmt(sheet_id: int, row: int) -> Dict[str, Any]:
+    # margin_pct ya viene en unidades de porcentaje (94.8, no 0.948) — se
+    # formatea como número con un "%" pegado, sin dividir el valor.
+    return {"repeatCell": {
+        "range": {"sheetId": sheet_id, "startRowIndex": row, "endRowIndex": row + 1,
+                  "startColumnIndex": 1, "endColumnIndex": 2},
+        "cell": {"userEnteredFormat": {"numberFormat": {"type": "NUMBER", "pattern": '0.0"%"'}}},
+        "fields": "userEnteredFormat.numberFormat",
+    }}
+
+
+def _column_widths(sheet_id: int, widths: List[int]) -> List[Dict[str, Any]]:
+    out = []
+    for i, w in enumerate(widths):
+        out.append({"updateDimensionProperties": {
+            "range": {"sheetId": sheet_id, "dimension": "COLUMNS", "startIndex": i, "endIndex": i + 1},
+            "properties": {"pixelSize": w}, "fields": "pixelSize",
+        }})
+    return out
+
+
+def _finance_format_requests(sheet_id: int, layout: Dict[str, int]) -> List[Dict[str, Any]]:
+    reqs = [
+        # título grande arriba
+        {"repeatCell": {
+            "range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": 1,
+                      "startColumnIndex": 0, "endColumnIndex": 4},
+            "cell": {"userEnteredFormat": {"textFormat": {"bold": True, "fontSize": 14}}},
+            "fields": "userEnteredFormat.textFormat",
+        }},
+        {"updateSheetProperties": {
+            "properties": {"sheetId": sheet_id, "gridProperties": {"frozenRowCount": 1}},
+            "fields": "gridProperties.frozenRowCount",
+        }},
+        _section_title_fmt(sheet_id, layout["resumen_header_row"]),
+        _section_title_fmt(sheet_id, layout["costs_header_row"]),
+        _section_title_fmt(sheet_id, layout["historico_header_row"]),
+        _column_header_fmt(sheet_id, layout["costs_columns_row"], 3),
+        _column_header_fmt(sheet_id, layout["historico_columns_row"], 4),
+        _currency_fmt(sheet_id, layout["resumen_start_row"], layout["margin_pct_row"], 1, 2),
+        _percent_fmt(sheet_id, layout["margin_pct_row"]),
+    ]
+    if layout["costs_end_row"] > layout["costs_start_row"]:
+        reqs.append(_currency_fmt(sheet_id, layout["costs_start_row"], layout["costs_end_row"], 1, 2))
+    if layout["historico_end_row"] > layout["historico_start_row"]:
+        reqs.append(_currency_fmt(sheet_id, layout["historico_start_row"], layout["historico_end_row"], 1, 4))
+    reqs.extend(_column_widths(sheet_id, [220, 140, 220, 140]))
+    return reqs
+
+
+_FINANCE_CHART_TITLE = "MRR / Costos / Margen por mes"
+
+
+def _finance_chart_request(sheet_id: int, layout: Dict[str, int]) -> Optional[Dict[str, Any]]:
+    """Un gráfico de línea con la tendencia mensual — solo si hay al menos 2
+    meses de histórico (un punto solo no dice nada). Se posiciona flotando
+    a la derecha de la tabla de histórico."""
+    r1, r2 = layout["historico_columns_row"], layout["historico_end_row"]
+    if r2 - r1 < 3:   # header + al menos 2 meses
+        return None
+    domain = {"sheetId": sheet_id, "startRowIndex": r1, "endRowIndex": r2,
+             "startColumnIndex": 0, "endColumnIndex": 1}
+    series = []
+    for col, name in ((1, "MRR"), (2, "Costos"), (3, "Margen")):
+        series.append({
+            "series": {"sourceRange": {"sources": [{
+                "sheetId": sheet_id, "startRowIndex": r1, "endRowIndex": r2,
+                "startColumnIndex": col, "endColumnIndex": col + 1,
+            }]}},
+            "targetAxis": "LEFT_AXIS",
+        })
+    return {"addChart": {"chart": {
+        "spec": {
+            "title": _FINANCE_CHART_TITLE,
+            "basicChart": {
+                "chartType": "LINE",
+                "legendPosition": "BOTTOM_LEGEND",
+                "axis": [{"position": "BOTTOM_AXIS", "title": "Mes"},
+                        {"position": "LEFT_AXIS", "title": "CLP"}],
+                "domains": [{"domain": {"sourceRange": {"sources": [domain]}}}],
+                "series": series,
+                "headerCount": 1,
+            },
+        },
+        "position": {"overlayPosition": {
+            "anchorCell": {"sheetId": sheet_id, "rowIndex": layout["historico_header_row"], "columnIndex": 5},
+            "widthPixels": 560, "heightPixels": 320,
+        }},
+    }}}
+
+
+def _leads_format_requests(sheet_id: int, n_rows: int) -> List[Dict[str, Any]]:
+    reqs = [
+        _column_header_fmt(sheet_id, 0, len(_LEADS_HEADER)),
+        {"updateSheetProperties": {
+            "properties": {"sheetId": sheet_id, "gridProperties": {"frozenRowCount": 1}},
+            "fields": "gridProperties.frozenRowCount",
+        }},
+    ]
+    reqs.extend(_column_widths(sheet_id, [110, 200, 150, 150, 220, 140, 100, 70, 110, 160]))
+    if n_rows > 1:
+        reqs.append({"setBasicFilter": {"filter": {"range": {
+            "sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": n_rows,
+            "startColumnIndex": 0, "endColumnIndex": len(_LEADS_HEADER),
+        }}}})
+    return reqs
 
 
 _LEADS_HEADER = ["Cliente", "Empresa", "Contacto", "Cargo", "Email", "Teléfono",
@@ -211,7 +407,21 @@ def sync_finance(spreadsheet_id: str, data: Dict[str, Any], token: Optional[str]
     if not token:
         return False
     try:
-        _write_tab(spreadsheet_id, "Finanzas", build_finance_rows(data), token)
+        sheet_id, meta = _ensure_tab(spreadsheet_id, "Finanzas", token)
+        rows, layout = build_finance_rows(data)
+        _write_values(spreadsheet_id, "Finanzas", rows, token)
+        requests = _finance_format_requests(sheet_id, layout)
+        # El gráfico solo se agrega si esta pestaña todavía no tiene uno con
+        # este título — evita duplicarlo en cada corrida del timer.
+        existing_charts = next(
+            (s.get("charts", []) for s in meta.get("sheets", [])
+             if s.get("properties", {}).get("sheetId") == sheet_id), [])
+        has_chart = any(c.get("spec", {}).get("title") == _FINANCE_CHART_TITLE for c in existing_charts)
+        if not has_chart:
+            chart_req = _finance_chart_request(sheet_id, layout)
+            if chart_req:
+                requests.append(chart_req)
+        _batch_update(spreadsheet_id, requests, token)
         return True
     except SheetsError:
         return False
@@ -222,7 +432,10 @@ def sync_leads(spreadsheet_id: str, leads: List[Dict[str, Any]], token: Optional
     if not token:
         return False
     try:
-        _write_tab(spreadsheet_id, "Leads", build_leads_rows(leads), token)
+        sheet_id, _ = _ensure_tab(spreadsheet_id, "Leads", token)
+        rows = build_leads_rows(leads)
+        _write_values(spreadsheet_id, "Leads", rows, token)
+        _batch_update(spreadsheet_id, _leads_format_requests(sheet_id, len(rows)), token)
         return True
     except SheetsError:
         return False
