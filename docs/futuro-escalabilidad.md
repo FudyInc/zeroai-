@@ -49,6 +49,18 @@ completo detrás de cada ítem).
   para ser rápida; correrla en CPU podría salir más lenta que ElevenLabs por la
   nube, no más rápida. Revisar solo si en algún momento se compra/consigue una
   GPU, y solo si el flash de ElevenLabs no alcanza.
+- **GPU real evaluada — RTX 5060 Ti 16GB (2026-07-20).** Números verificados:
+  ~53-90 tok/s en Ollama con modelos 7B-13B (vs. 7-35s hoy en CPU) — pasaría el
+  motor local de "silencios largos" a **~1-2s por respuesta**, viable para
+  llamadas en vivo. Sus 16GB de VRAM alcanzan también para correr un modelo de
+  clonación de voz local en paralelo (la mayoría de las opciones evaluadas
+  arriba piden 4-6GB). Precio real de mercado (jul-2026): US$470-590. Es CAPEX
+  único, no gasto recurrente por token — se paga solo con volumen real de
+  llamadas. **Diego confirmó que además hay que hacer upgrade de la fuente de
+  poder** (la tarjeta pide ~180W extra) — sumar esa compra al presupuesto antes
+  de comprar la GPU, no asumir que la fuente actual alcanza.
+  Pendiente antes de comprar: confirmar que el gabinete tenga espacio físico
+  para la tarjeta.
 
 ## 📱 WhatsApp — fricción de escalar a más vendedores
 
