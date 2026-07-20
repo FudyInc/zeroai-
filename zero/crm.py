@@ -228,6 +228,16 @@ class CRM:
     def counts(self, client_id: Optional[str] = None) -> Dict[str, int]:
         return {stage: len(self.list(client_id, stage)) for stage in CRM_STAGES}
 
+    def all_leads(self) -> List[Dict[str, Any]]:
+        """Todos los leads de TODOS los clientes — para exportar la cartera
+        completa (ej. sincronización a Google Sheets, ver zero/sheets.py).
+        Mismo patrón que pending_outreach_count(): fuerza la carga de cada
+        cliente primero, así SupabaseCRM no devuelve solo lo que ya tenía en
+        cache de requests anteriores."""
+        for cid in self.client_ids():
+            self._ensure(cid)
+        return list(self.leads.values())
+
     def pending_outreach_count(self) -> int:
         """Cuántos leads, en TODOS los clientes, tienen un borrador de outreach
         esperando revisión/envío (outreach.status == "draft") — el trabajo

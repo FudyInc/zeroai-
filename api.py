@@ -415,6 +415,26 @@ def finance(month: Optional[str] = None):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/sheets/sync")
+def sheets_sync():
+    """Sincroniza Finanzas + cartera de leads a Google Sheets AHORA MISMO —
+    sin entrada en _ROLE_ALLOWED, admin-only por el fail-closed de siempre.
+    La sincronización "de verdad" corre sola cada cierto tiempo vía systemd
+    timer (scripts/sync_sheets.py); esto es solo para confirmar que quedó
+    bien configurado o forzar una actualización inmediata."""
+    from zero.finance import finance_summary
+    from zero.sheets import sync_all
+    spreadsheet_id = os.environ.get("GOOGLE_SHEETS_ID")
+    if not spreadsheet_id:
+        raise HTTPException(status_code=400, detail="falta GOOGLE_SHEETS_ID en el entorno")
+    crm = _crm()
+    _, mrr = _accounts_and_mrr()
+    finance_data = finance_summary(FINANCE_PATH, mrr_clp=mrr)
+    leads = crm.all_leads()
+    result = sync_all(spreadsheet_id, finance_data, leads)
+    return {**result, "leads_count": len(leads)}
+
+
 class PlanChange(BaseModel):
     tier: str
 
