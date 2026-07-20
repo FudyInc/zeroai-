@@ -13,13 +13,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # 3.14 para calzar con el Ubuntu de producción, no una versión
       # arbitraria — el núcleo es stdlib-only, pero vale la pena probar
       # contra el intérprete real que corre el backend.
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.14"
 
