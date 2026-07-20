@@ -228,6 +228,15 @@ class CRM:
     def counts(self, client_id: Optional[str] = None) -> Dict[str, int]:
         return {stage: len(self.list(client_id, stage)) for stage in CRM_STAGES}
 
+    def clear(self, client_id: str) -> int:
+        """Borra TODOS los leads de un cliente (ej. limpiar datos de prueba antes
+        de una corrida real). Irreversible salvo por el `.bak` de save(). Devuelve
+        cuántos se borraron, para que quien llama pueda confirmar/loguear."""
+        rids = [rid for rid, r in self.leads.items() if r["client_id"] == client_id]
+        for rid in rids:
+            del self.leads[rid]
+        return len(rids)
+
     # --- persistence ---------------------------------------------------------
     def save(self) -> None:
         """Escritura atómica con backup rotado (`crm.json.bak`) — ver `persistence.py`."""

@@ -276,6 +276,19 @@ class ApiHttpTest(unittest.TestCase):
             self._get("/api/esto-no-existe")
         self.assertEqual(ctx.exception.code, 404)
 
+    def test_leads_clear_requires_confirm_to_match_client(self):
+        """DELETE /api/leads exige repetir el nombre del cliente en `confirm` —
+        segunda barrera contra un click/curl accidental, además del gate
+        admin-only. Deliberadamente NO se prueba el borrado real acá: esta clase
+        puede correr contra Supabase real si la máquina tiene SUPABASE_URL/KEY en
+        su .env (ver otros tests de esta clase que degradan a 503) — la lógica
+        de borrado en sí ya está cubierta sin red en CRMTest.test_clear_*."""
+        req = urllib.request.Request(
+            f"{self.base}/api/leads?client=acme&confirm=otro-nombre", method="DELETE")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req, timeout=5)
+        self.assertEqual(ctx.exception.code, 400)
+
     def _post_webhook(self, body: bytes, signature: str | None):
         headers = {"Content-Type": "application/json"}
         if signature is not None:

@@ -287,6 +287,17 @@ class CRMTest(unittest.TestCase):
         self.assertIn("Historial", out)
         self.assertIn("won", out)
 
+    def test_clear_removes_only_that_clients_leads(self):
+        self.crm.upsert("c", self.lead, stage="qualified")
+        self.crm.upsert("otro", {"company": "Otro", "email": "x@otro.cl"}, stage="new")
+        removed = self.crm.clear("c")
+        self.assertEqual(removed, 1)
+        self.assertEqual(self.crm.list("c"), [])
+        self.assertEqual(len(self.crm.list("otro")), 1)   # el otro cliente no se toca
+
+    def test_clear_on_client_without_leads_removes_nothing(self):
+        self.assertEqual(self.crm.clear("nadie"), 0)
+
 
 class CRMSearchTest(unittest.TestCase):
     """search() — el salto rápido cross-cliente: encontrar un lead sin saber de

@@ -332,6 +332,19 @@ def leads_search(q: str, limit: int = 20):
     return {"results": rows, "q": q, "limit": limit}
 
 
+@app.delete("/api/leads")
+def leads_clear(client: str, confirm: str = ""):
+    """Borra TODOS los leads de un cliente (ej. limpiar datos de prueba antes de
+    una corrida real). Sin rol en _ROLE_ALLOWED a propósito → admin-only por el
+    gate por defecto (fail-closed), y además exige repetir el nombre del cliente
+    en `confirm` como segunda barrera contra un click/curl accidental."""
+    if confirm.strip() != client.strip():
+        raise HTTPException(status_code=400,
+                            detail="para confirmar, repite el nombre del cliente en ?confirm=")
+    removed = _crm().clear(client)
+    return {"client": client, "removed": removed}
+
+
 def _client_meta_cfg(client: str) -> dict:
     """Marketing config del cliente (Meta), con fallback de zonas al ICP."""
     memory = make_memory(STATE_PATH)

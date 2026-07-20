@@ -89,6 +89,20 @@ class SupabaseCRM(CRM):
                 out[st] += 1
         return out
 
+    def clear(self, client_id: str) -> int:
+        """Borra TODOS los leads de un cliente en Supabase (ej. limpiar datos de
+        prueba). `Prefer: return=representation` para que Postgres nos devuelva
+        las filas borradas y así contar cuántas fueron, sin un GET aparte."""
+        c = urllib.parse.quote(str(client_id), safe="")
+        rows = self._req("DELETE", f"{self.TABLE}?client_id=eq.{c}",
+                         prefer="return=representation") or []
+        # Limpia también el cache local, por si este mismo proceso vuelve a
+        # leer este cliente después de borrar.
+        for rid in [rid for rid, r in self.leads.items() if r["client_id"] == client_id]:
+            del self.leads[rid]
+        self._loaded.discard(client_id)
+        return len(rows)
+
     def find_by_contact(self, phone: Optional[str] = None,
                         email: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Match an inbound (WhatsApp/email reply) to its lead without a full scan.
