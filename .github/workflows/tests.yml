@@ -1,0 +1,36 @@
+name: Tests
+
+# Corre el núcleo de tests en cada push a main y en cada pull request — así
+# un merge roto se nota solo (rojo en GitHub), sin depender de que alguien se
+# acuerde de correr los tests a mano. Ver CLAUDE.md para el comando canónico.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 3.14 para calzar con el Ubuntu de producción, no una versión
+      # arbitraria — el núcleo es stdlib-only, pero vale la pena probar
+      # contra el intérprete real que corre el backend.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      # El núcleo (zero/*.py) es solo stdlib, pero tests/test_sheets.py
+      # importa `cryptography` a nivel de módulo (sin guarda try/except) y
+      # tests/test_api_http.py usa fastapi/uvicorn (con auto-skip si faltan,
+      # pero instalarlos deja correr esos tests de verdad en vez de saltarlos).
+      # Sin este paso, `unittest discover` falla al intentar IMPORTAR
+      # test_sheets.py, no solo a correrlo.
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        run: python3 -m unittest discover -s tests -t .
