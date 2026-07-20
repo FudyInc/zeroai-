@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from .config import (
+    ACTIVE_MARKET_REGIONS,
     AVG_DEAL_VALUE_CLP,
     DEFAULT_VENDOR_ID,
     FORECAST_RATES,
@@ -394,6 +395,15 @@ class Zero:
         self.memory.register_client(client_id, tier)
         if not is_empty(icp):
             self.memory.set_client_icp(client_id, icp)
+        # Mercado activo (ver zero.config.ACTIVE_MARKET_REGIONS): si nadie definió
+        # zona, no se despacha a PROSPECTOR/QUALIFIER "sin país" — se asume el
+        # mercado en el que ZeroAI opera hoy. Se aplica DESPUÉS del chequeo de
+        # is_empty()/persistencia de arriba (que sí debe distinguir "el cliente no
+        # configuró nada" de "configuró Chile"), y no se guarda de vuelta en
+        # memory — es un default de ejecución, no algo que deba "ensuciar" el ICP
+        # guardado del cliente.
+        if not icp["regions"]:
+            icp = {**icp, "regions": list(ACTIVE_MARKET_REGIONS)}
 
         # Respect the monthly tier cap on a single run.
         cap = cfg["leads_per_mo"]

@@ -2244,6 +2244,29 @@ class PitchWriterTest(unittest.TestCase):
         self.assertIn("mencionar su web nueva", self._gen("mencionar su web nueva")["body"].lower())
 
 
+class IcpMarketDefaultTest(unittest.TestCase):
+    """Mercado activo (zero.config.ACTIVE_MARKET_REGIONS): run_pipeline nunca
+    despacha a PROSPECTOR/QUALIFIER un ICP "sin país" por accidente. Se prueba
+    a nivel de run_pipeline (no normalize_icp): el default es una regla de
+    EJECUCIÓN, no del contrato de forma de icp.py — normalize_icp({}) sigue
+    siendo un ICP vacío de verdad (is_empty sigue en True), eso no cambia."""
+
+    def test_run_pipeline_defaults_missing_regions_to_active_market(self):
+        from zero.config import ACTIVE_MARKET_REGIONS
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=CRM(None))
+        d = z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8,
+                           icp={"industry": "fintech"})
+        for region in ACTIVE_MARKET_REGIONS:
+            self.assertIn(region, d["summary"]["icp"])
+
+    def test_run_pipeline_keeps_explicit_regions(self):
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=CRM(None))
+        d = z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8,
+                           icp={"regions": "Perú, Colombia"})
+        self.assertIn("Perú", d["summary"]["icp"])
+        self.assertNotIn("Chile", d["summary"]["icp"])
+
+
 class ValidatorTest(unittest.TestCase):
     """Corrupt contacts are rejected before they reach the CRM."""
 
@@ -2272,6 +2295,22 @@ class ValidatorTest(unittest.TestCase):
         # ENTERPRISE also requires a phone with >=9 digits
         enterprise = ValidatorRules.validate_batch(leads, "ENTERPRISE")
         self.assertEqual([l["company"] for l in enterprise], ["Acme"])
+
+    def test_phone_rejects_explicit_foreign_country_code(self):
+        """Mercado activo = Chile (zero.config.ACTIVE_MARKET_REGIONS): un
+        teléfono con código de país explícito que NO sea +56 se descarta,
+        aunque tenga el largo/forma correctos."""
+        from zero.validators import ValidatorRules
+        self.assertFalse(ValidatorRules.validate_phone("+54 9 11 1234 5678"))  # Argentina
+        self.assertFalse(ValidatorRules.validate_phone("+51 987 654 321"))     # Perú
+        self.assertFalse(ValidatorRules.validate_phone("+1 415 555 0123"))     # EE.UU.
+
+    def test_phone_accepts_chilean_and_bare_local_format(self):
+        from zero.validators import ValidatorRules
+        self.assertTrue(ValidatorRules.validate_phone("+56 9 1234 5678"))
+        self.assertTrue(ValidatorRules.validate_phone("+56221234567"))
+        # sin "+": no hay señal de que sea de otro país -> se acepta
+        self.assertTrue(ValidatorRules.validate_phone("912345678"))
 
 
 class UsedEmailsTest(unittest.TestCase):

@@ -49,6 +49,24 @@ OUTBOX_RETRY_DELAY_SECONDS = 1.0
 # ~4096 caracteres; este tope es más chico a propósito, con margen.
 MAX_INBOUND_MESSAGE_CHARS = 2000
 
+# --- Mercado activo (2026-07-19) -----------------------------------------------
+# ZeroAI prospecta SOLO en Chile por ahora — decisión explícita de Diego mientras
+# se prueba con leads reales; otros países son plan a futuro (cuando eso cambie,
+# se actualiza ACÁ, no la lógica de discovery/validators que lo usa). Dos efectos:
+#   1) icp.normalize_icp() usa ACTIVE_MARKET_REGIONS como default de `regions`
+#      cuando el cliente no especificó zona — ningún cliente queda "sin país"
+#      por accidente, ni depende de que alguien lo escriba a mano en el ICP.
+#   2) ValidatorRules.validate_phone() descarta cualquier teléfono con código de
+#      país EXPLÍCITO distinto de +56 (ej. uno argentino/peruano capturado por
+#      el patrón internacional genérico de discovery.py). Un teléfono en
+#      formato local (sin "+", el caso más común en sitios chilenos) se deja
+#      pasar — no hay señal de que sea de otro país. Esto es un filtro
+#      pragmático, no un validador geográfico exhaustivo: no verifica que el
+#      NEGOCIO esté físicamente en Chile, solo descarta contactos con un
+#      código de país explícitamente extranjero.
+ACTIVE_MARKET_REGIONS = ["Chile"]
+ACTIVE_MARKET_PHONE_COUNTRY_CODE = "56"   # sin '+', para comparar dígitos
+
 # --- Client tiers ------------------------------------------------------------
 # leads_per_mo = None means "custom / negotiated".
 # price_clp = lo que el cliente paga por mes (el MRR de la agencia). ENTERPRISE = custom.
