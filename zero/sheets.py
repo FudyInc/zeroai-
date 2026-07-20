@@ -245,16 +245,26 @@ def build_finance_rows(data: Dict[str, Any]) -> Tuple[List[List[Any]], Dict[str,
     return rows, layout
 
 
-def _section_title_fmt(sheet_id: int, row: int) -> Dict[str, Any]:
-    return {"repeatCell": {
-        "range": {"sheetId": sheet_id, "startRowIndex": row, "endRowIndex": row + 1,
-                  "startColumnIndex": 0, "endColumnIndex": 4},
-        "cell": {"userEnteredFormat": {
-            "textFormat": {"bold": True, "fontSize": 11, "foregroundColor": _WHITE},
-            "backgroundColor": _SLATE,
+def _section_title_fmt(sheet_id: int, row: int) -> List[Dict[str, Any]]:
+    """Banner de sección: fondo slate + texto blanco, y las 4 celdas
+    fusionadas en una sola — así se ve como un título real, no una fila de
+    color con el texto pegado solo en la primera celda."""
+    return [
+        {"repeatCell": {
+            "range": {"sheetId": sheet_id, "startRowIndex": row, "endRowIndex": row + 1,
+                      "startColumnIndex": 0, "endColumnIndex": 4},
+            "cell": {"userEnteredFormat": {
+                "textFormat": {"bold": True, "fontSize": 11, "foregroundColor": _WHITE},
+                "backgroundColor": _SLATE,
+            }},
+            "fields": "userEnteredFormat(textFormat,backgroundColor)",
         }},
-        "fields": "userEnteredFormat(textFormat,backgroundColor)",
-    }}
+        {"mergeCells": {
+            "range": {"sheetId": sheet_id, "startRowIndex": row, "endRowIndex": row + 1,
+                      "startColumnIndex": 0, "endColumnIndex": 4},
+            "mergeType": "MERGE_ALL",
+        }},
+    ]
 
 
 def _column_header_fmt(sheet_id: int, row: int, n_cols: int) -> Dict[str, Any]:
@@ -288,32 +298,38 @@ def _percent_fmt(sheet_id: int, row: int) -> Dict[str, Any]:
     }}
 
 
-def _column_widths(sheet_id: int, widths: List[int]) -> List[Dict[str, Any]]:
-    out = []
-    for i, w in enumerate(widths):
-        out.append({"updateDimensionProperties": {
-            "range": {"sheetId": sheet_id, "dimension": "COLUMNS", "startIndex": i, "endIndex": i + 1},
-            "properties": {"pixelSize": w}, "fields": "pixelSize",
-        }})
-    return out
+def _auto_resize_columns(sheet_id: int, n_cols: int) -> Dict[str, Any]:
+    """Ancho de columna ajustado al contenido REAL recién escrito, en vez de
+    un número de píxeles adivinado a mano — la forma correcta de asegurar
+    que toda la información quepa (emails largos, nombres de empresa, notas,
+    etc.) sin importar qué tan largo sea el dato real. Tiene que correr
+    DESPUÉS de escribir los valores, nunca antes (si no, mide celdas vacías)."""
+    return {"autoResizeDimensions": {
+        "dimensions": {"sheetId": sheet_id, "dimension": "COLUMNS", "startIndex": 0, "endIndex": n_cols},
+    }}
 
 
 def _finance_format_requests(sheet_id: int, layout: Dict[str, int]) -> List[Dict[str, Any]]:
-    reqs = [
-        # título grande arriba
+    reqs: List[Dict[str, Any]] = [
+        # título grande arriba, fusionado en una sola celda ancha
         {"repeatCell": {
             "range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": 1,
                       "startColumnIndex": 0, "endColumnIndex": 4},
             "cell": {"userEnteredFormat": {"textFormat": {"bold": True, "fontSize": 14}}},
             "fields": "userEnteredFormat.textFormat",
         }},
+        {"mergeCells": {
+            "range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": 1,
+                      "startColumnIndex": 0, "endColumnIndex": 4},
+            "mergeType": "MERGE_ALL",
+        }},
         {"updateSheetProperties": {
             "properties": {"sheetId": sheet_id, "gridProperties": {"frozenRowCount": 1}},
             "fields": "gridProperties.frozenRowCount",
         }},
-        _section_title_fmt(sheet_id, layout["resumen_header_row"]),
-        _section_title_fmt(sheet_id, layout["costs_header_row"]),
-        _section_title_fmt(sheet_id, layout["historico_header_row"]),
+        *_section_title_fmt(sheet_id, layout["resumen_header_row"]),
+        *_section_title_fmt(sheet_id, layout["costs_header_row"]),
+        *_section_title_fmt(sheet_id, layout["historico_header_row"]),
         _column_header_fmt(sheet_id, layout["costs_columns_row"], 3),
         _column_header_fmt(sheet_id, layout["historico_columns_row"], 4),
         _currency_fmt(sheet_id, layout["resumen_start_row"], layout["margin_pct_row"], 1, 2),
@@ -323,7 +339,11 @@ def _finance_format_requests(sheet_id: int, layout: Dict[str, int]) -> List[Dict
         reqs.append(_currency_fmt(sheet_id, layout["costs_start_row"], layout["costs_end_row"], 1, 2))
     if layout["historico_end_row"] > layout["historico_start_row"]:
         reqs.append(_currency_fmt(sheet_id, layout["historico_start_row"], layout["historico_end_row"], 1, 4))
-    reqs.extend(_column_widths(sheet_id, [220, 140, 220, 140]))
+    # el auto-resize de columnas va AL FINAL: tiene que correr después de
+    # fusionar celdas y fijar los formatos, para medir el contenido ya en
+    # su forma definitiva (si no, puede medir mal el ancho de una celda que
+    # después queda fusionada).
+    reqs.append(_auto_resize_columns(sheet_id, 4))
     return reqs
 
 
@@ -376,7 +396,7 @@ def _leads_format_requests(sheet_id: int, n_rows: int) -> List[Dict[str, Any]]:
             "fields": "gridProperties.frozenRowCount",
         }},
     ]
-    reqs.extend(_column_widths(sheet_id, [110, 200, 150, 150, 220, 140, 100, 70, 110, 160]))
+    reqs.append(_auto_resize_columns(sheet_id, len(_LEADS_HEADER)))
     if n_rows > 1:
         reqs.append({"setBasicFilter": {"filter": {"range": {
             "sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": n_rows,
