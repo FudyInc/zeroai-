@@ -218,7 +218,7 @@ function RunModal({ open, onClose }) {
   const { setClient } = useApp()
   const qc = useQueryClient()
   const EMPTY_ICP = { sells: '', industry: '', roles: '', companySize: '', regions: '', mustHave: '', exclude: '', context: '' }
-  const [form, setForm] = useState({ client: 'demo', tier: 'GROWTH', query: '', count: 8, ...EMPTY_ICP })
+  const [form, setForm] = useState({ client: 'demo', tier: 'GROWTH', query: '', count: 8, autoSend: false, ...EMPTY_ICP })
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [showIcp, setShowIcp] = useState(false)
@@ -259,6 +259,7 @@ function RunModal({ open, onClose }) {
         tier: form.tier,
         query: form.query.trim() || 'leads B2B',
         count: Number(form.count) || 8,
+        auto_send: form.autoSend,
         ...(Object.keys(icp).length ? { icp } : {}),
       })
       qc.invalidateQueries()
@@ -289,6 +290,17 @@ function RunModal({ open, onClose }) {
               <Input value={form.query} onChange={(e) => setForm({ ...form, query: e.target.value })} placeholder="agencias de marketing en Santiago" /></div>
             <div><label className="block text-xs text-zinc-500 mb-1">Cantidad</label>
               <Input type="number" value={form.count} onChange={(e) => setForm({ ...form, count: e.target.value })} className="w-28" /></div>
+
+            <label className="flex items-start gap-2 text-xs text-zinc-500 cursor-pointer">
+              <input type="checkbox" checked={form.autoSend}
+                onChange={(e) => setForm({ ...form, autoSend: e.target.checked })}
+                className="mt-0.5 accent-gold" />
+              <span>
+                <span className="font-medium text-zinc-700">Enviar automático al calificar</span>
+                <br />Si lo dejas apagado, el primer mensaje queda en borrador — lo revisas y mandas
+                desde la ficha del lead en el Pipeline.
+              </span>
+            </label>
 
             <div className="border-t border-zinc-100 pt-3">
               <div className="flex items-center justify-between">

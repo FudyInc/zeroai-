@@ -488,6 +488,28 @@ def register_reply(key: str, client: str, body: Reply):
     return crm.get(client, key.lower())
 
 
+class SendOutreach(BaseModel):
+    channel: Optional[str] = None
+    subject: Optional[str] = None
+    body: Optional[str] = None
+
+
+@app.post("/api/leads/{key}/send")
+def send_outreach(key: str, client: str, body: SendOutreach):
+    """Manda el mensaje que quedó en borrador (modo revisión, ver auto_send en
+    POST /api/pipeline) — con el texto guardado o, si se manda algo en el
+    body, con ediciones (para mejorar la copia antes de enviar). Agentes mock:
+    esto no redacta nada, solo entrega lo que ya está escrito."""
+    crm = make_crm(CRM_PATH)
+    memory = make_memory(STATE_PATH)
+    zero = Zero(build_agents(mock=True), memory=memory, crm=crm, outbox=make_outbox())
+    edits = {k: v for k, v in body.dict().items() if v is not None} or None
+    try:
+        return zero.send_pending_outreach(client, key.lower(), message=edits)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 # --- WhatsApp conversational agent (CONCIERGE) -------------------------------
 def _agents_best(source=None):
     """El mejor cerebro disponible: Anthropic (pago) → modelo local (gratis, Ollama) →
@@ -627,6 +649,12 @@ class RunRequest(BaseModel):
     tier: str = "GROWTH"
     count: int = 8
     icp: Optional[dict] = None   # perfil del cliente ideal (adaptación por cliente)
+    # Por defecto False: deja el primer mensaje en borrador para revisar/editar
+    # desde el dashboard (ver POST /api/leads/{key}/send) en vez de mandarlo
+    # solo. Diego lo pidió así (2026-07-19) para controlar la calidad del
+    # outbound mientras se prueba con leads reales; a futuro puede volver a
+    # True para automatizarlo por completo, cliente por cliente.
+    auto_send: bool = False
 
 
 @app.post("/api/pipeline")
@@ -640,7 +668,8 @@ def run_pipeline(req: RunRequest):
     agents, mode = _agents_best(source=_discovery_source())
     zero = Zero(agents, memory=memory, crm=crm, outbox=make_outbox())
     try:
-        out = zero.run_pipeline(req.client, req.tier, req.query, count=req.count, icp=req.icp)
+        out = zero.run_pipeline(req.client, req.tier, req.query, count=req.count, icp=req.icp,
+                                auto_send=req.auto_send)
     except ValueError as e:   # e.g. unknown tier
         raise HTTPException(status_code=400, detail=str(e))
     out["mode"] = mode

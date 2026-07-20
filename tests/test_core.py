@@ -937,6 +937,61 @@ class ChannelTest(unittest.TestCase):
         key = crm.list("acme", "nurturing")[0]["key"]
         self.assertTrue(any(h["event"] == "send" for h in crm.get("acme", key)["history"]))
 
+    def test_pipeline_with_auto_send_false_drafts_without_sending(self):
+        """Modo revisión: el mensaje queda escrito y guardado en el lead, pero
+        NADA se manda — el lead se queda en 'qualified', no en 'nurturing', y
+        el outbox no recibe ningún envío."""
+        from zero.channels import Outbox
+        crm = CRM(None)
+        box = Outbox()
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=crm, outbox=box)
+        d = z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8, auto_send=False)
+
+        self.assertEqual(d["summary"]["sent"], 0)
+        self.assertGreater(d["summary"]["drafted"], 0)
+        self.assertEqual(d["summary"]["delivery"], "pending_review")
+        self.assertEqual(box.log, [])
+        key = crm.list("acme", "qualified")[0]["key"]
+        rec = crm.get("acme", key)
+        self.assertEqual(rec["stage"], "qualified")   # nunca avanzó a contacted
+        self.assertEqual(rec["outreach"]["status"], "draft")
+        self.assertTrue(rec["outreach"]["body"])
+
+    def test_send_pending_outreach_delivers_draft_and_advances_stage(self):
+        from zero.channels import Outbox
+        crm = CRM(None)
+        box = Outbox()
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=crm, outbox=box)
+        z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8, auto_send=False)
+        key = crm.list("acme", "qualified")[0]["key"]
+
+        out = z.send_pending_outreach("acme", key)
+
+        self.assertEqual(out["result"]["status"], "sent")
+        self.assertEqual(out["lead"]["stage"], "nurturing")
+        self.assertEqual(out["lead"]["outreach"]["status"], "sent")
+        self.assertEqual(len(box.log), 1)
+
+    def test_send_pending_outreach_accepts_edited_copy(self):
+        from zero.channels import Outbox
+        crm = CRM(None)
+        box = Outbox()
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=crm, outbox=box)
+        z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8, auto_send=False)
+        key = crm.list("acme", "qualified")[0]["key"]
+
+        out = z.send_pending_outreach("acme", key, message={"body": "texto editado a mano"})
+
+        self.assertEqual(out["result"]["status"], "sent")
+        self.assertEqual(out["lead"]["outreach"]["body"], "texto editado a mano")
+
+    def test_send_pending_outreach_without_a_draft_raises(self):
+        crm = CRM(None)
+        crm.upsert("acme", {"company": "SinBorrador", "email": "x@y.cl"}, stage="qualified")
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=crm)
+        with self.assertRaises(ValueError):
+            z.send_pending_outreach("acme", "x@y.cl")
+
 
 class EmailSenderFromNameTest(unittest.TestCase):
     """El 'From' del email muestra el nombre del vendedor asignado (Fernanda/

@@ -294,6 +294,7 @@ class Zero:
                         "channel": msg.get("channel"),
                         "subject": msg.get("subject"),
                         "body": msg.get("body"),
+                        "status": "sent",
                     })
             if msg:
                 # Primer contacto por WhatsApp = en frío, el lead nunca escribió antes —
@@ -310,6 +311,66 @@ class Zero:
                     self.crm.advance(client_id, lead.key(), "nurturing")
         return sequences_opened, sent
 
+    def _draft_first_touch(self, client_id: str, qualified: List[Lead],
+                           messages: List[Dict[str, Any]]) -> int:
+        """Modo revisión (`auto_send=False`): redacta y guarda el primer mensaje
+        en cada lead calificado, SIN mandarlo — el lead se queda en 'calificado'
+        (no 'contactado') hasta que alguien lo revise/edite y lo mande a mano
+        desde el dashboard (ver `send_pending_outreach`). No abre secuencia de
+        seguimiento todavía: esa cadencia empieza a contar desde el contacto
+        real, no desde que quedó redactado."""
+        if not self.crm:
+            return 0
+        by_company = {m.get("company"): m for m in messages}
+        drafted = 0
+        for lead in qualified:
+            msg = by_company.get(lead.company)
+            if not msg:
+                continue
+            self.crm.set_outreach(client_id, lead.key(), {
+                "channel": msg.get("channel"),
+                "subject": msg.get("subject"),
+                "body": msg.get("body"),
+                "status": "draft",
+            })
+            drafted += 1
+        return drafted
+
+    def send_pending_outreach(self, client_id: str, lead_key: str,
+                              message: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Manda AHORA el mensaje que quedó en borrador (modo revisión) — con el
+        texto guardado o, si se pasa `message` (channel/subject/body), con
+        ediciones (para mejorar el outbound antes de mandarlo). A diferencia de
+        `_send_first_touch` (que avanza la etapa optimistamente para toda una
+        corrida), acá solo se avanza a 'contacted'/'nurturing' si el envío
+        realmente salió — es un solo lead, vale la pena ser estricto."""
+        if not self.crm:
+            raise RuntimeError("sin CRM configurado")
+        rec = self.crm.get(client_id, lead_key)
+        if rec is None:
+            raise ValueError("lead no encontrado")
+        draft = rec.get("outreach") or {}
+        if draft.get("status") != "draft":
+            raise ValueError("este lead no tiene un borrador pendiente de envío")
+        msg = {
+            "channel": (message or {}).get("channel") or draft.get("channel"),
+            "subject": (message or {}).get("subject") or draft.get("subject"),
+            "body": (message or {}).get("body") or draft.get("body"),
+        }
+        to = rec.get("email") or rec.get("phone")
+        to_send = ({**msg, "whatsapp_send_type": "template"}
+                  if msg.get("channel") == "whatsapp" else msg)
+        res = self._deliver(client_id, lead_key, to, to_send)
+        self.crm.set_outreach(client_id, lead_key,
+                              {**msg, "status": "sent" if res["status"] == "sent" else "failed"})
+        if res["status"] == "sent":
+            self.memory.mark_contacted(lead_key)
+            self.crm.advance(client_id, lead_key, "contacted")
+            seq = self.memory.open_sequence(client_id, rec)
+            if seq["step"] == 0:
+                self.crm.advance(client_id, lead_key, "nurturing")
+        return {"lead": self.crm.get(client_id, lead_key), "result": res}
+
     # --- the pipeline --------------------------------------------------------
     def run_pipeline(
         self,
@@ -320,6 +381,7 @@ class Zero:
         icp: Optional[Dict[str, Any]] = None,
         exclusions: Optional[List[str]] = None,
         write_outreach: bool = True,
+        auto_send: bool = True,
     ) -> Dict[str, Any]:
         """discover → enrich → qualify → (validate) → outreach → report."""
         cfg = tier_config(tier)
@@ -388,10 +450,15 @@ class Zero:
             if out.status != "error":
                 messages = out.result.get("messages", [])
 
-        # 4b) SEND first touch + OPEN FOLLOW-UP SEQUENCES --------------------
-        sequences_opened, sent = (0, 0)
+        # 4b) SEND first touch + OPEN FOLLOW-UP SEQUENCES ---------------------
+        # (o, si auto_send=False, deja los mensajes en borrador para revisar y
+        # mandar a mano desde el dashboard — ver _draft_first_touch)
+        sequences_opened, sent, drafted = (0, 0, 0)
         if write_outreach and messages:
-            sequences_opened, sent = self._send_first_touch(client_id, qualified, messages)
+            if auto_send:
+                sequences_opened, sent = self._send_first_touch(client_id, qualified, messages)
+            else:
+                drafted = self._draft_first_touch(client_id, qualified, messages)
 
         # 5) REPORT -----------------------------------------------------------
         self.memory.set_stage(client_id, "delivered")
@@ -406,7 +473,8 @@ class Zero:
                 "rejected": len(rejected),
                 "sequences_opened": sequences_opened,
                 "sent": sent,
-                "delivery": "live" if self.outbox.live else "mock",
+                "drafted": drafted,
+                "delivery": "pending_review" if not auto_send else ("live" if self.outbox.live else "mock"),
                 "channels": channels,
                 "scoring_model": cfg["scoring"],
                 "icp": describe_icp(icp),

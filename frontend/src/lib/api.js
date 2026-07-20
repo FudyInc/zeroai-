@@ -53,6 +53,10 @@ export const api = {
     req('/api/leads/' + q(k) + '/reply?client=' + q(c), {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}),
     }),
+  sendOutreach: (c, k, body) =>
+    req('/api/leads/' + q(k) + '/send?client=' + q(c), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}),
+    }),
   icp: (c) => req('/api/icp?client=' + q(c)).then((d) => d.icp),
   campaigns: (c) => req('/api/campaigns?client=' + q(c)),
   optimizeCampaigns: (c) => req('/api/campaigns/optimize?client=' + q(c)),

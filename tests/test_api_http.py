@@ -289,6 +289,23 @@ class ApiHttpTest(unittest.TestCase):
             urllib.request.urlopen(req, timeout=5)
         self.assertEqual(ctx.exception.code, 400)
 
+    def test_send_outreach_on_unknown_lead_is_400_not_500(self):
+        """POST /api/leads/{key}/send sobre una key que no existe (para nada
+        cerca de un lead real) debe degradar a un 400 claro, nunca un 500 —
+        misma cautela de la clase: solo lectura, cero riesgo de escribir en
+        Supabase real si esta máquina tiene credenciales configuradas. Mismo
+        patrón que test_clients_endpoint_over_real_http: si esta máquina tiene
+        SUPABASE_URL/KEY reales pero Supabase no responde bien, el handler
+        global de SupabaseError degrada a 503 en vez de un 500 crudo — eso
+        también es un resultado válido acá, no un fallo de este test."""
+        data = json.dumps({}).encode("utf-8")
+        req = urllib.request.Request(
+            f"{self.base}/api/leads/zzz-no-deberia-existir-nunca/send?client=acme",
+            data=data, method="POST", headers={"Content-Type": "application/json"})
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req, timeout=5)
+        self.assertIn(ctx.exception.code, (400, 503))
+
     def _post_webhook(self, body: bytes, signature: str | None):
         headers = {"Content-Type": "application/json"}
         if signature is not None:
