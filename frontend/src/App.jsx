@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState } from 'react'
 import { Routes, Route, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Toaster } from 'sonner'
+import { Toaster, toast } from 'sonner'
 import { Plus, Menu, ArrowLeft, Search } from 'lucide-react'
 import { api, setToken } from './lib/api'
 import { supabase } from './lib/supabase'
@@ -221,8 +221,6 @@ function RunModal({ open, onClose }) {
   const qc = useQueryClient()
   const EMPTY_ICP = { sells: '', industry: '', roles: '', companySize: '', regions: '', mustHave: '', exclude: '', context: '' }
   const [form, setForm] = useState({ client: 'demo', tier: 'GROWTH', query: '', count: 8, autoSend: false, ...EMPTY_ICP })
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState('')
   const [showIcp, setShowIcp] = useState(false)
   const [icpLoaded, setIcpLoaded] = useState(false)
 
@@ -244,30 +242,46 @@ function RunModal({ open, onClose }) {
     if (open && showIcp && !icpLoaded) loadSavedIcp()
   }, [open, showIcp]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const run = async () => {
-    setBusy(true); setErr('')
-    try {
-      const icp = {}
-      if (form.sells.trim()) icp.sells = form.sells.trim()
-      if (form.industry.trim()) icp.industry = form.industry.trim()
-      if (form.roles.trim()) icp.buyer_roles = form.roles.trim()
-      if (form.companySize.trim()) icp.company_size = form.companySize.trim()
-      if (form.regions.trim()) icp.regions = form.regions.trim()
-      if (form.mustHave.trim()) icp.must_have = form.mustHave.trim()
-      if (form.exclude.trim()) icp.exclude = form.exclude.trim()
-      if (form.context.trim()) icp.context = form.context.trim()
-      await api.runPipeline({
-        client: form.client.trim() || 'demo',
+  // No se espera acá adentro (sin await bloqueando el modal): el motor real
+  // (modelo local + búsqueda web) puede tardar varios minutos — encontrado en
+  // vivo (2026-07-19) corriendo "empresas de mudanzas" real, tardó más de lo
+  // que cualquier modal debería tener a alguien mirando la pantalla. Dispara
+  // la corrida, cierra el modal al toque, y el progreso sigue en un toast
+  // (toast.promise) que vive independiente del modal/componente — aunque
+  // Diego navegue a otra página, el toast lo sigue avisando cuando termine.
+  const run = () => {
+    const icp = {}
+    if (form.sells.trim()) icp.sells = form.sells.trim()
+    if (form.industry.trim()) icp.industry = form.industry.trim()
+    if (form.roles.trim()) icp.buyer_roles = form.roles.trim()
+    if (form.companySize.trim()) icp.company_size = form.companySize.trim()
+    if (form.regions.trim()) icp.regions = form.regions.trim()
+    if (form.mustHave.trim()) icp.must_have = form.mustHave.trim()
+    if (form.exclude.trim()) icp.exclude = form.exclude.trim()
+    if (form.context.trim()) icp.context = form.context.trim()
+    const targetClient = form.client.trim() || 'demo'
+
+    toast.promise(
+      api.runPipeline({
+        client: targetClient,
         tier: form.tier,
         query: form.query.trim() || 'leads B2B',
         count: Number(form.count) || 8,
         auto_send: form.autoSend,
         ...(Object.keys(icp).length ? { icp } : {}),
-      })
-      qc.invalidateQueries()
-      setClient(form.client.trim() || 'demo')
-      onClose()
-    } catch (e) { setErr(e.message) } finally { setBusy(false) }
+      }).then((d) => { qc.invalidateQueries(); return d }),
+      {
+        loading: `Buscando leads para "${targetClient}"… con el motor real esto puede tardar varios minutos, puedes seguir usando el dashboard mientras tanto.`,
+        success: (d) => {
+          const s = d?.summary || {}
+          const rest = s.drafted ? `${s.drafted} en borrador para revisar` : `${s.sent || 0} enviados`
+          return `Listo "${targetClient}": ${s.qualified ?? 0} calificados de ${s.discovered ?? 0} encontrados · ${rest}`
+        },
+        error: (e) => `No se pudo completar la búsqueda para "${targetClient}": ${e.message}`,
+      },
+    )
+    setClient(targetClient)
+    onClose()
   }
 
   return (
@@ -340,10 +354,9 @@ function RunModal({ open, onClose }) {
               )}
             </div>
 
-            {err && <div className="text-sm text-rose-600">{err}</div>}
             <div className="flex justify-end gap-2 pt-1">
               <Button variant="ghost" onClick={onClose}>Cancelar</Button>
-              <Button variant="accent" onClick={run} disabled={busy}>{busy ? 'Corriendo…' : 'Correr'}</Button>
+              <Button variant="accent" onClick={run}>Correr</Button>
             </div>
           </motion.div>
         </motion.div>
