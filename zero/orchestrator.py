@@ -366,10 +366,21 @@ class Zero:
                               {**msg, "status": "sent" if res["status"] == "sent" else "failed"})
         if res["status"] == "sent":
             self.memory.mark_contacted(lead_key)
-            self.crm.advance(client_id, lead_key, "contacted")
-            seq = self.memory.open_sequence(client_id, rec)
-            if seq["step"] == 0:
-                self.crm.advance(client_id, lead_key, "nurturing")
+            # Distingue primer contacto de seguimiento por si YA hay una
+            # secuencia abierta para este lead (la abrió el primer envío) —
+            # find_open_sequence no crea nada, a diferencia de open_sequence.
+            existing_seq = self.memory.find_open_sequence(client_id, lead_key)
+            if existing_seq is not None:
+                # Seguimiento (nudge/value/breakup): solo avanza su paso. La
+                # etapa del CRM no cambia — ya está en 'nurturing' o donde
+                # corresponda desde el primer contacto.
+                self.memory.advance_sequence(existing_seq)
+            else:
+                # Primer contacto: recién ahora abre su secuencia.
+                self.crm.advance(client_id, lead_key, "contacted")
+                seq = self.memory.open_sequence(client_id, rec)
+                if seq["step"] == 0:
+                    self.crm.advance(client_id, lead_key, "nurturing")
         return {"lead": self.crm.get(client_id, lead_key), "result": res}
 
     # --- the pipeline --------------------------------------------------------
@@ -500,8 +511,15 @@ class Zero:
         return deliverable
 
     # --- follow-ups (TRACKER) -----------------------------------------------
-    def run_followups(self, client_id: str, as_of: Optional[str] = None) -> Dict[str, Any]:
-        """Advance every due follow-up: draft the next step, then reschedule/close."""
+    def run_followups(self, client_id: str, as_of: Optional[str] = None,
+                      auto_send: bool = True) -> Dict[str, Any]:
+        """Advance every due follow-up: draft the next step, then reschedule/close.
+
+        `auto_send=False` (modo revisión, mismo patrón que run_pipeline): cada
+        mensaje queda en borrador en el lead (outreach.status="draft") para
+        aprobar a mano desde el dashboard — ver Zero.send_pending_outreach. La
+        secuencia NO avanza hasta que de verdad se manda, así el mismo paso no
+        se pierde ni se duplica entre corridas."""
         cfg = tier_config(self.memory.clients.get(client_id, {}).get("tier", "STARTER"))
         # First, sweep the inbox: whoever already replied gets its sequence closed
         # here and is never nudged below.
@@ -532,6 +550,12 @@ class Zero:
                 else:
                     still_due.append(s)
             due = still_due
+        # Modo revisión: no le vuelvas a pedir a TRACKER un mensaje para un
+        # lead que ya tiene un borrador esperando aprobación — se perdería el
+        # que ya está (quizás editado a mano) y sería trabajo de más.
+        if not auto_send and self.crm:
+            due = [s for s in due
+                  if ((self.crm.get(client_id, s["lead_key"]) or {}).get("outreach") or {}).get("status") != "draft"]
         if not due:
             self.memory.log("followup", client=client_id, advanced=0, sent=0, blocked=blocked)
             self.memory.save()
@@ -573,6 +597,7 @@ class Zero:
         sent = 0
         advanced = 0
         skipped = 0
+        drafted = 0
         for s in due:   # `due` ya viene filtrado de bloqueados, arriba
             msg = by_lead.get(s["lead_key"])
             if msg is None:
@@ -586,6 +611,21 @@ class Zero:
                     self.crm.log(client_id, s["lead_key"], "followup_skip",
                                  "TRACKER no devolvió mensaje para este paso — se reintenta")
                 skipped += 1
+                continue
+            if not auto_send:
+                # Modo revisión: el mensaje queda en borrador en el lead, la
+                # secuencia NO avanza (se reintentaría redactar de nuevo, pero
+                # el filtro de arriba ya evita eso) hasta que se apruebe y
+                # mande a mano — ver Zero.send_pending_outreach.
+                if self.crm:
+                    self.crm.set_outreach(client_id, s["lead_key"], {
+                        "channel": msg.get("channel"), "subject": msg.get("subject"),
+                        "body": msg.get("body"), "status": "draft",
+                    })
+                    cadence = followup_step(s["step"]) or {}
+                    self.crm.log(client_id, s["lead_key"], "followup_draft",
+                                 f"borrador listo, paso {s['step']} ({cadence.get('kind', '')})")
+                drafted += 1
                 continue
             self.memory.mark_contacted(s["lead_key"])
             if self.crm:
@@ -605,7 +645,7 @@ class Zero:
             self.memory.advance_sequence(s)
             advanced += 1
         self.memory.log("followup", client=client_id, advanced=advanced, sent=sent,
-                        blocked=blocked, skipped=skipped)
+                        blocked=blocked, skipped=skipped, drafted=drafted)
         self.memory.set_stage(client_id, "delivered")
         self.memory.save()
         if self.crm:
@@ -620,7 +660,8 @@ class Zero:
             "sent": sent,
             "blocked": blocked,
             "skipped": skipped,
-            "delivery": "live" if self.outbox.live else "mock",
+            "drafted": drafted,
+            "delivery": "pending_review" if not auto_send else ("live" if self.outbox.live else "mock"),
             "replies_detected": replies["matched"],
             "open_remaining": open_remaining,
             "followups": messages,

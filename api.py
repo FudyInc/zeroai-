@@ -99,6 +99,7 @@ _ROLE_ALLOWED: dict = {
         ("GET", "/api/kpis"),             # Dashboard.jsx home (compartido con cto)
         ("GET", "/api/icp"),              # modal global "Buscar leads"
         ("POST", "/api/pipeline"),        # modal global "Buscar leads"
+        ("POST", "/api/followups"),       # correr seguimientos (TRACKER)
         # Finanzas — EXCLUSIVO de cro, "cto" no lo tiene. La ruta todavía no
         # existe en este archivo (GET /api/finance está en revisión, ver
         # workspace FINANZAS) — se deja lista acá de antemano para que, apenas
@@ -114,6 +115,7 @@ _ROLE_ALLOWED: dict = {
         ("GET", "/api/kpis"),             # Dashboard.jsx (overview de leads/pipeline)
         ("GET", "/api/icp"),              # modal global "Buscar leads"
         ("POST", "/api/pipeline"),        # modal global "Buscar leads" (operar el pipeline)
+        ("POST", "/api/followups"),       # correr seguimientos (TRACKER)
     ),
     # CCO — contenido y comunicaciones (Maureen, 2026-07-20): dueña de todo lo
     # que es palabra escrita del negocio. Nada de Forecast/Clientes/Finanzas
@@ -124,6 +126,7 @@ _ROLE_ALLOWED: dict = {
         ("GET", "/api/board"),            # Pipeline.jsx
         ("GET", "/api/leads"),            # Pipeline/LeadModal — revisar/editar outreach
         ("POST", "/api/leads"),           # LeadModal (enviar el borrador aprobado)
+        ("POST", "/api/followups"),       # correr seguimientos (TRACKER) — su trabajo central
         ("GET", "/api/vendors"),          # Whatsapp.jsx — catálogo de personalidades
         ("POST", "/api/vendors"),         # editar el tono de cada agente
         ("GET", "/api/vendor"),           # vendedor asignado a un cliente
@@ -764,6 +767,29 @@ def run_pipeline(req: RunRequest):
                                 auto_send=req.auto_send)
     except ValueError as e:   # e.g. unknown tier
         raise HTTPException(status_code=400, detail=str(e))
+    out["mode"] = mode
+    return out
+
+
+class FollowupsRun(BaseModel):
+    client: str
+    as_of: Optional[str] = None   # solo para tests/depuración — simula "ahora"
+    # Por defecto False, mismo criterio que /api/pipeline: cada seguimiento
+    # queda en borrador para revisar (ver LeadModal) en vez de mandarse solo.
+    auto_send: bool = False
+
+
+@app.post("/api/followups")
+def run_followups_endpoint(req: FollowupsRun):
+    """Antes esto solo se podía correr por consola (`main.py --action
+    followups`) — sin esto, el modo revisión que agregamos a TRACKER no tenía
+    forma de dispararse desde el dashboard. Nota: sigue siendo un disparo
+    manual, no hay todavía una corrida programada/automática."""
+    crm = make_crm(CRM_PATH)
+    memory = make_memory(STATE_PATH)
+    agents, mode = _agents_best()
+    zero = Zero(agents, memory=memory, crm=crm, outbox=make_outbox())
+    out = zero.run_followups(req.client, as_of=req.as_of, auto_send=req.auto_send)
     out["mode"] = mode
     return out
 

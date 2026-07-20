@@ -168,6 +168,17 @@ class SessionMemory:
         self.sequences.append(seq)
         return seq
 
+    def find_open_sequence(self, client_id: str, lead_key: str) -> Optional[Dict[str, Any]]:
+        """La secuencia abierta de este lead, sin importar si está due todavía —
+        a diferencia de due_sequences(), que solo trae las vencidas. Usado para
+        distinguir un envío de PRIMER contacto (sin secuencia abierta todavía)
+        de un envío de SEGUIMIENTO (ya tiene una), al mandar un borrador
+        aprobado a mano desde el dashboard."""
+        for s in self.sequences:
+            if s["client_id"] == client_id and s["lead_key"] == lead_key and s["status"] == "open":
+                return s
+        return None
+
     def due_sequences(self, client_id: Optional[str] = None, as_of: Optional[str] = None) -> List[Dict[str, Any]]:
         """Open sequences whose next follow-up is due at/before `as_of` (now)."""
         cutoff = _parse(as_of) if as_of else datetime.now(timezone.utc)

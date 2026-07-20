@@ -282,6 +282,71 @@ class TrackerTest(unittest.TestCase):
         # para reintentarse — no perdió su turno en silencio
         self.assertEqual(due_after[drop_key]["step"], steps_before[drop_key])
 
+    def test_run_followups_auto_send_false_drafts_without_advancing_or_sending(self):
+        """Modo revisión (pedido por Diego, 2026-07-20): el seguimiento queda
+        en borrador en el lead, la secuencia NO avanza (para no perder el
+        turno ni duplicar), y el outbox no recibe nada."""
+        from zero.channels import Outbox
+        crm = CRM(None)
+        box = Outbox()
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=crm, outbox=box)
+        z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8)
+        future = (datetime.now(timezone.utc) + timedelta(days=999)).isoformat()
+        due_before = z.memory.due_sequences("acme", as_of=future)
+        self.assertGreaterEqual(len(due_before), 1)
+        lead_key = due_before[0]["lead_key"]
+        step_before = due_before[0]["step"]
+        box.log.clear()   # limpia lo que mandó el primer contacto (auto_send=True por default en run_pipeline)
+
+        result = z.run_followups("acme", as_of=future, auto_send=False)
+
+        self.assertGreater(result["drafted"], 0)
+        self.assertEqual(result["sent"], 0)
+        self.assertEqual(box.log, [])
+        rec = crm.get("acme", lead_key)
+        self.assertEqual(rec["outreach"]["status"], "draft")
+        due_after = {s["lead_key"]: s for s in z.memory.due_sequences("acme", as_of=future)}
+        self.assertEqual(due_after[lead_key]["step"], step_before)   # no avanzó
+
+    def test_run_followups_auto_send_false_never_reredrafts_pending_lead(self):
+        """No le vuelve a pedir a TRACKER un mensaje para un lead que ya tiene
+        un borrador esperando aprobación — evita perder una edición manual."""
+        crm = CRM(None)
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=crm)
+        z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8)
+        future = (datetime.now(timezone.utc) + timedelta(days=999)).isoformat()
+        lead_key = z.memory.due_sequences("acme", as_of=future)[0]["lead_key"]
+        z.run_followups("acme", as_of=future, auto_send=False)
+        crm.set_outreach("acme", lead_key, {"channel": "email", "subject": None,
+                                            "body": "texto editado a mano", "status": "draft"})
+
+        z.run_followups("acme", as_of=future, auto_send=False)
+
+        self.assertEqual(crm.get("acme", lead_key)["outreach"]["body"], "texto editado a mano")
+
+    def test_send_pending_outreach_on_followup_advances_existing_sequence(self):
+        """Cuando el lead YA tiene una secuencia abierta (viene de un
+        seguimiento, no del primer contacto), enviar el borrador debe avanzar
+        ESA secuencia — no abrir una nueva ni tocar la etapa del CRM."""
+        from zero.channels import Outbox
+        crm = CRM(None)
+        box = Outbox()
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=crm, outbox=box)
+        z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8)
+        future = (datetime.now(timezone.utc) + timedelta(days=999)).isoformat()
+        lead_key = z.memory.due_sequences("acme", as_of=future)[0]["lead_key"]
+        stage_before = crm.get("acme", lead_key)["stage"]
+        step_before = z.memory.find_open_sequence("acme", lead_key)["step"]
+        z.run_followups("acme", as_of=future, auto_send=False)
+
+        out = z.send_pending_outreach("acme", lead_key)
+
+        self.assertEqual(out["result"]["status"], "sent")
+        self.assertEqual(crm.get("acme", lead_key)["stage"], stage_before)   # sin cambio de etapa
+        seq = z.memory.find_open_sequence("acme", lead_key)
+        if seq is not None:   # puede haberse cerrado si era el último paso
+            self.assertEqual(seq["step"], step_before + 1)
+
 
 class CRMTest(unittest.TestCase):
     def setUp(self):
