@@ -37,9 +37,13 @@ from ._env import load_env
 load_env()   # pick up ELEVENLABS_API_KEY from .env if present
 
 _BASE = "https://api.elevenlabs.io/v1"
-# Multilingual model speaks natural Spanish; the *accent* comes from the voice,
-# not the model — so pair it with a cloned Chilean voice for the ABC1 sound.
-DEFAULT_MODEL = "eleven_multilingual_v2"
+# Flash v2.5: ~75-150ms de latencia (vs. varios segundos de multilingual_v2) —
+# clave para llamadas/conversación en vivo. El acento chileno viene de la VOZ
+# clonada, no del modelo, así que cambiar de modelo no debería perder el acento
+# (verificar al oído la primera vez que se use en una llamada real). Si algún
+# día se necesita la calidad máxima para audio no urgente (ej. un anuncio
+# pregrabado), pasar model="eleven_multilingual_v2" explícito en esa llamada.
+DEFAULT_MODEL = "eleven_flash_v2_5"
 # Sample rate for the "typing" path (speak_with_typing / _speak_pcm). Fixed so the
 # synthetic keyboard clip and the ElevenLabs speech share one rate and can be
 # concatenated as raw PCM — no external mixer (ffmpeg/pydub) needed.
