@@ -10,7 +10,7 @@ Módulos, integraciones y decisiones que no encajan en las notas principales. Fu
 | `zero/icp.py` | Normaliza el ICP del cliente (perfil de cliente ideal) usado por el QUALIFIER. |
 | `zero/channels.py` | `Outbox` con `MockSender` / `EmailSender` (SMTP) / `WhatsAppSender` (Meta Cloud API). `OUTBOX_LIVE=1` para enviar de verdad. |
 | `zero/calls.py` | Llamadas de voz vía **Vapi** (usa `curl` del sistema, no urllib, por bloqueo de Cloudflare). |
-| `zero/voice.py` | Voz vía **ElevenLabs**. |
+| `zero/voice.py` | Voz vía **ElevenLabs**. `speak()` (mp3, voz clonada) y `speak_with_typing()` (wav, antepone un clip corto de teclado sintético — realismo puntual antes de una respuesta que "busca datos", no en cada turno). Ver [[docs/voice.md]]. |
 | `zero/metaads.py` | **Meta Ads** por cliente (mock + Graph API real). CPL objetivo Chile, default Santiago (RM). |
 | `zero/whatsapp_inbound.py` | Parseo de mensajes entrantes de WhatsApp (webhook). |
 | `zero/memory.py` · `zero/memory_supabase.py` | Estado de sesión + secuencias de follow-up (archivo local o Supabase). |

@@ -20,6 +20,7 @@ from zero.contracts import Constraints, Lead, TaskPayload
 from zero.crm import CRM
 from zero.memory import SessionMemory, _now
 from zero.orchestrator import Zero
+from zero.voice import _TYPING_SAMPLE_RATE, _synthetic_typing_pcm
 
 
 def _lead(**kw):
@@ -1887,6 +1888,25 @@ class ApiRoutesTest(unittest.TestCase):
             dupes, [],
             "rutas duplicadas en api.py — la segunda queda muerta en silencio:\n" + "\n".join(dupes)
         )
+
+
+class TestSyntheticTypingClip(unittest.TestCase):
+    """_synthetic_typing_pcm no toca la red — el resto de speak_with_typing (ElevenLabs)
+    se verifica a mano (ver docs/voice.md), no acá."""
+
+    def test_length_matches_duration_and_sample_rate(self):
+        pcm = _synthetic_typing_pcm(duration=1.0, sample_rate=_TYPING_SAMPLE_RATE, seed=1)
+        # 16-bit mono: 2 bytes por muestra
+        self.assertEqual(len(pcm), _TYPING_SAMPLE_RATE * 2)
+
+    def test_deterministic_with_seed(self):
+        a = _synthetic_typing_pcm(duration=0.5, seed=42)
+        b = _synthetic_typing_pcm(duration=0.5, seed=42)
+        self.assertEqual(a, b)
+
+    def test_not_silent(self):
+        pcm = _synthetic_typing_pcm(duration=1.0, seed=7)
+        self.assertTrue(any(b != 0 for b in pcm), "el clip de teclado no debería ser puro silencio")
 
 
 if __name__ == "__main__":
