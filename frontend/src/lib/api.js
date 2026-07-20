@@ -1,3 +1,5 @@
+import { supabase } from './supabase'
+
 // En dev: '' → el proxy de Vite manda /api a localhost:8800.
 // En prod (Vercel): definí VITE_API_URL con la URL del backend en Render.
 export const BASE = import.meta.env.VITE_API_URL || ''
@@ -42,6 +44,7 @@ export const api = {
   leads: (c, { group = 'todos', limit = 50, offset = 0 } = {}) =>
     req(`/api/leads?client=${q(c)}&group=${q(group)}&limit=${limit}&offset=${offset}`),
   lead: (c, k) => req('/api/leads/' + q(k) + '?client=' + q(c)),
+  searchLeads: (query, limit = 20) => req(`/api/leads/search?q=${q(query)}&limit=${limit}`),
   moveStage: (c, k, stage) =>
     req('/api/leads/' + q(k) + '/stage?client=' + q(c), {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stage }),
@@ -49,6 +52,15 @@ export const api = {
   reply: (c, k, body) =>
     req('/api/leads/' + q(k) + '/reply?client=' + q(c), {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}),
+    }),
+  sendOutreach: (c, k, body) =>
+    req('/api/leads/' + q(k) + '/send?client=' + q(c), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}),
+    }),
+  team: () => req('/api/team'),
+  setTeamRole: (userId, role) =>
+    req('/api/team/' + q(userId) + '/role', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role }),
     }),
   icp: (c) => req('/api/icp?client=' + q(c)).then((d) => d.icp),
   campaigns: (c) => req('/api/campaigns?client=' + q(c)),
@@ -58,6 +70,7 @@ export const api = {
   setMarketing: (c, body) =>
     req('/api/marketing?client=' + q(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   forecast: (c) => req('/api/forecast?client=' + q(c)),
+  finance: (month) => req('/api/finance' + (month ? '?month=' + q(month) : '')),
   runPipeline: (body) =>
     req('/api/pipeline', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   testEmail: (to) =>
@@ -86,10 +99,17 @@ export const api = {
     req('/api/pitch/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   usedEmails: () => req('/api/emails').then((d) => d.emails),
   authStatus: () => req('/api/auth/status'),
-  login: (password) =>
-    req('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) })
+  login: (username, password) =>
+    req('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) })
       .then((d) => { setToken(d.token); return d }),
-  logout: () => { setToken(null); window.location.reload() },
+  // Redirige a Google; a la vuelta, App.jsx toma la sesión vía
+  // supabase.auth.onAuthStateChange y la guarda con setToken (mismo lugar de
+  // verdad que el login local).
+  signInWithGoogle: () => supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } }),
+  logout: () => {
+    setToken(null)
+    supabase.auth.signOut().finally(() => window.location.reload())
+  },
   metaadsAccounts: () => req('/api/metaads/accounts').then((d) => d.accounts),
   whatsappStatus: () => req('/api/whatsapp/status'),
   config: () => req('/api/config'),

@@ -61,6 +61,10 @@ def main(argv=None) -> int:
                    default=(os.environ.get("LOCAL_MODEL_URL") or "").strip()
                            or "http://localhost:11434/v1",
                    help="local OpenAI-compatible base URL (--local); default: LOCAL_MODEL_URL")
+    p.add_argument("--local-timeout", type=float, default=None,
+                   help="request timeout in seconds for --local (default: el de "
+                        "LocalBackend, 600s — holgado a propósito para un modelo "
+                        "razonador en CPU)")
     p.add_argument("--state", default="state.json", help="session-memory file")
     p.add_argument("--export", default=None, help="write the deliverable (qualified leads) to a CSV path")
     p.add_argument("--json", action="store_true", help="print raw deliverable JSON")
@@ -93,7 +97,10 @@ def main(argv=None) -> int:
             return 2
     elif use_local:
         from zero.backends import LocalBackend
-        backend = LocalBackend(model=args.local_model, base_url=args.local_url)
+        kwargs = {"model": args.local_model, "base_url": args.local_url}
+        if args.local_timeout is not None:
+            kwargs["timeout"] = args.local_timeout
+        backend = LocalBackend(**kwargs)
 
     source = None
     if args.discover == "web" and not args.mock:   # --mock también apaga la red

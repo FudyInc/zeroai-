@@ -38,6 +38,35 @@ WHATSAPP_TEMPLATE = {
 OUTBOX_RETRY_ATTEMPTS = 3
 OUTBOX_RETRY_DELAY_SECONDS = 1.0
 
+# --- Mensaje entrante de un lead (CONCIERGE) ----------------------------------
+# Tope al mensaje que un lead escribe (WhatsApp/email) antes de pasarlo a
+# CONCIERGE. Hallado en vivo (2026-07-13) contra el modelo real (qwen2.5:7b):
+# un mensaje muy largo y degenerado ("hola " x3000) hizo que el modelo
+# abandonara por completo el esquema JSON pedido ({"reply","intent"}) e
+# inventara uno propio ({"greeting","message","options"}) — como ninguna de
+# esas claves está en el contrato, la respuesta al lead terminaba VACÍA (sin
+# romper nada, pero sin contestarle). WhatsApp real ya limita cada mensaje a
+# ~4096 caracteres; este tope es más chico a propósito, con margen.
+MAX_INBOUND_MESSAGE_CHARS = 2000
+
+# --- Mercado activo (2026-07-19) -----------------------------------------------
+# ZeroAI prospecta SOLO en Chile por ahora — decisión explícita de Diego mientras
+# se prueba con leads reales; otros países son plan a futuro (cuando eso cambie,
+# se actualiza ACÁ, no la lógica de discovery/validators que lo usa). Dos efectos:
+#   1) icp.normalize_icp() usa ACTIVE_MARKET_REGIONS como default de `regions`
+#      cuando el cliente no especificó zona — ningún cliente queda "sin país"
+#      por accidente, ni depende de que alguien lo escriba a mano en el ICP.
+#   2) ValidatorRules.validate_phone() descarta cualquier teléfono con código de
+#      país EXPLÍCITO distinto de +56 (ej. uno argentino/peruano capturado por
+#      el patrón internacional genérico de discovery.py). Un teléfono en
+#      formato local (sin "+", el caso más común en sitios chilenos) se deja
+#      pasar — no hay señal de que sea de otro país. Esto es un filtro
+#      pragmático, no un validador geográfico exhaustivo: no verifica que el
+#      NEGOCIO esté físicamente en Chile, solo descarta contactos con un
+#      código de país explícitamente extranjero.
+ACTIVE_MARKET_REGIONS = ["Chile"]
+ACTIVE_MARKET_PHONE_COUNTRY_CODE = "56"   # sin '+', para comparar dígitos
+
 # --- Client tiers ------------------------------------------------------------
 # leads_per_mo = None means "custom / negotiated".
 # price_clp = lo que el cliente paga por mes (el MRR de la agencia). ENTERPRISE = custom.
@@ -51,7 +80,7 @@ TIERS = {
     },
     "GROWTH": {
         "segment": "Pro",
-        "price_clp": 100_000,
+        "price_clp": 200_000,
         "leads_per_mo": 200,
         "scoring": "advanced",     # client-specific ICP
         "channels": ["email", "whatsapp", "cold_call"],
@@ -166,6 +195,22 @@ AVG_DEAL_VALUE_CLP = 1_000_000   # valor promedio por cierre, en CLP (ajustable)
 # El IVA que se aplica a un presupuesto cuando la lista de precios del cliente no
 # lo especifica. La aritmética del presupuesto NUNCA la hace el LLM (quotes.py).
 IVA_RATE = 0.19   # IVA Chile
+
+
+# --- Finanzas de la AGENCIA (zero/finance.py) ----------------------------------
+# Qué rubros de costo existen para ZeroAI — la política. Las cifras reales nunca
+# van aquí ni en ningún archivo versionado: viven en finance.json (local,
+# gitignorado, mismo trato que crm.json). Un costo con rubro desconocido cae en
+# "otros" en vez de perderse.
+FINANCE_COST_CATEGORIES = (
+    "vapi",         # llamadas (por minuto, USD → anotar ya convertido a CLP)
+    "elevenlabs",   # voz Francisca (por caracteres)
+    "supabase",     # hoy plan gratis ($0)
+    "dominio",      # 1 cifra al año
+    "vps",          # hipotético (si se migra del PC Ubuntu)
+    "anthropic",    # solo si se activa --live (motor local gratis desde 2026-07)
+    "otros",
+)
 
 
 # --- CRM pipeline stages -----------------------------------------------------

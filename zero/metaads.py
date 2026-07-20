@@ -108,11 +108,25 @@ class MetaAds:
         req = urllib.request.Request(f"{self.API}/{self.account}/campaigns?{params}")
         try:
             with urllib.request.urlopen(req, timeout=20) as r:
-                data = json.loads(r.read().decode("utf-8"))
+                raw = r.read().decode("utf-8")
         except urllib.error.HTTPError as e:
             raise RuntimeError(f"Meta Ads {e.code}: {e.read().decode('utf-8', 'replace')[:200]}") from e
+        except urllib.error.URLError as e:
+            raise RuntimeError(f"no pude contactar a Meta Ads: {e}") from e
+        try:
+            data = json.loads(raw)
+        except Exception:
+            raise RuntimeError(f"Meta Ads: respuesta no-JSON ({raw[:200]!r})")
+        # Defensivo: la Graph API siempre debería devolver {"data": [...]}, pero
+        # si algún día cambia de forma no queremos reventar con AttributeError
+        # iterando algo que no es una lista de dicts.
+        items = data.get("data") if isinstance(data, dict) else None
+        if not isinstance(items, list):
+            return []
         out: List[Dict[str, Any]] = []
-        for c in data.get("data", []):
+        for c in items:
+            if not isinstance(c, dict):
+                continue
             out.append({
                 "id": c.get("id"), "name": c.get("name"), "objective": c.get("objective"),
                 "status": "active" if c.get("effective_status") == "ACTIVE" else "paused",
@@ -135,7 +149,7 @@ def _graph(path: str, token: str, params: Optional[Dict[str, Any]] = None) -> Di
     url = f"{_API}/{path}?{urllib.parse.urlencode(q)}"
     try:
         with urllib.request.urlopen(url, timeout=20) as r:
-            return json.loads(r.read().decode("utf-8"))
+            raw = r.read().decode("utf-8")
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", "replace")
         try:
@@ -145,13 +159,23 @@ def _graph(path: str, token: str, params: Optional[Dict[str, Any]] = None) -> Di
         raise RuntimeError(f"Meta: {msg[:200]}") from e
     except urllib.error.URLError as e:
         raise RuntimeError(f"no pude contactar a Meta: {e}") from e
+    try:
+        data = json.loads(raw)
+    except Exception:
+        raise RuntimeError(f"Meta: respuesta no-JSON ({raw[:200]!r})")
+    if not isinstance(data, dict):
+        raise RuntimeError(f"Meta: forma de respuesta inesperada ({data!r:.200})")
+    return data
 
 
 def list_ad_accounts(token: str) -> List[Dict[str, Any]]:
     """Cuentas publicitarias que el token puede ver — para elegir el act_ correcto."""
     d = _graph("me/adaccounts", token, {"fields": "id,name,account_status", "limit": 100})
+    items = d.get("data")
+    if not isinstance(items, list):
+        return []
     return [{"id": a.get("id"), "name": a.get("name"), "status": a.get("account_status")}
-            for a in d.get("data", [])]
+            for a in items if isinstance(a, dict)]
 
 
 def make_metaads(cfg: Optional[Dict[str, Any]] = None):

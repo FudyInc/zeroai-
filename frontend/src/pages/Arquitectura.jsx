@@ -56,7 +56,7 @@ function TreeView() {
       <div className="flex justify-center">
         <motion.div variants={pop}>
           <div className="rounded-2xl px-7 py-4 bg-brand text-white text-center shadow-lg shadow-black/10">
-            <div className="flex items-center gap-2 justify-center font-extrabold"><Cpu size={18} /> ZERO — orquestador</div>
+            <div className="flex items-center gap-2 justify-center font-display font-extrabold tracking-tight"><Cpu size={18} /> ZERO — orquestador</div>
             <div className="text-[11px] text-champagne/90 mt-0.5">el cerebro · lógica Python (no LLM) · reparte · gate · entrega</div>
           </div>
         </motion.div>
@@ -67,7 +67,7 @@ function TreeView() {
           {AGENTS.map(([n, d, isNew]) => (
             <motion.div key={n} variants={pop} whileHover={{ y: -4 }}
               className={'rounded-xl p-3 bg-white border text-center cursor-default ' + (isNew ? 'border-gold/60 ring-1 ring-champagne' : 'border-zinc-200')}>
-              <div className={'text-[13px] font-extrabold ' + (isNew ? 'text-gold-deep' : 'text-brand')}>{n}</div>
+              <div className={'text-[13px] font-display font-extrabold tracking-tight ' + (isNew ? 'text-gold-deep' : 'text-brand')}>{n}</div>
               <div className="text-[10.5px] text-zinc-500 mt-1 leading-snug">{d}</div>
               {isNew && <div className="text-[9px] font-bold text-gold-deep mt-1 tracking-wide">NUEVO</div>}
             </motion.div>
@@ -80,7 +80,7 @@ function TreeView() {
           {LAYERS.map(([n, d, tag]) => (
             <motion.div key={n} variants={pop} whileHover={{ y: -4 }}
               className="rounded-xl p-4 bg-white border border-zinc-200">
-              <div className="text-[13px] font-extrabold text-brand">{n}</div>
+              <div className="text-[13px] font-display font-extrabold tracking-tight text-brand">{n}</div>
               <div className="text-[11px] text-zinc-500 mt-1">{d}</div>
               <div className="text-[9px] font-bold text-zinc-400 mt-2 uppercase tracking-wide">{tag}</div>
             </motion.div>

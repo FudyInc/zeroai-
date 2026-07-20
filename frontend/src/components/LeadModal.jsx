@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, MessageSquareReply } from 'lucide-react'
+import { X, MessageSquareReply, Send } from 'lucide-react'
+import { toast } from 'sonner'
 import { api } from '../lib/api'
 import { STAGES, scoreColor } from '../lib/util'
 import { Badge, Skeleton, Button, Input } from './ui'
@@ -86,7 +87,9 @@ function LeadBody({ r, client, onClose }) {
         </div>
       )}
 
-      {o && (
+      {o && o.status === 'draft' ? (
+        <PendingOutreach o={o} r={r} client={client} />
+      ) : o && (
         <div className="mt-4 border border-zinc-200 rounded-xl p-3 bg-zinc-50/80">
           <div className="text-xs uppercase tracking-wide text-zinc-400 mb-1">Primer mensaje · {o.channel}</div>
           {o.subject && <div className="text-sm font-medium">{o.subject}</div>}
@@ -108,6 +111,47 @@ function LeadBody({ r, client, onClose }) {
         </div>
       </div>
     </>
+  )
+}
+
+// El primer mensaje quedó redactado pero SIN mandar (modo revisión, auto_send=false
+// en "Buscar leads") — se puede editar la copia antes de aprobarla y mandarla.
+function PendingOutreach({ o, r, client }) {
+  const qc = useQueryClient()
+  const [subject, setSubject] = useState(o.subject || '')
+  const [body, setBody] = useState(o.body || '')
+
+  const send = useMutation({
+    mutationFn: () => api.sendOutreach(client, r.key, { channel: o.channel, subject, body }),
+    onSuccess: (out) => {
+      qc.invalidateQueries({ queryKey: ['lead', client, r.key] })
+      qc.invalidateQueries({ queryKey: ['board'] })
+      qc.invalidateQueries({ queryKey: ['leads'] })
+      qc.invalidateQueries({ queryKey: ['kpis'] })
+      if (out?.result?.status === 'sent') toast.success('Mensaje enviado')
+      else toast.error('No se pudo enviar: ' + (out?.result?.error || 'error desconocido'))
+    },
+    onError: (e) => toast.error('No se pudo enviar: ' + e.message),
+  })
+
+  return (
+    <div className="mt-4 border border-champagne bg-champagne/20 rounded-xl p-3">
+      <div className="text-xs uppercase tracking-wide text-gold-deep mb-1.5">
+        Borrador · {o.channel} — pendiente de revisión
+      </div>
+      {o.subject != null && (
+        <Input value={subject} onChange={(e) => setSubject(e.target.value)}
+          placeholder="Asunto" className="mb-2 w-full" />
+      )}
+      <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={5}
+        className="w-full border border-zinc-200 rounded-xl px-3 py-2 text-sm outline-none transition focus:ring-4 focus:ring-champagne/40 focus:border-gold/60 resize-y" />
+      {send.isError && <div className="text-sm text-rose-600 mt-2">{send.error.message}</div>}
+      <div className="flex justify-end mt-2">
+        <Button variant="accent" onClick={() => send.mutate()} disabled={send.isPending || !body.trim()}>
+          <Send size={14} /> {send.isPending ? 'Enviando…' : 'Enviar'}
+        </Button>
+      </div>
+    </div>
   )
 }
 

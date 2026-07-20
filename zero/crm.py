@@ -16,6 +16,13 @@ from .persistence import load_json, save_json
 
 _FIELDS = ("company", "name", "role", "email", "phone", "domain", "score", "channel", "icp_reasons")
 
+# Opt-out permanente — reusa el campo `tags` que ya existe (mismo campo que usa
+# import_ad_leads para "Meta Ads"), en vez de inventar uno paralelo. `tags` NO
+# está en _FIELDS, así que upsert() nunca lo pisa al refrescar un lead que
+# vuelve a aparecer en un discovery futuro — el bloqueo es forward-only por
+# construcción, no por una regla aparte que haya que recordar mantener.
+BLOCK_TAG = "no-contactar"
+
 # Funnel progression order, for forward-only automatic transitions. `disqualified`
 # sits beside `qualified`; both terminal stages share the highest rank so a re-run
 # can't drag a closed lead backwards.
@@ -127,6 +134,35 @@ class CRM:
     def _event(self, rec: Dict[str, Any], event: str, detail: Optional[str]) -> None:
         rec.setdefault("history", []).append({"ts": _now(), "event": event, "detail": detail})
 
+    # --- opt-out (durable, forward-only) --------------------------------------
+    def block(self, client_id: str, key: str, reason: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Marca un lead como bloqueado (opt-out) para este cliente — no una
+        pausa temporal, no se revierte solo porque el contacto vuelve a
+        aparecer en un discovery/Meta Ads futuro. Idempotente: llamarlo dos
+        veces no duplica el tag ni el evento de historial."""
+        self._ensure(client_id)
+        rec = self.leads.get(self._rid(client_id, key))
+        if rec is None:
+            return None
+        tags = rec.setdefault("tags", [])
+        if BLOCK_TAG not in tags:
+            tags.append(BLOCK_TAG)
+            rec["updated"] = _now()
+            self._event(rec, "blocked", reason or "opt-out")
+        return rec
+
+    def is_blocked(self, client_id: str, key: str) -> bool:
+        """¿Este lead (ya en el CRM) está bloqueado?"""
+        self._ensure(client_id)
+        rec = self.leads.get(self._rid(client_id, key))
+        return bool(rec and BLOCK_TAG in (rec.get("tags") or []))
+
+    def is_blocked_lead(self, client_id: str, lead: Dict[str, Any]) -> bool:
+        """Como is_blocked, pero a partir de un dict de lead crudo (discovery,
+        Meta Ads) — para decidir SI conviene registrarlo/contactarlo, no solo
+        consultar un registro que ya existe."""
+        return self.is_blocked(client_id, lead_key(lead))
+
     # --- queries -------------------------------------------------------------
     def get(self, client_id: str, key: str) -> Optional[Dict[str, Any]]:
         self._ensure(client_id)
@@ -145,6 +181,23 @@ class CRM:
             if em and (rec.get("email") or "").lower() == em:
                 return rec
         return None
+
+    def search(self, q: str, limit: int = 20) -> List[Dict[str, Any]]:
+        """Cross-client search by company/email/phone substring — for finding a
+        lead without already knowing which client account it belongs to (unlike
+        `list`/`query`, which always scope to one client). Case-insensitive."""
+        needle = (q or "").strip().lower()
+        if not needle:
+            return []
+        out: List[Dict[str, Any]] = []
+        for cid in self.client_ids():
+            for rec in self.list(cid):
+                if (needle in (rec.get("company") or "").lower()
+                        or needle in (rec.get("email") or "").lower()
+                        or needle in (rec.get("phone") or "").lower()):
+                    out.append(rec)
+        out.sort(key=lambda r: (-(r.get("score") or 0), r.get("company") or "", r.get("key") or ""))
+        return out[:limit]
 
     def list(self, client_id: Optional[str] = None, stage: Optional[str] = None,
              limit: Optional[int] = None, offset: int = 0) -> List[Dict[str, Any]]:
@@ -174,6 +227,36 @@ class CRM:
 
     def counts(self, client_id: Optional[str] = None) -> Dict[str, int]:
         return {stage: len(self.list(client_id, stage)) for stage in CRM_STAGES}
+
+    def all_leads(self) -> List[Dict[str, Any]]:
+        """Todos los leads de TODOS los clientes — para exportar la cartera
+        completa (ej. sincronización a Google Sheets, ver zero/sheets.py).
+        Mismo patrón que pending_outreach_count(): fuerza la carga de cada
+        cliente primero, así SupabaseCRM no devuelve solo lo que ya tenía en
+        cache de requests anteriores."""
+        for cid in self.client_ids():
+            self._ensure(cid)
+        return list(self.leads.values())
+
+    def pending_outreach_count(self) -> int:
+        """Cuántos leads, en TODOS los clientes, tienen un borrador de outreach
+        esperando revisión/envío (outreach.status == "draft") — el trabajo
+        pendiente central del rol CCO (panel de Equipo). Para SupabaseCRM esto
+        recorre todos los client_ids primero (carga perezosa vía _ensure) —
+        con el volumen de hoy (un puñado de clientes) es barato; si el CRM
+        crece mucho valdría la pena una query server-side en vez de esto."""
+        for cid in self.client_ids():
+            self._ensure(cid)
+        return sum(1 for r in self.leads.values() if (r.get("outreach") or {}).get("status") == "draft")
+
+    def clear(self, client_id: str) -> int:
+        """Borra TODOS los leads de un cliente (ej. limpiar datos de prueba antes
+        de una corrida real). Irreversible salvo por el `.bak` de save(). Devuelve
+        cuántos se borraron, para que quien llama pueda confirmar/loguear."""
+        rids = [rid for rid, r in self.leads.items() if r["client_id"] == client_id]
+        for rid in rids:
+            del self.leads[rid]
+        return len(rids)
 
     # --- persistence ---------------------------------------------------------
     def save(self) -> None:

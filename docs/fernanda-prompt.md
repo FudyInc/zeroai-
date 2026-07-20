@@ -1,4 +1,9 @@
-# Fernanda — persona / prompt del agente de llamadas (ZeroAI)
+# Fernanda — persona / prompt del agente de llamadas (ZeroAI) — LEGACY
+
+> [!warning] Reemplazada por **Francisca** (docs/francisca-prompt.md) — el agente de
+> llamadas ahora usa una voz real clonada en ElevenLabs. "Fernanda" sigue siendo el
+> vendedor por defecto del canal WhatsApp (`zero/vendors.py`), pero para llamadas el
+> nombre y el prompt vigentes son los de Francisca.
 
 Pega esto como **Task / Prompt** del agente en Bland.
 

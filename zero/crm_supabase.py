@@ -89,6 +89,20 @@ class SupabaseCRM(CRM):
                 out[st] += 1
         return out
 
+    def clear(self, client_id: str) -> int:
+        """Borra TODOS los leads de un cliente en Supabase (ej. limpiar datos de
+        prueba). `Prefer: return=representation` para que Postgres nos devuelva
+        las filas borradas y así contar cuántas fueron, sin un GET aparte."""
+        c = urllib.parse.quote(str(client_id), safe="")
+        rows = self._req("DELETE", f"{self.TABLE}?client_id=eq.{c}",
+                         prefer="return=representation") or []
+        # Limpia también el cache local, por si este mismo proceso vuelve a
+        # leer este cliente después de borrar.
+        for rid in [rid for rid, r in self.leads.items() if r["client_id"] == client_id]:
+            del self.leads[rid]
+        self._loaded.discard(client_id)
+        return len(rows)
+
     def find_by_contact(self, phone: Optional[str] = None,
                         email: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Match an inbound (WhatsApp/email reply) to its lead without a full scan.
@@ -108,6 +122,18 @@ class SupabaseCRM(CRM):
                 if rp and rp == pd:
                     return self._row_to_rec(row)
         return None
+
+    def search(self, q: str, limit: int = 20) -> List[Dict[str, Any]]:
+        """Cross-client search, server-side — the one query that intentionally
+        spans every account (no client_id filter), same sort as query()."""
+        needle = (q or "").strip()
+        if not needle:
+            return []
+        v = urllib.parse.quote(needle, safe="")
+        path = (f"{self.TABLE}?or=(company.ilike.*{v}*,email.ilike.*{v}*,phone.ilike.*{v}*)"
+                f"&order=score.desc.nullslast,company.asc&limit={int(limit)}")
+        rows = self._req("GET", path) or []
+        return [self._row_to_rec(r) for r in rows]
 
     def save(self) -> None:
         if not self.leads:

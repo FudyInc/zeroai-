@@ -53,22 +53,33 @@ def _curl(method: str, path: str, body: Optional[str] = None) -> Any:
 def list_assistants() -> list:
     """Your Vapi assistants → [{id, name}]."""
     data = _curl("GET", "assistant") or []
-    return [{"id": a.get("id"), "name": a.get("name") or "(sin nombre)"} for a in data]
+    # Defensivo: si Vapi alguna vez envuelve la lista en un objeto (ej. un
+    # cambio de API, un error 200 con otra forma), no reventar con
+    # AttributeError iterando strings/keys de un dict — tratarlo como vacío.
+    if not isinstance(data, list):
+        return []
+    return [{"id": a.get("id"), "name": a.get("name") or "(sin nombre)"}
+            for a in data if isinstance(a, dict)]
 
 
 def list_phone_numbers() -> list:
     """Your Vapi phone numbers → [{id, number}]."""
     data = _curl("GET", "phone-number") or []
-    return [{"id": n.get("id"), "number": n.get("number") or n.get("name") or n.get("id")} for n in data]
+    if not isinstance(data, list):
+        return []
+    return [{"id": n.get("id"), "number": n.get("number") or n.get("name") or n.get("id")}
+            for n in data if isinstance(n, dict)]
 
 
 def place_call(number: str, name: Optional[str] = None,
                assistant_id: Optional[str] = None, phone_number_id: Optional[str] = None) -> Dict[str, Any]:
     """Start an outbound call. Agent/number can be chosen per call, else env defaults."""
+    number = (number or "").strip()
     key = os.environ.get("VAPI_API_KEY")
     assistant = assistant_id or os.environ.get("VAPI_ASSISTANT_ID")
     phone_id = phone_number_id or os.environ.get("VAPI_PHONE_NUMBER_ID")
     missing = [n for n, v in (("VAPI_API_KEY", key),
+                              ("número a llamar", number),
                               ("agente", assistant),
                               ("número de origen", phone_id)) if not v]
     if missing:

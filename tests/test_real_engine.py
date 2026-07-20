@@ -155,5 +155,26 @@ class TestBackendDegrades(unittest.TestCase):
         self.assertEqual(res.get("error"), "discover")
 
 
+class LocalBackendNoThinkTest(unittest.TestCase):
+    """Modelos razonadores (DeepSeek-R1, QwQ) piensan antes de responder — más
+    lento. `LocalBackend` le pide a Ollama (parámetro `think`, 0.9+) que se salte
+    ese paso para esos modelos — más rápido de verdad, no solo se descarta el
+    bloque <think> después (eso ya lo hace extract_json)."""
+
+    def test_reasoning_models_get_think_false_in_payload(self):
+        from zero.backends import LocalBackend
+        for model in ("deepseek-r1:7b", "qwq:32b", "DeepSeek-R1-Distill"):
+            b = LocalBackend(model=model)
+            payload = b._build_payload("sys", "user", 100)
+            self.assertEqual(payload.get("think"), False, model)
+
+    def test_non_reasoning_models_never_get_a_think_field(self):
+        from zero.backends import LocalBackend
+        for model in ("qwen2.5:7b-instruct-q4_K_M", "llama3.1:8b"):
+            b = LocalBackend(model=model)
+            payload = b._build_payload("sys", "user", 100)
+            self.assertNotIn("think", payload)
+
+
 if __name__ == "__main__":
     unittest.main()

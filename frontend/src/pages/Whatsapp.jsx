@@ -6,7 +6,7 @@ import {
   Building2, Rocket, Cpu,
 } from 'lucide-react'
 import { api, BASE } from '../lib/api'
-import { Card, Button, Badge, Skeleton } from '../components/ui'
+import { Card, Button, Badge, Skeleton, SectionTitle } from '../components/ui'
 import { STAGES } from '../lib/util'
 import { useApp } from '../App'
 import AgentTester from '../components/AgentTester'
@@ -177,6 +177,7 @@ function KnowledgeCard({ client, knowledgeQ }) {
 
 /* Paso 2 — el catálogo de personalidades. */
 function VendorPicker({ vendorsQ, assignedId, currentId, onPick }) {
+  const current = (vendorsQ.data?.vendors || []).find((v) => v.id === currentId)
   return (
     <Card className="p-6">
       <StepHeader n={2} icon={MessageCircle} title="Elige quién atiende"
@@ -218,7 +219,47 @@ function VendorPicker({ vendorsQ, assignedId, currentId, onPick }) {
           })}
         </div>
       )}
+      {current && <ToneEditor vendor={current} />}
     </Card>
+  )
+}
+
+/* Regular el tono de la personalidad elegida — texto libre, como se lo dirías
+   a la persona. Se guarda con POST /api/vendors (solo pisa `tone`); pruébalo
+   en el chat de al lado (AgentTester) y ajusta hasta que suene como quieres —
+   el mismo loop de "escribe → prueba → ajusta" de un chat de IA normal. */
+function ToneEditor({ vendor }) {
+  const qc = useQueryClient()
+  const [tone, setTone] = useState(vendor.tone || '')
+  useEffect(() => { setTone(vendor.tone || '') }, [vendor.id, vendor.tone])
+
+  const save = useMutation({
+    mutationFn: () => api.saveVendor({ id: vendor.id, name: vendor.name, tone }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['vendors'] })
+      toast.success(`Tono de ${vendor.name} actualizado — pruébalo en el chat`)
+    },
+    onError: (e) => toast.error('No se pudo guardar: ' + e.message),
+  })
+  const dirty = tone !== (vendor.tone || '')
+
+  return (
+    <div className="mt-4 pt-4 border-t border-zinc-100">
+      <div className="text-xs font-medium text-zinc-600 mb-1.5">Tono de {vendor.name}</div>
+      <textarea
+        value={tone} onChange={(e) => setTone(e.target.value)} rows={2}
+        placeholder="Ej: cercana y cálida, chilena — usa 'ya', 'bacán' con moderación; tutea, sin muletillas ni sonar como robot"
+        className="w-full border border-zinc-200 rounded-xl px-3 py-2 text-sm outline-none transition focus:ring-4 focus:ring-champagne/40 focus:border-gold/60 placeholder:text-zinc-400 resize-y"
+      />
+      <div className="flex items-center justify-between mt-2 gap-3">
+        <span className="text-[11px] text-zinc-400">
+          Escríbelo como se lo dirías a la persona. Guarda, prueba en el chat y ajusta las veces que quieras.
+        </span>
+        <Button variant={dirty ? 'accent' : 'soft'} onClick={() => save.mutate()} disabled={save.isPending || !dirty} className="shrink-0">
+          {save.isPending ? 'Guardando…' : dirty ? 'Guardar tono' : <><Check size={14} /> Guardado</>}
+        </Button>
+      </div>
+    </div>
   )
 }
 
@@ -262,7 +303,7 @@ function StepHeader({ n, icon: Icon, title, sub }) {
         <span className="absolute -top-1.5 -right-1.5 w-[18px] h-[18px] rounded-full bg-zinc-900 text-white text-[10px] font-bold grid place-items-center">{n}</span>
       </div>
       <div>
-        <div className="font-semibold leading-tight">{title}</div>
+        <div className="font-display font-bold tracking-tight leading-tight text-brand">{title}</div>
         <div className="text-xs text-zinc-400 mt-0.5">{sub}</div>
       </div>
     </div>
@@ -306,9 +347,9 @@ function StatusCard({ cfg, webhookUrl }) {
   return (
     <Card className="p-6">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 font-semibold">
+        <SectionTitle className="flex items-center gap-2">
           <MessageCircle size={18} className="text-[#16a34a]" /> Conexión con Meta
-        </div>
+        </SectionTitle>
         <Badge color="#16a34a" className="inline-flex items-center gap-1">
           <CheckCircle2 size={12} /> Activo
         </Badge>
@@ -387,7 +428,7 @@ function ActivityCard({ leadsQ }) {
 
   return (
     <Card className="p-6">
-      <div className="font-semibold flex items-center gap-2 mb-1">
+      <div className="font-display font-bold tracking-tight text-brand flex items-center gap-2 mb-1">
         <Clock size={16} /> Actividad reciente (WhatsApp)
       </div>
       <div className="text-xs text-zinc-400 mt-0.5 mb-3">

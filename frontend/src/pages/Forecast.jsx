@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { api } from '../lib/api'
-import { Card, CountUp, Skeleton, pageState } from '../components/ui'
+import { Card, CountUp, Skeleton, pageState, Eyebrow, SectionTitle } from '../components/ui'
 import { Segmented } from '../components/Segmented'
 import { useApp } from '../App'
 import { NoClient } from './Dashboard'
@@ -53,14 +53,14 @@ export default function Forecast() {
         {stats.map((s, idx) => (
           <motion.div key={s.l} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.06 }}>
             <Card interactive className="p-5">
-              <div className="text-sm text-zinc-500">{s.l}</div>
-              <div className="text-2xl font-extrabold mt-1 tabular-nums">{s.prefix}<CountUp value={s.v} /></div>
+              <Eyebrow>{s.l}</Eyebrow>
+              <div className="text-[28px] leading-none font-display font-extrabold tracking-tight text-brand mt-2.5 tabular-nums">{s.prefix}<CountUp value={s.v} /></div>
             </Card>
           </motion.div>
         ))}
       </div>
       <Card className="p-5 text-sm text-zinc-600">
-        <div className="font-semibold text-zinc-900 mb-2">Supuestos</div>
+        <SectionTitle className="mb-2">Supuestos</SectionTitle>
         Embudo: descubiertos {i.discovered} → calificados {i.qualified} → contactados {i.contacted}.<br />
         Tasas: respuesta {a.reply_rate} · reunión {a.meeting_rate} · cierre {a.win_rate} · ticket ${(a.avg_deal_value_clp || 0).toLocaleString('es-CL')} CLP.
         {f.commentary && <div className="mt-3 text-zinc-500 italic">{f.commentary}</div>}

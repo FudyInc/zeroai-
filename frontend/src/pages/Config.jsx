@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2, AlertCircle, WifiOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
-import { Card, Button, Input, Skeleton, Badge } from '../components/ui'
+import { Card, Button, Input, Skeleton, Badge, SectionTitle } from '../components/ui'
 import AgentTester from '../components/AgentTester'
 
 export default function Config() {
@@ -102,11 +102,13 @@ export default function Config() {
           <Input type="password" placeholder="WhatsApp token" value={vals.wt || ''} onChange={(e) => set('wt', e.target.value)} />
           <Input placeholder="Phone Number ID" value={vals.wp || ''} onChange={(e) => set('wp', e.target.value)} />
           <Input placeholder="Verify token (lo inventas tú, p/ el webhook)" value={vals.wv || ''} onChange={(e) => set('wv', e.target.value)} />
+          <Input type="password" placeholder="App Secret (Meta Business Settings → App → Basic)" value={vals.was || ''} onChange={(e) => set('was', e.target.value)} />
           <Button onClick={() => save({
             ...(vals.wt && { whatsapp_token: vals.wt }),
             ...(vals.wp && { whatsapp_phone_id: vals.wp }),
             ...(vals.wv && { whatsapp_verify_token: vals.wv }),
-          }, ['wt', 'wp', 'wv'])}>Guardar WhatsApp</Button>
+            ...(vals.was && { whatsapp_app_secret: vals.was }),
+          }, ['wt', 'wp', 'wv', 'was'])}>Guardar WhatsApp</Button>
         </div>
       </IntegrationCard>
 
@@ -117,14 +119,14 @@ export default function Config() {
       <Card className="p-6">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <div className="font-semibold flex items-center gap-2">
+            <SectionTitle className="flex items-center gap-2">
               Envío real
               {cfg?.outbox_live && (
                 <span className="text-sm text-gold-deep font-medium flex items-center gap-1">
                   <CheckCircle2 size={16} /> Activado
                 </span>
               )}
-            </div>
+            </SectionTitle>
             <div className="text-xs text-zinc-400 mt-0.5">
               {cfg?.outbox_live
                 ? 'Los mensajes se ENVÍAN de verdad por los canales conectados.'
@@ -180,7 +182,7 @@ function MetaAdsCard({ cfg, vals, set, save }) {
   return (
     <Card className="p-6">
       <div className="flex items-center justify-between">
-        <div className="font-semibold">Meta Ads (campañas)</div>
+        <SectionTitle>Meta Ads (campañas)</SectionTitle>
         <Badge color={status.color} className="inline-flex items-center gap-1">
           <status.icon size={12} /> {status.label}
         </Badge>
@@ -284,7 +286,7 @@ function IntegrationCard({ title, ok, hint, children }) {
   return (
     <Card className="p-6">
       <div className="flex items-center justify-between">
-        <div className="font-semibold">{title}</div>
+        <SectionTitle>{title}</SectionTitle>
         {ok && (
           <span className="text-sm text-gold-deep font-medium flex items-center gap-1">
             <CheckCircle2 size={16} /> Conectado
