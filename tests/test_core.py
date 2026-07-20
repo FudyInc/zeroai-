@@ -243,6 +243,45 @@ class TrackerTest(unittest.TestCase):
         if d["followups"]:
             self.assertTrue(any("Stéfano" in m["body"] for m in d["followups"]))
 
+    def test_run_followups_never_silently_advances_a_lead_without_a_message(self):
+        """Encontrado en vivo (2026-07-20) contra el modelo real: TRACKER a
+        veces devuelve menos mensajes de los que se le pidieron. Antes, la
+        secuencia de un lead sin mensaje avanzaba igual (en silencio, sin
+        mandarle nada) — ahora se queda "debida" (se reintenta en la próxima
+        corrida) y queda contada en `skipped`, nunca en `advanced`."""
+        from zero.contracts import AgentResponse
+
+        crm = CRM(None)
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=crm)
+        z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8)
+        future = (datetime.now(timezone.utc) + timedelta(days=999)).isoformat()
+        due_before = z.memory.due_sequences("acme", as_of=future)
+        self.assertGreaterEqual(len(due_before), 2, "necesito al menos 2 leads calificados para este test")
+        keep_key = due_before[0]["lead_key"]
+        drop_key = due_before[1]["lead_key"]
+        steps_before = {s["lead_key"]: s["step"] for s in due_before}
+
+        real_tracker = z.agents["TRACKER"]
+
+        class _DropsOneMessage:
+            def run(self, task):
+                resp = real_tracker.run(task)
+                kept = [m for m in resp.result.get("messages", []) if m.get("lead_key") != drop_key]
+                return AgentResponse(task.task_id, "TRACKER", "done", {"messages": kept}, None)
+
+        z.agents["TRACKER"] = _DropsOneMessage()
+        result = z.run_followups("acme", as_of=future)
+
+        self.assertGreaterEqual(result["skipped"], 1)
+        due_after = {s["lead_key"]: s for s in z.memory.due_sequences("acme", as_of=future)}
+        # el que SÍ recibió mensaje avanzó al siguiente paso de la cadencia
+        # (con `as_of` tan lejano, el siguiente paso también queda "due" al
+        # toque — por eso se compara el número de step, no la presencia)
+        self.assertEqual(due_after[keep_key]["step"], steps_before[keep_key] + 1)
+        # el que NO recibió mensaje se quedó exactamente donde estaba, listo
+        # para reintentarse — no perdió su turno en silencio
+        self.assertEqual(due_after[drop_key]["step"], steps_before[drop_key])
+
 
 class CRMTest(unittest.TestCase):
     def setUp(self):

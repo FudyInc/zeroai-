@@ -555,7 +555,14 @@ class Zero:
             agent="TRACKER", client_id=client_id,
             client_tier=cfg.get("segment", ""),
             instructions="Redacta el siguiente mensaje de seguimiento para cada secuencia vencida.",
-            data={"sequences": payload_seqs, "vendor": persona},
+            # `knowledge` — encontrado en vivo (2026-07-20): sin esto, el paso
+            # "value" (que el prompt le pide sumar "una prueba concreta") no
+            # tenía NADA real de dónde sacarla, y el modelo real inventó un
+            # caso de cliente falso con una cifra falsa ("redujo sus costos en
+            # un 20%") para un lead real recién contactado. Mismo campo que ya
+            # recibe OUTREACH — ahora TRACKER tiene algo real de qué hablar.
+            data={"sequences": payload_seqs, "vendor": persona,
+                  "knowledge": self.memory.get_client_knowledge(client_id)[:4000]},
             constraints=Constraints(channels=cfg["channels"]),
         ))
         if resp.status == "error":
@@ -564,27 +571,41 @@ class Zero:
         messages = resp.result.get("messages", [])
         by_lead = {m.get("lead_key"): m for m in messages}
         sent = 0
+        advanced = 0
+        skipped = 0
         for s in due:   # `due` ya viene filtrado de bloqueados, arriba
+            msg = by_lead.get(s["lead_key"])
+            if msg is None:
+                # El modelo real no devolvió mensaje para este lead (encontrado
+                # en vivo, 2026-07-20: a veces pide N y contesta menos que N).
+                # Antes esto avanzaba la secuencia igual, en silencio — un paso
+                # de la cadencia se saltaba sin que nadie lo notara y sin que
+                # el lead recibiera ese toque. Ahora se deja "debida" (se
+                # reintenta en la próxima corrida) en vez de darla por hecha.
+                if self.crm:
+                    self.crm.log(client_id, s["lead_key"], "followup_skip",
+                                 "TRACKER no devolvió mensaje para este paso — se reintenta")
+                skipped += 1
+                continue
             self.memory.mark_contacted(s["lead_key"])
             if self.crm:
                 cadence = followup_step(s["step"]) or {}
                 self.crm.log(client_id, s["lead_key"], "followup",
                              f"paso {s['step']} ({cadence.get('kind', '')})")
-            msg = by_lead.get(s["lead_key"])
-            if msg:
-                rec = self.crm.get(client_id, s["lead_key"]) if self.crm else None
-                to = (rec or {}).get("email") or (rec or {}).get("phone")
-                # Seguimiento a alguien que no ha respondido = sigue siendo contacto
-                # en frío por WhatsApp (fuera de la ventana de 24h) — misma regla que
-                # el primer toque: exige plantilla pre-aprobada.
-                to_send = ({**msg, "whatsapp_send_type": "template"}
-                          if msg.get("channel") == "whatsapp" else msg)
-                res = self._deliver(client_id, s["lead_key"], to, to_send)
-                if res["status"] == "sent":
-                    sent += 1
+            rec = self.crm.get(client_id, s["lead_key"]) if self.crm else None
+            to = (rec or {}).get("email") or (rec or {}).get("phone")
+            # Seguimiento a alguien que no ha respondido = sigue siendo contacto
+            # en frío por WhatsApp (fuera de la ventana de 24h) — misma regla que
+            # el primer toque: exige plantilla pre-aprobada.
+            to_send = ({**msg, "whatsapp_send_type": "template"}
+                      if msg.get("channel") == "whatsapp" else msg)
+            res = self._deliver(client_id, s["lead_key"], to, to_send)
+            if res["status"] == "sent":
+                sent += 1
             self.memory.advance_sequence(s)
-        advanced = len(due)   # `due` ya viene filtrado de bloqueados, arriba
-        self.memory.log("followup", client=client_id, advanced=advanced, sent=sent, blocked=blocked)
+            advanced += 1
+        self.memory.log("followup", client=client_id, advanced=advanced, sent=sent,
+                        blocked=blocked, skipped=skipped)
         self.memory.set_stage(client_id, "delivered")
         self.memory.save()
         if self.crm:
@@ -598,6 +619,7 @@ class Zero:
             "advanced": advanced,
             "sent": sent,
             "blocked": blocked,
+            "skipped": skipped,
             "delivery": "live" if self.outbox.live else "mock",
             "replies_detected": replies["matched"],
             "open_remaining": open_remaining,
