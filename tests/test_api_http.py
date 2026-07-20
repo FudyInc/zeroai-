@@ -579,6 +579,20 @@ class ApiSupabaseAuthHttpTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("vendors", body)
 
+    def test_team_panel_is_admin_only(self):
+        """Panel de Equipo — sin entrada en _ROLE_ALLOWED, admin-only por
+        default fail-closed (mismo patrón que /api/vendors)."""
+        status, body = self._get("/api/team", token=self._jwt(role="admin"))
+        self.assertEqual(status, 200)
+        self.assertIn("users", body)
+        self.assertIn("configured", body)
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/api/team", token=self._jwt(role="cro"))
+        self.assertEqual(ctx.exception.code, 403)
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/api/team", token=self._jwt(role="cto"))
+        self.assertEqual(ctx.exception.code, 403)
+
     def test_cro_jwt_passes_allowed_route(self):
         status, body = self._get("/api/clients", token=self._jwt(role="cro", email="lucas@zeroai.cl"))
         self.assertEqual(status, 200)

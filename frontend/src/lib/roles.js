@@ -7,6 +7,9 @@
 //     Vender, Finanzas (exclusiva — ni "cto" la ve).
 //   - "cto" (Alejandro): Dashboard, Leads, Pipeline, Forecast.
 //   - Agentes/Llamadas/WhatsApp/Arquitectura/Configuración: solo admin.
+//   - Equipo (2026-07-20): SOLO admin (Diego) — quién tiene cuenta, qué rol,
+//     quién está conectado. El backend ya lo exige (sin entrada en
+//     _ROLE_ALLOWED, fail-closed); esto es solo para ocultar el link.
 export const PAGE_ROLES = {
   '/': ['cro', 'cto'],
   '/leads': ['cto'],
@@ -21,6 +24,7 @@ export const PAGE_ROLES = {
   '/whatsapp': [],
   '/arquitectura': [],
   '/config': [],
+  '/equipo': [],
 }
 
 // `authEnabled=false` (sin cuentas dadas de alta, mock/dev) → sin restricción,

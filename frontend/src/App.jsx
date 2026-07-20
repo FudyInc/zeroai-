@@ -26,6 +26,7 @@ import Whatsapp from './pages/Whatsapp'
 import Agentes from './pages/Agentes'
 import Config from './pages/Config'
 import Finanzas from './pages/Finanzas'
+import Equipo from './pages/Equipo'
 
 const AppCtx = createContext(null)
 export const useApp = () => useContext(AppCtx)
@@ -173,6 +174,7 @@ export default function App() {
                 <Route path="/llamadas" element={<Llamadas />} />
                 <Route path="/whatsapp" element={<Whatsapp />} />
                 <Route path="/config" element={<Config />} />
+                <Route path="/equipo" element={<Equipo />} />
               </Routes>
             </motion.div>
           </main>

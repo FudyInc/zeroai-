@@ -74,7 +74,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
@@ -419,3 +419,83 @@ def token_identity(token: str) -> Optional[Dict[str, Any]]:
         return {"email": None, "username": username, "role": "admin",
                 "full_name": None, "source": "local"}
     return None
+
+
+# --- Panel de equipo (admin-only), 2026-07-20 -----------------------------------
+# Diego pidió ver, SOLO él, quién tiene cuenta (Supabase Auth), qué rol tiene cada
+# uno (o ninguno todavía — alguien que entró con Google pero nadie le asignó rol)
+# y aproximar "quién está conectado". Usa la Admin API de Supabase Auth
+# (`/auth/v1/admin/users`), que exige la key `service_role` (SUPABASE_KEY, la
+# misma que ya usa el backend para todo — nunca la key pública/anon). Ningún
+# endpoint de esto existía hasta ahora (ver nota en token_identity más arriba).
+
+def _admin_api_base() -> Optional[str]:
+    base = os.environ.get("SUPABASE_URL")
+    return base.rstrip("/") + "/auth/v1/admin" if base else None
+
+
+def _admin_headers() -> Optional[Dict[str, str]]:
+    key = os.environ.get("SUPABASE_KEY")
+    if not key:
+        return None
+    return {"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+
+
+def list_supabase_users() -> List[Dict[str, Any]]:
+    """Todas las cuentas de Supabase Auth de este proyecto, con su rol (o None
+    si nadie se lo asignó todavía) y últimas fechas de acceso. Nunca lanza:
+    sin SUPABASE_URL/KEY, red caída, o forma inesperada -> lista vacía (el
+    caller lo trata como 'no se pudo cargar', no como 'no hay nadie')."""
+    base, headers = _admin_api_base(), _admin_headers()
+    if not base or not headers:
+        return []
+    req = urllib.request.Request(f"{base}/users", headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            data = json.loads(r.read().decode("utf-8"))
+    except Exception:
+        return []
+    raw_users = data.get("users") if isinstance(data, dict) else data
+    if not isinstance(raw_users, list):
+        return []
+    out = []
+    for u in raw_users:
+        if not isinstance(u, dict):
+            continue
+        app_meta = u.get("app_metadata") if isinstance(u.get("app_metadata"), dict) else {}
+        out.append({
+            "id": u.get("id"),
+            "email": u.get("email"),
+            "full_name": supabase_full_name({"user_metadata": u.get("user_metadata")}),
+            "role": app_meta.get("role"),
+            "created_at": u.get("created_at"),
+            "last_sign_in_at": u.get("last_sign_in_at"),
+        })
+    return out
+
+
+def set_user_role(user_id: str, role: Optional[str]) -> bool:
+    """Asigna (o quita, con role=None) el rol de una cuenta — lo único que
+    antes había que hacer a mano en el panel de Supabase. Lee el app_metadata
+    actual primero y solo pisa la clave `role`, para no perder otras claves
+    que pueda tener ese objeto en el futuro. True si Supabase confirmó el
+    cambio; False ante cualquier problema (nunca lanza)."""
+    base, headers = _admin_api_base(), _admin_headers()
+    if not base or not headers or not user_id:
+        return False
+    try:
+        get_req = urllib.request.Request(f"{base}/users/{user_id}", headers=headers)
+        with urllib.request.urlopen(get_req, timeout=10) as r:
+            current = json.loads(r.read().decode("utf-8"))
+        app_meta = dict(current.get("app_metadata") or {}) if isinstance(current, dict) else {}
+        if role:
+            app_meta["role"] = role
+        else:
+            app_meta.pop("role", None)
+        body = json.dumps({"app_metadata": app_meta}).encode("utf-8")
+        put_req = urllib.request.Request(f"{base}/users/{user_id}", data=body,
+                                         headers=headers, method="PUT")
+        with urllib.request.urlopen(put_req, timeout=10):
+            return True
+    except Exception:
+        return False

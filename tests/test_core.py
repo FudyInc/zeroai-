@@ -2128,6 +2128,94 @@ class SupabaseES256AuthTest(unittest.TestCase):
                 os.environ["SUPABASE_JWT_SECRET"] = prev
 
 
+class SupabaseAdminApiTest(unittest.TestCase):
+    """list_supabase_users()/set_user_role() — la Admin API de Supabase Auth
+    (`/auth/v1/admin/users`), usada por el panel de Equipo (admin-only).
+    Nunca pega contra Supabase de verdad: mockea urllib.request.urlopen."""
+
+    def setUp(self):
+        import os
+        from zero import auth
+        self.auth = auth
+        self._prev = {k: os.environ.get(k) for k in ("SUPABASE_URL", "SUPABASE_KEY")}
+        os.environ["SUPABASE_URL"] = "https://fake-project.supabase.co"
+        os.environ["SUPABASE_KEY"] = "fake-service-role-key"
+
+    def tearDown(self):
+        import os
+        for k, v in self._prev.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    @staticmethod
+    def _mock_response(body: dict):
+        import json as _json
+        from unittest import mock
+        cm = mock.MagicMock()
+        cm.__enter__.return_value.read.return_value = _json.dumps(body).encode("utf-8")
+        cm.__exit__.return_value = False
+        return cm
+
+    def test_list_users_normalizes_shape(self):
+        from unittest import mock
+        body = {"users": [
+            {"id": "u1", "email": "diego@zeroai.cl",
+             "user_metadata": {"full_name": "Diego Mardones"},
+             "app_metadata": {"role": "admin"},
+             "created_at": "2026-07-19T22:50:39Z", "last_sign_in_at": "2026-07-20T01:32:15Z"},
+            {"id": "u2", "email": "desconocido@gmail.com",
+             "user_metadata": {}, "app_metadata": {},
+             "created_at": "2026-07-20T01:33:59Z", "last_sign_in_at": "2026-07-20T01:33:59Z"},
+        ]}
+        with mock.patch("zero.auth.urllib.request.urlopen", return_value=self._mock_response(body)):
+            users = self.auth.list_supabase_users()
+        self.assertEqual(len(users), 2)
+        self.assertEqual(users[0]["role"], "admin")
+        self.assertEqual(users[0]["full_name"], "Diego Mardones")
+        self.assertIsNone(users[1]["role"])   # sin app_metadata.role -> None, no KeyError
+
+    def test_list_users_without_credentials_returns_empty(self):
+        import os
+        os.environ.pop("SUPABASE_URL", None)
+        os.environ.pop("SUPABASE_KEY", None)
+        self.assertEqual(self.auth.list_supabase_users(), [])
+
+    def test_list_users_network_failure_returns_empty_not_raise(self):
+        from unittest import mock
+        with mock.patch("zero.auth.urllib.request.urlopen", side_effect=OSError("red caída")):
+            self.assertEqual(self.auth.list_supabase_users(), [])
+
+    def test_set_user_role_merges_into_existing_app_metadata(self):
+        import json as _json
+        from unittest import mock
+        get_resp = self._mock_response({"id": "u2", "app_metadata": {"otra_clave": "x"}})
+        put_resp = self._mock_response({"id": "u2"})
+        with mock.patch("zero.auth.urllib.request.urlopen", side_effect=[get_resp, put_resp]) as m:
+            ok = self.auth.set_user_role("u2", "cro")
+        self.assertTrue(ok)
+        put_call = m.call_args_list[1][0][0]   # el Request del segundo urlopen()
+        sent_body = _json.loads(put_call.data.decode("utf-8"))
+        self.assertEqual(sent_body["app_metadata"], {"otra_clave": "x", "role": "cro"})
+
+    def test_set_user_role_none_removes_role_key(self):
+        import json as _json
+        from unittest import mock
+        get_resp = self._mock_response({"id": "u2", "app_metadata": {"role": "cro"}})
+        put_resp = self._mock_response({"id": "u2"})
+        with mock.patch("zero.auth.urllib.request.urlopen", side_effect=[get_resp, put_resp]) as m:
+            self.auth.set_user_role("u2", None)
+        put_call = m.call_args_list[1][0][0]
+        sent_body = _json.loads(put_call.data.decode("utf-8"))
+        self.assertNotIn("role", sent_body["app_metadata"])
+
+    def test_set_user_role_network_failure_returns_false(self):
+        from unittest import mock
+        with mock.patch("zero.auth.urllib.request.urlopen", side_effect=OSError("red caída")):
+            self.assertFalse(self.auth.set_user_role("u2", "cro"))
+
+
 class MetaAdsTest(unittest.TestCase):
     """Mock de campañas fiel al contrato y determinista por cliente."""
 

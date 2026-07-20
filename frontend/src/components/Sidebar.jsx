@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, NavLink } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  LayoutDashboard, Users, GitBranch, Bot, TrendingUp, Briefcase, Settings, Mail, Network, LogOut, Megaphone, X, User, Wallet, AlertTriangle,
+  LayoutDashboard, Users, GitBranch, Bot, TrendingUp, Briefcase, Settings, Mail, Network, LogOut, Megaphone, X, User, Wallet, AlertTriangle, ShieldCheck,
 } from 'lucide-react'
 import { cn } from '../lib/util'
 import { api } from '../lib/api'
@@ -30,6 +30,7 @@ const SECTIONS = [
       { to: '/finanzas', label: 'Finanzas', icon: Wallet },
       { to: '/arquitectura', label: 'Arquitectura', icon: Network },
       { to: '/config', label: 'Configuración', icon: Settings },
+      { to: '/equipo', label: 'Equipo', icon: ShieldCheck },
     ],
   },
 ]

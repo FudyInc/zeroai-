@@ -125,6 +125,27 @@ def _role_may_access(role: str, method: str, path: str) -> bool:
     return False
 
 
+# "Quién está conectado" (panel de Equipo, admin-only) — última vez que se vio
+# a cada identidad autenticada, en memoria de ESTE proceso. A propósito no es
+# persistente ni distribuido: un restart del backend lo vacía, y si algún día
+# corren varios workers no se comparte entre ellos — para el tamaño del equipo
+# de hoy (un puñado de personas, un solo proceso uvicorn) es una aproximación
+# honesta y gratis, no un sistema de presencia de verdad. Se actualiza para
+# CUALQUIER identidad válida, incluida una sin rol asignado todavía (para que
+# el panel muestre "alguien entró pero nadie le dio acceso", no solo a los ya
+# autorizados).
+_LAST_SEEN: dict = {}
+_ONLINE_WINDOW_SECONDS = 5 * 60
+
+
+def _touch_last_seen(identity: dict) -> None:
+    import time
+    key = identity.get("email") or identity.get("username")
+    if not key:
+        return
+    _LAST_SEEN[key] = time.time()
+
+
 @app.middleware("http")
 async def auth_guard(request: Request, call_next):
     """Login gate — dos mecanismos: JWT de Supabase Auth (Google, con rol en
@@ -143,6 +164,7 @@ async def auth_guard(request: Request, call_next):
         identity = token_identity(token)
         if identity is None:
             return JSONResponse({"detail": "no autorizado"}, status_code=401)
+        _touch_last_seen(identity)
         role = identity.get("role")
         if role is None:
             return JSONResponse({"detail": "sin rol asignado"}, status_code=403)
@@ -182,6 +204,48 @@ def auth_status(request: Request):
             "username": identity.get("username") if identity else None,
             "role": identity.get("role") if identity else None,
             "full_name": identity.get("full_name") if identity else None}
+
+
+@app.get("/api/team")
+def team():
+    """Panel de equipo — SOLO admin (sin entrada en _ROLE_ALLOWED, fail-closed
+    igual que el resto). Junta las cuentas reales de Supabase Auth (quién
+    existe, qué rol tiene o si no tiene ninguno todavía) con la aproximación
+    de presencia de este proceso (`_LAST_SEEN`) para mostrar quién está
+    activo ahora mismo. `configured=False` si no hay SUPABASE_URL/KEY —
+    nunca un 500 por eso, el modelo local por-persona no tiene este panel."""
+    import time
+    from zero.auth import list_supabase_users
+    users = list_supabase_users()
+    now = time.time()
+    out = []
+    for u in users:
+        key = u.get("email")
+        last_seen_ts = _LAST_SEEN.get(key)
+        out.append({
+            **u,
+            "online": bool(last_seen_ts and (now - last_seen_ts) < _ONLINE_WINDOW_SECONDS),
+            "last_seen_here": last_seen_ts,
+        })
+    out.sort(key=lambda u: u.get("created_at") or "")
+    return {"users": out, "configured": bool(os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_KEY"))}
+
+
+class SetRole(BaseModel):
+    role: Optional[str] = None   # None = quitar el rol (vuelve a "sin acceso")
+
+
+@app.post("/api/team/{user_id}/role")
+def team_set_role(user_id: str, body: SetRole):
+    """Asigna/cambia/quita el rol de una cuenta — admin-only. Antes esto era
+    exclusivamente a mano en el panel de Supabase; ahora Diego lo hace acá."""
+    from zero.auth import set_user_role
+    if body.role is not None and body.role not in ("admin", "cro", "cto"):
+        raise HTTPException(status_code=400, detail="rol inválido — usa admin, cro, cto o null")
+    ok = set_user_role(user_id, body.role)
+    if not ok:
+        raise HTTPException(status_code=502, detail="no se pudo actualizar en Supabase")
+    return {"user_id": user_id, "role": body.role}
 
 
 def _crm():

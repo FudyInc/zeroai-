@@ -57,6 +57,11 @@ export const api = {
     req('/api/leads/' + q(k) + '/send?client=' + q(c), {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}),
     }),
+  team: () => req('/api/team'),
+  setTeamRole: (userId, role) =>
+    req('/api/team/' + q(userId) + '/role', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role }),
+    }),
   icp: (c) => req('/api/icp?client=' + q(c)).then((d) => d.icp),
   campaigns: (c) => req('/api/campaigns?client=' + q(c)),
   optimizeCampaigns: (c) => req('/api/campaigns/optimize?client=' + q(c)),
