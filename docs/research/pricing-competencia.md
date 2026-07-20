@@ -10,7 +10,7 @@ documento principal, y solo si el dato de precio es público o razonablemente
 confiable. No se anota relleno — si un ciclo no encuentra nada nuevo de precio
 en ese rango, se deja constancia en el historial de abajo sin inventar cifras.
 
-**Última revisión:** 2026-07-14
+**Última revisión:** 2026-07-15
 
 ---
 
@@ -18,10 +18,11 @@ en ese rango, se deja constancia en el historial de abajo sin inventar cifras.
 
 | Empresa | Modelo de cobro | Precio | Importancia | Fecha |
 |---|---|---|---|---|
-| Nexor (Chile) | No público — agentes IA por voz/WhatsApp | Sin dato | 9/10 | 2026-07-14 |
+| Nexor (Chile) | No público — agentes IA por voz/WhatsApp | Sin dato (oferta de a16z: US$500K por 10% + SAFE US$500K sin cap) | 9/10 | 2026-07-15 |
 | Smartlead | Suscripción + add-on white-label por cliente | US$39–379/mes base; +US$29/mes/cliente white-label (desde plan Pro US$94/mes) | 8/10 | 2026-07-06 |
+| Leadsales (México) | Suscripción por asiento/vendedor | US$84/mes (3 usuarios) – US$175/mes (10 vendedores) | 7/10 | 2026-07-15 |
 
-*(Solo dos empresas alcanzan el umbral de Importancia ≥ 7/10 hasta ahora —
+*(Solo tres empresas alcanzan el umbral de Importancia ≥ 7/10 hasta ahora —
 la escala de importancia recién se introdujo el 2026-07-06, así que hallazgos
 anteriores como B2B Rocket, AiSDR y Lead Fishers no tienen puntaje asignado
 todavía. Se re-evaluarán con la escala en el próximo ciclo que los toque de
@@ -44,3 +45,6 @@ nuevo, no se les inventa un puntaje retroactivo.)*
 
 - 2026-07-14: creación del documento a partir de los dos hallazgos de alta
   importancia ya registrados en `mercado-competencia.md` (Nexor, Smartlead).
+- 2026-07-15: se agregó Leadsales (7/10) y se actualizó el dato de Nexor con
+  los términos exactos de la oferta de a16z (US$500K por 10% + SAFE US$500K
+  sin cap) — sigue sin precio de producto público.

@@ -10,7 +10,7 @@ Desde el 2026-07-06 cada hallazgo nuevo incluye una **Importancia: N/10**
 no qué tan grande es la empresa). Entradas anteriores a esa fecha no la tienen
 retroactivamente — no vale la pena reescribir hallazgos ya cerrados.
 
-**Última revisión:** 2026-07-14
+**Última revisión:** 2026-07-15
 
 ---
 
@@ -141,7 +141,30 @@ retroactivamente — no vale la pena reescribir hallazgos ya cerrados.
   de inversionistas de primer nivel. Vigilar de cerca: mensajes, pricing cuando
   lo publiquen, y si expanden vertical más allá de venta directa hacia
   calificación B2B pura.
-- Fuente: ecosistemastartup.com, df.cl, getnexor.ai (2026-07-14).
+- **Actualización 2026-07-15 — términos exactos de la oferta de a16z:**
+  Speedrun les ofreció US$1M en total: US$500K por 10% de equity + un SAFE
+  adicional de US$500K a valuación abierta (sin cap). Confirma que el interés
+  de a16z es concreto y grande para el tamaño de la startup, no solo una nota
+  de prensa genérica. Se mudan a San Francisco a fines de julio 2026 para
+  entrar al programa. Sigue sin precio público.
+- Fuente: ecosistemastartup.com, df.cl, getnexor.ai, techcrunch.com (2026-07-15).
+
+### Leadsales (México) — CRM de WhatsApp con IA para ventas
+- **Qué hace:** CRM visual tipo Kanban construido específicamente para equipos
+  de venta que operan por WhatsApp y redes sociales — no es un AI SDR desde el
+  origen, es un CRM de WhatsApp al que le agregaron un feature de IA llamado
+  "Lead Agent" para automatizar respuestas y calificación dentro del embudo.
+  Se posiciona como el CRM líder de WhatsApp/redes sociales para PyMEs en LATAM.
+- **Precio:** plan mensual desde ~US$84/mes (3 usuarios), US$110/mes (5
+  vendedores), US$175/mes (10 vendedores). Prueba de 14 días por US$7.
+- **Importancia: 7/10.** No compite en "agentes IA que prospectan" como Nexor
+  o B2B Rocket — compite en el terreno de "CRM de WhatsApp para PyME LATAM",
+  que es territorio adyacente a ZERO (canal WhatsApp + CRM propio, ver
+  `zero/crm.py` y agente Fernanda). El precio por asiento (no por volumen de
+  trabajo) es un modelo distinto al resto de lo registrado — vale la pena
+  vigilar si evolucionan "Lead Agent" hacia calificación real o se quedan en
+  respuesta automática básica.
+- Fuente: eligetucrm.com, heraldodemexico.com.mx (2026-07-15).
 
 ### Panorama general de precios (referencia, no una empresa específica)
 - Agencias regionales chilenas/LATAM tradicionales (SEO/Ads + lead-gen):
