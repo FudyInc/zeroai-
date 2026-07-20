@@ -402,6 +402,20 @@ class CRMTest(unittest.TestCase):
     def test_clear_on_client_without_leads_removes_nothing(self):
         self.assertEqual(self.crm.clear("nadie"), 0)
 
+    def test_pending_outreach_count_across_clients(self):
+        self.crm.upsert("c", {"company": "A", "email": "a@a.cl"}, stage="qualified")
+        self.crm.set_outreach("c", "a@a.cl", {"channel": "email", "body": "x", "status": "draft"})
+        self.crm.upsert("otro", {"company": "B", "email": "b@b.cl"}, stage="qualified")
+        self.crm.set_outreach("otro", "b@b.cl", {"channel": "email", "body": "y", "status": "sent"})
+        self.crm.upsert("otro", {"company": "C", "email": "c@c.cl"}, stage="qualified")
+        self.crm.set_outreach("otro", "c@c.cl", {"channel": "email", "body": "z", "status": "draft"})
+        # 2 en "draft" (uno por cliente), 1 en "sent" no cuenta
+        self.assertEqual(self.crm.pending_outreach_count(), 2)
+
+    def test_pending_outreach_count_zero_when_none_pending(self):
+        self.crm.upsert("c", self.lead, stage="qualified")
+        self.assertEqual(self.crm.pending_outreach_count(), 0)
+
 
 class CRMSearchTest(unittest.TestCase):
     """search() — el salto rápido cross-cliente: encontrar un lead sin saber de

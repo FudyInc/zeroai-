@@ -167,12 +167,30 @@ _LAST_SEEN: dict = {}
 _ONLINE_WINDOW_SECONDS = 5 * 60
 
 
+ACTIVITY_PATH = os.environ.get("ACTIVITY_PATH", "activity.json")
+_activity_log_instance = None
+
+
+def _activity_log():
+    """Singleton de proceso (mismo criterio que _LAST_SEEN) — cargado una vez,
+    guardado a disco en cada touch. Ver zero/activity.py para el porqué de la
+    heurística de huecos y sus límites honestos."""
+    global _activity_log_instance
+    if _activity_log_instance is None:
+        from zero.activity import ActivityLog
+        _activity_log_instance = ActivityLog(ACTIVITY_PATH)
+    return _activity_log_instance
+
+
 def _touch_last_seen(identity: dict) -> None:
     import time
     key = identity.get("email") or identity.get("username")
     if not key:
         return
     _LAST_SEEN[key] = time.time()
+    log = _activity_log()
+    log.touch(key)
+    log.save()
 
 
 @app.middleware("http")
@@ -235,26 +253,61 @@ def auth_status(request: Request):
             "full_name": identity.get("full_name") if identity else None}
 
 
+# Meta semanal de horas conectadas — ver zero/activity.py para los límites
+# honestos de esto (proxy de uso del dashboard, no un timesheet real). Por
+# decisión de Diego (2026-07-20), aplica SOLO a "cco" por ahora: es el único
+# rol cuyo trabajo real ES estar en el dashboard — para cro/cto, buena parte
+# del trabajo pasa fuera (llamadas, reuniones), así que medir "horas
+# conectado ahí" sería injusto/poco representativo. Ampliar acá cuando/si se
+# decide un objetivo justo para los demás roles.
+_WEEKLY_GOAL_BY_ROLE = {"cco": 20.0}
+
+
+def _pending_work(role: Optional[str], crm) -> Optional[int]:
+    """Trabajo pendiente accionable por rol — proxy simple y honesto, no una
+    definición exhaustiva: para cco, borradores de outreach sin mandar (su
+    trabajo central); para cro/cto, leads en la etapa que más directamente
+    necesita su próxima acción. None si el rol no tiene un proxy definido
+    (ej. admin, que ve todo) — el frontend no muestra el número en ese caso."""
+    if role == "cco":
+        return crm.pending_outreach_count()
+    counts = crm.counts(None)   # agrega TODOS los clientes
+    if role == "cro":
+        return counts.get("replied", 0)          # respondieron, falta el siguiente paso humano
+    if role == "cto":
+        return counts.get("qualified", 0)        # calificados, todavía sin trabajar
+    return None
+
+
 @app.get("/api/team")
 def team():
     """Panel de equipo — SOLO admin (sin entrada en _ROLE_ALLOWED, fail-closed
     igual que el resto). Junta las cuentas reales de Supabase Auth (quién
     existe, qué rol tiene o si no tiene ninguno todavía) con la aproximación
-    de presencia de este proceso (`_LAST_SEEN`) para mostrar quién está
-    activo ahora mismo. `configured=False` si no hay SUPABASE_URL/KEY —
-    nunca un 500 por eso, el modelo local por-persona no tiene este panel."""
+    de presencia de este proceso (`_LAST_SEEN`/`ActivityLog`) para mostrar
+    quién está activo, cuántas horas lleva esta semana, y cuánto trabajo
+    pendiente tiene según su rol. `configured=False` si no hay
+    SUPABASE_URL/KEY — nunca un 500 por eso, el modelo local por-persona no
+    tiene este panel."""
     import time
     from zero.auth import list_supabase_users
     users = list_supabase_users()
     now = time.time()
+    log = _activity_log()
+    crm = _crm()
     out = []
     for u in users:
         key = u.get("email")
+        role = u.get("role")
         last_seen_ts = _LAST_SEEN.get(key)
+        week_hours = log.week_hours(key, as_of=now) if key else 0.0
         out.append({
             **u,
             "online": bool(last_seen_ts and (now - last_seen_ts) < _ONLINE_WINDOW_SECONDS),
             "last_seen_here": last_seen_ts,
+            "week_hours": week_hours,
+            "week_goal_hours": _WEEKLY_GOAL_BY_ROLE.get(role),
+            "pending_work": _pending_work(role, crm),
         })
     out.sort(key=lambda u: u.get("created_at") or "")
     return {"users": out, "configured": bool(os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_KEY"))}

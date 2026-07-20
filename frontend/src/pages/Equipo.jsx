@@ -52,9 +52,10 @@ export default function Equipo() {
         <SectionTitle>Equipo</SectionTitle>
       </div>
       <p className="text-sm text-zinc-500 max-w-2xl">
-        Quién tiene cuenta, qué rol tiene y quién está conectado ahora. "En línea" es una
-        aproximación (actividad en los últimos 5 minutos contra este servidor) — no un sistema
-        de presencia en tiempo real.
+        Quién tiene cuenta, qué rol tiene, quién está conectado ahora, trabajo pendiente según su
+        rol, y horas activas esta semana (para CCO, con meta de 20h). Todo esto es una
+        <b> aproximación de uso del dashboard, no un timesheet real</b> — no captura trabajo hecho
+        fuera de acá (llamadas, WhatsApp desde el celular, reuniones).
       </p>
 
       {!configured && (
@@ -90,6 +91,28 @@ export default function Equipo() {
                 </div>
                 {!u.role && (
                   <div className="text-xs text-amber-700 font-medium mt-1">Sin rol asignado — no puede usar el dashboard todavía.</div>
+                )}
+                {u.role && (u.pending_work != null || u.week_goal_hours != null) && (
+                  <div className="flex items-center gap-4 mt-1.5">
+                    {u.pending_work != null && (
+                      <span className="text-xs text-zinc-500">
+                        <b className="text-zinc-700 tabular-nums">{u.pending_work}</b> pendiente{u.pending_work === 1 ? '' : 's'}
+                      </span>
+                    )}
+                    {u.week_goal_hours != null && (
+                      <div className="flex items-center gap-2 flex-1 max-w-[220px]">
+                        <div className="flex-1 h-1.5 rounded-full bg-zinc-100 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-gold-deep transition-all"
+                            style={{ width: `${Math.min(100, (u.week_hours / u.week_goal_hours) * 100)}%` }}
+                          />
+                        </div>
+                        <span className="text-[11px] text-zinc-400 tabular-nums shrink-0">
+                          {u.week_hours.toFixed(1)}/{u.week_goal_hours}h esta semana
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
               <Select

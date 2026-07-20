@@ -228,6 +228,17 @@ class CRM:
     def counts(self, client_id: Optional[str] = None) -> Dict[str, int]:
         return {stage: len(self.list(client_id, stage)) for stage in CRM_STAGES}
 
+    def pending_outreach_count(self) -> int:
+        """Cuántos leads, en TODOS los clientes, tienen un borrador de outreach
+        esperando revisión/envío (outreach.status == "draft") — el trabajo
+        pendiente central del rol CCO (panel de Equipo). Para SupabaseCRM esto
+        recorre todos los client_ids primero (carga perezosa vía _ensure) —
+        con el volumen de hoy (un puñado de clientes) es barato; si el CRM
+        crece mucho valdría la pena una query server-side en vez de esto."""
+        for cid in self.client_ids():
+            self._ensure(cid)
+        return sum(1 for r in self.leads.values() if (r.get("outreach") or {}).get("status") == "draft")
+
     def clear(self, client_id: str) -> int:
         """Borra TODOS los leads de un cliente (ej. limpiar datos de prueba antes
         de una corrida real). Irreversible salvo por el `.bak` de save(). Devuelve

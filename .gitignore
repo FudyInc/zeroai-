@@ -6,6 +6,7 @@ crm.json
 inbox.json
 finance.json
 users.json
+activity.json
 *.json.bak
 *.json.tmp
 .venv/
