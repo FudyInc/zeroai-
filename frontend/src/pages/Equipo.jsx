@@ -102,6 +102,7 @@ export default function Equipo() {
                 <option value="admin">{ROLE_LABELS.admin}</option>
                 <option value="cro">{ROLE_LABELS.cro}</option>
                 <option value="cto">{ROLE_LABELS.cto}</option>
+                <option value="cco">{ROLE_LABELS.cco}</option>
               </Select>
             </Card>
           </motion.div>

@@ -115,6 +115,32 @@ _ROLE_ALLOWED: dict = {
         ("GET", "/api/icp"),              # modal global "Buscar leads"
         ("POST", "/api/pipeline"),        # modal global "Buscar leads" (operar el pipeline)
     ),
+    # CCO — contenido y comunicaciones (Maureen, 2026-07-20): dueña de todo lo
+    # que es palabra escrita del negocio. Nada de Forecast/Clientes/Finanzas
+    # (plata/proyecciones) ni Configuración (credenciales técnicas).
+    "cco": (
+        ("GET", "/api/clients"),          # selector de cliente (global, App.jsx)
+        ("GET", "/api/kpis"),             # Dashboard.jsx home
+        ("GET", "/api/board"),            # Pipeline.jsx
+        ("GET", "/api/leads"),            # Pipeline/LeadModal — revisar/editar outreach
+        ("POST", "/api/leads"),           # LeadModal (enviar el borrador aprobado)
+        ("GET", "/api/vendors"),          # Whatsapp.jsx — catálogo de personalidades
+        ("POST", "/api/vendors"),         # editar el tono de cada agente
+        ("GET", "/api/vendor"),           # vendedor asignado a un cliente
+        ("POST", "/api/vendor"),          # asignar/desplegar personalidad
+        ("GET", "/api/knowledge"),        # ficha de la empresa (WhatsApp)
+        ("POST", "/api/knowledge"),
+        ("GET", "/api/pricing"),          # precios que cita el agente (WhatsApp)
+        ("POST", "/api/pricing"),
+        ("GET", "/api/whatsapp"),         # /whatsapp/status
+        ("POST", "/api/whatsapp"),        # /whatsapp/simulate — probar el chat
+        ("GET", "/api/emails"),           # Vender.jsx
+        ("POST", "/api/pitch"),           # Vender.jsx — compose/generate/send
+        ("GET", "/api/campaigns"),        # Campañas.jsx
+        ("POST", "/api/campaigns"),       # sync-leads
+        ("GET", "/api/marketing"),        # Campañas.jsx
+        ("POST", "/api/marketing"),
+    ),
 }
 
 
@@ -240,8 +266,10 @@ def team_set_role(user_id: str, body: SetRole):
     """Asigna/cambia/quita el rol de una cuenta — admin-only. Antes esto era
     exclusivamente a mano en el panel de Supabase; ahora Diego lo hace acá."""
     from zero.auth import set_user_role
-    if body.role is not None and body.role not in ("admin", "cro", "cto"):
-        raise HTTPException(status_code=400, detail="rol inválido — usa admin, cro, cto o null")
+    valid_roles = {"admin", *_ROLE_ALLOWED}   # una sola fuente de verdad: _ROLE_ALLOWED de arriba
+    if body.role is not None and body.role not in valid_roles:
+        raise HTTPException(status_code=400,
+                            detail=f"rol inválido — usa {', '.join(sorted(valid_roles))} o null")
     ok = set_user_role(user_id, body.role)
     if not ok:
         raise HTTPException(status_code=502, detail="no se pudo actualizar en Supabase")

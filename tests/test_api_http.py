@@ -592,6 +592,9 @@ class ApiSupabaseAuthHttpTest(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self._get("/api/team", token=self._jwt(role="cto"))
         self.assertEqual(ctx.exception.code, 403)
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/api/team", token=self._jwt(role="cco"))
+        self.assertEqual(ctx.exception.code, 403)
 
     def test_cro_jwt_passes_allowed_route(self):
         status, body = self._get("/api/clients", token=self._jwt(role="cro", email="lucas@zeroai.cl"))
@@ -640,6 +643,28 @@ class ApiSupabaseAuthHttpTest(unittest.TestCase):
             self.assertEqual(status, 200, role)
             status, _ = self._get("/api/forecast?client=acme", token=self._jwt(role=role))
             self.assertEqual(status, 200, role)
+
+    def test_cco_jwt_passes_allowed_route(self):
+        status, body = self._get("/api/vendors", token=self._jwt(role="cco", email="maureen@zeroai.cl"))
+        self.assertEqual(status, 200)
+        self.assertIn("vendors", body)
+
+    def test_cco_jwt_gets_403_outside_allowed_routes(self):
+        # Forecast/Clientes/Finanzas/Configuración son terreno de plata/técnico,
+        # no de contenido — cco (Maureen) no los tiene.
+        for path in ("/api/forecast?client=acme", "/api/accounts", "/api/finance", "/api/config"):
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                self._get(path, token=self._jwt(role="cco"))
+            self.assertEqual(ctx.exception.code, 403, path)
+
+    def test_cco_jwt_can_review_and_send_outreach(self):
+        # El caso de uso central del rol: ver el board/leads y poder mandar un
+        # borrador aprobado (POST /api/leads/{key}/send cae bajo el mismo
+        # prefijo que POST /api/leads).
+        status, _ = self._get("/api/board?client=acme", token=self._jwt(role="cco"))
+        self.assertEqual(status, 200)
+        status, _ = self._get("/api/leads?client=acme", token=self._jwt(role="cco"))
+        self.assertEqual(status, 200)
 
     def test_expired_jwt_is_401(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:

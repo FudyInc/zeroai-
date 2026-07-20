@@ -6,22 +6,26 @@
 //   - "cro" (Lucas): Dashboard, Pipeline, Forecast, Clientes, Campañas,
 //     Vender, Finanzas (exclusiva — ni "cto" la ve).
 //   - "cto" (Alejandro): Dashboard, Leads, Pipeline, Forecast.
-//   - Agentes/Llamadas/WhatsApp/Arquitectura/Configuración: solo admin.
+//   - "cco" (Maureen, 2026-07-20): contenido/comunicaciones — Dashboard,
+//     Pipeline (revisar/editar borradores de outreach), Vender, Campañas,
+//     WhatsApp (tono, ficha, precios). Nada de Forecast/Clientes/Finanzas ni
+//     Configuración.
+//   - Agentes/Llamadas/Arquitectura/Configuración: solo admin.
 //   - Equipo (2026-07-20): SOLO admin (Diego) — quién tiene cuenta, qué rol,
 //     quién está conectado. El backend ya lo exige (sin entrada en
 //     _ROLE_ALLOWED, fail-closed); esto es solo para ocultar el link.
 export const PAGE_ROLES = {
-  '/': ['cro', 'cto'],
+  '/': ['cro', 'cto', 'cco'],
   '/leads': ['cto'],
-  '/pipeline': ['cro', 'cto'],
+  '/pipeline': ['cro', 'cto', 'cco'],
   '/forecast': ['cro', 'cto'],
-  '/vender': ['cro'],
-  '/campanas': ['cro'],
+  '/vender': ['cro', 'cco'],
+  '/campanas': ['cro', 'cco'],
   '/clientes': ['cro'],
   '/finanzas': ['cro'],
   '/agentes': [],
   '/llamadas': [],
-  '/whatsapp': [],
+  '/whatsapp': ['cco'],
   '/arquitectura': [],
   '/config': [],
   '/equipo': [],
@@ -39,4 +43,4 @@ export function canSeePage(path, role, authEnabled) {
 
 // Solo para mostrar — el rol real (permisos) sigue siendo "admin"/"cro"/"cto"
 // en todo el backend; esto es la etiqueta que ve el humano en el sidebar.
-export const ROLE_LABELS = { admin: 'CEO', cro: 'CRO', cto: 'CTO' }
+export const ROLE_LABELS = { admin: 'CEO', cro: 'CRO', cto: 'CTO', cco: 'CCO' }
