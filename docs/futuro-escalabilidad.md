@@ -38,6 +38,17 @@ completo detrás de cada ítem).
 - **Otros vendedores con voz propia** — hoy solo Francisca (llamadas) tiene voz real
   clonada. Si se suman más personas (ej. Stéfano con su propia voz), es el mismo
   proceso: alguien clona su voz en ElevenLabs, se agrega el Voice ID.
+- **Latencia de voz (2026-07-20)**: `zero/voice.py` cambió de `eleven_multilingual_v2`
+  a `eleven_flash_v2_5` (~75-150ms vs. varios segundos) — verificado que soporta
+  español, el acento sigue viniendo de la voz clonada, no del modelo. Falta
+  replicar el mismo cambio de modelo en el Assistant de Vapi (panel, no código).
+- **Clonación de voz local/open-source (evaluado y descartado por ahora,
+  2026-07-20)**: existen modelos reales (OpenVoice, Pocket TTS, LuxTTS, etc.),
+  pero el PC de producción **no tiene GPU** (Ryzen 7 9700X) — a diferencia del
+  LLM de texto, la clonación de voz en tiempo real generalmente necesita GPU
+  para ser rápida; correrla en CPU podría salir más lenta que ElevenLabs por la
+  nube, no más rápida. Revisar solo si en algún momento se compra/consigue una
+  GPU, y solo si el flash de ElevenLabs no alcanza.
 
 ## 📱 WhatsApp — fricción de escalar a más vendedores
 
