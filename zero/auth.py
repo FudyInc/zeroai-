@@ -23,9 +23,47 @@ Replaces the old single-AUTH_PASSWORD model — that env var is no longer read
 here. See the top of this repo's docs/roadmap.md if AUTH_PASSWORD is still
 referenced anywhere outside this module (Config UI) after this change; that's
 a separate, already-flagged follow-up, not something this module depends on.
+
+--- Supabase Auth (Google login) + roles, 2026-07-16 ---------------------------
+Second, PREFERRED login path on top of the per-person model above (added, not
+replacing it — the per-person model stays as a transitional fallback, see
+`token_identity()`). Diego turned on Google as a provider in Supabase Auth's
+own panel (a manual step, already done); the frontend does the OAuth dance
+with Supabase directly and hands this backend the resulting JWT.
+
+Roles live in the token's `app_metadata` (never `user_metadata` — that one a
+user can edit about themselves via the Supabase client API, so it can't be
+trusted for authorization). Diego assigns `app_metadata.role` by hand from the
+Supabase panel per person — no admin endpoint here for that yet. A JWT that
+verifies but carries no role is authenticated with nobody home: fail closed,
+never treated as "sees everything" (see `token_identity()`'s `role: None`
+case, and `api.py::auth_guard`, which turns that into a 403, not a free pass).
+
+**Dos algoritmos de firma soportados** (encontrado en vivo, 2026-07-17 —
+Diego se logueaba de verdad con Google, Supabase lo confirmaba, pero este
+backend igual lo rechazaba y lo mandaba de vuelta al login):
+- `HS256` — el modelo original de esta sección, firma con `SUPABASE_JWT_SECRET`
+  (Settings → API → JWT Secret), verificable 100% stdlib (hmac).
+- `ES256` — lo que Supabase usa de VERDAD para los tokens que emite Google
+  Auth en proyectos nuevos (confirmado vía el endpoint público
+  `<SUPABASE_URL>/auth/v1/.well-known/jwks.json` de este proyecto: trae una
+  clave `"kty":"EC","crv":"P-256"`, nunca HS256). `SUPABASE_JWT_SECRET`
+  configurado no alcanza para estos tokens — ninguna cantidad de secreto
+  compartido verifica una firma asimétrica.
+
+Verificar ECDSA (P-256) no es viable en stdlib puro — Python no trae
+primitivas de curva elíptica utilizables para esto. Única excepción
+documentada a la disciplina "stdlib only" de zero/*.py: se suma `cryptography`
+(ver requirements.txt) SOLO para este verify, nada más del módulo la usa.
+Las claves públicas se traen del endpoint JWKS de Supabase (público, no es un
+secreto) y se cachean en memoria (`_JWKS_CACHE`, 1h) — a diferencia de HS256,
+esto sí puede hacer una llamada de red, pero como mucho una vez por hora, no
+por request; nunca lanza (red caída → ese token no verifica hasta el próximo
+refresh, no un crash).
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import json
@@ -33,8 +71,15 @@ import os
 import re
 import secrets
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
+
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 
 TTL = 7 * 24 * 3600   # a week
 PBKDF2_ITERATIONS = 260_000   # OWASP 2023 minimum recommendation for PBKDF2-SHA256
@@ -68,7 +113,7 @@ def _save_users(users: Dict[str, Dict[str, Any]]) -> None:
 
 
 def auth_enabled() -> bool:
-    return bool(_load_users())
+    return bool(_load_users()) or bool(os.environ.get("SUPABASE_JWT_SECRET"))
 
 
 def _hash_password(password: str, salt: bytes, iterations: int = PBKDF2_ITERATIONS) -> str:
@@ -179,3 +224,278 @@ def token_username(token: str) -> Optional[str]:
 
 def valid_token(token: str) -> bool:
     return token_username(token) is not None
+
+
+# --- Supabase Auth (Google login) — JWT verification (HS256 y ES256) ---------
+def _b64url_decode(seg: str) -> bytes:
+    return base64.urlsafe_b64decode(seg + "=" * (-len(seg) % 4))
+
+
+def _supabase_jwt_secret() -> Optional[bytes]:
+    s = os.environ.get("SUPABASE_JWT_SECRET")
+    return s.encode("utf-8") if s else None
+
+
+# Claves públicas ES256 del proyecto, por kid — traídas del JWKS de Supabase
+# (endpoint público, no un secreto) y cacheadas para no pedirlas en cada
+# request. `fetched_at = 0.0` fuerza un primer fetch real la primera vez.
+_JWKS_CACHE: Dict[str, Any] = {"keys": {}, "fetched_at": 0.0}
+_JWKS_CACHE_TTL = 3600.0   # 1h — las claves rotan poco
+
+
+def _jwks_url() -> Optional[str]:
+    base = os.environ.get("SUPABASE_URL")
+    return base.rstrip("/") + "/auth/v1/.well-known/jwks.json" if base else None
+
+
+def _fetch_jwks() -> Dict[str, Any]:
+    """{kid: EllipticCurvePublicKey}. Nunca lanza: sin SUPABASE_URL, red
+    caída, o forma inesperada del JWKS -> {} (ese/esos kid simplemente no
+    verifican hasta el próximo fetch que sí funcione)."""
+    url = _jwks_url()
+    if not url:
+        return {}
+    try:
+        with urllib.request.urlopen(url, timeout=5) as r:
+            data = json.loads(r.read().decode("utf-8"))
+    except Exception:
+        return {}
+    keys: Dict[str, Any] = {}
+    for jwk in (data.get("keys") if isinstance(data, dict) else None) or []:
+        if not isinstance(jwk, dict) or jwk.get("kty") != "EC" or jwk.get("crv") != "P-256":
+            continue
+        kid = jwk.get("kid")
+        if not kid:
+            continue
+        try:
+            x = int.from_bytes(_b64url_decode(jwk["x"]), "big")
+            y = int.from_bytes(_b64url_decode(jwk["y"]), "big")
+            keys[kid] = ec.EllipticCurvePublicNumbers(x, y, ec.SECP256R1()).public_key()
+        except Exception:
+            continue   # una clave con forma rara no debe tirar abajo las demás
+    return keys
+
+
+def _get_jwks(force_refresh: bool = False) -> Dict[str, Any]:
+    stale = time.time() - _JWKS_CACHE["fetched_at"] > _JWKS_CACHE_TTL
+    if force_refresh or stale or not _JWKS_CACHE["keys"]:
+        fresh = _fetch_jwks()
+        if fresh:   # solo pisa el cache si de verdad trajo algo — una red
+            _JWKS_CACHE["keys"] = fresh   # caída momentánea no borra lo que ya andaba
+            _JWKS_CACHE["fetched_at"] = time.time()
+    return _JWKS_CACHE["keys"]
+
+
+def _verify_hs256(header_b64: str, payload_b64: str, sig_b64: str) -> bool:
+    secret = _supabase_jwt_secret()
+    if not secret:
+        return False
+    try:
+        actual_sig = _b64url_decode(sig_b64)
+    except Exception:
+        return False
+    expected_sig = hmac.new(secret, f"{header_b64}.{payload_b64}".encode("ascii"),
+                            hashlib.sha256).digest()
+    return hmac.compare_digest(expected_sig, actual_sig)
+
+
+def _verify_es256(header_b64: str, payload_b64: str, sig_b64: str, kid: Optional[str]) -> bool:
+    """La firma JWS de un ES256 viene como R||S crudo (64 bytes, RFC 7518
+    §3.4) — cryptography espera DER, hay que convertirla antes de verify()."""
+    try:
+        raw_sig = _b64url_decode(sig_b64)
+        if len(raw_sig) != 64:
+            return False
+        r = int.from_bytes(raw_sig[:32], "big")
+        s = int.from_bytes(raw_sig[32:], "big")
+        der_sig = encode_dss_signature(r, s)
+    except Exception:
+        return False
+
+    pubkey = _get_jwks().get(kid) if kid else None
+    if pubkey is None:
+        # kid no está en cache — puede ser una rotación reciente de claves;
+        # un único refresh forzado antes de rendirse (no en cada intento).
+        pubkey = _get_jwks(force_refresh=True).get(kid) if kid else None
+    if pubkey is None:
+        return False
+    try:
+        pubkey.verify(der_sig, f"{header_b64}.{payload_b64}".encode("ascii"), ec.ECDSA(hashes.SHA256()))
+        return True
+    except InvalidSignature:
+        return False
+    except Exception:
+        return False
+
+
+def verify_supabase_jwt(token: str) -> Optional[Dict[str, Any]]:
+    """Firma + `exp` de un JWT de Supabase Auth. Soporta HS256 (verificable
+    100% en el proceso, con SUPABASE_JWT_SECRET) y ES256 (firma asimétrica —
+    lo que Supabase usa de verdad para Google Auth en proyectos nuevos;
+    verifica contra las claves públicas del JWKS del proyecto). Devuelve el
+    payload decodificado si es válido; None ante CUALQUIER problema (formato
+    raro, firma mala, `alg` que no sea uno de los dos soportados, vencido,
+    sin cómo verificar) — nunca lanza, el caller (`token_identity`) lo trata
+    igual que "no es este tipo de token" y sigue probando el modelo local."""
+    if not token:
+        return None
+    try:
+        header_b64, payload_b64, sig_b64 = token.split(".")
+        header = json.loads(_b64url_decode(header_b64))
+        payload = json.loads(_b64url_decode(payload_b64))
+    except Exception:
+        return None
+    if not isinstance(header, dict) or not isinstance(payload, dict):
+        return None
+
+    alg = header.get("alg")
+    if alg == "HS256":
+        ok = _verify_hs256(header_b64, payload_b64, sig_b64)
+    elif alg == "ES256":
+        ok = _verify_es256(header_b64, payload_b64, sig_b64, header.get("kid"))
+    else:
+        ok = False   # nunca aceptar "none" ni ningún otro algoritmo
+    if not ok:
+        return None
+
+    try:
+        if float(payload.get("exp")) <= time.time():
+            return None
+    except (TypeError, ValueError):
+        return None
+    return payload
+
+
+def supabase_role(payload: Dict[str, Any]) -> Optional[str]:
+    """`app_metadata.role`, asignado a mano por Diego desde el panel de
+    Supabase — nunca `user_metadata` (eso lo puede editar el propio usuario,
+    no sirve para autorización)."""
+    app_meta = payload.get("app_metadata")
+    role = app_meta.get("role") if isinstance(app_meta, dict) else None
+    return role if isinstance(role, str) and role else None
+
+
+def supabase_full_name(payload: Dict[str, Any]) -> Optional[str]:
+    """Nombre real de la persona (`user_metadata.full_name`, o `.name` si
+    Google no mandó el primero — confirmado en vivo, 2026-07-17, contra una
+    cuenta real: Google manda AMBOS, idénticos, pero no hay garantía de que
+    siempre sea así). A diferencia de `supabase_role`, esto SÍ lee
+    `user_metadata` a propósito — es solo para mostrar un nombre en la UI,
+    nunca para autorización, así que el riesgo de que el usuario lo edite él
+    mismo (vía la API de Supabase) no aplica acá: en el peor caso, alguien
+    cambia cómo se ve SU PROPIO nombre en pantalla."""
+    user_meta = payload.get("user_metadata")
+    if not isinstance(user_meta, dict):
+        return None
+    name = user_meta.get("full_name") or user_meta.get("name")
+    return name if isinstance(name, str) and name else None
+
+
+def token_identity(token: str) -> Optional[Dict[str, Any]]:
+    """Identidad para un token de CUALQUIER mecanismo soportado — el punto
+    único que usa api.py::auth_guard. None si la autenticación en sí falla
+    (token vencido/mal firmado/con formato raro/usuario local desconocido):
+    eso es un 401 para el caller. Si la autenticación es válida pero no trae
+    rol utilizable (JWT de Supabase sin app_metadata.role), igual devuelve
+    una identidad — con `role: None` — para que el caller pueda distinguir
+    "no sé quién eres" (401) de "sé quién eres, pero no tienes permiso
+    asignado" (403, fail closed, nunca 've todo por defecto').
+
+    Prueba primero Supabase (el camino real, con roles); si el token no es
+    un JWT de Supabase válido, cae al modelo local por-persona (users.json)
+    como fallback transicional — ese modelo no tiene roles, así que se le
+    asigna "admin" (ve todo). Es un hueco a propósito, documentado: mientras
+    dure la transición, cualquier cuenta local dada de alta con add_user()
+    tiene acceso total, sin restricción de "cro" — no uses el modelo local
+    para alguien a quien de verdad quieras limitar a un rol acotado; dale
+    login real de Google en Supabase en cambio."""
+    payload = verify_supabase_jwt(token)
+    if payload is not None:
+        email = payload.get("email")
+        return {"email": email, "username": email, "role": supabase_role(payload),
+                "full_name": supabase_full_name(payload), "source": "supabase"}
+    username = token_username(token)
+    if username is not None:
+        return {"email": None, "username": username, "role": "admin",
+                "full_name": None, "source": "local"}
+    return None
+
+
+# --- Panel de equipo (admin-only), 2026-07-20 -----------------------------------
+# Diego pidió ver, SOLO él, quién tiene cuenta (Supabase Auth), qué rol tiene cada
+# uno (o ninguno todavía — alguien que entró con Google pero nadie le asignó rol)
+# y aproximar "quién está conectado". Usa la Admin API de Supabase Auth
+# (`/auth/v1/admin/users`), que exige la key `service_role` (SUPABASE_KEY, la
+# misma que ya usa el backend para todo — nunca la key pública/anon). Ningún
+# endpoint de esto existía hasta ahora (ver nota en token_identity más arriba).
+
+def _admin_api_base() -> Optional[str]:
+    base = os.environ.get("SUPABASE_URL")
+    return base.rstrip("/") + "/auth/v1/admin" if base else None
+
+
+def _admin_headers() -> Optional[Dict[str, str]]:
+    key = os.environ.get("SUPABASE_KEY")
+    if not key:
+        return None
+    return {"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+
+
+def list_supabase_users() -> List[Dict[str, Any]]:
+    """Todas las cuentas de Supabase Auth de este proyecto, con su rol (o None
+    si nadie se lo asignó todavía) y últimas fechas de acceso. Nunca lanza:
+    sin SUPABASE_URL/KEY, red caída, o forma inesperada -> lista vacía (el
+    caller lo trata como 'no se pudo cargar', no como 'no hay nadie')."""
+    base, headers = _admin_api_base(), _admin_headers()
+    if not base or not headers:
+        return []
+    req = urllib.request.Request(f"{base}/users", headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            data = json.loads(r.read().decode("utf-8"))
+    except Exception:
+        return []
+    raw_users = data.get("users") if isinstance(data, dict) else data
+    if not isinstance(raw_users, list):
+        return []
+    out = []
+    for u in raw_users:
+        if not isinstance(u, dict):
+            continue
+        app_meta = u.get("app_metadata") if isinstance(u.get("app_metadata"), dict) else {}
+        out.append({
+            "id": u.get("id"),
+            "email": u.get("email"),
+            "full_name": supabase_full_name({"user_metadata": u.get("user_metadata")}),
+            "role": app_meta.get("role"),
+            "created_at": u.get("created_at"),
+            "last_sign_in_at": u.get("last_sign_in_at"),
+        })
+    return out
+
+
+def set_user_role(user_id: str, role: Optional[str]) -> bool:
+    """Asigna (o quita, con role=None) el rol de una cuenta — lo único que
+    antes había que hacer a mano en el panel de Supabase. Lee el app_metadata
+    actual primero y solo pisa la clave `role`, para no perder otras claves
+    que pueda tener ese objeto en el futuro. True si Supabase confirmó el
+    cambio; False ante cualquier problema (nunca lanza)."""
+    base, headers = _admin_api_base(), _admin_headers()
+    if not base or not headers or not user_id:
+        return False
+    try:
+        get_req = urllib.request.Request(f"{base}/users/{user_id}", headers=headers)
+        with urllib.request.urlopen(get_req, timeout=10) as r:
+            current = json.loads(r.read().decode("utf-8"))
+        app_meta = dict(current.get("app_metadata") or {}) if isinstance(current, dict) else {}
+        if role:
+            app_meta["role"] = role
+        else:
+            app_meta.pop("role", None)
+        body = json.dumps({"app_metadata": app_meta}).encode("utf-8")
+        put_req = urllib.request.Request(f"{base}/users/{user_id}", data=body,
+                                         headers=headers, method="PUT")
+        with urllib.request.urlopen(put_req, timeout=10):
+            return True
+    except Exception:
+        return False

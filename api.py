@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import urllib.parse
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -35,8 +36,9 @@ from zero.store import make_crm, make_memory
 from zero.vendors import clients_count_for
 from zero._supabase import SupabaseError
 
-CRM_PATH = "crm.json"
-STATE_PATH = "state.json"
+CRM_PATH = os.environ.get("CRM_PATH", "crm.json")
+STATE_PATH = os.environ.get("STATE_PATH", "state.json")
+FINANCE_PATH = "finance.json"   # costos de la agencia — local, gitignorado
 
 app = FastAPI(title="ZERO API", version="0.1.0",
               description="Lead-gen B2B — pipeline y CRM por HTTP")
@@ -64,12 +66,142 @@ async def supabase_error_handler(request: Request, exc: SupabaseError):
 # its own verify token, not ours).
 _OPEN_PATHS = {"/api/login", "/api/health", "/api/auth/status", "/api/public/plans"}
 
+# --- roles no-admin: a qué (método, ruta) tiene acceso cada uno --------------
+# Todo lo que NO matchee acá para un rol dado exige "admin" — fail closed por
+# diseño: una ruta nueva que no se agregue a estas listas queda solo para
+# admin automáticamente, nunca abierta a un rol por accidente. "admin" (Diego)
+# nunca pasa por esta tabla — ve todo siempre (ver auth_guard).
+#
+# Construido grepeando qué llama CADA PÁGINA real del dashboard (no adivinado
+# — ver el prompt/auditoría que dejó esto documentado), mapeado a las
+# personas/áreas que Diego asignó (2026-07-17):
+#   - "cro" (Lucas): Clientes, Campañas, Vender, Forecast — más Finanzas,
+#     EXCLUSIVO de este rol (ni siquiera "cto" lo tiene).
+#   - "cto" (Alejandro): operación de Leads/Pipeline/Forecast — dedicado full
+#     a esa área, sin Campañas/Vender/Clientes/Finanzas.
+#   - Pipeline (el board), Forecast y el Dashboard/KPIs de inicio son
+#     compartidos por los dos — son la vista operativa común de "en qué está
+#     cada lead" y "cómo viene el mes"; Diego no pidió sacárselos a Lucas al
+#     darle esas páginas a Alejandro.
+_ROLE_ALLOWED: dict = {
+    "cro": (
+        ("GET", "/api/clients"),          # selector de cliente (global, App.jsx)
+        ("GET", "/api/accounts"),         # Clientes.jsx
+        ("POST", "/api/accounts"),        # Clientes.jsx (cambiar plan)
+        ("GET", "/api/forecast"),         # Forecast.jsx (compartido con cto)
+        ("GET", "/api/campaigns"),        # Campañas.jsx (incluye /campaigns/optimize)
+        ("GET", "/api/marketing"),        # Campañas.jsx
+        ("POST", "/api/marketing"),       # Campañas.jsx
+        ("POST", "/api/campaigns"),       # Campañas.jsx (sync-leads)
+        ("POST", "/api/pitch"),           # Vender.jsx (generate/send)
+        ("GET", "/api/emails"),           # Vender.jsx
+        ("GET", "/api/board"),            # Pipeline.jsx (compartido con cto)
+        ("GET", "/api/leads"),            # Pipeline/LeadModal/CommandPalette
+        ("POST", "/api/leads"),           # LeadModal (mover etapa, responder)
+        ("GET", "/api/kpis"),             # Dashboard.jsx home (compartido con cto)
+        ("GET", "/api/icp"),              # modal global "Buscar leads"
+        ("POST", "/api/pipeline"),        # modal global "Buscar leads"
+        ("POST", "/api/followups"),       # correr seguimientos (TRACKER)
+        # Finanzas — EXCLUSIVO de cro, "cto" no lo tiene. La ruta todavía no
+        # existe en este archivo (GET /api/finance está en revisión, ver
+        # workspace FINANZAS) — se deja lista acá de antemano para que, apenas
+        # se mergee, Lucas no quede bloqueado por el fail-closed por defecto.
+        ("GET", "/api/finance"),
+    ),
+    "cto": (
+        ("GET", "/api/clients"),          # selector de cliente (global, App.jsx)
+        ("GET", "/api/leads"),            # Leads.jsx / Pipeline / LeadModal
+        ("POST", "/api/leads"),           # LeadModal (mover etapa, responder)
+        ("GET", "/api/board"),            # Pipeline.jsx (compartido con cro)
+        ("GET", "/api/forecast"),         # Forecast.jsx (compartido con cro)
+        ("GET", "/api/kpis"),             # Dashboard.jsx (overview de leads/pipeline)
+        ("GET", "/api/icp"),              # modal global "Buscar leads"
+        ("POST", "/api/pipeline"),        # modal global "Buscar leads" (operar el pipeline)
+        ("POST", "/api/followups"),       # correr seguimientos (TRACKER)
+    ),
+    # CCO — contenido y comunicaciones (Maureen, 2026-07-20): dueña de todo lo
+    # que es palabra escrita del negocio. Nada de Forecast/Clientes/Finanzas
+    # (plata/proyecciones) ni Configuración (credenciales técnicas).
+    "cco": (
+        ("GET", "/api/clients"),          # selector de cliente (global, App.jsx)
+        ("GET", "/api/kpis"),             # Dashboard.jsx home
+        ("GET", "/api/board"),            # Pipeline.jsx
+        ("GET", "/api/leads"),            # Pipeline/LeadModal — revisar/editar outreach
+        ("POST", "/api/leads"),           # LeadModal (enviar el borrador aprobado)
+        ("POST", "/api/followups"),       # correr seguimientos (TRACKER) — su trabajo central
+        ("GET", "/api/vendors"),          # Whatsapp.jsx — catálogo de personalidades
+        ("POST", "/api/vendors"),         # editar el tono de cada agente
+        ("GET", "/api/vendor"),           # vendedor asignado a un cliente
+        ("POST", "/api/vendor"),          # asignar/desplegar personalidad
+        ("GET", "/api/knowledge"),        # ficha de la empresa (WhatsApp)
+        ("POST", "/api/knowledge"),
+        ("GET", "/api/pricing"),          # precios que cita el agente (WhatsApp)
+        ("POST", "/api/pricing"),
+        ("GET", "/api/whatsapp"),         # /whatsapp/status
+        ("POST", "/api/whatsapp"),        # /whatsapp/simulate — probar el chat
+        ("GET", "/api/emails"),           # Vender.jsx
+        ("POST", "/api/pitch"),           # Vender.jsx — compose/generate/send
+        ("GET", "/api/campaigns"),        # Campañas.jsx
+        ("POST", "/api/campaigns"),       # sync-leads
+        ("GET", "/api/marketing"),        # Campañas.jsx
+        ("POST", "/api/marketing"),
+    ),
+}
+
+
+def _role_may_access(role: str, method: str, path: str) -> bool:
+    for m, prefix in _ROLE_ALLOWED.get(role, ()):
+        if method == m and (path == prefix or path.startswith(prefix + "/")):
+            return True
+    return False
+
+
+# "Quién está conectado" (panel de Equipo, admin-only) — última vez que se vio
+# a cada identidad autenticada, en memoria de ESTE proceso. A propósito no es
+# persistente ni distribuido: un restart del backend lo vacía, y si algún día
+# corren varios workers no se comparte entre ellos — para el tamaño del equipo
+# de hoy (un puñado de personas, un solo proceso uvicorn) es una aproximación
+# honesta y gratis, no un sistema de presencia de verdad. Se actualiza para
+# CUALQUIER identidad válida, incluida una sin rol asignado todavía (para que
+# el panel muestre "alguien entró pero nadie le dio acceso", no solo a los ya
+# autorizados).
+_LAST_SEEN: dict = {}
+_ONLINE_WINDOW_SECONDS = 5 * 60
+
+
+ACTIVITY_PATH = os.environ.get("ACTIVITY_PATH", "activity.json")
+_activity_log_instance = None
+
+
+def _activity_log():
+    """Singleton de proceso (mismo criterio que _LAST_SEEN) — cargado una vez,
+    guardado a disco en cada touch. Ver zero/activity.py para el porqué de la
+    heurística de huecos y sus límites honestos."""
+    global _activity_log_instance
+    if _activity_log_instance is None:
+        from zero.activity import ActivityLog
+        _activity_log_instance = ActivityLog(ACTIVITY_PATH)
+    return _activity_log_instance
+
+
+def _touch_last_seen(identity: dict) -> None:
+    import time
+    key = identity.get("email") or identity.get("username")
+    if not key:
+        return
+    _LAST_SEEN[key] = time.time()
+    log = _activity_log()
+    log.touch(key)
+    log.save()
+
 
 @app.middleware("http")
 async def auth_guard(request: Request, call_next):
-    """Per-person login gate. Sin cuentas dadas de alta (users.json vacío o
-    ausente) → abierto (dev). Con al menos una cuenta → token requerido."""
-    from zero.auth import auth_enabled, valid_token
+    """Login gate — dos mecanismos: JWT de Supabase Auth (Google, con rol en
+    app_metadata) o el modelo local por-persona (users.json, fallback
+    transicional, sin roles = admin). Sin ninguno de los dos configurados
+    (ni users.json con cuentas, ni SUPABASE_JWT_SECRET) → abierto (dev)."""
+    from zero.auth import auth_enabled, token_identity
     path = request.url.path
     needs = (
         auth_enabled() and path.startswith("/api")
@@ -78,8 +210,16 @@ async def auth_guard(request: Request, call_next):
     )
     if needs:
         token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
-        if not valid_token(token):
+        identity = token_identity(token)
+        if identity is None:
             return JSONResponse({"detail": "no autorizado"}, status_code=401)
+        _touch_last_seen(identity)
+        role = identity.get("role")
+        if role is None:
+            return JSONResponse({"detail": "sin rol asignado"}, status_code=403)
+        if role != "admin" and not _role_may_access(role, request.method, path):
+            return JSONResponse({"detail": "sin permiso para este recurso"}, status_code=403)
+        request.state.auth = identity
     return await call_next(request)
 
 
@@ -101,12 +241,97 @@ def login(body: Login):
 
 @app.get("/api/auth/status")
 def auth_status(request: Request):
-    from zero.auth import auth_enabled, token_username
+    from zero.auth import auth_enabled, token_identity
     token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
     enabled = auth_enabled()
-    username = token_username(token) if token else None
-    return {"enabled": enabled, "authenticated": (not enabled) or username is not None,
-            "username": username}
+    identity = token_identity(token) if token else None
+    # "authenticated" refleja login de verdad, no también "tiene permiso para
+    # todo" — un JWT válido sin rol asignado sigue contando como autenticado
+    # acá (el 403 de fail-closed pasa en auth_guard, no en este status check).
+    authenticated = (not enabled) or identity is not None
+    return {"enabled": enabled, "authenticated": authenticated,
+            "username": identity.get("username") if identity else None,
+            "role": identity.get("role") if identity else None,
+            "full_name": identity.get("full_name") if identity else None}
+
+
+# Meta semanal de horas conectadas — ver zero/activity.py para los límites
+# honestos de esto (proxy de uso del dashboard, no un timesheet real). Por
+# decisión de Diego (2026-07-20), aplica SOLO a "cco" por ahora: es el único
+# rol cuyo trabajo real ES estar en el dashboard — para cro/cto, buena parte
+# del trabajo pasa fuera (llamadas, reuniones), así que medir "horas
+# conectado ahí" sería injusto/poco representativo. Ampliar acá cuando/si se
+# decide un objetivo justo para los demás roles.
+_WEEKLY_GOAL_BY_ROLE = {"cco": 20.0}
+
+
+def _pending_work(role: Optional[str], crm) -> Optional[int]:
+    """Trabajo pendiente accionable por rol — proxy simple y honesto, no una
+    definición exhaustiva: para cco, borradores de outreach sin mandar (su
+    trabajo central); para cro/cto, leads en la etapa que más directamente
+    necesita su próxima acción. None si el rol no tiene un proxy definido
+    (ej. admin, que ve todo) — el frontend no muestra el número en ese caso."""
+    if role == "cco":
+        return crm.pending_outreach_count()
+    counts = crm.counts(None)   # agrega TODOS los clientes
+    if role == "cro":
+        return counts.get("replied", 0)          # respondieron, falta el siguiente paso humano
+    if role == "cto":
+        return counts.get("qualified", 0)        # calificados, todavía sin trabajar
+    return None
+
+
+@app.get("/api/team")
+def team():
+    """Panel de equipo — SOLO admin (sin entrada en _ROLE_ALLOWED, fail-closed
+    igual que el resto). Junta las cuentas reales de Supabase Auth (quién
+    existe, qué rol tiene o si no tiene ninguno todavía) con la aproximación
+    de presencia de este proceso (`_LAST_SEEN`/`ActivityLog`) para mostrar
+    quién está activo, cuántas horas lleva esta semana, y cuánto trabajo
+    pendiente tiene según su rol. `configured=False` si no hay
+    SUPABASE_URL/KEY — nunca un 500 por eso, el modelo local por-persona no
+    tiene este panel."""
+    import time
+    from zero.auth import list_supabase_users
+    users = list_supabase_users()
+    now = time.time()
+    log = _activity_log()
+    crm = _crm()
+    out = []
+    for u in users:
+        key = u.get("email")
+        role = u.get("role")
+        last_seen_ts = _LAST_SEEN.get(key)
+        week_hours = log.week_hours(key, as_of=now) if key else 0.0
+        out.append({
+            **u,
+            "online": bool(last_seen_ts and (now - last_seen_ts) < _ONLINE_WINDOW_SECONDS),
+            "last_seen_here": last_seen_ts,
+            "week_hours": week_hours,
+            "week_goal_hours": _WEEKLY_GOAL_BY_ROLE.get(role),
+            "pending_work": _pending_work(role, crm),
+        })
+    out.sort(key=lambda u: u.get("created_at") or "")
+    return {"users": out, "configured": bool(os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_KEY"))}
+
+
+class SetRole(BaseModel):
+    role: Optional[str] = None   # None = quitar el rol (vuelve a "sin acceso")
+
+
+@app.post("/api/team/{user_id}/role")
+def team_set_role(user_id: str, body: SetRole):
+    """Asigna/cambia/quita el rol de una cuenta — admin-only. Antes esto era
+    exclusivamente a mano en el panel de Supabase; ahora Diego lo hace acá."""
+    from zero.auth import set_user_role
+    valid_roles = {"admin", *_ROLE_ALLOWED}   # una sola fuente de verdad: _ROLE_ALLOWED de arriba
+    if body.role is not None and body.role not in valid_roles:
+        raise HTTPException(status_code=400,
+                            detail=f"rol inválido — usa {', '.join(sorted(valid_roles))} o null")
+    ok = set_user_role(user_id, body.role)
+    if not ok:
+        raise HTTPException(status_code=502, detail="no se pudo actualizar en Supabase")
+    return {"user_id": user_id, "role": body.role}
 
 
 def _crm():
@@ -152,9 +377,10 @@ def public_plans():
     return {"plans": _PLANS}
 
 
-@app.get("/api/accounts")
-def accounts():
-    """Clientes con su plan y precio + MRR de la agencia (lo que facturas al mes)."""
+def _accounts_and_mrr():
+    """Cuentas activas del CRM con su plan + MRR (suma de precios de lista).
+    Único cálculo de "cuánto entra" del sistema — /api/accounts y /api/finance
+    lo comparten para que nunca cuenten distinto."""
     memory = make_memory(STATE_PATH)
     out, mrr = [], 0
     for c in _crm().client_ids():
@@ -164,7 +390,51 @@ def accounts():
             mrr += price
         out.append({"client": c, "tier": tier, "price_clp": price,
                     "leads_per_mo": TIERS.get(tier, {}).get("leads_per_mo")})
+    return out, mrr
+
+
+@app.get("/api/accounts")
+def accounts():
+    """Clientes con su plan y precio + MRR de la agencia (lo que facturas al mes)."""
+    out, mrr = _accounts_and_mrr()
     return {"accounts": out, "mrr_clp": mrr, "plans": _PLANS}
+
+
+@app.get("/api/finance")
+def finance(month: Optional[str] = None):
+    """Finanzas de la agencia: entra (MRR) / sale (costos) / margen del mes, más
+    historial para tendencia. Siempre detrás de login (jamás en _OPEN_PATHS):
+    expone el MRR real. Costos desde finance.json local (gitignorado); sin
+    archivo responde cifras de ejemplo con source="mock"."""
+    from zero.finance import finance_summary, valid_month
+    if month is not None and not valid_month(month):
+        raise HTTPException(status_code=400, detail=f"mes inválido: {month!r} (formato AAAA-MM)")
+    _, mrr = _accounts_and_mrr()
+    try:
+        return finance_summary(FINANCE_PATH, mrr_clp=mrr, month=month)
+    except RuntimeError as e:
+        # finance.json corrupto: avisar y no tocar el archivo (regla de la casa).
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/sheets/sync")
+def sheets_sync():
+    """Sincroniza Finanzas + cartera de leads a Google Sheets AHORA MISMO —
+    sin entrada en _ROLE_ALLOWED, admin-only por el fail-closed de siempre.
+    La sincronización "de verdad" corre sola cada cierto tiempo vía systemd
+    timer (scripts/sync_sheets.py); esto es solo para confirmar que quedó
+    bien configurado o forzar una actualización inmediata."""
+    from zero.finance import finance_summary
+    from zero.sheets import sync_all
+    spreadsheet_id = os.environ.get("GOOGLE_SHEETS_ID")
+    if not spreadsheet_id:
+        raise HTTPException(status_code=400, detail="falta GOOGLE_SHEETS_ID en el entorno")
+    crm = _crm()
+    _, mrr = _accounts_and_mrr()
+    finance_data = finance_summary(FINANCE_PATH, mrr_clp=mrr)
+    leads = crm.all_leads()
+    result = sync_all(spreadsheet_id, finance_data, leads)
+    return {**result, "leads_count": len(leads)}
 
 
 class PlanChange(BaseModel):
@@ -230,6 +500,19 @@ def leads_search(q: str, limit: int = 20):
         raise HTTPException(status_code=400, detail="query muy corta (mínimo 2 caracteres)")
     rows = _crm().search(q, limit=limit)
     return {"results": rows, "q": q, "limit": limit}
+
+
+@app.delete("/api/leads")
+def leads_clear(client: str, confirm: str = ""):
+    """Borra TODOS los leads de un cliente (ej. limpiar datos de prueba antes de
+    una corrida real). Sin rol en _ROLE_ALLOWED a propósito → admin-only por el
+    gate por defecto (fail-closed), y además exige repetir el nombre del cliente
+    en `confirm` como segunda barrera contra un click/curl accidental."""
+    if confirm.strip() != client.strip():
+        raise HTTPException(status_code=400,
+                            detail="para confirmar, repite el nombre del cliente en ?confirm=")
+    removed = _crm().clear(client)
+    return {"client": client, "removed": removed}
 
 
 def _client_meta_cfg(client: str) -> dict:
@@ -373,6 +656,28 @@ def register_reply(key: str, client: str, body: Reply):
     zero = Zero(build_agents(mock=True), memory=memory, crm=crm)
     zero.register_reply(client, key.lower(), text=body.text, channel=body.channel)
     return crm.get(client, key.lower())
+
+
+class SendOutreach(BaseModel):
+    channel: Optional[str] = None
+    subject: Optional[str] = None
+    body: Optional[str] = None
+
+
+@app.post("/api/leads/{key}/send")
+def send_outreach(key: str, client: str, body: SendOutreach):
+    """Manda el mensaje que quedó en borrador (modo revisión, ver auto_send en
+    POST /api/pipeline) — con el texto guardado o, si se manda algo en el
+    body, con ediciones (para mejorar la copia antes de enviar). Agentes mock:
+    esto no redacta nada, solo entrega lo que ya está escrito."""
+    crm = make_crm(CRM_PATH)
+    memory = make_memory(STATE_PATH)
+    zero = Zero(build_agents(mock=True), memory=memory, crm=crm, outbox=make_outbox())
+    edits = {k: v for k, v in body.dict().items() if v is not None} or None
+    try:
+        return zero.send_pending_outreach(client, key.lower(), message=edits)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # --- WhatsApp conversational agent (CONCIERGE) -------------------------------
@@ -543,6 +848,12 @@ class RunRequest(BaseModel):
     tier: str = "GROWTH"
     count: int = 8
     icp: Optional[dict] = None   # perfil del cliente ideal (adaptación por cliente)
+    # Por defecto False: deja el primer mensaje en borrador para revisar/editar
+    # desde el dashboard (ver POST /api/leads/{key}/send) en vez de mandarlo
+    # solo. Diego lo pidió así (2026-07-19) para controlar la calidad del
+    # outbound mientras se prueba con leads reales; a futuro puede volver a
+    # True para automatizarlo por completo, cliente por cliente.
+    auto_send: bool = False
 
 
 @app.post("/api/pipeline")
@@ -556,9 +867,33 @@ def run_pipeline(req: RunRequest):
     agents, mode = _agents_best(source=_discovery_source())
     zero = Zero(agents, memory=memory, crm=crm, outbox=make_outbox())
     try:
-        out = zero.run_pipeline(req.client, req.tier, req.query, count=req.count, icp=req.icp)
+        out = zero.run_pipeline(req.client, req.tier, req.query, count=req.count, icp=req.icp,
+                                auto_send=req.auto_send)
     except ValueError as e:   # e.g. unknown tier
         raise HTTPException(status_code=400, detail=str(e))
+    out["mode"] = mode
+    return out
+
+
+class FollowupsRun(BaseModel):
+    client: str
+    as_of: Optional[str] = None   # solo para tests/depuración — simula "ahora"
+    # Por defecto False, mismo criterio que /api/pipeline: cada seguimiento
+    # queda en borrador para revisar (ver LeadModal) en vez de mandarse solo.
+    auto_send: bool = False
+
+
+@app.post("/api/followups")
+def run_followups_endpoint(req: FollowupsRun):
+    """Antes esto solo se podía correr por consola (`main.py --action
+    followups`) — sin esto, el modo revisión que agregamos a TRACKER no tenía
+    forma de dispararse desde el dashboard. Nota: sigue siendo un disparo
+    manual, no hay todavía una corrida programada/automática."""
+    crm = make_crm(CRM_PATH)
+    memory = make_memory(STATE_PATH)
+    agents, mode = _agents_best()
+    zero = Zero(agents, memory=memory, crm=crm, outbox=make_outbox())
+    out = zero.run_followups(req.client, as_of=req.as_of, auto_send=req.auto_send)
     out["mode"] = mode
     return out
 
@@ -815,6 +1150,111 @@ def forecast(client: str):
     res, mode = _agent_op(lambda z: z.forecast(client), memory=memory, crm=crm)
     res["mode"] = mode
     return res
+
+
+# --- funciones programadas (fase 2 de 3: registro + ejecución manual sobre
+# zero/sandbox.py, fase 1 — ya revisada, no se toca acá) -----------------------
+# Admin-only a propósito: sin entrada en _ROLE_ALLOWED, fail-closed igual que
+# el resto (ver auth_guard). Corre código arbitrario contra datos reales de
+# leads — más sensible que Finanzas o Configuración. El disparo automático por
+# horario es una decisión aparte, todavía no existe: /run ejecuta "ahora".
+
+_FUNCTION_RUN_TIMEOUT = 12   # segundos — coherente con el timeout por defecto (10s) de sandbox.py
+
+
+def _current_identity_label(request: Request) -> str:
+    auth = getattr(request.state, "auth", None) or {}
+    return auth.get("email") or auth.get("username") or "admin"
+
+
+class FunctionScope(BaseModel):
+    client_id: str
+    stage: Optional[str] = None
+
+
+class FunctionBody(BaseModel):
+    id: Optional[str] = None      # si falta, se deriva del nombre (mismo criterio que vendors)
+    name: str
+    code: str
+    lookup_scope: FunctionScope
+    enabled: Optional[bool] = None
+
+
+@app.get("/api/functions")
+def list_functions():
+    memory = make_memory(STATE_PATH)
+    return {"functions": memory.list_functions()}
+
+
+@app.post("/api/functions")
+def upsert_function(body: FunctionBody, request: Request):
+    """Crear o editar una función programada. `code` se guarda tal cual lo
+    escribió quien la creó — no se valida ni se parsea acá, eso es trabajo
+    exclusivo de run_sandboxed (Docker) al momento de correrla."""
+    memory = make_memory(STATE_PATH)
+    fid = "".join(ch for ch in (body.id or body.name).strip().lower() if ch.isalnum())
+    if not fid:
+        raise HTTPException(status_code=400, detail="la función necesita un nombre")
+    existing = memory.get_function(fid) or {}
+    now = datetime.now(timezone.utc).isoformat()
+    fn = {
+        "id": fid,
+        "name": body.name,
+        "code": body.code,
+        "lookup_scope": {"client_id": body.lookup_scope.client_id, "stage": body.lookup_scope.stage},
+        "enabled": body.enabled if body.enabled is not None else existing.get("enabled", True),
+        "created_by": existing.get("created_by") or _current_identity_label(request),
+        "created_at": existing.get("created_at") or now,
+        "updated_at": now,
+        "last_run": existing.get("last_run"),
+    }
+    memory.upsert_function(fn)
+    memory.save()
+    return {"function": fn}
+
+
+@app.delete("/api/functions/{function_id}")
+def delete_function(function_id: str):
+    memory = make_memory(STATE_PATH)
+    if not memory.delete_function(function_id):
+        raise HTTPException(status_code=404, detail="esa función no existe")
+    memory.save()
+    return {"deleted": function_id}
+
+
+@app.post("/api/functions/{function_id}/run")
+def run_function(function_id: str):
+    """Ejecuta la función AHORA: arma el ctx curado desde su lookup_scope
+    (leads reales del cliente, opcionalmente filtrados por etapa — ver
+    _lead_view), la corre aislada en Docker (zero/sandbox.py::run_sandboxed) y
+    deja el resultado guardado en last_run además de devolverlo."""
+    memory = make_memory(STATE_PATH)
+    fn = memory.get_function(function_id)
+    if fn is None:
+        raise HTTPException(status_code=404, detail="esa función no existe")
+    if not fn.get("enabled", True):
+        raise HTTPException(status_code=409, detail="esa función está deshabilitada")
+
+    from zero.functions import build_ctx, summarize_run
+    from zero.sandbox import run_sandboxed
+
+    scope = fn.get("lookup_scope") or {}
+    client_id = scope.get("client_id")
+    if not client_id:
+        raise HTTPException(status_code=400, detail="la función no tiene lookup_scope.client_id")
+
+    crm = make_crm(CRM_PATH)
+    ctx = build_ctx(crm.list(client_id, scope.get("stage")), client_id)
+
+    try:
+        out = run_sandboxed(fn["code"], ctx, timeout=_FUNCTION_RUN_TIMEOUT)
+    except ValueError as e:   # ctx no pasó _assert_ctx_is_safe — no debería pasar nunca
+        raise HTTPException(status_code=500, detail=f"ctx inválido para el sandbox: {e}")
+
+    fn["last_run"] = summarize_run(out)
+    memory.upsert_function(fn)
+    memory.save()
+    return {"function": fn, "run": out}
 
 
 # --- config (secrets stored in .env, set once from the dashboard) -------------

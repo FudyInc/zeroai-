@@ -6,6 +6,44 @@ en el momento** — así una compresión de contexto no nos lo borra.
 
 ---
 
+## 🟢 Resumen de la semana (2026-07-16 al 2026-07-20) — antes de leer el resto
+
+El resto de este documento no se tocó desde el 14 — quedó desactualizado frente a
+esto. Antes de asumir el estado de algo, revisa esta lista:
+
+- **Multi-usuario real** — dejó de ser una sola contraseña compartida. Login por
+  persona (usuario/contraseña) + **login con Google** (Supabase Auth, botón real
+  en `Login.jsx`) — bug real encontrado y arreglado (verificación ES256 rechazaba
+  todo en silencio). 4 roles: `admin` (Diego), `cto` (Alejandro), `cro` (Lucas,
+  finanzas/marketing/ventas), `cco` (Maureen, contenido/comunicaciones — revisa
+  outreach en borrador, follow-ups, tono de los vendedores). Cada rol ve solo sus
+  rutas — `api.py::_ROLE_ALLOWED` es la fuente de verdad de quién ve qué. Panel de
+  Equipo (admin-only) muestra quién tiene cuenta/rol/está conectado.
+- **Finanzas de la agencia** — `zero/finance.py` (MRR - costos = margen mensual),
+  costos a mano en `finance.json` local (nunca versionado, mock si no existe),
+  sección de solo-lectura en `Clientes.jsx` (decisión: sin editor de costos en la
+  UI, ver `docs/finanzas-plan.md`).
+- **Sync a Google Sheets** — Finanzas + Leads se sincronizan solos a un Sheet real
+  (`zero/sheets.py`, cuenta de servicio de Google, `scripts/sync_sheets.py` vía
+  systemd timer en el Ubuntu, **ya desplegado y corriendo**, verificado 2026-07-20).
+- **Modo revisión en Outreach/Tracker** — el primer mensaje y los seguimientos
+  quedan en borrador para aprobar antes de enviarse (cola de revisión, terreno de
+  "cco").
+- **Opt-out durable** — un "no me interesa" ahora bloquea al contacto en
+  campañas futuras (antes solo cerraba la conversación puntual).
+- **Discovery restringido a Chile** — la prospección ya no busca fuera del
+  mercado activo.
+- **3 bugs reales de TRACKER** encontrados auditando con el modelo real y
+  arreglados.
+- **`DELETE /api/leads` + `CRM.clear()`** — para borrar leads de prueba sin tocar
+  el JSON a mano.
+
+**Pendiente real, no de pago:** no hay CI (`.github/workflows/`) — los tests
+corren a mano, nada bloquea un push a `main` con tests rotos. Con 4 personas
+activas y ritmo de esta semana, es la pieza de higiene más importante que falta.
+
+---
+
 ## 🔴 Estado de infraestructura (2026-07-03) — dónde vive cada cosa
 
 - **Rama de producción: `main`.** `chore/terminales-por-rol` (la que de verdad corría
@@ -233,6 +271,21 @@ resumen corto.
   conectarse al producto (`zero/voice.py` + sonido de teclado de fondo), ver
   `docs/francisca-prompt.md`.
 - **Envío email/WhatsApp a volumen** (deliverability / proveedor dedicado tipo SES).
+- **Plan B WhatsApp vía BSP (Twilio o 360dialog)** — SOLO si Meta rechaza o estanca
+  la revisión del WABA "PoolEdge Tienda" (en revisión desde 2026-07-19; el camino
+  actual, Meta Cloud API directo, es gratis y ya está construido). Un BSP no salta
+  la aprobación de Meta — el WABA igual pasa por revisión, solo que por el flujo
+  guiado del BSP (suele aprobar más fácil). Comparación (precios verificados
+  2026-07-21):
+  - **Twilio**: sin cuota fija, USD $0.005 por mensaje (entrante Y saliente,
+    incluidos los de sesión que Meta no cobra) + tarifas de Meta. Sandbox
+    inmediato para probar sin esperar aprobación. Código: `TwilioWhatsAppSender`
+    en `zero/channels.py` — seam listo (mismo contrato `send`), trabajo chico.
+  - **360dialog**: €49/mes fijos, cero margen por mensaje (solo tarifas de Meta).
+  - **Punto de quiebre**: ~12.000 mensajes/mes (≈600-800 conversaciones de
+    CONCIERGE). Por debajo gana Twilio; por encima, 360dialog. Al volumen actual
+    de ZeroAI (arrancando), **Twilio es la elección** si se activa este plan B —
+    ej. 100 conversaciones/mes ≈ USD $7.50 vs €49 fijos.
 
 **Ya conectado (no está pendiente):** Vapi (llamadas salientes, `/api/call` real
 vía dashboard) y Supabase (CRM/estado en la nube, proyecto "zeroai") — activados

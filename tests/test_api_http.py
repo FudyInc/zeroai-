@@ -20,6 +20,9 @@ Run alone:  python3 -m unittest tests.test_api_http -v
 """
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import json
 import os
 import shutil
@@ -101,6 +104,29 @@ def _start_and_wait(argv: list[str], cwd: str, env: dict, base: str) -> subproce
     return proc
 
 
+def _b64url(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def _make_supabase_jwt(secret: str, *, email: str = "test@zeroai.cl",
+                       role: str | None = "admin", exp_delta: int = 3600,
+                       full_name: str | None = None) -> str:
+    """Arma un JWT con la misma forma/firma que produce Supabase Auth (HS256,
+    base64url, app_metadata.role, user_metadata.full_name) — sin pyjwt, para
+    probar zero/auth.py y el auth_guard de api.py sin depender de una cuenta
+    real de Supabase."""
+    header = {"alg": "HS256", "typ": "JWT"}
+    app_metadata = {"role": role} if role is not None else {}
+    user_metadata = {"full_name": full_name} if full_name is not None else {}
+    payload = {"email": email, "exp": int(time.time()) + exp_delta,
+              "app_metadata": app_metadata, "user_metadata": user_metadata}
+    header_b64 = _b64url(json.dumps(header).encode())
+    payload_b64 = _b64url(json.dumps(payload).encode())
+    sig = hmac.new(secret.encode("utf-8"), f"{header_b64}.{payload_b64}".encode("ascii"),
+                   hashlib.sha256).digest()
+    return f"{header_b64}.{payload_b64}.{_b64url(sig)}"
+
+
 @unittest.skipUnless(_UVICORN_AVAILABLE, "uvicorn no instalado — este test es opcional, no núcleo")
 class ApiHttpTest(unittest.TestCase):
     """Levanta api.py real y prueba de punta a punta: petición -> FastAPI ->
@@ -132,6 +158,10 @@ class ApiHttpTest(unittest.TestCase):
         # heredarlo — apunta a un archivo que a propósito no existe, así
         # auth_enabled() da False sin importar qué haya en el repo real.
         env["AUTH_USERS_PATH"] = os.path.join(tempfile.mkdtemp(), "users.json")
+        # Mismo gotcha otra vez, ahora para el tercer mecanismo de auth_enabled():
+        # en el Ubuntu de producción SUPABASE_JWT_SECRET SÍ está configurado de
+        # verdad — sin vaciarlo acá, este subproceso "sin auth" deja de estarlo.
+        env["SUPABASE_JWT_SECRET"] = ""
         env["WHATSAPP_APP_SECRET"] = cls.WHATSAPP_APP_SECRET
         # Mismo problema que AUTH_PASSWORD arriba: en el Ubuntu real, el .env
         # del repo trae LOCAL_MODEL configurado — sin fijarlo vacío acá, este
@@ -246,6 +276,36 @@ class ApiHttpTest(unittest.TestCase):
             self._get("/api/esto-no-existe")
         self.assertEqual(ctx.exception.code, 404)
 
+    def test_leads_clear_requires_confirm_to_match_client(self):
+        """DELETE /api/leads exige repetir el nombre del cliente en `confirm` —
+        segunda barrera contra un click/curl accidental, además del gate
+        admin-only. Deliberadamente NO se prueba el borrado real acá: esta clase
+        puede correr contra Supabase real si la máquina tiene SUPABASE_URL/KEY en
+        su .env (ver otros tests de esta clase que degradan a 503) — la lógica
+        de borrado en sí ya está cubierta sin red en CRMTest.test_clear_*."""
+        req = urllib.request.Request(
+            f"{self.base}/api/leads?client=acme&confirm=otro-nombre", method="DELETE")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req, timeout=5)
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_send_outreach_on_unknown_lead_is_400_not_500(self):
+        """POST /api/leads/{key}/send sobre una key que no existe (para nada
+        cerca de un lead real) debe degradar a un 400 claro, nunca un 500 —
+        misma cautela de la clase: solo lectura, cero riesgo de escribir en
+        Supabase real si esta máquina tiene credenciales configuradas. Mismo
+        patrón que test_clients_endpoint_over_real_http: si esta máquina tiene
+        SUPABASE_URL/KEY reales pero Supabase no responde bien, el handler
+        global de SupabaseError degrada a 503 en vez de un 500 crudo — eso
+        también es un resultado válido acá, no un fallo de este test."""
+        data = json.dumps({}).encode("utf-8")
+        req = urllib.request.Request(
+            f"{self.base}/api/leads/zzz-no-deberia-existir-nunca/send?client=acme",
+            data=data, method="POST", headers={"Content-Type": "application/json"})
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req, timeout=5)
+        self.assertIn(ctx.exception.code, (400, 503))
+
     def _post_webhook(self, body: bytes, signature: str | None):
         headers = {"Content-Type": "application/json"}
         if signature is not None:
@@ -316,11 +376,22 @@ class ApiAuthHttpTest(unittest.TestCase):
                 os.environ["AUTH_USERS_PATH"] = prev
         env = dict(os.environ)
         env["AUTH_USERS_PATH"] = cls.users_path
-        env.pop("SUPABASE_URL", None)
-        env.pop("SUPABASE_KEY", None)
-        # Vacío = presente (ver el comentario largo en ApiHttpTest): si el .env
-        # real trae un token de Twilio, el webhook validaría firmas de verdad y
-        # el test de exención de auth dejaría de ser determinista.
+        # Vacío, no ausente: si falta del todo, zero/_env.py::load_env() (usa
+        # os.environ.setdefault) lo vuelve a levantar del .env real del repo
+        # — mismo gotcha ya documentado arriba para AUTH_PASSWORD/LOCAL_MODEL.
+        # En el Mac de desarrollo SUPABASE_URL apunta a un proyecto roto; en
+        # el Ubuntu de producción LOCAL_MODEL apunta a un Ollama real —
+        # cualquiera de los dos deja este test class a merced de una red o un
+        # modelo real (encontrado corriendo esta suite en producción por
+        # primera vez: /api/forecast entero se puso a esperar a Ollama de
+        # verdad y voló el timeout de 5s del test).
+        env["SUPABASE_URL"] = ""
+        env["SUPABASE_KEY"] = ""
+        env["LOCAL_MODEL"] = ""
+        env["ANTHROPIC_API_KEY"] = ""
+        # Mismo gotcha para Twilio: si el .env real trae un token, el webhook
+        # validaría firmas de verdad y el test de exención de auth dejaría de
+        # ser determinista.
         env["TWILIO_AUTH_TOKEN"] = ""
         cls.proc = _start_and_wait(
             [sys.executable, "-m", "uvicorn", "api:app", "--port", str(cls.port),
@@ -457,6 +528,352 @@ class ApiAuthHttpTest(unittest.TestCase):
         self.assertIsNone(plans["ENTERPRISE"]["leads_per_mo"])
         # Nunca debe verse nada de "mrr" ni pinta de dato de cliente real.
         self.assertNotIn("mrr_clp", body)
+
+
+@unittest.skipUnless(_UVICORN_AVAILABLE, "uvicorn no instalado — este test es opcional, no núcleo")
+class ApiSupabaseAuthHttpTest(unittest.TestCase):
+    """Login vía Supabase Auth (Google) + roles, sobre HTTP real — el
+    auth_guard de api.py tiene que aplicar el rol en cada request, no basta
+    con que zero/auth.py lo calcule bien aislado (ver SupabaseJWTAuthTest en
+    test_core.py para esos). Subproceso PROPIO con SUPABASE_JWT_SECRET
+    configurado y SIN cuentas locales (AUTH_USERS_PATH apunta a un archivo
+    que a propósito no existe) — así el único camino de auth activo es el
+    JWT; el fallback local (que da "admin" gratis) no debe contaminar las
+    pruebas de restricción por rol."""
+
+    JWT_SECRET = "otro-jwt-secret-de-prueba-para-http"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.port = _free_port()
+        cls.base = f"http://127.0.0.1:{cls.port}"
+        repo_root = Path(__file__).resolve().parent.parent
+        env = dict(os.environ)
+        env["SUPABASE_JWT_SECRET"] = cls.JWT_SECRET
+        env["AUTH_USERS_PATH"] = os.path.join(tempfile.mkdtemp(), "users.json")
+        # Vacío, no ausente: si falta del todo, zero/_env.py::load_env() (usa
+        # os.environ.setdefault) lo vuelve a levantar del .env real del repo
+        # — mismo gotcha ya documentado arriba para AUTH_PASSWORD/LOCAL_MODEL.
+        # En el Mac de desarrollo SUPABASE_URL apunta a un proyecto roto; en
+        # el Ubuntu de producción LOCAL_MODEL apunta a un Ollama real —
+        # cualquiera de los dos deja este test class a merced de una red o un
+        # modelo real (encontrado corriendo esta suite en producción por
+        # primera vez: /api/forecast entero se puso a esperar a Ollama de
+        # verdad y voló el timeout de 5s del test).
+        env["SUPABASE_URL"] = ""
+        env["SUPABASE_KEY"] = ""
+        env["LOCAL_MODEL"] = ""
+        env["ANTHROPIC_API_KEY"] = ""
+        cls.proc = _start_and_wait(
+            [sys.executable, "-m", "uvicorn", "api:app", "--port", str(cls.port),
+             "--log-level", "warning"],
+            str(repo_root), env, cls.base,
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        proc = getattr(cls, "proc", None)
+        if proc is not None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+
+    def _get(self, path: str, token: str | None = None):
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        req = urllib.request.Request(f"{self.base}{path}", headers=headers)
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return r.status, json.loads(r.read().decode("utf-8"))
+
+    def _jwt(self, **kw) -> str:
+        return _make_supabase_jwt(self.JWT_SECRET, **kw)
+
+    def test_admin_jwt_passes_any_route(self):
+        # /api/vendors no está en la lista de rutas permitidas para "cro" —
+        # solo un admin debería poder verla.
+        status, body = self._get("/api/vendors", token=self._jwt(role="admin"))
+        self.assertEqual(status, 200)
+        self.assertIn("vendors", body)
+
+    def test_team_panel_is_admin_only(self):
+        """Panel de Equipo — sin entrada en _ROLE_ALLOWED, admin-only por
+        default fail-closed (mismo patrón que /api/vendors)."""
+        status, body = self._get("/api/team", token=self._jwt(role="admin"))
+        self.assertEqual(status, 200)
+        self.assertIn("users", body)
+        self.assertIn("configured", body)
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/api/team", token=self._jwt(role="cro"))
+        self.assertEqual(ctx.exception.code, 403)
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/api/team", token=self._jwt(role="cto"))
+        self.assertEqual(ctx.exception.code, 403)
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/api/team", token=self._jwt(role="cco"))
+        self.assertEqual(ctx.exception.code, 403)
+
+    def test_cro_jwt_passes_allowed_route(self):
+        status, body = self._get("/api/clients", token=self._jwt(role="cro", email="lucas@zeroai.cl"))
+        self.assertEqual(status, 200)
+        self.assertIn("clients", body)
+
+    def test_cro_jwt_gets_403_outside_allowed_routes(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/api/vendors", token=self._jwt(role="cro"))
+        self.assertEqual(ctx.exception.code, 403)
+
+    def test_cro_jwt_gets_403_on_config(self):
+        # el caso "dudoso" reportado a Diego: /api/config queda SOLO admin,
+        # aunque Vender.jsx lea una parte de ahí — ver REPORT.
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/api/config", token=self._jwt(role="cro"))
+        self.assertEqual(ctx.exception.code, 403)
+
+    def test_cto_jwt_passes_allowed_route(self):
+        status, body = self._get("/api/forecast?client=acme",
+                                 token=self._jwt(role="cto", email="alejandro@zeroai.cl"))
+        self.assertEqual(status, 200)
+
+    def test_cto_jwt_gets_403_outside_allowed_routes(self):
+        # Campañas/Vender/Clientes son de "cro" — cto (Alejandro) queda
+        # dedicado a Leads/Pipeline/Forecast, sin esto.
+        for path in ("/api/accounts", "/api/campaigns?client=acme", "/api/emails"):
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                self._get(path, token=self._jwt(role="cto"))
+            self.assertEqual(ctx.exception.code, 403, path)
+
+    def test_cto_jwt_gets_403_on_finance(self):
+        # /api/finance es EXCLUSIVO de cro — ni siquiera cto lo tiene.
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/api/finance", token=self._jwt(role="cto"))
+        self.assertEqual(ctx.exception.code, 403)
+
+    def test_cro_and_cto_share_dashboard_pipeline_and_forecast(self):
+        # Vista operativa común de ambos roles — el home (KPIs), el board de
+        # Pipeline y Forecast. cro además tiene su propio set exclusivo
+        # (Clientes/Campañas/Vender/Finanzas) probado en los tests de arriba.
+        for role in ("cro", "cto"):
+            status, _ = self._get("/api/kpis?client=acme", token=self._jwt(role=role))
+            self.assertEqual(status, 200, role)
+            status, _ = self._get("/api/board?client=acme", token=self._jwt(role=role))
+            self.assertEqual(status, 200, role)
+            status, _ = self._get("/api/forecast?client=acme", token=self._jwt(role=role))
+            self.assertEqual(status, 200, role)
+
+    def test_cco_jwt_passes_allowed_route(self):
+        status, body = self._get("/api/vendors", token=self._jwt(role="cco", email="maureen@zeroai.cl"))
+        self.assertEqual(status, 200)
+        self.assertIn("vendors", body)
+
+    def test_cco_jwt_gets_403_outside_allowed_routes(self):
+        # Forecast/Clientes/Finanzas/Configuración son terreno de plata/técnico,
+        # no de contenido — cco (Maureen) no los tiene.
+        for path in ("/api/forecast?client=acme", "/api/accounts", "/api/finance", "/api/config"):
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                self._get(path, token=self._jwt(role="cco"))
+            self.assertEqual(ctx.exception.code, 403, path)
+
+    def test_cco_jwt_can_review_and_send_outreach(self):
+        # El caso de uso central del rol: ver el board/leads y poder mandar un
+        # borrador aprobado (POST /api/leads/{key}/send cae bajo el mismo
+        # prefijo que POST /api/leads).
+        status, _ = self._get("/api/board?client=acme", token=self._jwt(role="cco"))
+        self.assertEqual(status, 200)
+        status, _ = self._get("/api/leads?client=acme", token=self._jwt(role="cco"))
+        self.assertEqual(status, 200)
+
+    def test_expired_jwt_is_401(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/api/vendors", token=self._jwt(role="admin", exp_delta=-10))
+        self.assertEqual(ctx.exception.code, 401)
+
+    def test_tampered_jwt_is_401(self):
+        tok = self._jwt(role="admin")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/api/vendors", token=tok[:-4] + "xxxx")
+        self.assertEqual(ctx.exception.code, 401)
+
+    def test_jwt_without_role_is_403(self):
+        # fail closed: autenticado (firma OK) pero sin app_metadata.role → 403,
+        # nunca "ve todo por defecto".
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/api/clients", token=self._jwt(role=None))
+        self.assertEqual(ctx.exception.code, 403)
+
+    def test_auth_status_reports_role(self):
+        status, body = self._get("/api/auth/status",
+                                 token=self._jwt(role="cro", email="lucas@zeroai.cl"))
+        self.assertEqual(status, 200)
+        self.assertEqual(body["role"], "cro")
+        self.assertEqual(body["username"], "lucas@zeroai.cl")
+
+    def test_auth_status_reports_full_name(self):
+        status, body = self._get("/api/auth/status", token=self._jwt(
+            role="admin", email="diego@zeroai.cl", full_name="Diego Mardones"))
+        self.assertEqual(status, 200)
+        self.assertEqual(body["full_name"], "Diego Mardones")
+
+    def test_auth_status_full_name_none_without_user_metadata(self):
+        status, body = self._get("/api/auth/status", token=self._jwt(role="admin"))
+        self.assertEqual(status, 200)
+        self.assertIsNone(body["full_name"])
+
+
+@unittest.skipUnless(_UVICORN_AVAILABLE, "uvicorn no instalado — este test es opcional, no núcleo")
+class ProgrammedFunctionsHttpTest(unittest.TestCase):
+    """Fase 2 (registro de funciones programadas) — CRUD + /run sobre HTTP
+    real, admin-only. Subproceso PROPIO con STATE_PATH/CRM_PATH apuntando a un
+    tempdir (nunca toca el state.json/crm.json real del repo — ver el override
+    por env var que se agregó en api.py junto con esto) y auth JWT habilitada,
+    mismo patrón que ApiSupabaseAuthHttpTest.
+
+    No mockea Docker: en una máquina sin Docker (como la de desarrollo),
+    run_sandboxed ya devuelve un error determinista ("Docker no disponible")
+    en vez de lanzar — sirve igual para confirmar que /run arma el ctx, llama
+    a run_sandboxed y persiste last_run de verdad. La ejecución real dentro de
+    Docker ya está cubierta en tests/test_sandbox.py — no se duplica acá,
+    según pide el prompt de fase 2."""
+
+    JWT_SECRET = "jwt-secret-para-funciones"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.port = _free_port()
+        cls.base = f"http://127.0.0.1:{cls.port}"
+        repo_root = Path(__file__).resolve().parent.parent
+        cls._tmpdir = tempfile.mkdtemp()
+        env = dict(os.environ)
+        env["SUPABASE_JWT_SECRET"] = cls.JWT_SECRET
+        env["AUTH_USERS_PATH"] = os.path.join(tempfile.mkdtemp(), "users.json")
+        env["STATE_PATH"] = os.path.join(cls._tmpdir, "state.json")
+        env["CRM_PATH"] = os.path.join(cls._tmpdir, "crm.json")
+        # Mismos gotchas ya documentados arriba (ApiSupabaseAuthHttpTest): sin
+        # esto, el subproceso puede heredar Supabase/Ollama/Anthropic reales
+        # del .env del repo y dejar de ser un entorno de test aislado.
+        env["SUPABASE_URL"] = ""
+        env["SUPABASE_KEY"] = ""
+        env["LOCAL_MODEL"] = ""
+        env["ANTHROPIC_API_KEY"] = ""
+        cls.proc = _start_and_wait(
+            [sys.executable, "-m", "uvicorn", "api:app", "--port", str(cls.port),
+             "--log-level", "warning"],
+            str(repo_root), env, cls.base,
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        proc = getattr(cls, "proc", None)
+        if proc is not None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+        shutil.rmtree(getattr(cls, "_tmpdir", "") or "", ignore_errors=True)
+
+    def _get(self, path: str, token: str | None = None):
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        req = urllib.request.Request(f"{self.base}{path}", headers=headers)
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return r.status, json.loads(r.read().decode("utf-8"))
+
+    def _send(self, path: str, body: dict, token: str | None = None, method: str = "POST"):
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        headers["Content-Type"] = "application/json"
+        data = json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(f"{self.base}{path}", data=data, headers=headers, method=method)
+        with urllib.request.urlopen(req, timeout=20) as r:   # /run puede correr Docker real en CI
+            return r.status, json.loads(r.read().decode("utf-8"))
+
+    def _delete(self, path: str, token: str | None = None):
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        req = urllib.request.Request(f"{self.base}{path}", headers=headers, method="DELETE")
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return r.status, json.loads(r.read().decode("utf-8"))
+
+    def _jwt(self, **kw) -> str:
+        return _make_supabase_jwt(self.JWT_SECRET, **kw)
+
+    def test_non_admin_gets_403_on_every_functions_endpoint(self):
+        cro = self._jwt(role="cro")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/api/functions", token=cro)
+        self.assertEqual(ctx.exception.code, 403)
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._send("/api/functions", {"name": "x", "code": "result=1",
+                                          "lookup_scope": {"client_id": "acme"}}, token=cro)
+        self.assertEqual(ctx.exception.code, 403)
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._delete("/api/functions/algo", token=cro)
+        self.assertEqual(ctx.exception.code, 403)
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._send("/api/functions/algo/run", {}, token=cro)
+        self.assertEqual(ctx.exception.code, 403)
+
+    def test_admin_create_run_and_delete_lifecycle(self):
+        admin = self._jwt(role="admin", email="diego@zeroai.cl")
+        status, body = self._send("/api/functions", {
+            "name": "Contar leads nuevos",
+            "code": "result = len(ctx['leads'])",
+            "lookup_scope": {"client_id": "acme", "stage": "new"},
+        }, token=admin)
+        self.assertEqual(status, 200)
+        fn = body["function"]
+        self.assertEqual(fn["name"], "Contar leads nuevos")
+        self.assertEqual(fn["lookup_scope"], {"client_id": "acme", "stage": "new"})
+        self.assertTrue(fn["enabled"])
+        self.assertEqual(fn["created_by"], "diego@zeroai.cl")
+        self.assertIsNone(fn["last_run"])
+        fid = fn["id"]
+
+        status, body = self._get("/api/functions", token=admin)
+        self.assertEqual(status, 200)
+        self.assertIn(fid, {f["id"] for f in body["functions"]})
+
+        status, body = self._send(f"/api/functions/{fid}/run", {}, token=admin)
+        self.assertEqual(status, 200)
+        self.assertEqual(set(body), {"function", "run"})
+        self.assertEqual(set(body["run"]), {"result", "stdout", "error"})
+        last_run = body["function"]["last_run"]
+        self.assertIsNotNone(last_run)
+        self.assertEqual(set(last_run), {"at", "ok", "result_summary", "error"})
+
+        # quedó guardado de verdad — no solo en la respuesta de /run
+        status, body = self._get("/api/functions", token=admin)
+        saved = next(f for f in body["functions"] if f["id"] == fid)
+        self.assertIsNotNone(saved["last_run"])
+
+        status, _ = self._delete(f"/api/functions/{fid}", token=admin)
+        self.assertEqual(status, 200)
+        status, body = self._get("/api/functions", token=admin)
+        self.assertNotIn(fid, {f["id"] for f in body["functions"]})
+
+    def test_run_unknown_function_is_404(self):
+        admin = self._jwt(role="admin")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._send("/api/functions/no-existe-nunca/run", {}, token=admin)
+        self.assertEqual(ctx.exception.code, 404)
+
+    def test_disabled_function_cannot_be_run(self):
+        admin = self._jwt(role="admin")
+        _, body = self._send("/api/functions", {
+            "name": "Deshabilitada", "code": "result = 1",
+            "lookup_scope": {"client_id": "acme"}, "enabled": False,
+        }, token=admin)
+        fid = body["function"]["id"]
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._send(f"/api/functions/{fid}/run", {}, token=admin)
+        self.assertEqual(ctx.exception.code, 409)
+
+    def test_create_without_name_is_400(self):
+        admin = self._jwt(role="admin")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._send("/api/functions", {"name": "   ", "code": "",
+                                          "lookup_scope": {"client_id": "acme"}}, token=admin)
+        self.assertEqual(ctx.exception.code, 400)
 
 
 @unittest.skipUnless(_UVICORN_AVAILABLE, "uvicorn no instalado — este test es opcional, no núcleo")

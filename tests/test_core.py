@@ -22,6 +22,7 @@ from zero.contracts import Constraints, Lead, TaskPayload
 from zero.crm import CRM
 from zero.memory import SessionMemory, _now
 from zero.orchestrator import Zero
+from zero.voice import _TYPING_SAMPLE_RATE, _synthetic_typing_pcm
 
 
 def _lead(**kw):
@@ -245,6 +246,110 @@ class TrackerTest(unittest.TestCase):
         if d["followups"]:
             self.assertTrue(any("Stéfano" in m["body"] for m in d["followups"]))
 
+    def test_run_followups_never_silently_advances_a_lead_without_a_message(self):
+        """Encontrado en vivo (2026-07-20) contra el modelo real: TRACKER a
+        veces devuelve menos mensajes de los que se le pidieron. Antes, la
+        secuencia de un lead sin mensaje avanzaba igual (en silencio, sin
+        mandarle nada) — ahora se queda "debida" (se reintenta en la próxima
+        corrida) y queda contada en `skipped`, nunca en `advanced`."""
+        from zero.contracts import AgentResponse
+
+        crm = CRM(None)
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=crm)
+        z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8)
+        future = (datetime.now(timezone.utc) + timedelta(days=999)).isoformat()
+        due_before = z.memory.due_sequences("acme", as_of=future)
+        self.assertGreaterEqual(len(due_before), 2, "necesito al menos 2 leads calificados para este test")
+        keep_key = due_before[0]["lead_key"]
+        drop_key = due_before[1]["lead_key"]
+        steps_before = {s["lead_key"]: s["step"] for s in due_before}
+
+        real_tracker = z.agents["TRACKER"]
+
+        class _DropsOneMessage:
+            def run(self, task):
+                resp = real_tracker.run(task)
+                kept = [m for m in resp.result.get("messages", []) if m.get("lead_key") != drop_key]
+                return AgentResponse(task.task_id, "TRACKER", "done", {"messages": kept}, None)
+
+        z.agents["TRACKER"] = _DropsOneMessage()
+        result = z.run_followups("acme", as_of=future)
+
+        self.assertGreaterEqual(result["skipped"], 1)
+        due_after = {s["lead_key"]: s for s in z.memory.due_sequences("acme", as_of=future)}
+        # el que SÍ recibió mensaje avanzó al siguiente paso de la cadencia
+        # (con `as_of` tan lejano, el siguiente paso también queda "due" al
+        # toque — por eso se compara el número de step, no la presencia)
+        self.assertEqual(due_after[keep_key]["step"], steps_before[keep_key] + 1)
+        # el que NO recibió mensaje se quedó exactamente donde estaba, listo
+        # para reintentarse — no perdió su turno en silencio
+        self.assertEqual(due_after[drop_key]["step"], steps_before[drop_key])
+
+    def test_run_followups_auto_send_false_drafts_without_advancing_or_sending(self):
+        """Modo revisión (pedido por Diego, 2026-07-20): el seguimiento queda
+        en borrador en el lead, la secuencia NO avanza (para no perder el
+        turno ni duplicar), y el outbox no recibe nada."""
+        from zero.channels import Outbox
+        crm = CRM(None)
+        box = Outbox()
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=crm, outbox=box)
+        z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8)
+        future = (datetime.now(timezone.utc) + timedelta(days=999)).isoformat()
+        due_before = z.memory.due_sequences("acme", as_of=future)
+        self.assertGreaterEqual(len(due_before), 1)
+        lead_key = due_before[0]["lead_key"]
+        step_before = due_before[0]["step"]
+        box.log.clear()   # limpia lo que mandó el primer contacto (auto_send=True por default en run_pipeline)
+
+        result = z.run_followups("acme", as_of=future, auto_send=False)
+
+        self.assertGreater(result["drafted"], 0)
+        self.assertEqual(result["sent"], 0)
+        self.assertEqual(box.log, [])
+        rec = crm.get("acme", lead_key)
+        self.assertEqual(rec["outreach"]["status"], "draft")
+        due_after = {s["lead_key"]: s for s in z.memory.due_sequences("acme", as_of=future)}
+        self.assertEqual(due_after[lead_key]["step"], step_before)   # no avanzó
+
+    def test_run_followups_auto_send_false_never_reredrafts_pending_lead(self):
+        """No le vuelve a pedir a TRACKER un mensaje para un lead que ya tiene
+        un borrador esperando aprobación — evita perder una edición manual."""
+        crm = CRM(None)
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=crm)
+        z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8)
+        future = (datetime.now(timezone.utc) + timedelta(days=999)).isoformat()
+        lead_key = z.memory.due_sequences("acme", as_of=future)[0]["lead_key"]
+        z.run_followups("acme", as_of=future, auto_send=False)
+        crm.set_outreach("acme", lead_key, {"channel": "email", "subject": None,
+                                            "body": "texto editado a mano", "status": "draft"})
+
+        z.run_followups("acme", as_of=future, auto_send=False)
+
+        self.assertEqual(crm.get("acme", lead_key)["outreach"]["body"], "texto editado a mano")
+
+    def test_send_pending_outreach_on_followup_advances_existing_sequence(self):
+        """Cuando el lead YA tiene una secuencia abierta (viene de un
+        seguimiento, no del primer contacto), enviar el borrador debe avanzar
+        ESA secuencia — no abrir una nueva ni tocar la etapa del CRM."""
+        from zero.channels import Outbox
+        crm = CRM(None)
+        box = Outbox()
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=crm, outbox=box)
+        z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8)
+        future = (datetime.now(timezone.utc) + timedelta(days=999)).isoformat()
+        lead_key = z.memory.due_sequences("acme", as_of=future)[0]["lead_key"]
+        stage_before = crm.get("acme", lead_key)["stage"]
+        step_before = z.memory.find_open_sequence("acme", lead_key)["step"]
+        z.run_followups("acme", as_of=future, auto_send=False)
+
+        out = z.send_pending_outreach("acme", lead_key)
+
+        self.assertEqual(out["result"]["status"], "sent")
+        self.assertEqual(crm.get("acme", lead_key)["stage"], stage_before)   # sin cambio de etapa
+        seq = z.memory.find_open_sequence("acme", lead_key)
+        if seq is not None:   # puede haberse cerrado si era el último paso
+            self.assertEqual(seq["step"], step_before + 1)
+
 
 class CRMTest(unittest.TestCase):
     def setUp(self):
@@ -288,6 +393,31 @@ class CRMTest(unittest.TestCase):
         self.assertIn("Acme", out)
         self.assertIn("Historial", out)
         self.assertIn("won", out)
+
+    def test_clear_removes_only_that_clients_leads(self):
+        self.crm.upsert("c", self.lead, stage="qualified")
+        self.crm.upsert("otro", {"company": "Otro", "email": "x@otro.cl"}, stage="new")
+        removed = self.crm.clear("c")
+        self.assertEqual(removed, 1)
+        self.assertEqual(self.crm.list("c"), [])
+        self.assertEqual(len(self.crm.list("otro")), 1)   # el otro cliente no se toca
+
+    def test_clear_on_client_without_leads_removes_nothing(self):
+        self.assertEqual(self.crm.clear("nadie"), 0)
+
+    def test_pending_outreach_count_across_clients(self):
+        self.crm.upsert("c", {"company": "A", "email": "a@a.cl"}, stage="qualified")
+        self.crm.set_outreach("c", "a@a.cl", {"channel": "email", "body": "x", "status": "draft"})
+        self.crm.upsert("otro", {"company": "B", "email": "b@b.cl"}, stage="qualified")
+        self.crm.set_outreach("otro", "b@b.cl", {"channel": "email", "body": "y", "status": "sent"})
+        self.crm.upsert("otro", {"company": "C", "email": "c@c.cl"}, stage="qualified")
+        self.crm.set_outreach("otro", "c@c.cl", {"channel": "email", "body": "z", "status": "draft"})
+        # 2 en "draft" (uno por cliente), 1 en "sent" no cuenta
+        self.assertEqual(self.crm.pending_outreach_count(), 2)
+
+    def test_pending_outreach_count_zero_when_none_pending(self):
+        self.crm.upsert("c", self.lead, stage="qualified")
+        self.assertEqual(self.crm.pending_outreach_count(), 0)
 
 
 class CRMSearchTest(unittest.TestCase):
@@ -679,6 +809,8 @@ class MemoryPersistenceTest(unittest.TestCase):
         m.set_pending_offer("acme", "ceo@acme.cl", "info")
         m.set_client_vendor("acme", "stefano")
         m.list_vendors()                                    # siembra el catálogo
+        m.upsert_function({"id": "fn1", "name": "prueba", "code": "result = 1",
+                            "lookup_scope": {"client_id": "acme"}, "enabled": True})
         m.log("test", detail="x")
         snap = m.snapshot()
         self.assertTrue(all(snap[k] for k in snap), snap)   # cada campo tiene algo
@@ -927,6 +1059,61 @@ class ChannelTest(unittest.TestCase):
         # every send is recorded on the lead's CRM history
         key = crm.list("acme", "nurturing")[0]["key"]
         self.assertTrue(any(h["event"] == "send" for h in crm.get("acme", key)["history"]))
+
+    def test_pipeline_with_auto_send_false_drafts_without_sending(self):
+        """Modo revisión: el mensaje queda escrito y guardado en el lead, pero
+        NADA se manda — el lead se queda en 'qualified', no en 'nurturing', y
+        el outbox no recibe ningún envío."""
+        from zero.channels import Outbox
+        crm = CRM(None)
+        box = Outbox()
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=crm, outbox=box)
+        d = z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8, auto_send=False)
+
+        self.assertEqual(d["summary"]["sent"], 0)
+        self.assertGreater(d["summary"]["drafted"], 0)
+        self.assertEqual(d["summary"]["delivery"], "pending_review")
+        self.assertEqual(box.log, [])
+        key = crm.list("acme", "qualified")[0]["key"]
+        rec = crm.get("acme", key)
+        self.assertEqual(rec["stage"], "qualified")   # nunca avanzó a contacted
+        self.assertEqual(rec["outreach"]["status"], "draft")
+        self.assertTrue(rec["outreach"]["body"])
+
+    def test_send_pending_outreach_delivers_draft_and_advances_stage(self):
+        from zero.channels import Outbox
+        crm = CRM(None)
+        box = Outbox()
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=crm, outbox=box)
+        z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8, auto_send=False)
+        key = crm.list("acme", "qualified")[0]["key"]
+
+        out = z.send_pending_outreach("acme", key)
+
+        self.assertEqual(out["result"]["status"], "sent")
+        self.assertEqual(out["lead"]["stage"], "nurturing")
+        self.assertEqual(out["lead"]["outreach"]["status"], "sent")
+        self.assertEqual(len(box.log), 1)
+
+    def test_send_pending_outreach_accepts_edited_copy(self):
+        from zero.channels import Outbox
+        crm = CRM(None)
+        box = Outbox()
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=crm, outbox=box)
+        z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8, auto_send=False)
+        key = crm.list("acme", "qualified")[0]["key"]
+
+        out = z.send_pending_outreach("acme", key, message={"body": "texto editado a mano"})
+
+        self.assertEqual(out["result"]["status"], "sent")
+        self.assertEqual(out["lead"]["outreach"]["body"], "texto editado a mano")
+
+    def test_send_pending_outreach_without_a_draft_raises(self):
+        crm = CRM(None)
+        crm.upsert("acme", {"company": "SinBorrador", "email": "x@y.cl"}, stage="qualified")
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=crm)
+        with self.assertRaises(ValueError):
+            z.send_pending_outreach("acme", "x@y.cl")
 
 
 class EmailSenderFromNameTest(unittest.TestCase):
@@ -1637,6 +1824,12 @@ class AuthTest(unittest.TestCase):
         # cachea a nivel de módulo), así que alcanza con setear la env var —
         # sin necesidad de reload.
         os.environ["AUTH_USERS_PATH"] = os.path.join(self._tmpdir, "users.json")
+        # Mismo aislamiento para el tercer mecanismo de auth_enabled(): en el
+        # Ubuntu de producción SUPABASE_JWT_SECRET está configurado de verdad
+        # — sin vaciarlo acá, test_disabled_when_no_users da falso positivo
+        # (auth_enabled() sigue en True por ese lado, no por users.json).
+        self._prev_jwt_secret = os.environ.get("SUPABASE_JWT_SECRET")
+        os.environ["SUPABASE_JWT_SECRET"] = ""
         self.auth = auth
         self.auth.add_user("diego", "s3cret")
 
@@ -1647,6 +1840,10 @@ class AuthTest(unittest.TestCase):
             os.environ.pop("AUTH_USERS_PATH", None)
         else:
             os.environ["AUTH_USERS_PATH"] = self._prev
+        if self._prev_jwt_secret is None:
+            os.environ.pop("SUPABASE_JWT_SECRET", None)
+        else:
+            os.environ["SUPABASE_JWT_SECRET"] = self._prev_jwt_secret
         shutil.rmtree(self._tmpdir, ignore_errors=True)
 
     def test_password_and_token_roundtrip(self):
@@ -1728,6 +1925,418 @@ class AuthTest(unittest.TestCase):
         auth.add_user("lucas", "otra-clave")
         names = auth.list_users()
         self.assertEqual(names, ["diego", "lucas"])
+
+
+class SupabaseJWTAuthTest(unittest.TestCase):
+    """Login vía Supabase Auth (Google), con rol en app_metadata — el camino
+    real, sobre el modelo por-persona de arriba. Los JWTs de prueba se arman
+    a mano con la misma codificación que produce Supabase (HS256, base64url,
+    sin pyjwt — mismo criterio stdlib-only que el resto del módulo)."""
+
+    SECRET = "un-jwt-secret-de-prueba-bien-largo-para-el-test"
+
+    def setUp(self):
+        import os
+        self._prev = os.environ.get("SUPABASE_JWT_SECRET")
+        os.environ["SUPABASE_JWT_SECRET"] = self.SECRET
+
+    def tearDown(self):
+        import os
+        if self._prev is None:
+            os.environ.pop("SUPABASE_JWT_SECRET", None)
+        else:
+            os.environ["SUPABASE_JWT_SECRET"] = self._prev
+
+    @staticmethod
+    def _b64url(data: bytes) -> str:
+        import base64
+        return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+    def _make_jwt(self, *, email="test@zeroai.cl", role="admin", exp_delta=3600,
+                  secret=None, alg="HS256", app_metadata=None, user_metadata=None):
+        import hashlib
+        import hmac
+        import json
+        import time
+        header = {"alg": alg, "typ": "JWT"}
+        if app_metadata is None:
+            app_metadata = {"role": role} if role is not None else {}
+        payload = {"email": email, "exp": int(time.time()) + exp_delta,
+                  "app_metadata": app_metadata, "user_metadata": user_metadata or {}}
+        header_b64 = self._b64url(json.dumps(header).encode())
+        payload_b64 = self._b64url(json.dumps(payload).encode())
+        key = (secret if secret is not None else self.SECRET).encode("utf-8")
+        sig = hmac.new(key, f"{header_b64}.{payload_b64}".encode("ascii"), hashlib.sha256).digest()
+        return f"{header_b64}.{payload_b64}.{self._b64url(sig)}"
+
+    def test_valid_jwt_with_role_authenticates(self):
+        from zero import auth
+        identity = auth.token_identity(self._make_jwt(role="admin"))
+        self.assertEqual(identity["role"], "admin")
+        self.assertEqual(identity["email"], "test@zeroai.cl")
+        self.assertEqual(identity["source"], "supabase")
+
+    def test_cro_role_roundtrip(self):
+        from zero import auth
+        identity = auth.token_identity(self._make_jwt(role="cro", email="lucas@zeroai.cl"))
+        self.assertEqual(identity["role"], "cro")
+        self.assertEqual(identity["username"], "lucas@zeroai.cl")
+
+    def test_full_name_from_user_metadata(self):
+        from zero import auth
+        identity = auth.token_identity(
+            self._make_jwt(user_metadata={"full_name": "Diego Mardones"}))
+        self.assertEqual(identity["full_name"], "Diego Mardones")
+
+    def test_full_name_falls_back_to_name(self):
+        # Confirmado en vivo (2026-07-17) contra una cuenta real: Google manda
+        # ambos, pero por si algún proveedor solo manda "name".
+        from zero import auth
+        identity = auth.token_identity(self._make_jwt(user_metadata={"name": "Lucas Roman"}))
+        self.assertEqual(identity["full_name"], "Lucas Roman")
+
+    def test_full_name_prefers_full_name_over_name(self):
+        from zero import auth
+        identity = auth.token_identity(self._make_jwt(
+            user_metadata={"full_name": "Diego Mardones", "name": "otro nombre"}))
+        self.assertEqual(identity["full_name"], "Diego Mardones")
+
+    def test_full_name_is_none_without_user_metadata(self):
+        from zero import auth
+        identity = auth.token_identity(self._make_jwt(user_metadata={}))
+        self.assertIsNone(identity["full_name"])
+
+    def test_full_name_never_used_for_authorization(self):
+        # user_metadata puede traer CUALQUIER cosa (lo edita el propio
+        # usuario) — no debe filtrarse a "role" bajo ninguna circunstancia.
+        from zero import auth
+        identity = auth.token_identity(self._make_jwt(
+            role="cro", user_metadata={"role": "admin", "full_name": "Alguien"}))
+        self.assertEqual(identity["role"], "cro")   # solo app_metadata manda
+
+    def test_jwt_with_no_role_authenticates_but_role_is_none(self):
+        # Fail closed: se autentica (sabemos quién es) pero sin rol asignado
+        # — es el caller (auth_guard) el que decide qué hacer con eso (403).
+        from zero import auth
+        identity = auth.token_identity(self._make_jwt(role=None))
+        self.assertIsNotNone(identity)
+        self.assertIsNone(identity["role"])
+
+    def test_user_metadata_role_is_never_trusted(self):
+        # app_metadata es lo único confiable — user_metadata lo puede editar
+        # el propio usuario vía API, nunca debe otorgar un rol.
+        from zero import auth
+        # fuerza un token con "role" solo en user_metadata, no app_metadata
+        import base64, hashlib, hmac, json, time
+        header = {"alg": "HS256", "typ": "JWT"}
+        payload = {"email": "x@x.cl", "exp": int(time.time()) + 3600,
+                  "user_metadata": {"role": "admin"}}
+        h = self._b64url(json.dumps(header).encode())
+        p = self._b64url(json.dumps(payload).encode())
+        sig = hmac.new(self.SECRET.encode(), f"{h}.{p}".encode(), hashlib.sha256).digest()
+        forged = f"{h}.{p}.{self._b64url(sig)}"
+        identity = auth.token_identity(forged)
+        self.assertIsNotNone(identity)
+        self.assertIsNone(identity["role"])
+
+    def test_tampered_signature_rejected(self):
+        from zero import auth
+        tok = self._make_jwt()
+        tampered = tok[:-4] + "xxxx"
+        self.assertIsNone(auth.verify_supabase_jwt(tampered))
+        self.assertIsNone(auth.token_identity(tampered))
+
+    def test_expired_jwt_rejected(self):
+        from zero import auth
+        self.assertIsNone(auth.verify_supabase_jwt(self._make_jwt(exp_delta=-10)))
+
+    def test_wrong_secret_rejected(self):
+        from zero import auth
+        tok = self._make_jwt(secret="otro-secreto-completamente-distinto")
+        self.assertIsNone(auth.verify_supabase_jwt(tok))
+
+    def test_non_hs256_alg_rejected(self):
+        # nunca aceptar "none" (ni ningún otro alg) aunque venga "bien firmado"
+        from zero import auth
+        self.assertIsNone(auth.verify_supabase_jwt(self._make_jwt(alg="none")))
+
+    def test_garbage_token_never_crashes(self):
+        from zero import auth
+        for bad in ("", "garbage", "a.b", "a.b.c.d", "...", None):
+            self.assertIsNone(auth.verify_supabase_jwt(bad))
+            self.assertIsNone(auth.token_identity(bad))
+
+    def test_no_secret_configured_disables_jwt_path(self):
+        import os
+        from zero import auth
+        tok = self._make_jwt()
+        os.environ.pop("SUPABASE_JWT_SECRET", None)
+        self.assertIsNone(auth.verify_supabase_jwt(tok))
+
+    def test_local_login_still_works_as_fallback_with_admin_role(self):
+        # el modelo por-persona (users.json) sigue andando sin cambios — se le
+        # asigna "admin" (documentado a propósito: es un hueco transicional).
+        import os
+        import tempfile
+        from zero import auth
+        tmpdir = tempfile.mkdtemp()
+        prev = os.environ.get("AUTH_USERS_PATH")
+        os.environ["AUTH_USERS_PATH"] = os.path.join(tmpdir, "users.json")
+        try:
+            auth.add_user("diego", "clave-local")
+            tok = auth.make_token("diego")
+            identity = auth.token_identity(tok)
+            self.assertEqual(identity["role"], "admin")
+            self.assertEqual(identity["source"], "local")
+            self.assertIsNone(identity["full_name"])   # el modelo local no tiene nombre real
+        finally:
+            if prev is None:
+                os.environ.pop("AUTH_USERS_PATH", None)
+            else:
+                os.environ["AUTH_USERS_PATH"] = prev
+
+
+class SupabaseES256AuthTest(unittest.TestCase):
+    """ES256 — lo que Supabase usa DE VERDAD para los tokens que emite Google
+    Auth en proyectos nuevos (confirmado en vivo, 2026-07-17, contra el JWKS
+    real del proyecto). HS256 (SupabaseJWTAuthTest arriba) sigue andando,
+    pero un JWT real de Google llega firmado así, no con el secreto
+    compartido — esto prueba ese camino con un par de claves EC real,
+    generado localmente (nunca pega contra Supabase de verdad)."""
+
+    def setUp(self):
+        import os
+        from zero import auth
+        self.auth = auth
+        self._prev_url = os.environ.get("SUPABASE_URL")
+        os.environ["SUPABASE_URL"] = "https://fake-project.supabase.co"
+        # Cache de JWKS es estado de módulo — nunca debe filtrarse entre tests.
+        auth._JWKS_CACHE["keys"] = {}
+        auth._JWKS_CACHE["fetched_at"] = 0.0
+
+        from cryptography.hazmat.primitives.asymmetric import ec
+        self.private_key = ec.generate_private_key(ec.SECP256R1())
+        self.kid = "test-kid-1"
+
+    def tearDown(self):
+        import os
+        if self._prev_url is None:
+            os.environ.pop("SUPABASE_URL", None)
+        else:
+            os.environ["SUPABASE_URL"] = self._prev_url
+        self.auth._JWKS_CACHE["keys"] = {}
+        self.auth._JWKS_CACHE["fetched_at"] = 0.0
+
+    @staticmethod
+    def _b64url(data: bytes) -> str:
+        import base64
+        return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+    def _jwk_dict(self, kid=None):
+        pub = self.private_key.public_key().public_numbers()
+        size = 32   # P-256: coordenadas de 32 bytes
+        return {
+            "kty": "EC", "crv": "P-256", "alg": "ES256", "use": "sig",
+            "kid": kid if kid is not None else self.kid,
+            "x": self._b64url(pub.x.to_bytes(size, "big")),
+            "y": self._b64url(pub.y.to_bytes(size, "big")),
+        }
+
+    def _mock_jwks_response(self, jwks_body: dict):
+        import json as _json
+        from unittest import mock
+        cm = mock.MagicMock()
+        cm.__enter__.return_value.read.return_value = _json.dumps(jwks_body).encode("utf-8")
+        cm.__exit__.return_value = False
+        return mock.patch("zero.auth.urllib.request.urlopen", return_value=cm)
+
+    def _make_es256_jwt(self, *, email="test@zeroai.cl", role="admin", exp_delta=3600,
+                        kid=None, private_key=None):
+        import json as _json
+        import time as _time
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives.asymmetric import utils as ec_utils
+        header = {"alg": "ES256", "typ": "JWT", "kid": kid if kid is not None else self.kid}
+        app_metadata = {"role": role} if role is not None else {}
+        payload = {"email": email, "exp": int(_time.time()) + exp_delta, "app_metadata": app_metadata}
+        h = self._b64url(_json.dumps(header).encode())
+        p = self._b64url(_json.dumps(payload).encode())
+        signing_input = f"{h}.{p}".encode("ascii")
+        key = private_key if private_key is not None else self.private_key
+        der_sig = key.sign(signing_input, ec.ECDSA(hashes.SHA256()))
+        r, s = ec_utils.decode_dss_signature(der_sig)
+        raw_sig = r.to_bytes(32, "big") + s.to_bytes(32, "big")
+        return f"{h}.{p}.{self._b64url(raw_sig)}"
+
+    def test_valid_es256_jwt_verifies_against_real_jwks(self):
+        with self._mock_jwks_response({"keys": [self._jwk_dict()]}):
+            identity = self.auth.token_identity(self._make_es256_jwt(role="admin"))
+        self.assertEqual(identity["role"], "admin")
+        self.assertEqual(identity["source"], "supabase")
+
+    def test_es256_cro_role_roundtrip(self):
+        with self._mock_jwks_response({"keys": [self._jwk_dict()]}):
+            identity = self.auth.token_identity(
+                self._make_es256_jwt(role="cro", email="lucas@zeroai.cl"))
+        self.assertEqual(identity["role"], "cro")
+        self.assertEqual(identity["username"], "lucas@zeroai.cl")
+
+    def test_es256_wrong_key_rejected(self):
+        # firmado con una clave DISTINTA a la que expone el JWKS — no debe
+        # verificar aunque el kid coincida.
+        from cryptography.hazmat.primitives.asymmetric import ec as _ec
+        other_key = _ec.generate_private_key(_ec.SECP256R1())
+        tok = self._make_es256_jwt(private_key=other_key)
+        with self._mock_jwks_response({"keys": [self._jwk_dict()]}):
+            self.assertIsNone(self.auth.verify_supabase_jwt(tok))
+
+    def test_es256_unknown_kid_forces_refresh_then_fails(self):
+        tok = self._make_es256_jwt(kid="kid-que-no-esta-en-el-jwks")
+        with self._mock_jwks_response({"keys": [self._jwk_dict()]}):
+            self.assertIsNone(self.auth.verify_supabase_jwt(tok))
+
+    def test_es256_expired_rejected(self):
+        with self._mock_jwks_response({"keys": [self._jwk_dict()]}):
+            self.assertIsNone(self.auth.verify_supabase_jwt(self._make_es256_jwt(exp_delta=-10)))
+
+    def test_es256_malformed_signature_never_crashes(self):
+        h = self._b64url(b'{"alg":"ES256","typ":"JWT","kid":"test-kid-1"}')
+        p = self._b64url(b'{"email":"x@x.cl","exp":9999999999,"app_metadata":{"role":"admin"}}')
+        with self._mock_jwks_response({"keys": [self._jwk_dict()]}):
+            for bad_sig in ("", "no-es-base64!!", self._b64url(b"corto"), self._b64url(b"x" * 100)):
+                self.assertIsNone(self.auth.verify_supabase_jwt(f"{h}.{p}.{bad_sig}"))
+
+    def test_jwks_cache_avoids_refetching(self):
+        from unittest import mock
+        with self._mock_jwks_response({"keys": [self._jwk_dict()]}) as mocked:
+            tok1 = self._make_es256_jwt()
+            self.assertIsNotNone(self.auth.verify_supabase_jwt(tok1))
+            tok2 = self._make_es256_jwt(email="otro@zeroai.cl")
+            self.assertIsNotNone(self.auth.verify_supabase_jwt(tok2))
+            self.assertEqual(mocked.call_count, 1, "el segundo token no debería volver a pedir el JWKS")
+
+    def test_jwks_network_failure_degrades_to_none_never_crashes(self):
+        from unittest import mock
+        tok = self._make_es256_jwt()
+        with mock.patch("zero.auth.urllib.request.urlopen", side_effect=OSError("sin red")):
+            self.assertIsNone(self.auth.verify_supabase_jwt(tok))
+
+    def test_hs256_still_works_alongside_es256(self):
+        # el soporte nuevo no debe pisar el camino viejo — mismo test que
+        # SupabaseJWTAuthTest, confirmado de nuevo acá porque ambos comparten
+        # la misma función ahora.
+        import os
+        prev = os.environ.get("SUPABASE_JWT_SECRET")
+        os.environ["SUPABASE_JWT_SECRET"] = "un-secreto-hs256-de-prueba"
+        try:
+            import base64
+            import hashlib
+            import hmac
+            import json as _json
+            import time as _time
+            header = {"alg": "HS256", "typ": "JWT"}
+            payload = {"email": "hs256@zeroai.cl", "exp": int(_time.time()) + 3600,
+                      "app_metadata": {"role": "admin"}}
+            h = self._b64url(_json.dumps(header).encode())
+            p = self._b64url(_json.dumps(payload).encode())
+            sig = hmac.new(b"un-secreto-hs256-de-prueba", f"{h}.{p}".encode(), hashlib.sha256).digest()
+            tok = f"{h}.{p}.{self._b64url(sig)}"
+            identity = self.auth.token_identity(tok)
+            self.assertEqual(identity["role"], "admin")
+        finally:
+            if prev is None:
+                os.environ.pop("SUPABASE_JWT_SECRET", None)
+            else:
+                os.environ["SUPABASE_JWT_SECRET"] = prev
+
+
+class SupabaseAdminApiTest(unittest.TestCase):
+    """list_supabase_users()/set_user_role() — la Admin API de Supabase Auth
+    (`/auth/v1/admin/users`), usada por el panel de Equipo (admin-only).
+    Nunca pega contra Supabase de verdad: mockea urllib.request.urlopen."""
+
+    def setUp(self):
+        import os
+        from zero import auth
+        self.auth = auth
+        self._prev = {k: os.environ.get(k) for k in ("SUPABASE_URL", "SUPABASE_KEY")}
+        os.environ["SUPABASE_URL"] = "https://fake-project.supabase.co"
+        os.environ["SUPABASE_KEY"] = "fake-service-role-key"
+
+    def tearDown(self):
+        import os
+        for k, v in self._prev.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    @staticmethod
+    def _mock_response(body: dict):
+        import json as _json
+        from unittest import mock
+        cm = mock.MagicMock()
+        cm.__enter__.return_value.read.return_value = _json.dumps(body).encode("utf-8")
+        cm.__exit__.return_value = False
+        return cm
+
+    def test_list_users_normalizes_shape(self):
+        from unittest import mock
+        body = {"users": [
+            {"id": "u1", "email": "diego@zeroai.cl",
+             "user_metadata": {"full_name": "Diego Mardones"},
+             "app_metadata": {"role": "admin"},
+             "created_at": "2026-07-19T22:50:39Z", "last_sign_in_at": "2026-07-20T01:32:15Z"},
+            {"id": "u2", "email": "desconocido@gmail.com",
+             "user_metadata": {}, "app_metadata": {},
+             "created_at": "2026-07-20T01:33:59Z", "last_sign_in_at": "2026-07-20T01:33:59Z"},
+        ]}
+        with mock.patch("zero.auth.urllib.request.urlopen", return_value=self._mock_response(body)):
+            users = self.auth.list_supabase_users()
+        self.assertEqual(len(users), 2)
+        self.assertEqual(users[0]["role"], "admin")
+        self.assertEqual(users[0]["full_name"], "Diego Mardones")
+        self.assertIsNone(users[1]["role"])   # sin app_metadata.role -> None, no KeyError
+
+    def test_list_users_without_credentials_returns_empty(self):
+        import os
+        os.environ.pop("SUPABASE_URL", None)
+        os.environ.pop("SUPABASE_KEY", None)
+        self.assertEqual(self.auth.list_supabase_users(), [])
+
+    def test_list_users_network_failure_returns_empty_not_raise(self):
+        from unittest import mock
+        with mock.patch("zero.auth.urllib.request.urlopen", side_effect=OSError("red caída")):
+            self.assertEqual(self.auth.list_supabase_users(), [])
+
+    def test_set_user_role_merges_into_existing_app_metadata(self):
+        import json as _json
+        from unittest import mock
+        get_resp = self._mock_response({"id": "u2", "app_metadata": {"otra_clave": "x"}})
+        put_resp = self._mock_response({"id": "u2"})
+        with mock.patch("zero.auth.urllib.request.urlopen", side_effect=[get_resp, put_resp]) as m:
+            ok = self.auth.set_user_role("u2", "cro")
+        self.assertTrue(ok)
+        put_call = m.call_args_list[1][0][0]   # el Request del segundo urlopen()
+        sent_body = _json.loads(put_call.data.decode("utf-8"))
+        self.assertEqual(sent_body["app_metadata"], {"otra_clave": "x", "role": "cro"})
+
+    def test_set_user_role_none_removes_role_key(self):
+        import json as _json
+        from unittest import mock
+        get_resp = self._mock_response({"id": "u2", "app_metadata": {"role": "cro"}})
+        put_resp = self._mock_response({"id": "u2"})
+        with mock.patch("zero.auth.urllib.request.urlopen", side_effect=[get_resp, put_resp]) as m:
+            self.auth.set_user_role("u2", None)
+        put_call = m.call_args_list[1][0][0]
+        sent_body = _json.loads(put_call.data.decode("utf-8"))
+        self.assertNotIn("role", sent_body["app_metadata"])
+
+    def test_set_user_role_network_failure_returns_false(self):
+        from unittest import mock
+        with mock.patch("zero.auth.urllib.request.urlopen", side_effect=OSError("red caída")):
+            self.assertFalse(self.auth.set_user_role("u2", "cro"))
 
 
 class MetaAdsTest(unittest.TestCase):
@@ -1846,6 +2455,29 @@ class PitchWriterTest(unittest.TestCase):
         self.assertIn("mencionar su web nueva", self._gen("mencionar su web nueva")["body"].lower())
 
 
+class IcpMarketDefaultTest(unittest.TestCase):
+    """Mercado activo (zero.config.ACTIVE_MARKET_REGIONS): run_pipeline nunca
+    despacha a PROSPECTOR/QUALIFIER un ICP "sin país" por accidente. Se prueba
+    a nivel de run_pipeline (no normalize_icp): el default es una regla de
+    EJECUCIÓN, no del contrato de forma de icp.py — normalize_icp({}) sigue
+    siendo un ICP vacío de verdad (is_empty sigue en True), eso no cambia."""
+
+    def test_run_pipeline_defaults_missing_regions_to_active_market(self):
+        from zero.config import ACTIVE_MARKET_REGIONS
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=CRM(None))
+        d = z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8,
+                           icp={"industry": "fintech"})
+        for region in ACTIVE_MARKET_REGIONS:
+            self.assertIn(region, d["summary"]["icp"])
+
+    def test_run_pipeline_keeps_explicit_regions(self):
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=CRM(None))
+        d = z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8,
+                           icp={"regions": "Perú, Colombia"})
+        self.assertIn("Perú", d["summary"]["icp"])
+        self.assertNotIn("Chile", d["summary"]["icp"])
+
+
 class ValidatorTest(unittest.TestCase):
     """Corrupt contacts are rejected before they reach the CRM."""
 
@@ -1874,6 +2506,22 @@ class ValidatorTest(unittest.TestCase):
         # ENTERPRISE also requires a phone with >=9 digits
         enterprise = ValidatorRules.validate_batch(leads, "ENTERPRISE")
         self.assertEqual([l["company"] for l in enterprise], ["Acme"])
+
+    def test_phone_rejects_explicit_foreign_country_code(self):
+        """Mercado activo = Chile (zero.config.ACTIVE_MARKET_REGIONS): un
+        teléfono con código de país explícito que NO sea +56 se descarta,
+        aunque tenga el largo/forma correctos."""
+        from zero.validators import ValidatorRules
+        self.assertFalse(ValidatorRules.validate_phone("+54 9 11 1234 5678"))  # Argentina
+        self.assertFalse(ValidatorRules.validate_phone("+51 987 654 321"))     # Perú
+        self.assertFalse(ValidatorRules.validate_phone("+1 415 555 0123"))     # EE.UU.
+
+    def test_phone_accepts_chilean_and_bare_local_format(self):
+        from zero.validators import ValidatorRules
+        self.assertTrue(ValidatorRules.validate_phone("+56 9 1234 5678"))
+        self.assertTrue(ValidatorRules.validate_phone("+56221234567"))
+        # sin "+": no hay señal de que sea de otro país -> se acepta
+        self.assertTrue(ValidatorRules.validate_phone("912345678"))
 
 
 class UsedEmailsTest(unittest.TestCase):
@@ -1979,6 +2627,101 @@ class VendorTest(unittest.TestCase):
         self.assertEqual(clients_count_for("fernanda", m), 2)
         self.assertEqual(clients_count_for("stefano", m), 1)
         self.assertEqual(clients_count_for("no-existe", m), 0)
+
+
+class ProgrammedFunctionsRegistryTest(unittest.TestCase):
+    """Registro de funciones programadas (fase 2) — mismo patrón CRUD que
+    vendors, ver VendorTest arriba."""
+
+    def test_upsert_and_get(self):
+        m = SessionMemory(None)
+        m.upsert_function({"id": "fn1", "name": "Prueba", "code": "result = 1",
+                           "lookup_scope": {"client_id": "acme"}, "enabled": True})
+        fn = m.get_function("fn1")
+        self.assertEqual(fn["name"], "Prueba")
+        self.assertIsNone(m.get_function("no-existe"))
+
+    def test_list_functions(self):
+        m = SessionMemory(None)
+        self.assertEqual(m.list_functions(), [])
+        m.upsert_function({"id": "fn1", "name": "Uno", "code": "", "lookup_scope": {}, "enabled": True})
+        m.upsert_function({"id": "fn2", "name": "Dos", "code": "", "lookup_scope": {}, "enabled": True})
+        self.assertEqual({f["id"] for f in m.list_functions()}, {"fn1", "fn2"})
+
+    def test_delete_function(self):
+        m = SessionMemory(None)
+        m.upsert_function({"id": "fn1", "name": "Uno", "code": "", "lookup_scope": {}, "enabled": True})
+        self.assertTrue(m.delete_function("fn1"))
+        self.assertIsNone(m.get_function("fn1"))
+        self.assertFalse(m.delete_function("fn1"))   # ya no está — False, no lanza
+
+
+class ProgrammedFunctionsLogicTest(unittest.TestCase):
+    """zero/functions.py — lógica pura (ctx curado + resumen de last_run), sin
+    fastapi ni Docker. Esto es lo que 'mockea run_sandboxed' pide el prompt de
+    fase 2: se le da a summarize_run exactamente lo que run_sandboxed
+    devolvería, sin necesitar Docker real ni un mock de verdad."""
+
+    def test_lead_view_only_exposes_the_curated_fields(self):
+        from zero.functions import lead_view
+        rec = {"client_id": "acme", "key": "ceo@acme.cl", "company": "Acme",
+               "name": "Lucía", "role": "CEO", "email": "ceo@acme.cl",
+               "phone": "+56911112222", "domain": "acme.cl", "stage": "qualified",
+               "score": 82, "channel": "web", "tags": [], "history": []}
+        view = lead_view(rec)
+        self.assertEqual(view, {
+            "company": "Acme", "name": "Lucía", "role": "CEO", "email": "ceo@acme.cl",
+            "phone": "+56911112222", "stage": "qualified", "score": 82,
+        })
+        self.assertNotIn("key", view)          # ver el porqué en el docstring del módulo
+        self.assertNotIn("client_id", view)
+        self.assertNotIn("history", view)
+
+    def test_lead_view_key_field_would_break_the_sandbox_credential_filter(self):
+        # Documenta el hallazgo del REPORT de fase 2: si `key` se incluyera acá,
+        # ctx no pasaría la validación de run_sandboxed. Lo confirma de verdad
+        # contra el filtro real, no solo lo afirma en un comentario.
+        from zero.sandbox import _assert_ctx_is_safe
+        with self.assertRaises(ValueError):
+            _assert_ctx_is_safe({"leads": [{"key": "ceo@acme.cl"}]})
+
+    def test_build_ctx_shape(self):
+        from zero.functions import build_ctx
+        leads = [{"company": "Acme", "email": "ceo@acme.cl", "stage": "new"}]
+        ctx = build_ctx(leads, "acme")
+        self.assertEqual(set(ctx), {"leads", "client_id"})
+        self.assertEqual(ctx["client_id"], "acme")
+        self.assertEqual(ctx["leads"][0]["company"], "Acme")
+
+    def test_build_ctx_is_safe_for_the_sandbox(self):
+        from zero.functions import build_ctx
+        from zero.sandbox import _assert_ctx_is_safe
+        ctx = build_ctx([{"company": "Acme", "email": "ceo@acme.cl"}], "acme")
+        _assert_ctx_is_safe(ctx)   # no debe lanzar
+
+    def test_summarize_run_prefers_error(self):
+        from zero.functions import summarize_run
+        out = summarize_run({"result": {"ok": True}, "stdout": "algo", "error": "boom"})
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["result_summary"], "boom")
+        self.assertEqual(out["error"], "boom")
+
+    def test_summarize_run_falls_back_to_result_then_stdout_then_placeholder(self):
+        from zero.functions import summarize_run
+        r1 = summarize_run({"result": 42, "stdout": "", "error": None})
+        self.assertEqual(r1["result_summary"], "42")
+        self.assertTrue(r1["ok"])
+
+        r2 = summarize_run({"result": None, "stdout": "hola", "error": None})
+        self.assertEqual(r2["result_summary"], "hola")
+
+        r3 = summarize_run({"result": None, "stdout": "", "error": None})
+        self.assertEqual(r3["result_summary"], "(sin salida)")
+
+    def test_summarize_run_truncates_long_summaries(self):
+        from zero.functions import summarize_run
+        out = summarize_run({"result": "x" * 1000, "stdout": "", "error": None})
+        self.assertEqual(len(out["result_summary"]), 500)
 
 
 class VendorCredentialsTest(unittest.TestCase):
@@ -2497,6 +3240,25 @@ class ApiRoutesTest(unittest.TestCase):
             dupes, [],
             "rutas duplicadas en api.py — la segunda queda muerta en silencio:\n" + "\n".join(dupes)
         )
+
+
+class TestSyntheticTypingClip(unittest.TestCase):
+    """_synthetic_typing_pcm no toca la red — el resto de speak_with_typing (ElevenLabs)
+    se verifica a mano (ver docs/voice.md), no acá."""
+
+    def test_length_matches_duration_and_sample_rate(self):
+        pcm = _synthetic_typing_pcm(duration=1.0, sample_rate=_TYPING_SAMPLE_RATE, seed=1)
+        # 16-bit mono: 2 bytes por muestra
+        self.assertEqual(len(pcm), _TYPING_SAMPLE_RATE * 2)
+
+    def test_deterministic_with_seed(self):
+        a = _synthetic_typing_pcm(duration=0.5, seed=42)
+        b = _synthetic_typing_pcm(duration=0.5, seed=42)
+        self.assertEqual(a, b)
+
+    def test_not_silent(self):
+        pcm = _synthetic_typing_pcm(duration=1.0, seed=7)
+        self.assertTrue(any(b != 0 for b in pcm), "el clip de teclado no debería ser puro silencio")
 
 
 if __name__ == "__main__":

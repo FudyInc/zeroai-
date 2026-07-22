@@ -102,11 +102,13 @@ export default function Config() {
           <Input type="password" placeholder="WhatsApp token" value={vals.wt || ''} onChange={(e) => set('wt', e.target.value)} />
           <Input placeholder="Phone Number ID" value={vals.wp || ''} onChange={(e) => set('wp', e.target.value)} />
           <Input placeholder="Verify token (lo inventas tú, p/ el webhook)" value={vals.wv || ''} onChange={(e) => set('wv', e.target.value)} />
+          <Input type="password" placeholder="App Secret (Meta Business Settings → App → Basic)" value={vals.was || ''} onChange={(e) => set('was', e.target.value)} />
           <Button onClick={() => save({
             ...(vals.wt && { whatsapp_token: vals.wt }),
             ...(vals.wp && { whatsapp_phone_id: vals.wp }),
             ...(vals.wv && { whatsapp_verify_token: vals.wv }),
-          }, ['wt', 'wp', 'wv'])}>Guardar WhatsApp</Button>
+            ...(vals.was && { whatsapp_app_secret: vals.was }),
+          }, ['wt', 'wp', 'wv', 'was'])}>Guardar WhatsApp</Button>
         </div>
       </IntegrationCard>
 

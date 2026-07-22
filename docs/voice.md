@@ -28,13 +28,41 @@ export ELEVENLABS_API_KEY=tu_key
 # ver tus voces y sus ids (encontrá el de tu clon)
 python3 -m zero.voice --voices
 
-# generar audio con el guion de venta
-python3 -m zero.voice --voice-id TU_VOICE_ID \
-  --text "Hola, soy Fernanda de ZeroAI. Te llamo porque ayudamos a empresas como la tuya a conseguir leads B2B ya calificados..." \
-  --out fernanda.mp3
+# generar audio con el guion de venta (voz clonada de Francisca, ya conectada)
+python3 -m zero.voice --voice-id 6Gr4AVmTax1pMJO0lHRK \
+  --text "Hola, soy Francisca de ZeroAI. Te llamo porque ayudamos a empresas como la tuya a conseguir leads B2B ya calificados..." \
+  --out francisca.mp3
 ```
 
 Usa el modelo `eleven_multilingual_v2` (español natural). El acento lo da tu voz clonada.
+
+### "Tipeando" antes de responder (realismo + enmascara latencia)
+
+Para el momento puntual en que el agente "busca datos" antes de contestar una
+pregunta (no en cada turno), `speak_with_typing()` antepone un clip corto (1–2s)
+de sonido de teclado sintético a la respuesta:
+
+```bash
+python3 -m zero.voice --voice-id 6Gr4AVmTax1pMJO0lHRK \
+  --text "Dame un segundo... encontré 12 leads que calzan con tu ICP." \
+  --out respuesta.wav --typing
+```
+
+```python
+from zero.voice import speak_with_typing
+speak_with_typing(
+    "Dame un segundo... encontré 12 leads que calzan con tu ICP.",
+    voice_id="6Gr4AVmTax1pMJO0lHRK",
+    out="respuesta.wav",
+    typing_seconds=1.4,
+)
+```
+
+Detalles: el clip de teclado es **sintético** (ruido con envolvente, generado por
+código — no hay asset de audio real de un teclado todavía, hay un `TODO` en
+`zero/voice.py` para reemplazarlo). Como se mezcla como PCM crudo antes de
+envolverlo en un WAV (sin `ffmpeg`/`pydub`, solo stdlib), la salida de este modo es
+`.wav`, no `.mp3` — usa `speak()` (mp3) cuando no necesitás el efecto.
 
 ## Lo honesto: esto es solo la VOZ, no el agente de llamadas completo
 

@@ -2,15 +2,17 @@ import { createContext, useContext, useEffect, useState } from 'react'
 import { Routes, Route, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Toaster } from 'sonner'
+import { Toaster, toast } from 'sonner'
 import { Plus, Menu, ArrowLeft, Search } from 'lucide-react'
-import { api } from './lib/api'
-import { Button, Input, Select } from './components/ui'
+import { api, setToken } from './lib/api'
+import { supabase } from './lib/supabase'
+import { Button, Input, Select, Card } from './components/ui'
 import { Glow } from './components/Glow'
 import Sidebar from './components/Sidebar'
 import Login from './components/Login'
 import LeadModal from './components/LeadModal'
 import CommandPalette from './components/CommandPalette'
+import { canSeePage } from './lib/roles'
 import Dashboard from './pages/Dashboard'
 import Vender from './pages/Vender'
 import Campanas from './pages/Campanas'
@@ -23,6 +25,8 @@ import Llamadas from './pages/Llamadas'
 import Whatsapp from './pages/Whatsapp'
 import Agentes from './pages/Agentes'
 import Config from './pages/Config'
+import Finanzas from './pages/Finanzas'
+import Equipo from './pages/Equipo'
 
 const AppCtx = createContext(null)
 export const useApp = () => useContext(AppCtx)
@@ -38,6 +42,7 @@ const TITLES = {
   '/whatsapp': ['WhatsApp', 'En 3 pasos deja un agente atendiendo: ficha, quién atiende, desplegar — prueba, estado y actividad'],
   '/forecast': ['Forecast', 'Proyección de pipeline'],
   '/clientes': ['Clientes', 'Tus cuentas'],
+  '/finanzas': ['Finanzas', 'Entra, sale y margen de la agencia'],
   '/arquitectura': ['Arquitectura', 'Cómo está armado ZeroAI por dentro'],
   '/config': ['Configuración', 'Ajustes y conexiones'],
 }
@@ -50,6 +55,10 @@ export default function App() {
   const nav = useNavigate()
   const [title, sub] = TITLES[pathname] || ['ZeroAI', '']
   const [authed, setAuthed] = useState(null)   // null=checking · false=login · true=in
+  const [username, setUsername] = useState(null)
+  const [fullName, setFullName] = useState(null) // nombre real (Google), si el backend lo manda — hoy puede no venir
+  const [role, setRole] = useState(null)         // "admin" | "cro" | "cto" | null
+  const [authEnabled, setAuthEnabled] = useState(false) // false = sin cuentas dadas de alta (mock/dev), sin restricciones
   const [navOpen, setNavOpen] = useState(false) // drawer móvil del sidebar
   const [paletteOpen, setPaletteOpen] = useState(false)
 
@@ -65,13 +74,34 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
+  const refreshAuth = () => api.authStatus()
+    .then((s) => {
+      setAuthed(s.authenticated); setUsername(s.username || null)
+      setFullName(s.full_name || null)
+      setRole(s.role || null); setAuthEnabled(!!s.enabled)
+    })
+    .catch(() => setAuthed(true))
+
   useEffect(() => {
-    let alive = true
-    api.authStatus().then((s) => alive && setAuthed(s.authenticated)).catch(() => alive && setAuthed(true))
-    const onUnauth = () => setAuthed(false)
+    refreshAuth()
+    const onUnauth = () => { setAuthed(false); setUsername(null); setFullName(null); setRole(null); setAuthEnabled(false) }
     window.addEventListener('zero-unauth', onUnauth)
-    return () => { alive = false; window.removeEventListener('zero-unauth', onUnauth) }
-  }, [])
+    return () => window.removeEventListener('zero-unauth', onUnauth)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Login con Google: al volver del redirect (o si ya había sesión activa),
+  // Supabase dispara este evento con el JWT — lo guardamos con el MISMO
+  // mecanismo que usa el login local (setToken) y refrescamos el status
+  // contra nuestro backend, que es quien de verdad decide rol/permiso.
+  useEffect(() => {
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.access_token) {
+        setToken(session.access_token)
+        refreshAuth()
+      }
+    })
+    return () => sub.subscription.unsubscribe()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data: clients = [] } = useQuery({ queryKey: ['clients'], queryFn: api.clients, enabled: authed === true })
   useEffect(() => {
@@ -79,12 +109,16 @@ export default function App() {
   }, [clients, client])
 
   if (authed === null) return <div className="min-h-screen grid place-items-center text-zinc-400">Cargando…</div>
-  if (authed === false) return <Login onSuccess={() => setAuthed(true)} />
+  if (authed === false) return <Login onSuccess={refreshAuth} />
+  // Login válido (Google u otro) pero sin app_metadata.role asignado todavía
+  // en Supabase — el backend ya bloquea todo con 403 (fail closed); acá se
+  // corta ANTES de intentar cargar páginas, para no mostrar una app rota.
+  if (authEnabled && !role) return <NoRoleScreen username={username} onLogout={() => api.logout()} />
 
   return (
     <AppCtx.Provider value={{ client, setClient, clients, openLead: setLeadKey, openRun: () => setRunOpen(true) }}>
       <div className="min-h-screen flex text-zinc-900 bg-[radial-gradient(120%_120%_at_100%_0%,#f2f1ec_0%,#f4f4f4_45%,#f6f5f2_100%)]">
-        <Sidebar mobileOpen={navOpen} onClose={() => setNavOpen(false)} />
+        <Sidebar mobileOpen={navOpen} onClose={() => setNavOpen(false)} username={username} fullName={fullName} role={role} authEnabled={authEnabled} />
         <div className="flex-1 min-w-0">
           <header className="h-[68px] sticky top-0 z-20 bg-white/80 backdrop-blur border-b border-zinc-200 flex items-center px-4 md:px-8 gap-3">
             <button onClick={() => setNavOpen(true)} aria-label="Abrir menú"
@@ -134,11 +168,13 @@ export default function App() {
                 <Route path="/pipeline" element={<Pipeline />} />
                 <Route path="/forecast" element={<Forecast />} />
                 <Route path="/clientes" element={<Clientes />} />
+                <Route path="/finanzas" element={<Finanzas />} />
                 <Route path="/arquitectura" element={<Arquitectura />} />
                 <Route path="/agentes" element={<Agentes />} />
                 <Route path="/llamadas" element={<Llamadas />} />
                 <Route path="/whatsapp" element={<Whatsapp />} />
                 <Route path="/config" element={<Config />} />
+                <Route path="/equipo" element={<Equipo />} />
               </Routes>
             </motion.div>
           </main>
@@ -149,7 +185,9 @@ export default function App() {
         <CommandPalette
           open={paletteOpen}
           onClose={() => setPaletteOpen(false)}
-          pages={Object.entries(TITLES).map(([path, [label]]) => ({ path, label }))}
+          pages={Object.entries(TITLES)
+            .filter(([path]) => canSeePage(path, role, authEnabled))
+            .map(([path, [label]]) => ({ path, label }))}
           clients={clients}
           currentClient={client}
           onNavigate={nav}
@@ -162,13 +200,27 @@ export default function App() {
   )
 }
 
+function NoRoleScreen({ username, onLogout }) {
+  return (
+    <div className="min-h-screen grid place-items-center bg-[radial-gradient(120%_120%_at_100%_0%,#f2f1ec_0%,#f4f4f4_45%,#f6f5f2_100%)] p-4">
+      <Card className="p-8 w-full max-w-sm text-center">
+        <div className="font-display font-bold text-lg tracking-tight text-brand mb-2">Cuenta reconocida, sin rol asignado</div>
+        <div className="text-sm text-zinc-500 mb-1">
+          {username ? <>Tu cuenta (<b className="text-zinc-700">{username}</b>) inició sesión bien</> : 'Tu cuenta inició sesión bien'},
+          pero todavía no tiene un rol asignado en ZeroAI.
+        </div>
+        <div className="text-sm text-zinc-500 mb-6">Avisale a Diego para que te asigne uno.</div>
+        <Button variant="soft" onClick={onLogout} className="w-full">Salir</Button>
+      </Card>
+    </div>
+  )
+}
+
 function RunModal({ open, onClose }) {
   const { setClient } = useApp()
   const qc = useQueryClient()
   const EMPTY_ICP = { sells: '', industry: '', roles: '', companySize: '', regions: '', mustHave: '', exclude: '', context: '' }
-  const [form, setForm] = useState({ client: 'demo', tier: 'GROWTH', query: '', count: 8, ...EMPTY_ICP })
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState('')
+  const [form, setForm] = useState({ client: 'demo', tier: 'GROWTH', query: '', count: 8, autoSend: false, ...EMPTY_ICP })
   const [showIcp, setShowIcp] = useState(false)
   const [icpLoaded, setIcpLoaded] = useState(false)
 
@@ -190,29 +242,46 @@ function RunModal({ open, onClose }) {
     if (open && showIcp && !icpLoaded) loadSavedIcp()
   }, [open, showIcp]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const run = async () => {
-    setBusy(true); setErr('')
-    try {
-      const icp = {}
-      if (form.sells.trim()) icp.sells = form.sells.trim()
-      if (form.industry.trim()) icp.industry = form.industry.trim()
-      if (form.roles.trim()) icp.buyer_roles = form.roles.trim()
-      if (form.companySize.trim()) icp.company_size = form.companySize.trim()
-      if (form.regions.trim()) icp.regions = form.regions.trim()
-      if (form.mustHave.trim()) icp.must_have = form.mustHave.trim()
-      if (form.exclude.trim()) icp.exclude = form.exclude.trim()
-      if (form.context.trim()) icp.context = form.context.trim()
-      await api.runPipeline({
-        client: form.client.trim() || 'demo',
+  // No se espera acá adentro (sin await bloqueando el modal): el motor real
+  // (modelo local + búsqueda web) puede tardar varios minutos — encontrado en
+  // vivo (2026-07-19) corriendo "empresas de mudanzas" real, tardó más de lo
+  // que cualquier modal debería tener a alguien mirando la pantalla. Dispara
+  // la corrida, cierra el modal al toque, y el progreso sigue en un toast
+  // (toast.promise) que vive independiente del modal/componente — aunque
+  // Diego navegue a otra página, el toast lo sigue avisando cuando termine.
+  const run = () => {
+    const icp = {}
+    if (form.sells.trim()) icp.sells = form.sells.trim()
+    if (form.industry.trim()) icp.industry = form.industry.trim()
+    if (form.roles.trim()) icp.buyer_roles = form.roles.trim()
+    if (form.companySize.trim()) icp.company_size = form.companySize.trim()
+    if (form.regions.trim()) icp.regions = form.regions.trim()
+    if (form.mustHave.trim()) icp.must_have = form.mustHave.trim()
+    if (form.exclude.trim()) icp.exclude = form.exclude.trim()
+    if (form.context.trim()) icp.context = form.context.trim()
+    const targetClient = form.client.trim() || 'demo'
+
+    toast.promise(
+      api.runPipeline({
+        client: targetClient,
         tier: form.tier,
         query: form.query.trim() || 'leads B2B',
         count: Number(form.count) || 8,
+        auto_send: form.autoSend,
         ...(Object.keys(icp).length ? { icp } : {}),
-      })
-      qc.invalidateQueries()
-      setClient(form.client.trim() || 'demo')
-      onClose()
-    } catch (e) { setErr(e.message) } finally { setBusy(false) }
+      }).then((d) => { qc.invalidateQueries(); return d }),
+      {
+        loading: `Buscando leads para "${targetClient}"… con el motor real esto puede tardar varios minutos, puedes seguir usando el dashboard mientras tanto.`,
+        success: (d) => {
+          const s = d?.summary || {}
+          const rest = s.drafted ? `${s.drafted} en borrador para revisar` : `${s.sent || 0} enviados`
+          return `Listo "${targetClient}": ${s.qualified ?? 0} calificados de ${s.discovered ?? 0} encontrados · ${rest}`
+        },
+        error: (e) => `No se pudo completar la búsqueda para "${targetClient}": ${e.message}`,
+      },
+    )
+    setClient(targetClient)
+    onClose()
   }
 
   return (
@@ -237,6 +306,17 @@ function RunModal({ open, onClose }) {
               <Input value={form.query} onChange={(e) => setForm({ ...form, query: e.target.value })} placeholder="agencias de marketing en Santiago" /></div>
             <div><label className="block text-xs text-zinc-500 mb-1">Cantidad</label>
               <Input type="number" value={form.count} onChange={(e) => setForm({ ...form, count: e.target.value })} className="w-28" /></div>
+
+            <label className="flex items-start gap-2 text-xs text-zinc-500 cursor-pointer">
+              <input type="checkbox" checked={form.autoSend}
+                onChange={(e) => setForm({ ...form, autoSend: e.target.checked })}
+                className="mt-0.5 accent-gold" />
+              <span>
+                <span className="font-medium text-zinc-700">Enviar automático al calificar</span>
+                <br />Si lo dejas apagado, el primer mensaje queda en borrador — lo revisas y mandas
+                desde la ficha del lead en el Pipeline.
+              </span>
+            </label>
 
             <div className="border-t border-zinc-100 pt-3">
               <div className="flex items-center justify-between">
@@ -274,10 +354,9 @@ function RunModal({ open, onClose }) {
               )}
             </div>
 
-            {err && <div className="text-sm text-rose-600">{err}</div>}
             <div className="flex justify-end gap-2 pt-1">
               <Button variant="ghost" onClick={onClose}>Cancelar</Button>
-              <Button variant="accent" onClick={run} disabled={busy}>{busy ? 'Corriendo…' : 'Correr'}</Button>
+              <Button variant="accent" onClick={run}>Correr</Button>
             </div>
           </motion.div>
         </motion.div>

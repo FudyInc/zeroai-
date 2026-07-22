@@ -1065,6 +1065,16 @@ textarea:focus {
   font-size: 13px;
 }
 
+.footer-bottom a {
+  color: var(--zinc-500);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.footer-bottom a:hover {
+  color: var(--brand-ink);
+}
+
 @media (max-width: 860px) {
   .footer-top {
     grid-template-columns: 1fr 1fr;
@@ -1384,6 +1394,90 @@ textarea:focus {
   .pricing-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* ---- Página legal (privacidad.html) ---- */
+
+.legal-section {
+  padding: 64px 0 96px;
+}
+
+.legal-doc {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.legal-updated {
+  display: inline-block;
+  margin-bottom: 14px;
+  color: var(--zinc-500);
+  font-family: "Fragment Mono", ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.legal-doc h1 {
+  margin-bottom: 22px;
+  font-size: clamp(32px, 4.5vw, 46px);
+}
+
+.legal-doc h2 {
+  max-width: none;
+  margin: 40px 0 12px;
+  font-size: 21px;
+  text-align: left;
+}
+
+.legal-doc p,
+.legal-doc li {
+  color: var(--zinc-600);
+  font-size: 15.5px;
+  line-height: 1.68;
+}
+
+.legal-doc ul {
+  margin: 0 0 16px;
+  padding-left: 20px;
+}
+
+.legal-doc li {
+  margin-bottom: 8px;
+}
+
+.legal-doc a {
+  color: var(--brand);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.legal-doc code {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--zinc-100);
+  font-family: "Fragment Mono", ui-monospace, monospace;
+  font-size: 13.5px;
+}
+
+.legal-disclaimer {
+  padding: 16px 18px;
+  border: 1px solid rgba(201, 164, 92, 0.35);
+  border-radius: 12px;
+  background: rgba(216, 205, 176, 0.16);
+}
+
+.legal-consent {
+  margin: 10px 0 0;
+  color: var(--zinc-500);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.legal-consent a {
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
 }
 
 @media (prefers-reduced-motion: reduce) {

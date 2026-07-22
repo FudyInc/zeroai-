@@ -53,7 +53,26 @@ class ValidatorRules:
         rules = rules or validator_tier(DEFAULT_VALIDATOR_TIER)["phone"]
         if not phone or not phone.strip():
             return not rules.get("require", False)
-        return DuckDuckGoSource._valid_phone(phone, min_digits=rules.get("min_digits", 7))
+        if not DuckDuckGoSource._valid_phone(phone, min_digits=rules.get("min_digits", 7)):
+            return False
+        return ValidatorRules._is_active_market_phone(phone)
+
+    @staticmethod
+    def _is_active_market_phone(phone: str) -> bool:
+        """Filtro de mercado (ver zero.config.ACTIVE_MARKET_PHONE_COUNTRY_CODE):
+        descarta un teléfono con código de país EXPLÍCITO que no sea el activo
+        (Chile, +56) — ej. uno argentino/peruano capturado por el patrón
+        internacional genérico de discovery.py. Un teléfono en formato local
+        (sin "+", el caso más común en sitios chilenos) se deja pasar: no hay
+        señal de que sea de otro país, y descartarlo por largo de dígitos sería
+        más frágil que útil."""
+        from .config import ACTIVE_MARKET_PHONE_COUNTRY_CODE
+
+        stripped = phone.strip()
+        if not stripped.startswith("+"):
+            return True
+        cc_digits = "".join(ch for ch in stripped[1:] if ch.isdigit())[:len(ACTIVE_MARKET_PHONE_COUNTRY_CODE)]
+        return cc_digits == ACTIVE_MARKET_PHONE_COUNTRY_CODE
 
     @staticmethod
     def validate_name(name: Optional[str], rules: Optional[Dict[str, Any]] = None) -> bool:
