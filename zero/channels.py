@@ -22,6 +22,7 @@ default is mock even in production until the switch is deliberately flipped).
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
 import smtplib
@@ -163,6 +164,79 @@ class WhatsAppSender:
         }
 
 
+def whatsapp_provider() -> str:
+    """Proveedor activo del canal WhatsApp: "meta" (default) | "twilio".
+
+    Config de deployment vía env — mismo criterio que OUTBOX_LIVE, y por eso NO
+    vive en config.py (no es política de negocio: el mensaje, la cadencia y el
+    gate no cambian según quién transporte el WhatsApp). Twilio es el plan B
+    mientras el WABA directo con Meta sigue en revisión — ver docs/twilio-whatsapp.md."""
+    return (os.environ.get("WHATSAPP_PROVIDER") or "meta").strip().lower()
+
+
+class TwilioWhatsAppSender:
+    """Real WhatsApp send via Twilio (BSP — plan B mientras Meta revisa el WABA).
+
+    EXACTAMENTE el mismo contrato `send` que WhatsAppSender (mismo shape de
+    _result, mismo trato de whatsapp_send_type="template") — el Outbox no
+    distingue proveedor. Needs TWILIO_ACCOUNT_SID + TWILIO_AUTH_TOKEN + a From
+    number: either passed in (per-vendor, resolved by `credentials_for` in
+    zero/vendors.py) or the global TWILIO_WHATSAPP_FROM (sandbox or real)."""
+    name = "whatsapp"
+    API = "https://api.twilio.com/2010-04-01"
+
+    def __init__(self, from_number: Optional[str] = None, auth_token: Optional[str] = None,
+                 account_sid: Optional[str] = None) -> None:
+        self.account_sid = account_sid or os.environ["TWILIO_ACCOUNT_SID"]
+        self.auth_token = auth_token or os.environ["TWILIO_AUTH_TOKEN"]
+        self.from_number = from_number or os.environ["TWILIO_WHATSAPP_FROM"]
+
+    def send(self, msg: Dict[str, Any]) -> Dict[str, Any]:
+        to = "".join(ch for ch in str(msg.get("to") or "") if ch.isdigit())
+        if not to:
+            return _result("whatsapp", msg.get("to"), "skipped", error="sin número válido", via="whatsapp")
+        if msg.get("whatsapp_send_type") == "template":
+            fields = self._template_fields(msg.get("body") or "")
+            if fields is None:
+                # Mismo principio que WhatsAppSender._template_body: un contacto en
+                # frío sin plantilla NUNCA degrada en silencio a texto libre (Twilio
+                # también lo rechaza fuera de la ventana de 24h) — error visible.
+                # En el sandbox de Twilio el texto libre sí llega (el teléfono ya
+                # hizo opt-in con el join code), pero eso no cambia el contrato.
+                return _result("whatsapp", to, "error",
+                               error="template no configurado en Twilio (falta TWILIO_CONTENT_SID)",
+                               via="whatsapp")
+        else:
+            fields = {"Body": msg.get("body") or ""}
+        frm = "".join(ch for ch in str(self.from_number) if ch.isdigit())
+        form = {"From": f"whatsapp:+{frm}", "To": f"whatsapp:+{to}", **fields}
+        res = self._post(form)
+        return _result("whatsapp", to, "sent", id=res.get("sid"), via="whatsapp")
+
+    @staticmethod
+    def _template_fields(text: str) -> Optional[Dict[str, str]]:
+        """Twilio no manda plantillas por nombre como Meta: usa un Content SID
+        pre-aprobado (Content API) + variables. `None` si no hay TWILIO_CONTENT_SID
+        configurado — el caller lo reporta como error claro, nunca envía otra cosa."""
+        sid = (os.environ.get("TWILIO_CONTENT_SID") or "").strip()
+        if not sid:
+            return None
+        return {"ContentSid": sid, "ContentVariables": json.dumps({"1": text})}
+
+    def _post(self, form: Dict[str, str]) -> Dict[str, Any]:
+        """POST form-encoded con Basic auth (urllib puro). Separado de send() para
+        poder probar el contrato completo sin red — mismo seam que EmailSender._build_message."""
+        auth = base64.b64encode(f"{self.account_sid}:{self.auth_token}".encode("utf-8")).decode("ascii")
+        req = urllib.request.Request(
+            f"{self.API}/Accounts/{self.account_sid}/Messages.json",
+            data=urllib.parse.urlencode(form).encode("utf-8"), method="POST",
+            headers={"Authorization": f"Basic {auth}",
+                     "Content-Type": "application/x-www-form-urlencoded"},
+        )
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return json.loads(r.read().decode("utf-8"))
+
+
 def whatsapp_status() -> Dict[str, Any]:
     """Pings the Graph API with WHATSAPP_TOKEN/WHATSAPP_PHONE_ID to confirm the
     WhatsApp Business number is really linked (not just that the env vars exist).
@@ -263,7 +337,18 @@ def make_outbox() -> Outbox:
         not os.environ.get("SMTP_USER") or os.environ.get("SMTP_PASS")
     ):
         real["email"] = EmailSender()
-    if os.environ.get("WHATSAPP_TOKEN") and os.environ.get("WHATSAPP_PHONE_ID"):
-        real["whatsapp"] = WhatsAppSender()              # global fallback sender
-    # Per-vendor senders are built on demand from each vendor's (phone_id, token).
-    return Outbox(real, wa_sender_factory=lambda pid, tok: WhatsAppSender(pid, tok))
+    if whatsapp_provider() == "twilio":
+        # Plan B: mismo canal, otro transporte. El factory per-vendor recibe la
+        # tupla (from_number, auth_token) que arma credentials_for() en modo
+        # twilio — misma forma y mismo flujo que el par (phone_id, token) de Meta,
+        # así ni el orquestador ni el Outbox distinguen proveedor.
+        if (os.environ.get("TWILIO_ACCOUNT_SID") and os.environ.get("TWILIO_AUTH_TOKEN")
+                and os.environ.get("TWILIO_WHATSAPP_FROM")):
+            real["whatsapp"] = TwilioWhatsAppSender()    # global fallback sender
+        wa_factory = lambda frm, tok: TwilioWhatsAppSender(from_number=frm, auth_token=tok)  # noqa: E731
+    else:
+        if os.environ.get("WHATSAPP_TOKEN") and os.environ.get("WHATSAPP_PHONE_ID"):
+            real["whatsapp"] = WhatsAppSender()          # global fallback sender
+        wa_factory = lambda pid, tok: WhatsAppSender(pid, tok)  # noqa: E731
+    # Per-vendor senders are built on demand from each vendor's credentials.
+    return Outbox(real, wa_sender_factory=wa_factory)

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import urllib.parse
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -27,7 +28,7 @@ load_env()   # secrets locales (.env) — los de Render env ya están en os.envi
 from zero.cloud_env import backed_up_keys, load_into_environ, save_secret
 load_into_environ()   # + secretos guardados en la nube (sobreviven a redeploys)
 from zero.config import AVG_DEAL_VALUE_CLP, CRM_OPEN_STAGES, CRM_STAGES, DEFAULT_VENDOR_ID, TIERS
-from zero.channels import make_outbox
+from zero.channels import make_outbox, whatsapp_provider
 from zero.icp import normalize_icp
 from zero.orchestrator import Zero
 from zero.quotes import compute_quote, format_quote, normalize_pricing
@@ -780,6 +781,35 @@ async def whatsapp_inbound(req: Request):
     return {"received": len(msgs), "results": results}
 
 
+@app.post("/api/webhooks/twilio-whatsapp")
+async def twilio_whatsapp_inbound(req: Request):
+    """Inbound WhatsApp vía Twilio (plan B / BSP) → el MISMO flujo handle_inbound
+    que el webhook de Meta — cambia el transporte, no la conversación. Twilio
+    manda form-urlencoded y espera TwiML de vuelta: se responde un <Response/>
+    vacío (la respuesta real al lead sale por la API de Twilio vía Outbox, no
+    por TwiML) para no llenar el debugger de Twilio de warnings 12300. La
+    cantidad de mensajes procesados va en el header X-Zero-Received (Twilio lo
+    ignora; los tests HTTP lo leen). Queda dentro de la excepción de auth del
+    middleware (prefijo /api/webhooks/) — Twilio se autentica con su firma."""
+    from zero.twilio_inbound import parse_inbound as parse_twilio_inbound, verify_twilio_signature
+    raw = await req.body()
+    params = dict(urllib.parse.parse_qsl(raw.decode("utf-8"), keep_blank_values=True))
+    # Con proxy/túnel delante, la URL que ve el server no es la que Twilio firmó —
+    # TWILIO_WEBHOOK_URL (la URL pública exacta pegada en la consola) la fija.
+    url = os.environ.get("TWILIO_WEBHOOK_URL") or str(req.url)
+    if not verify_twilio_signature(url, params, req.headers.get("x-twilio-signature")):
+        raise HTTPException(status_code=403, detail="firma inválida — no viene de Twilio")
+    msgs = parse_twilio_inbound(params)
+    crm = make_crm(CRM_PATH)
+    memory = make_memory(STATE_PATH)
+    agents, _ = _agents_best()
+    zero = Zero(agents, memory=memory, crm=crm, outbox=make_outbox())
+    for m in msgs:
+        zero.handle_inbound(m["from"], m["text"])
+    return PlainTextResponse("<Response></Response>", media_type="application/xml",
+                             headers={"X-Zero-Received": str(len(msgs))})
+
+
 class Simulate(BaseModel):
     message: str
     client: Optional[str] = None
@@ -1253,6 +1283,12 @@ def get_config():
         "supabase": bool(os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_KEY")),
         "email": bool(os.environ.get("SMTP_HOST")),
         "whatsapp": bool(os.environ.get("WHATSAPP_TOKEN") and os.environ.get("WHATSAPP_PHONE_ID")),
+        # Twilio como transporte alternativo de WhatsApp (plan B) — configurado
+        # solo si están las 3 keys; cuál transporte se usa lo dice whatsapp_provider
+        "twilio": bool(os.environ.get("TWILIO_ACCOUNT_SID")
+                       and os.environ.get("TWILIO_AUTH_TOKEN")
+                       and os.environ.get("TWILIO_WHATSAPP_FROM")),
+        "whatsapp_provider": whatsapp_provider(),   # "meta" | "twilio"
         # whether drafted messages are actually sent (vs mock-recorded)
         "outbox_live": os.environ.get("OUTBOX_LIVE") == "1",
         "auth": bool(os.environ.get("AUTH_PASSWORD")),
@@ -1282,6 +1318,10 @@ class ConfigBody(BaseModel):
     whatsapp_phone_id: Optional[str] = None
     whatsapp_verify_token: Optional[str] = None
     whatsapp_app_secret: Optional[str] = None
+    twilio_account_sid: Optional[str] = None
+    twilio_auth_token: Optional[str] = None
+    twilio_whatsapp_from: Optional[str] = None
+    whatsapp_provider: Optional[str] = None   # "meta" | "twilio"
     auth_password: Optional[str] = None
     meta_ads_token: Optional[str] = None
     meta_ad_account_id: Optional[str] = None
@@ -1291,6 +1331,12 @@ class ConfigBody(BaseModel):
 @app.post("/api/config")
 def set_config(body: ConfigBody):
     saved = []
+    # Un typo en el proveedor ("twillio") caería en silencio al default meta al
+    # leerlo — mejor rechazarlo al guardar, con las opciones válidas a la vista.
+    provider = (body.whatsapp_provider or "").strip().lower() or None
+    if provider and provider not in ("meta", "twilio"):
+        raise HTTPException(status_code=400,
+                            detail="whatsapp_provider debe ser 'meta' o 'twilio'")
     fields = {
         "ELEVENLABS_API_KEY": body.elevenlabs_api_key,
         "ANTHROPIC_API_KEY": body.anthropic_api_key,
@@ -1311,6 +1357,10 @@ def set_config(body: ConfigBody):
         "WHATSAPP_PHONE_ID": body.whatsapp_phone_id,
         "WHATSAPP_VERIFY_TOKEN": body.whatsapp_verify_token,
         "WHATSAPP_APP_SECRET": body.whatsapp_app_secret,
+        "TWILIO_ACCOUNT_SID": body.twilio_account_sid,
+        "TWILIO_AUTH_TOKEN": body.twilio_auth_token,
+        "TWILIO_WHATSAPP_FROM": body.twilio_whatsapp_from,
+        "WHATSAPP_PROVIDER": provider,
         "AUTH_PASSWORD": body.auth_password,
         "META_ADS_TOKEN": body.meta_ads_token,
         "META_AD_ACCOUNT_ID": body.meta_ad_account_id,
