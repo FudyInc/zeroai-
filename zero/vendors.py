@@ -64,15 +64,32 @@ def clients_count_for(vendor_id: str, memory: Any) -> int:
 
 
 def credentials_for(vendor: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
-    """(phone_id, token) for sending as this vendor on WhatsApp.
+    """The WhatsApp credentials pair for sending as this vendor. Its meaning
+    depends on the active provider (see `whatsapp_provider` in zero/channels.py);
+    either way the orchestrator just passes the tuple to Outbox.send(wa_creds=...)
+    and the outbox's factory builds the matching sender — same flow, no
+    provider-specific logic outside this function and make_outbox().
 
+    Meta (default) — (phone_id, token):
     - phone_id: the vendor's own `whatsapp_phone_id`, or the global
       WHATSAPP_PHONE_ID if the vendor doesn't have one.
     - token: `WHATSAPP_TOKEN_<ID>` (vendor id uppercased) if set, else the global
       WHATSAPP_TOKEN. The token is never read from the vendor record itself —
       it's a secret and lives only in the environment.
+
+    Twilio (WHATSAPP_PROVIDER=twilio) — (from_number, auth_token):
+    - from_number: `TWILIO_WHATSAPP_FROM_<ID>` if set, else the global
+      TWILIO_WHATSAPP_FROM (sandbox or real number) — exact mirror of the
+      per-vendor token pattern above.
+    - auth_token: the global TWILIO_AUTH_TOKEN (Twilio auth is per account,
+      not per number).
     """
-    phone_id = vendor.get("whatsapp_phone_id") or os.environ.get("WHATSAPP_PHONE_ID")
+    from .channels import whatsapp_provider
     vendor_id = str(vendor.get("id") or "").upper()
+    if whatsapp_provider() == "twilio":
+        from_number = (os.environ.get(f"TWILIO_WHATSAPP_FROM_{vendor_id}")
+                       or os.environ.get("TWILIO_WHATSAPP_FROM"))
+        return from_number, os.environ.get("TWILIO_AUTH_TOKEN")
+    phone_id = vendor.get("whatsapp_phone_id") or os.environ.get("WHATSAPP_PHONE_ID")
     token = os.environ.get(f"WHATSAPP_TOKEN_{vendor_id}") or os.environ.get("WHATSAPP_TOKEN")
     return phone_id, token
