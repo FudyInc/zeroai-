@@ -17,6 +17,25 @@ ZERO_MODEL = FABLE
 # existir en el catálogo semilla (zero/vendors.py::seed_vendors).
 DEFAULT_VENDOR_ID = "fernanda"
 
+# --- WhatsApp entrante de un desconocido (sin lead previo) --------------------
+# Un vendedor de verdad SIEMPRE contesta a quien le escribe por primera vez —
+# no solo a quienes ZERO contactó antes. Decisión de Diego (2026-07-22): un
+# desconocido que escribe se registra como lead NUEVO bajo este cliente, en vez
+# de ignorarse en silencio (antes: "inbound_unmatched" y nada más).
+#
+# Por qué hace falta un default explícito: el número que RECIBE el mensaje
+# resuelve a un VENDEDOR (Fernanda/Stéfano), no a un cliente — y varios
+# clientes pueden compartir el mismo vendedor (zero/vendors.py::
+# clients_count_for). Si ese número pertenece a un único cliente sin
+# ambigüedad, ZERO usa ese (correcto en producción, con un número propio por
+# cliente). Si no — hoy, mientras el sandbox de Twilio usa UN SOLO número
+# compartido para cualquier prueba — cae aquí.
+# `None`/"" desactiva el catch-all (vuelve al comportamiento anterior: ignora
+# al desconocido) — útil si algún día hay varios clientes reales y ya no
+# tiene sentido adivinar. Mientras dure el sandbox: "demo" (atendido por
+# DEFAULT_VENDOR_ID = fernanda, ver zero/orchestrator.py::handle_inbound).
+DEFAULT_INBOUND_CLIENT_ID = "demo"
+
 # --- WhatsApp Business — plantilla para contacto en frío ----------------------
 # Meta EXIGE una plantilla pre-aprobada para el primer mensaje a un lead que nunca
 # escribió, o cualquier mensaje fuera de la ventana de 24h desde su último mensaje —

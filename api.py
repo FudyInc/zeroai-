@@ -805,7 +805,12 @@ async def twilio_whatsapp_inbound(req: Request):
     agents, _ = _agents_best()
     zero = Zero(agents, memory=memory, crm=crm, outbox=make_outbox())
     for m in msgs:
-        zero.handle_inbound(m["from"], m["text"])
+        # m["to"] es el número (real) que recibió el mensaje — hoy no resuelve
+        # a ningún vendedor (vendor_by_phone_id compara contra whatsapp_phone_id
+        # de Meta, un identificador distinto), así que cae de forma segura al
+        # catch-all de DEFAULT_INBOUND_CLIENT_ID; queda ya cableado para cuando
+        # haya números de Twilio por cliente y se resuelva ese mapeo.
+        zero.handle_inbound(m["from"], m["text"], to_phone_id=m.get("to"))
     return PlainTextResponse("<Response></Response>", media_type="application/xml",
                              headers={"X-Zero-Received": str(len(msgs))})
 

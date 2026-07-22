@@ -162,6 +162,31 @@ class Zero:
                 return v
         return {}
 
+    def _resolve_inbound_client(self, to_phone_id: Optional[str]) -> Optional[str]:
+        """Which client's business context a first-time (unmatched) WhatsApp
+        contact should be answered as — see DEFAULT_INBOUND_CLIENT_ID in
+        config.py for the policy this implements and why it's needed.
+
+        Tries the number that received the message first: if it resolves to a
+        vendor assigned to exactly ONE client, that's unambiguous and correct
+        (the path that matters in production, once each client has its own
+        WhatsApp number). Zero or several clients sharing that vendor is
+        ambiguous — guessing which one could answer a stranger with the wrong
+        business's prices — so it falls back to the configured default catch-all
+        instead of picking one. Returns None (never a bare guess) if neither
+        resolves, e.g. DEFAULT_INBOUND_CLIENT_ID is unset."""
+        # Import local (no al tope del módulo): así una prueba que reasigna
+        # config.DEFAULT_INBOUND_CLIENT_ID en caliente (ej. para probar el
+        # catch-all desactivado) se refleja de inmediato — mismo motivo que
+        # WhatsAppSender._template_body importa WHATSAPP_TEMPLATE adentro.
+        from .config import DEFAULT_INBOUND_CLIENT_ID
+        vendor_id = self.vendor_by_phone_id(to_phone_id).get("id") if to_phone_id else None
+        if vendor_id:
+            matches = [c for c in self.memory.clients if self.memory.get_client_vendor(c) == vendor_id]
+            if len(matches) == 1:
+                return matches[0]
+        return DEFAULT_INBOUND_CLIENT_ID or None
+
     # --- sending (OUTREACH/TRACKER draft; the outbox delivers) ---------------
     def _deliver(self, client_id: str, lead_key: str, to: Optional[str],
                  msg: Dict[str, Any], wa_creds: Optional[Tuple[Optional[str], Optional[str]]] = None) -> Dict[str, Any]:
@@ -845,14 +870,35 @@ class Zero:
         """An inbound message arrived (e.g. a WhatsApp reply). Match it to its lead,
         close the loop (`register_reply`), then draft + send a reply with CONCIERGE.
         Reply goes from the vendor that owns `to_phone_id` (the number the lead wrote
-        to); falls back to the client's assigned vendor. Unmatched senders are logged
-        (a number we never contacted), not an error."""
+        to); falls back to the client's assigned vendor.
+
+        A first-time contact (no existing lead) is NOT ignored — a real sales
+        agent answers strangers, not just people ZERO already reached out to.
+        It's auto-registered as a new lead (stage "new", source
+        "whatsapp_inbound") under whatever client `_resolve_inbound_client`
+        resolves to, then handled exactly like a match. Only truly unresolvable
+        senders (no CRM at all, or no default configured — see
+        DEFAULT_INBOUND_CLIENT_ID in config.py) fall back to the old
+        "inbound_unmatched" log-and-stop."""
         rec = self.crm.find_by_contact(phone=from_contact, email=from_contact) if self.crm else None
         if not rec:
-            self.memory.log("inbound_unmatched", channel=channel,
-                            sender=from_contact, text=(text or "")[:200])
+            client_id = self._resolve_inbound_client(to_phone_id) if self.crm else None
+            if not client_id:
+                self.memory.log("inbound_unmatched", channel=channel,
+                                sender=from_contact, text=(text or "")[:200])
+                self.memory.save()
+                return {"matched": False, "sender": from_contact}
+            is_email = "@" in from_contact
+            rec = self.crm.upsert(client_id, {
+                "channel": channel,
+                "email": from_contact if is_email else None,
+                "phone": None if is_email else from_contact,
+                "source": "whatsapp_inbound",
+            })
+            self.crm.save()
+            self.memory.log("inbound_auto_registered", client=client_id,
+                            lead=rec["key"], channel=channel, sender=from_contact)
             self.memory.save()
-            return {"matched": False, "sender": from_contact}
 
         client_id, key = rec["client_id"], rec["key"]
         # Reply from the number the lead wrote to (its vendor), else the client's vendor.
