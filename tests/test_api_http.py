@@ -703,5 +703,160 @@ class ApiSupabaseAuthHttpTest(unittest.TestCase):
         self.assertIsNone(body["full_name"])
 
 
+@unittest.skipUnless(_UVICORN_AVAILABLE, "uvicorn no instalado — este test es opcional, no núcleo")
+class ProgrammedFunctionsHttpTest(unittest.TestCase):
+    """Fase 2 (registro de funciones programadas) — CRUD + /run sobre HTTP
+    real, admin-only. Subproceso PROPIO con STATE_PATH/CRM_PATH apuntando a un
+    tempdir (nunca toca el state.json/crm.json real del repo — ver el override
+    por env var que se agregó en api.py junto con esto) y auth JWT habilitada,
+    mismo patrón que ApiSupabaseAuthHttpTest.
+
+    No mockea Docker: en una máquina sin Docker (como la de desarrollo),
+    run_sandboxed ya devuelve un error determinista ("Docker no disponible")
+    en vez de lanzar — sirve igual para confirmar que /run arma el ctx, llama
+    a run_sandboxed y persiste last_run de verdad. La ejecución real dentro de
+    Docker ya está cubierta en tests/test_sandbox.py — no se duplica acá,
+    según pide el prompt de fase 2."""
+
+    JWT_SECRET = "jwt-secret-para-funciones"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.port = _free_port()
+        cls.base = f"http://127.0.0.1:{cls.port}"
+        repo_root = Path(__file__).resolve().parent.parent
+        cls._tmpdir = tempfile.mkdtemp()
+        env = dict(os.environ)
+        env["SUPABASE_JWT_SECRET"] = cls.JWT_SECRET
+        env["AUTH_USERS_PATH"] = os.path.join(tempfile.mkdtemp(), "users.json")
+        env["STATE_PATH"] = os.path.join(cls._tmpdir, "state.json")
+        env["CRM_PATH"] = os.path.join(cls._tmpdir, "crm.json")
+        # Mismos gotchas ya documentados arriba (ApiSupabaseAuthHttpTest): sin
+        # esto, el subproceso puede heredar Supabase/Ollama/Anthropic reales
+        # del .env del repo y dejar de ser un entorno de test aislado.
+        env["SUPABASE_URL"] = ""
+        env["SUPABASE_KEY"] = ""
+        env["LOCAL_MODEL"] = ""
+        env["ANTHROPIC_API_KEY"] = ""
+        cls.proc = _start_and_wait(
+            [sys.executable, "-m", "uvicorn", "api:app", "--port", str(cls.port),
+             "--log-level", "warning"],
+            str(repo_root), env, cls.base,
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        proc = getattr(cls, "proc", None)
+        if proc is not None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+        shutil.rmtree(getattr(cls, "_tmpdir", "") or "", ignore_errors=True)
+
+    def _get(self, path: str, token: str | None = None):
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        req = urllib.request.Request(f"{self.base}{path}", headers=headers)
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return r.status, json.loads(r.read().decode("utf-8"))
+
+    def _send(self, path: str, body: dict, token: str | None = None, method: str = "POST"):
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        headers["Content-Type"] = "application/json"
+        data = json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(f"{self.base}{path}", data=data, headers=headers, method=method)
+        with urllib.request.urlopen(req, timeout=20) as r:   # /run puede correr Docker real en CI
+            return r.status, json.loads(r.read().decode("utf-8"))
+
+    def _delete(self, path: str, token: str | None = None):
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        req = urllib.request.Request(f"{self.base}{path}", headers=headers, method="DELETE")
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return r.status, json.loads(r.read().decode("utf-8"))
+
+    def _jwt(self, **kw) -> str:
+        return _make_supabase_jwt(self.JWT_SECRET, **kw)
+
+    def test_non_admin_gets_403_on_every_functions_endpoint(self):
+        cro = self._jwt(role="cro")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/api/functions", token=cro)
+        self.assertEqual(ctx.exception.code, 403)
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._send("/api/functions", {"name": "x", "code": "result=1",
+                                          "lookup_scope": {"client_id": "acme"}}, token=cro)
+        self.assertEqual(ctx.exception.code, 403)
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._delete("/api/functions/algo", token=cro)
+        self.assertEqual(ctx.exception.code, 403)
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._send("/api/functions/algo/run", {}, token=cro)
+        self.assertEqual(ctx.exception.code, 403)
+
+    def test_admin_create_run_and_delete_lifecycle(self):
+        admin = self._jwt(role="admin", email="diego@zeroai.cl")
+        status, body = self._send("/api/functions", {
+            "name": "Contar leads nuevos",
+            "code": "result = len(ctx['leads'])",
+            "lookup_scope": {"client_id": "acme", "stage": "new"},
+        }, token=admin)
+        self.assertEqual(status, 200)
+        fn = body["function"]
+        self.assertEqual(fn["name"], "Contar leads nuevos")
+        self.assertEqual(fn["lookup_scope"], {"client_id": "acme", "stage": "new"})
+        self.assertTrue(fn["enabled"])
+        self.assertEqual(fn["created_by"], "diego@zeroai.cl")
+        self.assertIsNone(fn["last_run"])
+        fid = fn["id"]
+
+        status, body = self._get("/api/functions", token=admin)
+        self.assertEqual(status, 200)
+        self.assertIn(fid, {f["id"] for f in body["functions"]})
+
+        status, body = self._send(f"/api/functions/{fid}/run", {}, token=admin)
+        self.assertEqual(status, 200)
+        self.assertEqual(set(body), {"function", "run"})
+        self.assertEqual(set(body["run"]), {"result", "stdout", "error"})
+        last_run = body["function"]["last_run"]
+        self.assertIsNotNone(last_run)
+        self.assertEqual(set(last_run), {"at", "ok", "result_summary", "error"})
+
+        # quedó guardado de verdad — no solo en la respuesta de /run
+        status, body = self._get("/api/functions", token=admin)
+        saved = next(f for f in body["functions"] if f["id"] == fid)
+        self.assertIsNotNone(saved["last_run"])
+
+        status, _ = self._delete(f"/api/functions/{fid}", token=admin)
+        self.assertEqual(status, 200)
+        status, body = self._get("/api/functions", token=admin)
+        self.assertNotIn(fid, {f["id"] for f in body["functions"]})
+
+    def test_run_unknown_function_is_404(self):
+        admin = self._jwt(role="admin")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._send("/api/functions/no-existe-nunca/run", {}, token=admin)
+        self.assertEqual(ctx.exception.code, 404)
+
+    def test_disabled_function_cannot_be_run(self):
+        admin = self._jwt(role="admin")
+        _, body = self._send("/api/functions", {
+            "name": "Deshabilitada", "code": "result = 1",
+            "lookup_scope": {"client_id": "acme"}, "enabled": False,
+        }, token=admin)
+        fid = body["function"]["id"]
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._send(f"/api/functions/{fid}/run", {}, token=admin)
+        self.assertEqual(ctx.exception.code, 409)
+
+    def test_create_without_name_is_400(self):
+        admin = self._jwt(role="admin")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._send("/api/functions", {"name": "   ", "code": "",
+                                          "lookup_scope": {"client_id": "acme"}}, token=admin)
+        self.assertEqual(ctx.exception.code, 400)
+
+
 if __name__ == "__main__":
     unittest.main()

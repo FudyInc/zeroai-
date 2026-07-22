@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -34,8 +35,8 @@ from zero.store import make_crm, make_memory
 from zero.vendors import clients_count_for
 from zero._supabase import SupabaseError
 
-CRM_PATH = "crm.json"
-STATE_PATH = "state.json"
+CRM_PATH = os.environ.get("CRM_PATH", "crm.json")
+STATE_PATH = os.environ.get("STATE_PATH", "state.json")
 FINANCE_PATH = "finance.json"   # costos de la agencia — local, gitignorado
 
 app = FastAPI(title="ZERO API", version="0.1.0",
@@ -1119,6 +1120,111 @@ def forecast(client: str):
     res, mode = _agent_op(lambda z: z.forecast(client), memory=memory, crm=crm)
     res["mode"] = mode
     return res
+
+
+# --- funciones programadas (fase 2 de 3: registro + ejecución manual sobre
+# zero/sandbox.py, fase 1 — ya revisada, no se toca acá) -----------------------
+# Admin-only a propósito: sin entrada en _ROLE_ALLOWED, fail-closed igual que
+# el resto (ver auth_guard). Corre código arbitrario contra datos reales de
+# leads — más sensible que Finanzas o Configuración. El disparo automático por
+# horario es una decisión aparte, todavía no existe: /run ejecuta "ahora".
+
+_FUNCTION_RUN_TIMEOUT = 12   # segundos — coherente con el timeout por defecto (10s) de sandbox.py
+
+
+def _current_identity_label(request: Request) -> str:
+    auth = getattr(request.state, "auth", None) or {}
+    return auth.get("email") or auth.get("username") or "admin"
+
+
+class FunctionScope(BaseModel):
+    client_id: str
+    stage: Optional[str] = None
+
+
+class FunctionBody(BaseModel):
+    id: Optional[str] = None      # si falta, se deriva del nombre (mismo criterio que vendors)
+    name: str
+    code: str
+    lookup_scope: FunctionScope
+    enabled: Optional[bool] = None
+
+
+@app.get("/api/functions")
+def list_functions():
+    memory = make_memory(STATE_PATH)
+    return {"functions": memory.list_functions()}
+
+
+@app.post("/api/functions")
+def upsert_function(body: FunctionBody, request: Request):
+    """Crear o editar una función programada. `code` se guarda tal cual lo
+    escribió quien la creó — no se valida ni se parsea acá, eso es trabajo
+    exclusivo de run_sandboxed (Docker) al momento de correrla."""
+    memory = make_memory(STATE_PATH)
+    fid = "".join(ch for ch in (body.id or body.name).strip().lower() if ch.isalnum())
+    if not fid:
+        raise HTTPException(status_code=400, detail="la función necesita un nombre")
+    existing = memory.get_function(fid) or {}
+    now = datetime.now(timezone.utc).isoformat()
+    fn = {
+        "id": fid,
+        "name": body.name,
+        "code": body.code,
+        "lookup_scope": {"client_id": body.lookup_scope.client_id, "stage": body.lookup_scope.stage},
+        "enabled": body.enabled if body.enabled is not None else existing.get("enabled", True),
+        "created_by": existing.get("created_by") or _current_identity_label(request),
+        "created_at": existing.get("created_at") or now,
+        "updated_at": now,
+        "last_run": existing.get("last_run"),
+    }
+    memory.upsert_function(fn)
+    memory.save()
+    return {"function": fn}
+
+
+@app.delete("/api/functions/{function_id}")
+def delete_function(function_id: str):
+    memory = make_memory(STATE_PATH)
+    if not memory.delete_function(function_id):
+        raise HTTPException(status_code=404, detail="esa función no existe")
+    memory.save()
+    return {"deleted": function_id}
+
+
+@app.post("/api/functions/{function_id}/run")
+def run_function(function_id: str):
+    """Ejecuta la función AHORA: arma el ctx curado desde su lookup_scope
+    (leads reales del cliente, opcionalmente filtrados por etapa — ver
+    _lead_view), la corre aislada en Docker (zero/sandbox.py::run_sandboxed) y
+    deja el resultado guardado en last_run además de devolverlo."""
+    memory = make_memory(STATE_PATH)
+    fn = memory.get_function(function_id)
+    if fn is None:
+        raise HTTPException(status_code=404, detail="esa función no existe")
+    if not fn.get("enabled", True):
+        raise HTTPException(status_code=409, detail="esa función está deshabilitada")
+
+    from zero.functions import build_ctx, summarize_run
+    from zero.sandbox import run_sandboxed
+
+    scope = fn.get("lookup_scope") or {}
+    client_id = scope.get("client_id")
+    if not client_id:
+        raise HTTPException(status_code=400, detail="la función no tiene lookup_scope.client_id")
+
+    crm = make_crm(CRM_PATH)
+    ctx = build_ctx(crm.list(client_id, scope.get("stage")), client_id)
+
+    try:
+        out = run_sandboxed(fn["code"], ctx, timeout=_FUNCTION_RUN_TIMEOUT)
+    except ValueError as e:   # ctx no pasó _assert_ctx_is_safe — no debería pasar nunca
+        raise HTTPException(status_code=500, detail=f"ctx inválido para el sandbox: {e}")
+
+    fn["last_run"] = summarize_run(out)
+    memory.upsert_function(fn)
+    memory.save()
+    return {"function": fn, "run": out}
 
 
 # --- config (secrets stored in .env, set once from the dashboard) -------------

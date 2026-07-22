@@ -807,6 +807,8 @@ class MemoryPersistenceTest(unittest.TestCase):
         m.set_pending_offer("acme", "ceo@acme.cl", "info")
         m.set_client_vendor("acme", "stefano")
         m.list_vendors()                                    # siembra el catálogo
+        m.upsert_function({"id": "fn1", "name": "prueba", "code": "result = 1",
+                            "lookup_scope": {"client_id": "acme"}, "enabled": True})
         m.log("test", detail="x")
         snap = m.snapshot()
         self.assertTrue(all(snap[k] for k in snap), snap)   # cada campo tiene algo
@@ -2623,6 +2625,101 @@ class VendorTest(unittest.TestCase):
         self.assertEqual(clients_count_for("fernanda", m), 2)
         self.assertEqual(clients_count_for("stefano", m), 1)
         self.assertEqual(clients_count_for("no-existe", m), 0)
+
+
+class ProgrammedFunctionsRegistryTest(unittest.TestCase):
+    """Registro de funciones programadas (fase 2) — mismo patrón CRUD que
+    vendors, ver VendorTest arriba."""
+
+    def test_upsert_and_get(self):
+        m = SessionMemory(None)
+        m.upsert_function({"id": "fn1", "name": "Prueba", "code": "result = 1",
+                           "lookup_scope": {"client_id": "acme"}, "enabled": True})
+        fn = m.get_function("fn1")
+        self.assertEqual(fn["name"], "Prueba")
+        self.assertIsNone(m.get_function("no-existe"))
+
+    def test_list_functions(self):
+        m = SessionMemory(None)
+        self.assertEqual(m.list_functions(), [])
+        m.upsert_function({"id": "fn1", "name": "Uno", "code": "", "lookup_scope": {}, "enabled": True})
+        m.upsert_function({"id": "fn2", "name": "Dos", "code": "", "lookup_scope": {}, "enabled": True})
+        self.assertEqual({f["id"] for f in m.list_functions()}, {"fn1", "fn2"})
+
+    def test_delete_function(self):
+        m = SessionMemory(None)
+        m.upsert_function({"id": "fn1", "name": "Uno", "code": "", "lookup_scope": {}, "enabled": True})
+        self.assertTrue(m.delete_function("fn1"))
+        self.assertIsNone(m.get_function("fn1"))
+        self.assertFalse(m.delete_function("fn1"))   # ya no está — False, no lanza
+
+
+class ProgrammedFunctionsLogicTest(unittest.TestCase):
+    """zero/functions.py — lógica pura (ctx curado + resumen de last_run), sin
+    fastapi ni Docker. Esto es lo que 'mockea run_sandboxed' pide el prompt de
+    fase 2: se le da a summarize_run exactamente lo que run_sandboxed
+    devolvería, sin necesitar Docker real ni un mock de verdad."""
+
+    def test_lead_view_only_exposes_the_curated_fields(self):
+        from zero.functions import lead_view
+        rec = {"client_id": "acme", "key": "ceo@acme.cl", "company": "Acme",
+               "name": "Lucía", "role": "CEO", "email": "ceo@acme.cl",
+               "phone": "+56911112222", "domain": "acme.cl", "stage": "qualified",
+               "score": 82, "channel": "web", "tags": [], "history": []}
+        view = lead_view(rec)
+        self.assertEqual(view, {
+            "company": "Acme", "name": "Lucía", "role": "CEO", "email": "ceo@acme.cl",
+            "phone": "+56911112222", "stage": "qualified", "score": 82,
+        })
+        self.assertNotIn("key", view)          # ver el porqué en el docstring del módulo
+        self.assertNotIn("client_id", view)
+        self.assertNotIn("history", view)
+
+    def test_lead_view_key_field_would_break_the_sandbox_credential_filter(self):
+        # Documenta el hallazgo del REPORT de fase 2: si `key` se incluyera acá,
+        # ctx no pasaría la validación de run_sandboxed. Lo confirma de verdad
+        # contra el filtro real, no solo lo afirma en un comentario.
+        from zero.sandbox import _assert_ctx_is_safe
+        with self.assertRaises(ValueError):
+            _assert_ctx_is_safe({"leads": [{"key": "ceo@acme.cl"}]})
+
+    def test_build_ctx_shape(self):
+        from zero.functions import build_ctx
+        leads = [{"company": "Acme", "email": "ceo@acme.cl", "stage": "new"}]
+        ctx = build_ctx(leads, "acme")
+        self.assertEqual(set(ctx), {"leads", "client_id"})
+        self.assertEqual(ctx["client_id"], "acme")
+        self.assertEqual(ctx["leads"][0]["company"], "Acme")
+
+    def test_build_ctx_is_safe_for_the_sandbox(self):
+        from zero.functions import build_ctx
+        from zero.sandbox import _assert_ctx_is_safe
+        ctx = build_ctx([{"company": "Acme", "email": "ceo@acme.cl"}], "acme")
+        _assert_ctx_is_safe(ctx)   # no debe lanzar
+
+    def test_summarize_run_prefers_error(self):
+        from zero.functions import summarize_run
+        out = summarize_run({"result": {"ok": True}, "stdout": "algo", "error": "boom"})
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["result_summary"], "boom")
+        self.assertEqual(out["error"], "boom")
+
+    def test_summarize_run_falls_back_to_result_then_stdout_then_placeholder(self):
+        from zero.functions import summarize_run
+        r1 = summarize_run({"result": 42, "stdout": "", "error": None})
+        self.assertEqual(r1["result_summary"], "42")
+        self.assertTrue(r1["ok"])
+
+        r2 = summarize_run({"result": None, "stdout": "hola", "error": None})
+        self.assertEqual(r2["result_summary"], "hola")
+
+        r3 = summarize_run({"result": None, "stdout": "", "error": None})
+        self.assertEqual(r3["result_summary"], "(sin salida)")
+
+    def test_summarize_run_truncates_long_summaries(self):
+        from zero.functions import summarize_run
+        out = summarize_run({"result": "x" * 1000, "stdout": "", "error": None})
+        self.assertEqual(len(out["result_summary"]), 500)
 
 
 class VendorCredentialsTest(unittest.TestCase):

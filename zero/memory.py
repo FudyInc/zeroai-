@@ -35,6 +35,7 @@ class SessionMemory:
         self.used_emails: List[str] = []                  # correos ya contactados (autocompletar)
         self.pending_offers: Dict[str, Dict[str, Any]] = {}  # "client|lead" -> oferta hecha y aún no cumplida
         self.vendors: Dict[str, Dict[str, Any]] = {}      # vendor_id -> Vendor (catálogo)
+        self.functions: Dict[str, Dict[str, Any]] = {}    # function_id -> función programada (fase 2 sandbox)
         if self.path and self.path.exists():
             self._load()
 
@@ -125,6 +126,22 @@ class SessionMemory:
     def upsert_vendor(self, vendor: Dict[str, Any]) -> None:
         self._ensure_vendors_seeded()
         self.vendors[vendor["id"]] = vendor
+
+    # --- funciones programadas (fase 2: registro + ejecución manual sobre
+    # zero/sandbox.py — el disparo automático por horario es una decisión
+    # aparte, todavía no existe) -----------------------------------------------
+    def list_functions(self) -> List[Dict[str, Any]]:
+        return list(self.functions.values())
+
+    def get_function(self, function_id: str) -> Optional[Dict[str, Any]]:
+        return self.functions.get(function_id)
+
+    def upsert_function(self, function: Dict[str, Any]) -> None:
+        self.functions[function["id"]] = function
+
+    def delete_function(self, function_id: str) -> bool:
+        """True si existía y se borró; False si no había ninguna con ese id."""
+        return self.functions.pop(function_id, None) is not None
 
     # --- client -> vendor assignment ------------------------------------------
     def set_client_vendor(self, client_id: str, vendor_id: str) -> None:
@@ -268,6 +285,7 @@ class SessionMemory:
         self.used_emails = d.get("used_emails", [])
         self.pending_offers = d.get("pending_offers", {})
         self.vendors = d.get("vendors", {})
+        self.functions = d.get("functions", {})
 
     # --- snapshots -----------------------------------------------------------
     def snapshot(self) -> Dict[str, Any]:
@@ -280,6 +298,7 @@ class SessionMemory:
             "used_emails": self.used_emails,
             "pending_offers": self.pending_offers,
             "vendors": self.vendors,
+            "functions": self.functions,
         }
 
     def handoff(self) -> Dict[str, Any]:
