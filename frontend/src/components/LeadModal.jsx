@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { api } from '../lib/api'
 import { STAGES, scoreColor } from '../lib/util'
 import { Badge, Skeleton, Button, Input } from './ui'
+import ConversationThread from './ConversationThread'
 
 // Stages where the lead has been contacted but hasn't replied yet → offer to log a reply.
 const REPLYABLE = new Set(['contacted', 'nurturing'])
@@ -109,6 +110,11 @@ function LeadBody({ r, client, onClose }) {
             </div>
           ))}
         </div>
+      </div>
+
+      <div className="mt-4">
+        <div className="text-xs uppercase tracking-wide text-zinc-400 mb-2">Conversación</div>
+        <ConversationThread client={client} leadKey={r.key} />
       </div>
     </>
   )
