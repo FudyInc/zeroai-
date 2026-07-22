@@ -119,4 +119,9 @@ export const api = {
   vapiNumbers: () => req('/api/vapi/numbers').then((d) => d.numbers),
   call: (body) =>
     req('/api/call', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  functions: () => req('/api/functions').then((d) => d.functions),
+  saveFunction: (body) =>
+    req('/api/functions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  deleteFunction: (id) => req('/api/functions/' + q(id), { method: 'DELETE' }),
+  runFunction: (id) => req('/api/functions/' + q(id) + '/run', { method: 'POST' }),
 }

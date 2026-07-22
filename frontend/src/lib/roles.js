@@ -14,6 +14,9 @@
 //   - Equipo (2026-07-20): SOLO admin (Diego) — quién tiene cuenta, qué rol,
 //     quién está conectado. El backend ya lo exige (sin entrada en
 //     _ROLE_ALLOWED, fail-closed); esto es solo para ocultar el link.
+//   - Funciones (2026-07-22): SOLO admin — corre código Python arbitrario
+//     (sandboxed en Docker) contra leads reales de un cliente. Mismo
+//     fail-closed que el resto de las páginas admin-only.
 export const PAGE_ROLES = {
   '/': ['cro', 'cto', 'cco'],
   '/leads': ['cto'],
@@ -29,6 +32,7 @@ export const PAGE_ROLES = {
   '/arquitectura': [],
   '/config': [],
   '/equipo': [],
+  '/funciones': [],
 }
 
 // `authEnabled=false` (sin cuentas dadas de alta, mock/dev) → sin restricción,

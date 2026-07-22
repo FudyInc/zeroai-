@@ -27,6 +27,7 @@ import Agentes from './pages/Agentes'
 import Config from './pages/Config'
 import Finanzas from './pages/Finanzas'
 import Equipo from './pages/Equipo'
+import Funciones from './pages/Funciones'
 
 const AppCtx = createContext(null)
 export const useApp = () => useContext(AppCtx)
@@ -45,6 +46,8 @@ const TITLES = {
   '/finanzas': ['Finanzas', 'Entra, sale y margen de la agencia'],
   '/arquitectura': ['Arquitectura', 'Cómo está armado ZeroAI por dentro'],
   '/config': ['Configuración', 'Ajustes y conexiones'],
+  '/equipo': ['Equipo', 'Quién tiene cuenta, qué rol y quién está conectado'],
+  '/funciones': ['Funciones', 'Código a medida corriendo aislado contra leads reales'],
 }
 
 export default function App() {
@@ -175,6 +178,7 @@ export default function App() {
                 <Route path="/whatsapp" element={<Whatsapp />} />
                 <Route path="/config" element={<Config />} />
                 <Route path="/equipo" element={<Equipo />} />
+                <Route path="/funciones" element={<Funciones />} />
               </Routes>
             </motion.div>
           </main>
