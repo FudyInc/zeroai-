@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2, AlertCircle, WifiOff } from 'lucide-react'
 import { toast } from 'sonner'
-import { api } from '../lib/api'
+import { api, BASE } from '../lib/api'
 import { Card, Button, Input, Skeleton, Badge, SectionTitle } from '../components/ui'
 import AgentTester from '../components/AgentTester'
 
@@ -112,6 +112,25 @@ export default function Config() {
         </div>
       </IntegrationCard>
 
+      <IntegrationCard title="WhatsApp vía Twilio (plan B)" ok={cfg?.twilio} hint="las 3 keys salen de la consola de Twilio: Account SID y Auth Token en home → Account Info; el From es el número del sandbox mientras pruebas (después, tu número real)">
+        <div className="space-y-2">
+          <Input placeholder="Account SID (empieza con AC)" value={vals.tsid || ''} onChange={(e) => set('tsid', e.target.value)} />
+          <Input type="password" placeholder="Auth Token" value={vals.ttok || ''} onChange={(e) => set('ttok', e.target.value)} />
+          <Input placeholder="+14155238886 (sandbox)" value={vals.tfrom || ''} onChange={(e) => set('tfrom', e.target.value)} />
+          <Button onClick={() => save({
+            ...(vals.tsid && { twilio_account_sid: vals.tsid }),
+            ...(vals.ttok && { twilio_auth_token: vals.ttok }),
+            ...(vals.tfrom && { twilio_whatsapp_from: vals.tfrom }),
+          }, ['tsid', 'ttok', 'tfrom'])}>Guardar Twilio</Button>
+          <div className="text-[11px] text-zinc-400 pt-1">
+            Webhook para la consola de Twilio (sandbox → "When a message comes in", método POST):{' '}
+            <code className="select-all text-gold-deep break-all">{(BASE || window.location.origin) + '/api/webhooks/twilio-whatsapp'}</code>
+          </div>
+        </div>
+      </IntegrationCard>
+
+      <WhatsappProviderCard cfg={cfg} save={save} />
+
       <MetaAdsCard cfg={cfg} vals={vals} set={set} save={save} />
 
       <AgentTester />
@@ -140,6 +159,33 @@ export default function Config() {
         </div>
       </Card>
     </div>
+  )
+}
+
+/* Selector del transporte activo del canal WhatsApp (meta | twilio). Vive fuera
+   de las IntegrationCard porque debe seguir visible (y cambiable) aunque ambas
+   integraciones ya estén configuradas y colapsadas. */
+function WhatsappProviderCard({ cfg, save }) {
+  const provider = cfg?.whatsapp_provider || 'meta'
+  const choose = (p) => p !== provider && save({ whatsapp_provider: p }, [])
+  return (
+    <Card className="p-6">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <SectionTitle>Proveedor activo de WhatsApp</SectionTitle>
+          <div className="text-xs text-zinc-400 mt-0.5">por cuál transporte salen y entran los mensajes del canal</div>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          <Button variant={provider === 'meta' ? 'primary' : 'soft'} onClick={() => choose('meta')}>Meta (plan A)</Button>
+          <Button variant={provider === 'twilio' ? 'primary' : 'soft'} onClick={() => choose('twilio')}>Twilio (plan B)</Button>
+        </div>
+      </div>
+      {provider === 'twilio' && !cfg?.twilio && (
+        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-800">
+          ⚠️ <b>Twilio está elegido pero faltan sus 3 keys</b> — el canal WhatsApp queda en mock hasta que las guardes en la tarjeta de arriba.
+        </div>
+      )}
+    </Card>
   )
 }
 
