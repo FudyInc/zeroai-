@@ -271,6 +271,21 @@ resumen corto.
   conectarse al producto (`zero/voice.py` + sonido de teclado de fondo), ver
   `docs/francisca-prompt.md`.
 - **Envío email/WhatsApp a volumen** (deliverability / proveedor dedicado tipo SES).
+- **Plan B WhatsApp vía BSP (Twilio o 360dialog)** — SOLO si Meta rechaza o estanca
+  la revisión del WABA "PoolEdge Tienda" (en revisión desde 2026-07-19; el camino
+  actual, Meta Cloud API directo, es gratis y ya está construido). Un BSP no salta
+  la aprobación de Meta — el WABA igual pasa por revisión, solo que por el flujo
+  guiado del BSP (suele aprobar más fácil). Comparación (precios verificados
+  2026-07-21):
+  - **Twilio**: sin cuota fija, USD $0.005 por mensaje (entrante Y saliente,
+    incluidos los de sesión que Meta no cobra) + tarifas de Meta. Sandbox
+    inmediato para probar sin esperar aprobación. Código: `TwilioWhatsAppSender`
+    en `zero/channels.py` — seam listo (mismo contrato `send`), trabajo chico.
+  - **360dialog**: €49/mes fijos, cero margen por mensaje (solo tarifas de Meta).
+  - **Punto de quiebre**: ~12.000 mensajes/mes (≈600-800 conversaciones de
+    CONCIERGE). Por debajo gana Twilio; por encima, 360dialog. Al volumen actual
+    de ZeroAI (arrancando), **Twilio es la elección** si se activa este plan B —
+    ej. 100 conversaciones/mes ≈ USD $7.50 vs €49 fijos.
 
 **Ya conectado (no está pendiente):** Vapi (llamadas salientes, `/api/call` real
 vía dashboard) y Supabase (CRM/estado en la nube, proyecto "zeroai") — activados
