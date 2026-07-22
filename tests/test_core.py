@@ -1173,7 +1173,25 @@ class EmailSenderFromNameTest(unittest.TestCase):
 
 class WhatsAppVendorSendTest(unittest.TestCase):
     """Cada cliente envía WhatsApp con las credenciales de SU vendedor (Fase 3.2).
-    Todo offline: el factory de senders se inyecta, nunca se toca la red."""
+    Todo offline: el factory de senders se inyecta, nunca se toca la red.
+
+    Prueba el camino Meta (credentials_for con WHATSAPP_PROVIDER sin setear) —
+    en una máquina con WHATSAPP_PROVIDER=twilio en el .env real (producción),
+    sin limpiarlo acá credentials_for() devolvería la tupla de Twilio en vez
+    de (whatsapp_phone_id, token), y las aserciones de abajo fallarían por
+    fuga del entorno real, no por un bug de la resolución en sí."""
+
+    def setUp(self):
+        import os
+        self._prev_provider = os.environ.get("WHATSAPP_PROVIDER")
+        os.environ.pop("WHATSAPP_PROVIDER", None)
+
+    def tearDown(self):
+        import os
+        if self._prev_provider is None:
+            os.environ.pop("WHATSAPP_PROVIDER", None)
+        else:
+            os.environ["WHATSAPP_PROVIDER"] = self._prev_provider
 
     @staticmethod
     def _ok(msg):
@@ -2816,12 +2834,20 @@ class ProgrammedFunctionsLogicTest(unittest.TestCase):
 
 
 class VendorCredentialsTest(unittest.TestCase):
-    """Resolución de credenciales por vendedor, con fallback a las env globales."""
+    """Resolución de credenciales por vendedor, con fallback a las env globales.
+
+    Prueba el camino Meta (default) — por eso limpia WHATSAPP_PROVIDER: en una
+    máquina donde el .env real tiene WHATSAPP_PROVIDER=twilio (producción,
+    Ubuntu), sin esto credentials_for() tomaría el camino Twilio y las
+    aserciones de abajo (que esperan whatsapp_phone_id/WHATSAPP_TOKEN) fallan
+    — no por un bug de la lógica, sino por fuga del entorno real al test."""
 
     def setUp(self):
         import os
-        self._env_keys = ("WHATSAPP_TOKEN", "WHATSAPP_PHONE_ID", "WHATSAPP_TOKEN_FERNANDA")
+        self._env_keys = ("WHATSAPP_TOKEN", "WHATSAPP_PHONE_ID", "WHATSAPP_TOKEN_FERNANDA",
+                         "WHATSAPP_PROVIDER")
         self._prev = {k: os.environ.get(k) for k in self._env_keys}
+        os.environ.pop("WHATSAPP_PROVIDER", None)
 
     def tearDown(self):
         import os
