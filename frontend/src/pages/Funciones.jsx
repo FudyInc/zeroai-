@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { Terminal, AlertTriangle, Play, Pencil, Trash2, Plus, CheckCircle2, XCircle } from 'lucide-react'
+import { Terminal, AlertTriangle, Play, Pencil, Trash2, Plus, CheckCircle2, XCircle, Repeat } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
 import { useApp } from '../App'
@@ -11,11 +11,12 @@ import { Card, Button, Input, Skeleton, pageState, Eyebrow, SectionTitle } from 
    Python a medida que corre AISLADO (Docker, zero/sandbox.py) contra leads
    reales del cliente activo (lookup_scope.client_id = cliente global del
    dashboard, no un selector propio — así nunca se corre "a ciegas" contra un
-   cliente distinto del que se está mirando). El disparo por horario NO existe
-   todavía (fase aparte, no incluida acá) — hoy la única forma de correr una
-   función es "ahora", a pedido, desde este panel. */
+   cliente distinto del que se está mirando). Una función puede quedar
+   solo-manual, o disparándose sola cada N minutos (schedule.interval_minutes,
+   el scheduler vive en zero/functions.py) — en ambos casos "Correr ahora"
+   siempre está disponible para forzar una corrida. */
 
-const emptyForm = { id: null, name: '', code: '', stage: '', enabled: true }
+const emptyForm = { id: null, name: '', code: '', stage: '', enabled: true, scheduleEnabled: false, intervalMinutes: '' }
 
 const timeAgo = (iso) => {
   if (!iso) return 'nunca'
@@ -26,6 +27,19 @@ const timeAgo = (iso) => {
   const h = Math.round(min / 60)
   if (h < 24) return `hace ${h} h`
   return `hace ${Math.round(h / 24)} d`
+}
+
+// Mismo criterio que timeAgo pero hacia adelante — para "próxima corrida".
+const timeUntil = (iso) => {
+  if (!iso) return null
+  const ms = new Date(iso).getTime() - Date.now()
+  if (ms <= 0) return 'en instantes'
+  const min = Math.round(ms / 60000)
+  if (min < 1) return 'en instantes'
+  if (min < 60) return `en ${min} min`
+  const h = Math.round(min / 60)
+  if (h < 24) return `en ${h} h`
+  return `en ${Math.round(h / 24)} d`
 }
 
 export default function Funciones() {
@@ -71,17 +85,30 @@ export default function Funciones() {
   })
 
   const openNew = () => setForm({ ...emptyForm })
-  const openEdit = (fn) => setForm({ id: fn.id, name: fn.name, code: fn.code, stage: fn.lookup_scope?.stage || '', enabled: fn.enabled })
+  const openEdit = (fn) => setForm({
+    id: fn.id, name: fn.name, code: fn.code, stage: fn.lookup_scope?.stage || '', enabled: fn.enabled,
+    scheduleEnabled: !!fn.schedule,
+    intervalMinutes: fn.schedule?.interval_minutes != null ? String(fn.schedule.interval_minutes) : '',
+  })
 
   const submit = () => {
     if (!form.name.trim()) return toast.error('Ponle un nombre a la función')
     if (!form.code.trim()) return toast.error('La función necesita código')
+    let schedule = null
+    if (form.scheduleEnabled) {
+      const n = parseInt(form.intervalMinutes, 10)
+      if (!Number.isInteger(n) || n <= 0 || String(n) !== form.intervalMinutes.trim()) {
+        return toast.error('El intervalo del disparo automático debe ser un número entero mayor a 0')
+      }
+      schedule = { interval_minutes: n }
+    }
     save.mutate({
       id: form.id || undefined,
       name: form.name.trim(),
       code: form.code,
       lookup_scope: { client_id: client, stage: form.stage.trim() || null },
       enabled: form.enabled,
+      schedule,
     })
   }
 
@@ -101,8 +128,9 @@ export default function Funciones() {
           Cada función corre código Python real, aislado en un contenedor Docker, contra los{' '}
           <b>leads reales</b> del cliente activo (<b>{client}</b>) — solo ve campos curados
           (empresa, nombre, rol, email, teléfono, etapa, score), nunca credenciales ni datos de
-          otros clientes. No hay disparo automático por horario todavía: solo corre cuando
-          apretás "Correr ahora".
+          otros clientes. Puedes dejarla disparándose sola cada N minutos (disparo automático),
+          o correrla solo cuando apretás "Correr ahora" — ambas conviven, "Correr ahora" siempre
+          funciona aunque esté en automático.
         </div>
       </Card>
 
@@ -121,10 +149,16 @@ export default function Funciones() {
                       {!fn.enabled && (
                         <span className="text-[11px] font-medium text-zinc-400 bg-zinc-100 rounded-full px-2 py-0.5">deshabilitada</span>
                       )}
+                      {fn.schedule && (
+                        <span className="text-[11px] font-semibold text-gold-deep bg-champagne/40 rounded-full px-2 py-0.5 inline-flex items-center gap-1 shrink-0">
+                          <Repeat size={11} /> automática · cada {fn.schedule.interval_minutes} min
+                        </span>
+                      )}
                     </div>
                     <div className="text-xs text-zinc-400 mt-0.5">
                       {fn.lookup_scope?.client_id}{fn.lookup_scope?.stage ? ` · etapa ${fn.lookup_scope.stage}` : ' · todas las etapas'}
                       {' · creada por '}{fn.created_by || '—'}
+                      {fn.schedule && fn.next_run && ` · próxima corrida ${timeUntil(fn.next_run)}`}
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
@@ -186,6 +220,23 @@ export default function Funciones() {
               <input type="checkbox" checked={form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} className="accent-gold" />
               Habilitada
             </label>
+
+            <div>
+              <label className="flex items-center gap-2 text-sm text-zinc-600 cursor-pointer">
+                <input type="checkbox" checked={form.scheduleEnabled}
+                  onChange={(e) => setForm({ ...form, scheduleEnabled: e.target.checked })} className="accent-gold" />
+                Disparo automático
+              </label>
+              {form.scheduleEnabled && (
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="text-xs text-zinc-500">cada</span>
+                  <Input type="number" min="1" step="1" value={form.intervalMinutes}
+                    onChange={(e) => setForm({ ...form, intervalMinutes: e.target.value })}
+                    placeholder="30" className="w-24" />
+                  <span className="text-xs text-zinc-500">minutos</span>
+                </div>
+              )}
+            </div>
 
             <div className="flex justify-end gap-2 pt-1">
               <Button variant="ghost" onClick={() => setForm(null)}>Cancelar</Button>
