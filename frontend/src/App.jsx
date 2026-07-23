@@ -12,6 +12,7 @@ import Sidebar from './components/Sidebar'
 import Login from './components/Login'
 import LeadModal from './components/LeadModal'
 import CommandPalette from './components/CommandPalette'
+import ThemeToggle from './components/ThemeToggle'
 import { canSeePage } from './lib/roles'
 import Dashboard from './pages/Dashboard'
 import Vender from './pages/Vender'
@@ -120,10 +121,10 @@ export default function App() {
 
   return (
     <AppCtx.Provider value={{ client, setClient, clients, openLead: setLeadKey, openRun: () => setRunOpen(true) }}>
-      <div className="min-h-screen flex text-zinc-900 bg-[radial-gradient(120%_120%_at_100%_0%,#f2f1ec_0%,#f4f4f4_45%,#f6f5f2_100%)]">
+      <div className="min-h-screen flex text-zinc-900 bg-[radial-gradient(120%_120%_at_100%_0%,#f2f1ec_0%,#f4f4f4_45%,#f6f5f2_100%)] dark:bg-[radial-gradient(120%_120%_at_100%_0%,#1a1d13_0%,#16180f_45%,#141610_100%)]">
         <Sidebar mobileOpen={navOpen} onClose={() => setNavOpen(false)} username={username} fullName={fullName} role={role} authEnabled={authEnabled} />
         <div className="flex-1 min-w-0">
-          <header className="h-[68px] sticky top-0 z-20 bg-white/80 backdrop-blur border-b border-zinc-200 flex items-center px-4 md:px-8 gap-3">
+          <header className="h-[68px] sticky top-0 z-20 bg-white/80 dark:bg-[#1D2016]/80 backdrop-blur border-b border-zinc-200 flex items-center px-4 md:px-8 gap-3">
             <button onClick={() => setNavOpen(true)} aria-label="Abrir menú"
               className="md:hidden p-2 -ml-1 rounded-lg text-zinc-600 hover:bg-zinc-100">
               <Menu size={20} />
@@ -139,6 +140,7 @@ export default function App() {
               <div className="text-xs text-zinc-500 truncate">{sub}</div>
             </div>
             <div className="ml-auto flex items-center gap-2">
+              <ThemeToggle />
               <button onClick={() => setPaletteOpen(true)} title="Buscar (⌘K)"
                 className="hidden sm:inline-flex items-center gap-1.5 text-xs text-zinc-400 border border-zinc-200 rounded-lg px-2.5 py-1.5 hover:bg-zinc-50 hover:text-zinc-600 transition-colors">
                 <Search size={13} /> <kbd className="font-sans">⌘K</kbd>
@@ -206,7 +208,7 @@ export default function App() {
 
 function NoRoleScreen({ username, onLogout }) {
   return (
-    <div className="min-h-screen grid place-items-center bg-[radial-gradient(120%_120%_at_100%_0%,#f2f1ec_0%,#f4f4f4_45%,#f6f5f2_100%)] p-4">
+    <div className="min-h-screen grid place-items-center bg-[radial-gradient(120%_120%_at_100%_0%,#f2f1ec_0%,#f4f4f4_45%,#f6f5f2_100%)] dark:bg-[radial-gradient(120%_120%_at_100%_0%,#1a1d13_0%,#16180f_45%,#141610_100%)] p-4">
       <Card className="p-8 w-full max-w-sm text-center">
         <div className="font-display font-bold text-lg tracking-tight text-brand mb-2">Cuenta reconocida, sin rol asignado</div>
         <div className="text-sm text-zinc-500 mb-1">
@@ -293,7 +295,7 @@ function RunModal({ open, onClose }) {
       {open && (
         <motion.div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
-          <motion.div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4"
+          <motion.div className="bg-white dark:bg-[#1D2016] rounded-2xl max-w-md w-full p-6 space-y-4"
             initial={{ opacity: 0, scale: 0.96, y: 12 }} animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: 12 }} transition={{ type: 'spring', stiffness: 320, damping: 28 }}
             onClick={(e) => e.stopPropagation()}>

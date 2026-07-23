@@ -29,9 +29,13 @@ const SECTIONS = [
       { to: '/clientes', label: 'Clientes', icon: Briefcase },
       { to: '/finanzas', label: 'Finanzas', icon: Wallet },
       { to: '/arquitectura', label: 'Arquitectura', icon: Network },
-      { to: '/config', label: 'Configuración', icon: Settings },
       { to: '/equipo', label: 'Equipo', icon: ShieldCheck },
       { to: '/funciones', label: 'Funciones', icon: Terminal },
+    ],
+  },
+  {
+    title: 'Sistema', items: [
+      { to: '/config', label: 'Configuración', icon: Settings },
     ],
   },
 ]
@@ -71,7 +75,7 @@ export default function Sidebar({ mobileOpen = false, onClose = () => {}, userna
         animate={{ width: open ? 240 : 76 }}
         transition={{ type: 'spring', stiffness: 300, damping: 30 }}
         className={cn(
-          'h-screen shrink-0 z-50 bg-white border-r border-zinc-200 flex flex-col overflow-hidden',
+          'h-screen shrink-0 z-50 bg-white dark:bg-[#1D2016] border-r border-zinc-200 flex flex-col overflow-hidden',
           'max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:transition-transform max-md:duration-300',
           mobileOpen ? 'max-md:translate-x-0' : 'max-md:-translate-x-full',
           'md:sticky md:top-0 md:translate-x-0',
