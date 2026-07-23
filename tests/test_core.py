@@ -921,12 +921,17 @@ class ReplyDetectionTest(unittest.TestCase):
         self.assertFalse(any(s["lead_key"] == lead["key"] and s["status"] == "open"
                              for s in z.memory.sequences))
 
-    def test_unmatched_sender_is_logged_not_an_error(self):
+    def test_unmatched_sender_is_auto_registered_via_inbox_sweep(self):
+        """check_replies() usa el MISMO handle_inbound que el webhook de
+        WhatsApp — un desconocido que escribe por el inbox (email) también
+        se auto-registra y recibe respuesta, misma política que
+        ConciergeTest.test_inbound_unmatched_falls_back_to_default_catchall
+        (antes: quedaba sin match ni respuesta)."""
         z, _, inbox = self._zero()
         inbox.add({"from": "desconocido@nadie.cl", "body": "hola, ¿quién eres?"})
         d = z.check_replies()
         self.assertEqual(d["checked"], 1)
-        self.assertEqual(d["matched"], 0)
+        self.assertEqual(d["matched"], 1)
 
     def test_empty_inbox_is_a_free_noop(self):
         z, _, _ = self._zero()
@@ -1168,7 +1173,25 @@ class EmailSenderFromNameTest(unittest.TestCase):
 
 class WhatsAppVendorSendTest(unittest.TestCase):
     """Cada cliente envía WhatsApp con las credenciales de SU vendedor (Fase 3.2).
-    Todo offline: el factory de senders se inyecta, nunca se toca la red."""
+    Todo offline: el factory de senders se inyecta, nunca se toca la red.
+
+    Prueba el camino Meta (credentials_for con WHATSAPP_PROVIDER sin setear) —
+    en una máquina con WHATSAPP_PROVIDER=twilio en el .env real (producción),
+    sin limpiarlo acá credentials_for() devolvería la tupla de Twilio en vez
+    de (whatsapp_phone_id, token), y las aserciones de abajo fallarían por
+    fuga del entorno real, no por un bug de la resolución en sí."""
+
+    def setUp(self):
+        import os
+        self._prev_provider = os.environ.get("WHATSAPP_PROVIDER")
+        os.environ.pop("WHATSAPP_PROVIDER", None)
+
+    def tearDown(self):
+        import os
+        if self._prev_provider is None:
+            os.environ.pop("WHATSAPP_PROVIDER", None)
+        else:
+            os.environ["WHATSAPP_PROVIDER"] = self._prev_provider
 
     @staticmethod
     def _ok(msg):
@@ -1514,10 +1537,96 @@ class ConciergeTest(unittest.TestCase):
         self.assertTrue(any(h["event"] == "auto_reply"
                             for h in crm.get("acme", lead["key"])["history"]))
 
-    def test_inbound_unmatched_is_not_an_error(self):
+    def test_inbound_unmatched_falls_back_to_default_catchall(self):
+        """Un desconocido (nunca antes contactado) NO se ignora — se registra
+        como lead nuevo bajo DEFAULT_INBOUND_CLIENT_ID (config.py) y recibe
+        respuesta igual, porque un vendedor de verdad contesta a cualquiera que
+        le escribe primero, no solo a quien ZERO ya contactó. Decisión de Diego
+        2026-07-22 — antes esto quedaba como 'inbound_unmatched' sin respuesta."""
         z, _ = self._zero()
         res = z.handle_inbound("000000000", "hola?")
-        self.assertFalse(res["matched"])
+        self.assertTrue(res["matched"])
+        self.assertTrue(res["reply"])
+        crm = z.crm
+        from zero.config import DEFAULT_INBOUND_CLIENT_ID
+        rec = crm.find_by_contact(phone="000000000")
+        self.assertIsNotNone(rec)
+        self.assertEqual(rec["client_id"], DEFAULT_INBOUND_CLIENT_ID)
+        # "source" no se guarda como campo del registro (no está en crm._FIELDS)
+        # — queda como detail del evento "created" en el historial.
+        created = next(h for h in rec["history"] if h["event"] == "created")
+        self.assertEqual(created["detail"], "whatsapp_inbound")
+
+    def test_inbound_unmatched_second_message_reuses_same_lead(self):
+        """El segundo mensaje del mismo desconocido no debe crear un lead
+        duplicado — debe encontrar (find_by_contact) el que ya se auto-registró
+        en el primer mensaje y seguir la MISMA conversación."""
+        z, crm = self._zero()
+        z.handle_inbound("000111222", "hola")
+        z.handle_inbound("000111222", "¿cuánto cuesta?")
+        from zero.config import DEFAULT_INBOUND_CLIENT_ID
+        leads = [r for r in crm.leads.values() if r["client_id"] == DEFAULT_INBOUND_CLIENT_ID
+                and "".join(c for c in (r.get("phone") or "") if c.isdigit()) == "000111222"]
+        self.assertEqual(len(leads), 1)   # un solo lead, no dos
+
+    def test_inbound_unmatched_stays_unmatched_when_catchall_disabled(self):
+        """Con DEFAULT_INBOUND_CLIENT_ID desactivado (None/""), el comportamiento
+        vuelve a ser exactamente el de antes — regresión explícita, no una
+        suposición."""
+        import zero.config as config
+        prev = config.DEFAULT_INBOUND_CLIENT_ID
+        config.DEFAULT_INBOUND_CLIENT_ID = None
+        try:
+            z, _ = self._zero()
+            res = z.handle_inbound("000000000", "hola?")
+            self.assertFalse(res["matched"])
+        finally:
+            config.DEFAULT_INBOUND_CLIENT_ID = prev
+
+
+class InboundClientResolutionTest(unittest.TestCase):
+    """_resolve_inbound_client: el número receptor manda si resuelve sin
+    ambigüedad a UN solo cliente (correcto en producción, número propio por
+    cliente); si no, cae al catch-all — nunca adivina entre varios."""
+
+    def _zero(self):
+        return Zero(build_agents(mock=True), memory=SessionMemory(None), crm=CRM(None))
+
+    def test_unambiguous_vendor_wins_over_default(self):
+        z = self._zero()
+        z.memory.set_client_vendor("acme", "fernanda")
+        fernanda = z.memory.get_vendor("fernanda")
+        client = z._resolve_inbound_client(fernanda["whatsapp_phone_id"])
+        self.assertEqual(client, "acme")
+
+    def test_vendor_shared_by_several_clients_falls_back_to_default(self):
+        z = self._zero()
+        z.memory.set_client_vendor("acme", "fernanda")
+        z.memory.set_client_vendor("otra-empresa", "fernanda")   # mismo vendedor, dos clientes
+        fernanda = z.memory.get_vendor("fernanda")
+        from zero.config import DEFAULT_INBOUND_CLIENT_ID
+        client = z._resolve_inbound_client(fernanda["whatsapp_phone_id"])
+        self.assertEqual(client, DEFAULT_INBOUND_CLIENT_ID)
+
+    def test_no_phone_id_falls_back_to_default(self):
+        z = self._zero()
+        from zero.config import DEFAULT_INBOUND_CLIENT_ID
+        self.assertEqual(z._resolve_inbound_client(None), DEFAULT_INBOUND_CLIENT_ID)
+
+    def test_unknown_phone_id_falls_back_to_default(self):
+        z = self._zero()
+        from zero.config import DEFAULT_INBOUND_CLIENT_ID
+        self.assertEqual(z._resolve_inbound_client("no-existe-este-numero"), DEFAULT_INBOUND_CLIENT_ID)
+
+    def test_disabled_default_returns_none_when_no_vendor_match(self):
+        import zero.config as config
+        prev = config.DEFAULT_INBOUND_CLIENT_ID
+        config.DEFAULT_INBOUND_CLIENT_ID = None
+        try:
+            z = self._zero()
+            self.assertIsNone(z._resolve_inbound_client(None))
+        finally:
+            config.DEFAULT_INBOUND_CLIENT_ID = prev
 
 
 class ConciergeEdgeCasesTest(unittest.TestCase):
@@ -2725,12 +2834,20 @@ class ProgrammedFunctionsLogicTest(unittest.TestCase):
 
 
 class VendorCredentialsTest(unittest.TestCase):
-    """Resolución de credenciales por vendedor, con fallback a las env globales."""
+    """Resolución de credenciales por vendedor, con fallback a las env globales.
+
+    Prueba el camino Meta (default) — por eso limpia WHATSAPP_PROVIDER: en una
+    máquina donde el .env real tiene WHATSAPP_PROVIDER=twilio (producción,
+    Ubuntu), sin esto credentials_for() tomaría el camino Twilio y las
+    aserciones de abajo (que esperan whatsapp_phone_id/WHATSAPP_TOKEN) fallan
+    — no por un bug de la lógica, sino por fuga del entorno real al test."""
 
     def setUp(self):
         import os
-        self._env_keys = ("WHATSAPP_TOKEN", "WHATSAPP_PHONE_ID", "WHATSAPP_TOKEN_FERNANDA")
+        self._env_keys = ("WHATSAPP_TOKEN", "WHATSAPP_PHONE_ID", "WHATSAPP_TOKEN_FERNANDA",
+                         "WHATSAPP_PROVIDER")
         self._prev = {k: os.environ.get(k) for k in self._env_keys}
+        os.environ.pop("WHATSAPP_PROVIDER", None)
 
     def tearDown(self):
         import os
