@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, NavLink } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  LayoutDashboard, Users, GitBranch, Bot, TrendingUp, Briefcase, Settings, Mail, Network, LogOut, Megaphone, X, User, Wallet, AlertTriangle, ShieldCheck, Terminal,
+  LayoutDashboard, Users, GitBranch, Bot, TrendingUp, Briefcase, Settings, Mail, Network, LogOut, Megaphone, X, User, Wallet, AlertTriangle, ShieldCheck, Terminal, SlidersHorizontal,
 } from 'lucide-react'
 import { cn } from '../lib/util'
 import { api } from '../lib/api'
@@ -35,6 +35,7 @@ const SECTIONS = [
   },
   {
     title: 'Sistema', items: [
+      { to: '/preferencias', label: 'Preferencias', icon: SlidersHorizontal },
       { to: '/config', label: 'Configuración', icon: Settings },
     ],
   },

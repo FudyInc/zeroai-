@@ -90,10 +90,19 @@ export default function Dashboard() {
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={chartData} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
-                    <CartesianGrid vertical={false} stroke="#f1f5f9" />
-                    <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#71717a' }} axisLine={false} tickLine={false} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: '#71717a' }} axisLine={false} tickLine={false} />
-                    <Tooltip cursor={{ fill: '#f4f4f5' }} contentStyle={{ borderRadius: 12, border: '1px solid #e4e4e7', fontSize: 13 }} />
+                    {/* Colores vía var(--color-zinc-*) en vez de hex fijo: son props
+                        SVG/CSS reales (fill/stroke/style), así que el navegador
+                        resuelve la CSS var con la cascada normal — heredan el
+                        modo oscuro solos, igual que cualquier utilidad Tailwind,
+                        sin necesitar un hook de tema acá. */}
+                    <CartesianGrid vertical={false} stroke="var(--color-zinc-100)" />
+                    <XAxis dataKey="name" tick={{ fontSize: 12, fill: 'var(--color-zinc-500)' }} axisLine={false} tickLine={false} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: 'var(--color-zinc-500)' }} axisLine={false} tickLine={false} />
+                    <Tooltip
+                      cursor={{ fill: 'var(--color-zinc-100)' }}
+                      contentStyle={{ borderRadius: 12, border: '1px solid var(--color-zinc-200)', fontSize: 13, background: 'var(--color-zinc-50)' }}
+                      labelStyle={{ color: 'var(--color-zinc-700)' }}
+                    />
                     <Bar dataKey="value" radius={[8, 8, 0, 0]} maxBarSize={48} animationDuration={700}>
                       {chartData.map((d, i) => <Cell key={i} fill={d.c} />)}
                     </Bar>

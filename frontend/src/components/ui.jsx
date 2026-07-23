@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '../lib/util'
+import { useIsDark } from '../lib/theme'
 
 /* Superficie base. Estilo editorial premium dentro de la marca: hairline cálido,
    sombra casi plana (la profundidad viene del borde + contraste, no de
@@ -40,15 +41,9 @@ export function Button({ className, variant = 'primary', ...p }) {
 /* El color viene por prop (hex arbitrario, ej. por etapa) — no es un token
    Tailwind, así que no hereda .dark solo. El fondo es ese color a ~10% alpha
    ('1a'); sobre fondo oscuro casi no se nota, así que en dark subimos a
-   ~20% ('33') para que la píldora siga leyéndose como píldora. Escucha
-   'zero-theme-change' (ver ThemeToggle) para reaccionar sin recargar. */
+   ~20% ('33') para que la píldora siga leyéndose como píldora. */
 export function Badge({ color = '#71717a', children, className }) {
-  const [dark, setDark] = useState(() => document.documentElement.classList.contains('dark'))
-  useEffect(() => {
-    const onChange = () => setDark(document.documentElement.classList.contains('dark'))
-    window.addEventListener('zero-theme-change', onChange)
-    return () => window.removeEventListener('zero-theme-change', onChange)
-  }, [])
+  const dark = useIsDark()
   return (
     <span className={cn('px-2 py-0.5 rounded-full text-xs font-semibold', className)}
       style={{ background: color + (dark ? '33' : '1a'), color }}>
