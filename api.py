@@ -16,7 +16,7 @@ import urllib.parse
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from pydantic import BaseModel
@@ -763,34 +763,61 @@ def whatsapp_verify(mode: Optional[str] = Query(None, alias="hub.mode"),
     raise HTTPException(status_code=403, detail="verificación fallida")
 
 
+def _process_inbound_messages(msgs: list, to_key: str) -> None:
+    """El trabajo pesado de un mensaje entrante (match/crear lead, CONCIERGE,
+    enviar la respuesta) — corre DESPUÉS de que el webhook ya respondió (ver
+    BackgroundTasks en whatsapp_inbound/twilio_whatsapp_inbound de abajo).
+
+    Por qué: con el motor real (Anthropic o modelo local) generar la respuesta
+    puede tardar 15-20s+ (medido en vivo con qwen2.5:7b en CPU, 2026-07-22) —
+    tiempo de sobra para que Twilio/Meta den por caída la entrega del webhook
+    (Twilio: error 11200 "HTTP retrieval failure", con reintento de su lado, lo
+    que podía procesar el mismo mensaje dos veces). El envío real de la
+    respuesta sale por una llamada aparte a la API del proveedor (no depende de
+    la conexión del webhook), así que separar "confirmar recepción" de
+    "generar y mandar la respuesta" es seguro: nada se pierde, y el proveedor
+    ya no tiene por qué esperar ni reintentar.
+    `to_key` es el nombre de la clave en cada mensaje parseado que trae el
+    número/id receptor — "to_phone_id" (Meta) o "to" (Twilio), según cómo lo
+    arma cada parser — pero SIEMPRE se pasa a handle_inbound como su único
+    kwarg `to_phone_id` (ese nombre no cambia entre proveedores)."""
+    crm = make_crm(CRM_PATH)
+    memory = make_memory(STATE_PATH)
+    agents, _ = _agents_best()
+    zero = Zero(agents, memory=memory, crm=crm, outbox=make_outbox())
+    for m in msgs:
+        zero.handle_inbound(m["from"], m["text"], to_phone_id=m.get(to_key))
+
+
 @app.post("/api/webhooks/whatsapp")
-async def whatsapp_inbound(req: Request):
-    """Receive inbound WhatsApp messages from Meta → match to lead → reply via CONCIERGE."""
+async def whatsapp_inbound(req: Request, background_tasks: BackgroundTasks):
+    """Receive inbound WhatsApp messages from Meta → match to lead → reply via
+    CONCIERGE. Responde de inmediato (Meta espera confirmación rápida) y
+    procesa cada mensaje en segundo plano — ver _process_inbound_messages."""
     from zero.whatsapp_inbound import parse_inbound, verify_meta_signature
     raw = await req.body()
     if not verify_meta_signature(raw, req.headers.get("x-hub-signature-256")):
         raise HTTPException(status_code=403, detail="firma inválida — no viene de Meta")
     payload = json.loads(raw.decode("utf-8"))
     msgs = parse_inbound(payload)
-    crm = make_crm(CRM_PATH)
-    memory = make_memory(STATE_PATH)
-    agents, _ = _agents_best()
-    zero = Zero(agents, memory=memory, crm=crm, outbox=make_outbox())
-    results = [zero.handle_inbound(m["from"], m["text"], to_phone_id=m.get("to_phone_id"))
-               for m in msgs]
-    return {"received": len(msgs), "results": results}
+    if msgs:
+        background_tasks.add_task(_process_inbound_messages, msgs, "to_phone_id")
+    return {"received": len(msgs)}
 
 
 @app.post("/api/webhooks/twilio-whatsapp")
-async def twilio_whatsapp_inbound(req: Request):
+async def twilio_whatsapp_inbound(req: Request, background_tasks: BackgroundTasks):
     """Inbound WhatsApp vía Twilio (plan B / BSP) → el MISMO flujo handle_inbound
     que el webhook de Meta — cambia el transporte, no la conversación. Twilio
     manda form-urlencoded y espera TwiML de vuelta: se responde un <Response/>
-    vacío (la respuesta real al lead sale por la API de Twilio vía Outbox, no
-    por TwiML) para no llenar el debugger de Twilio de warnings 12300. La
-    cantidad de mensajes procesados va en el header X-Zero-Received (Twilio lo
-    ignora; los tests HTTP lo leen). Queda dentro de la excepción de auth del
-    middleware (prefijo /api/webhooks/) — Twilio se autentica con su firma."""
+    vacío DE INMEDIATO (la respuesta real al lead se procesa en segundo plano
+    — ver _process_inbound_messages — y sale por la API de Twilio vía Outbox,
+    no por TwiML) para no llenar el debugger de Twilio de warnings 12300 ni
+    arriesgar el error 11200 (timeout) que causaba el modelo real tardando
+    15-20s+. La cantidad de mensajes recibidos va en el header
+    X-Zero-Received (Twilio lo ignora; los tests HTTP lo leen). Queda dentro
+    de la excepción de auth del middleware (prefijo /api/webhooks/) — Twilio
+    se autentica con su firma."""
     from zero.twilio_inbound import parse_inbound as parse_twilio_inbound, verify_twilio_signature
     raw = await req.body()
     params = dict(urllib.parse.parse_qsl(raw.decode("utf-8"), keep_blank_values=True))
@@ -800,17 +827,8 @@ async def twilio_whatsapp_inbound(req: Request):
     if not verify_twilio_signature(url, params, req.headers.get("x-twilio-signature")):
         raise HTTPException(status_code=403, detail="firma inválida — no viene de Twilio")
     msgs = parse_twilio_inbound(params)
-    crm = make_crm(CRM_PATH)
-    memory = make_memory(STATE_PATH)
-    agents, _ = _agents_best()
-    zero = Zero(agents, memory=memory, crm=crm, outbox=make_outbox())
-    for m in msgs:
-        # m["to"] es el número (real) que recibió el mensaje — hoy no resuelve
-        # a ningún vendedor (vendor_by_phone_id compara contra whatsapp_phone_id
-        # de Meta, un identificador distinto), así que cae de forma segura al
-        # catch-all de DEFAULT_INBOUND_CLIENT_ID; queda ya cableado para cuando
-        # haya números de Twilio por cliente y se resuelva ese mapeo.
-        zero.handle_inbound(m["from"], m["text"], to_phone_id=m.get("to"))
+    if msgs:
+        background_tasks.add_task(_process_inbound_messages, msgs, "to")
     return PlainTextResponse("<Response></Response>", media_type="application/xml",
                              headers={"X-Zero-Received": str(len(msgs))})
 

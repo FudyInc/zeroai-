@@ -970,15 +970,46 @@ class TwilioWebhookHttpTest(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 403)
 
     def test_valid_signature_reaches_handle_inbound(self):
-        """Con la firma correcta el mensaje se procesa: X-Zero-Received: 1
-        confirma que pasó firma → parseo → handle_inbound (el remitente no
-        matchea ningún lead en el CRM vacío del tmpdir, así que el efecto es un
-        'inbound_unmatched' registrado — cero envíos, outbox en mock)."""
+        """Con la firma correcta, la respuesta llega al toque: X-Zero-Received:
+        1 confirma que pasó firma → parseo, ANTES de que el procesamiento real
+        (handle_inbound, en background — ver _process_inbound_messages en
+        api.py) siquiera empiece. Que el trabajo se complete de verdad lo
+        prueba test_processing_happens_in_background_after_response."""
         sig = self._sign(self._webhook_url(), self.PARAMS)
         status, body, headers = self._post(self.PARAMS, signature=sig)
         self.assertEqual(status, 200)
         self.assertEqual(headers.get("X-Zero-Received"), "1")
         self.assertEqual(body, "<Response></Response>")   # TwiML vacío para Twilio
+
+    def test_processing_happens_in_background_after_response(self):
+        """La respuesta HTTP no espera a que termine handle_inbound — se
+        agenda con BackgroundTasks y corre después de responder (ver
+        _process_inbound_messages en api.py). Esto es justo lo que evita el
+        error 11200 de Twilio ('HTTP retrieval failure') cuando el motor real
+        tarda 15-20s+ en generar la respuesta: Twilio ya no espera esa espera.
+
+        Prueba que el trabajo se COMPLETA igual (no que se pierda al no
+        esperarlo): el remitente es nuevo (sin lead previo) y esta clase corre
+        con el catch-all por defecto activo (config.DEFAULT_INBOUND_CLIENT_ID
+        — ver zero/config.py), así que debe aparecer auto-registrado en
+        crm.json (mismo cwd que STATE_PATH/CRM_PATH relativos del subproceso,
+        ver setUpClass) poco después de que la respuesta ya volvió."""
+        params = {"From": "whatsapp:+56900000123", "To": "whatsapp:+14155238886",
+                  "Body": "hola, prueba background", "MessageSid": "SM-bg-test"}
+        sig = self._sign(self._webhook_url(), params)
+        status, _, headers = self._post(params, signature=sig)
+        self.assertEqual(status, 200)
+        self.assertEqual(headers.get("X-Zero-Received"), "1")
+
+        crm_path = os.path.join(self._tmpdir, "crm.json")
+        deadline = time.time() + 5
+        found = False
+        while time.time() < deadline:
+            if os.path.exists(crm_path) and "56900000123" in Path(crm_path).read_text("utf-8"):
+                found = True
+                break
+            time.sleep(0.2)
+        self.assertTrue(found, "el mensaje se recibió pero el registro en background nunca se completó")
 
 
 if __name__ == "__main__":
