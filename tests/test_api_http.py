@@ -34,6 +34,7 @@ import time
 import unittest
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 
 try:
@@ -874,6 +875,79 @@ class ProgrammedFunctionsHttpTest(unittest.TestCase):
             self._send("/api/functions", {"name": "   ", "code": "",
                                           "lookup_scope": {"client_id": "acme"}}, token=admin)
         self.assertEqual(ctx.exception.code, 400)
+
+    def test_create_with_schedule_sets_next_run(self):
+        admin = self._jwt(role="admin")
+        _, body = self._send("/api/functions", {
+            "name": "Nudge diario", "code": "result = len(ctx['leads'])",
+            "lookup_scope": {"client_id": "acme"},
+            "schedule": {"interval_minutes": 5},
+        }, token=admin)
+        fn = body["function"]
+        self.assertEqual(fn["schedule"], {"interval_minutes": 5})
+        self.assertIsNotNone(fn["next_run"])
+        next_run = datetime.fromisoformat(fn["next_run"])
+        self.assertGreater(next_run, datetime.now(timezone.utc))
+
+    def test_create_without_schedule_has_no_next_run(self):
+        """Comportamiento de siempre, sin cambios — una función sin `schedule`
+        nunca se auto-dispara (queda 100% manual, igual que antes de este
+        prompt)."""
+        admin = self._jwt(role="admin")
+        _, body = self._send("/api/functions", {
+            "name": "Solo manual", "code": "result = 1",
+            "lookup_scope": {"client_id": "acme"},
+        }, token=admin)
+        fn = body["function"]
+        self.assertIsNone(fn["schedule"])
+        self.assertIsNone(fn["next_run"])
+
+    def test_invalid_schedule_interval_is_400(self):
+        admin = self._jwt(role="admin")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._send("/api/functions", {
+                "name": "Intervalo inválido", "code": "result = 1",
+                "lookup_scope": {"client_id": "acme"},
+                "schedule": {"interval_minutes": 0},
+            }, token=admin)
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_manual_run_pushes_next_run_forward_when_scheduled(self):
+        """Correr "/run" a mano una función CON schedule igual empuja su
+        next_run hacia adelante — así una prueba manual justo antes de que
+        tocara el tick automático no dispara dos veces seguidas."""
+        admin = self._jwt(role="admin")
+        _, body = self._send("/api/functions", {
+            "name": "Con horario", "code": "result = 1",
+            "lookup_scope": {"client_id": "acme"},
+            "schedule": {"interval_minutes": 5},
+        }, token=admin)
+        fid = body["function"]["id"]
+        before = datetime.fromisoformat(body["function"]["next_run"])
+
+        status, run_body = self._send(f"/api/functions/{fid}/run", {}, token=admin)
+        self.assertEqual(status, 200)
+        after = datetime.fromisoformat(run_body["function"]["next_run"])
+        self.assertGreaterEqual(after, before)   # se recalculó desde ahora, no quedó atrás
+
+    def test_registered_client_without_leads_appears_in_clients_and_accounts(self):
+        """Antes: /api/clients y /api/accounts solo miraban el CRM — un cliente
+        recién registrado (plan asignado, cero leads) no aparecía en ningún
+        lado hasta correr un pipeline. Fricción reportada por Diego
+        (2026-07-23) — ahora debe aparecer de inmediato en ambos."""
+        admin = self._jwt(role="admin")
+        client_id = "clientenuevosinleads"
+        status, _ = self._send(f"/api/accounts/{client_id}/plan", {"tier": "GROWTH"}, token=admin)
+        self.assertEqual(status, 200)
+
+        _, clients_body = self._get("/api/clients", token=admin)
+        self.assertIn(client_id, clients_body["clients"])
+
+        _, accounts_body = self._get("/api/accounts", token=admin)
+        ids = [a["client"] for a in accounts_body["accounts"]]
+        self.assertIn(client_id, ids)
+        acc = next(a for a in accounts_body["accounts"] if a["client"] == client_id)
+        self.assertEqual(acc["tier"], "GROWTH")
 
 
 @unittest.skipUnless(_UVICORN_AVAILABLE, "uvicorn no instalado — este test es opcional, no núcleo")

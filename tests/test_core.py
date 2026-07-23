@@ -2798,9 +2798,15 @@ class ProgrammedFunctionsLogicTest(unittest.TestCase):
         from zero.functions import build_ctx
         leads = [{"company": "Acme", "email": "ceo@acme.cl", "stage": "new"}]
         ctx = build_ctx(leads, "acme")
-        self.assertEqual(set(ctx), {"leads", "client_id"})
+        self.assertEqual(set(ctx), {"leads", "client_id", "event"})
         self.assertEqual(ctx["client_id"], "acme")
         self.assertEqual(ctx["leads"][0]["company"], "Acme")
+        self.assertEqual(ctx["event"], "manual")   # default — igual que "/run" de siempre
+
+    def test_build_ctx_event_reflects_how_it_fired(self):
+        from zero.functions import build_ctx
+        ctx = build_ctx([], "acme", event="schedule.tick")
+        self.assertEqual(ctx["event"], "schedule.tick")
 
     def test_build_ctx_is_safe_for_the_sandbox(self):
         from zero.functions import build_ctx
@@ -2831,6 +2837,164 @@ class ProgrammedFunctionsLogicTest(unittest.TestCase):
         from zero.functions import summarize_run
         out = summarize_run({"result": "x" * 1000, "stdout": "", "error": None})
         self.assertEqual(len(out["result_summary"]), 500)
+
+
+class FunctionsSchedulingTest(unittest.TestCase):
+    """Disparo automático por intervalo (2026-07-23) — lógica pura de
+    zero/functions.py, sin hilos ni sleeps reales: se le inyecta `now`/un
+    `from_time` en vez de esperar tiempo de verdad."""
+
+    def test_compute_next_run_adds_minutes_from_given_time(self):
+        from zero.functions import compute_next_run
+        base = datetime(2026, 7, 23, 10, 0, tzinfo=timezone.utc)
+        nr = compute_next_run(5, from_time=base)
+        self.assertEqual(nr, "2026-07-23T10:05:00+00:00")
+
+    def test_compute_next_run_defaults_to_now(self):
+        from zero.functions import compute_next_run
+        before = datetime.now(timezone.utc)
+        nr = datetime.fromisoformat(compute_next_run(10))
+        after = datetime.now(timezone.utc)
+        self.assertTrue(before + timedelta(minutes=10) <= nr <= after + timedelta(minutes=10))
+
+    def test_is_due_false_when_disabled(self):
+        from zero.functions import is_due
+        fn = {"enabled": False, "schedule": {"interval_minutes": 5},
+              "next_run": "2020-01-01T00:00:00+00:00"}   # bien vencido
+        self.assertFalse(is_due(fn))
+
+    def test_is_due_false_when_no_schedule(self):
+        from zero.functions import is_due
+        fn = {"enabled": True, "schedule": None, "next_run": None}
+        self.assertFalse(is_due(fn))
+        fn2 = {"enabled": True, "next_run": "2020-01-01T00:00:00+00:00"}   # ni siquiera la clave
+        self.assertFalse(is_due(fn2))
+
+    def test_is_due_false_when_schedule_present_but_no_next_run(self):
+        from zero.functions import is_due
+        fn = {"enabled": True, "schedule": {"interval_minutes": 5}, "next_run": None}
+        self.assertFalse(is_due(fn))
+
+    def test_is_due_false_when_next_run_in_the_future(self):
+        from zero.functions import is_due
+        future = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        fn = {"enabled": True, "schedule": {"interval_minutes": 5}, "next_run": future}
+        self.assertFalse(is_due(fn))
+
+    def test_is_due_true_when_next_run_already_passed(self):
+        from zero.functions import is_due
+        past = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+        fn = {"enabled": True, "schedule": {"interval_minutes": 5}, "next_run": past}
+        self.assertTrue(is_due(fn))
+
+    def test_is_due_false_and_never_raises_on_malformed_next_run(self):
+        """Fail-safe: un next_run corrupto se trata como 'no vencido', nunca
+        tumba al caller (el scheduler no debe caerse por un dato sucio)."""
+        from zero.functions import is_due
+        fn = {"enabled": True, "schedule": {"interval_minutes": 5}, "next_run": "no-es-una-fecha"}
+        self.assertFalse(is_due(fn))
+
+    def test_is_due_respects_injected_now(self):
+        from zero.functions import is_due
+        fn = {"enabled": True, "schedule": {"interval_minutes": 5},
+              "next_run": "2026-07-23T10:00:00+00:00"}
+        before = datetime(2026, 7, 23, 9, 59, tzinfo=timezone.utc)
+        after = datetime(2026, 7, 23, 10, 0, 1, tzinfo=timezone.utc)
+        self.assertFalse(is_due(fn, now=before))
+        self.assertTrue(is_due(fn, now=after))
+
+    def test_due_functions_filters_correctly(self):
+        from zero.functions import due_functions
+        now = datetime(2026, 7, 23, 12, 0, tzinfo=timezone.utc)
+        past = "2026-07-23T11:00:00+00:00"
+        future = "2026-07-23T13:00:00+00:00"
+        fns = [
+            {"id": "a", "enabled": True, "schedule": {"interval_minutes": 5}, "next_run": past},
+            {"id": "b", "enabled": True, "schedule": {"interval_minutes": 5}, "next_run": future},
+            {"id": "c", "enabled": False, "schedule": {"interval_minutes": 5}, "next_run": past},
+            {"id": "d", "enabled": True, "schedule": None, "next_run": None},
+        ]
+        self.assertEqual([fn["id"] for fn in due_functions(fns, now=now)], ["a"])
+
+    def test_run_guard_prevents_double_start_until_finished(self):
+        from zero.functions import RunGuard
+        g = RunGuard()
+        self.assertTrue(g.try_start("fn1"))
+        self.assertFalse(g.try_start("fn1"))          # ya corriendo — no arranca de nuevo
+        self.assertTrue(g.is_running("fn1"))
+        g.finish("fn1")
+        self.assertFalse(g.is_running("fn1"))
+        self.assertTrue(g.try_start("fn1"))            # libre otra vez, puede volver a arrancar
+
+    def test_run_guard_tracks_ids_independently(self):
+        from zero.functions import RunGuard
+        g = RunGuard()
+        self.assertTrue(g.try_start("a"))
+        self.assertTrue(g.try_start("b"))               # otra función, no choca con "a"
+        g.finish("a")
+        self.assertTrue(g.is_running("b"))
+        self.assertFalse(g.is_running("a"))
+
+    def test_execute_raises_missing_scope_without_client_id(self):
+        from zero.functions import MissingScopeError, execute
+        fn = {"id": "x", "code": "result = 1", "lookup_scope": {}}
+        with self.assertRaises(MissingScopeError):
+            execute(fn, crm=None)
+
+    def test_execute_recalculates_next_run_for_scheduled_function(self):
+        """Tanto una corrida manual como una automática empujan next_run hacia
+        adelante desde AHORA — así una prueba manual justo antes del tick
+        automático no dispara dos veces seguidas."""
+        from unittest import mock
+        from zero.functions import execute
+
+        class FakeCRM:
+            def list(self, client_id, stage=None):
+                return []
+
+        fn = {
+            "id": "nudge", "code": "result = 1",
+            "lookup_scope": {"client_id": "acme"},
+            "schedule": {"interval_minutes": 15},
+            "next_run": "2020-01-01T00:00:00+00:00",   # viejo, a propósito
+        }
+        fake_out = {"result": 1, "stdout": "", "error": None}
+        with mock.patch("zero.sandbox.run_sandboxed", return_value=fake_out) as m:
+            updated, out = execute(fn, FakeCRM(), event="schedule.tick")
+        m.assert_called_once()
+        self.assertEqual(out, fake_out)
+        self.assertTrue(updated["last_run"]["ok"])
+        new_next_run = datetime.fromisoformat(updated["next_run"])
+        self.assertGreater(new_next_run, datetime.now(timezone.utc))   # ya no está vencido
+
+    def test_execute_leaves_next_run_none_without_schedule(self):
+        from unittest import mock
+        from zero.functions import execute
+
+        class FakeCRM:
+            def list(self, client_id, stage=None):
+                return []
+
+        fn = {"id": "x", "code": "result = 1", "lookup_scope": {"client_id": "acme"},
+              "schedule": None, "next_run": None}
+        with mock.patch("zero.sandbox.run_sandboxed", return_value={"result": 1, "stdout": "", "error": None}):
+            updated, _out = execute(fn, FakeCRM())
+        self.assertIsNone(updated.get("next_run"))
+
+    def test_execute_passes_the_right_event_into_ctx(self):
+        from unittest import mock
+        from zero.functions import execute
+
+        class FakeCRM:
+            def list(self, client_id, stage=None):
+                return []
+
+        fn = {"id": "x", "code": "result = ctx['event']", "lookup_scope": {"client_id": "acme"}}
+        with mock.patch("zero.sandbox.run_sandboxed",
+                        return_value={"result": None, "stdout": "", "error": None}) as m:
+            execute(fn, FakeCRM(), event="schedule.tick")
+        called_ctx = m.call_args[0][1]
+        self.assertEqual(called_ctx["event"], "schedule.tick")
 
 
 class VendorCredentialsTest(unittest.TestCase):

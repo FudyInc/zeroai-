@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import urllib.parse
 from datetime import datetime, timezone
 from typing import Optional
@@ -359,9 +360,22 @@ def health():
     return {"ok": True, "service": "zero", "version": "0.1.0"}
 
 
+def _all_client_ids() -> list:
+    """Todos los client_id conocidos: los que ya tienen algún lead en el CRM,
+    MÁS los registrados (register_client — plan asignado) aunque todavía no
+    tengan ninguno. Antes solo se miraba el CRM: un cliente recién dado de
+    alta (con plan pero cero leads, ej. justo después de "Nuevo cliente" en
+    el dashboard) no aparecía en ningún lado hasta correr un pipeline —
+    fricción real reportada por Diego (2026-07-23). Único punto que arma esta
+    unión; /api/clients y /api/accounts (vía _accounts_and_mrr) la comparten
+    para no listar distinto en cada lado."""
+    memory = make_memory(STATE_PATH)
+    return sorted(set(_crm().client_ids()) | set(memory.clients.keys()))
+
+
 @app.get("/api/clients")
 def clients():
-    return {"clients": _crm().client_ids()}
+    return {"clients": _all_client_ids()}
 
 
 _PLANS = {k: {"segment": v["segment"], "price_clp": v.get("price_clp"),
@@ -378,12 +392,15 @@ def public_plans():
 
 
 def _accounts_and_mrr():
-    """Cuentas activas del CRM con su plan + MRR (suma de precios de lista).
-    Único cálculo de "cuánto entra" del sistema — /api/accounts y /api/finance
-    lo comparten para que nunca cuenten distinto."""
+    """Cuentas (CRM + registradas sin leads todavía, ver _all_client_ids) con
+    su plan + MRR (suma de precios de lista). Único cálculo de "cuánto entra"
+    del sistema — /api/accounts y /api/finance lo comparten para que nunca
+    cuenten distinto. Un cliente recién registrado ya cuenta para el MRR
+    aunque no tenga leads aún — la suscripción empieza al asignar el plan,
+    no al primer lead."""
     memory = make_memory(STATE_PATH)
     out, mrr = [], 0
-    for c in _crm().client_ids():
+    for c in _all_client_ids():
         tier = memory.clients.get(c, {}).get("tier") or "GROWTH"
         price = TIERS.get(tier, {}).get("price_clp")
         if price:
@@ -1179,8 +1196,10 @@ def forecast(client: str):
 # zero/sandbox.py, fase 1 — ya revisada, no se toca acá) -----------------------
 # Admin-only a propósito: sin entrada en _ROLE_ALLOWED, fail-closed igual que
 # el resto (ver auth_guard). Corre código arbitrario contra datos reales de
-# leads — más sensible que Finanzas o Configuración. El disparo automático por
-# horario es una decisión aparte, todavía no existe: /run ejecuta "ahora".
+# leads — más sensible que Finanzas o Configuración. Disparo por EVENTOS del
+# CRM (ej. "cuando un lead cambia de etapa") queda deliberadamente fuera —
+# decisión aparte, todavía no existe; el disparo automático por INTERVALO sí
+# (ver `schedule` en FunctionBody y el scheduler en segundo plano más abajo).
 
 _FUNCTION_RUN_TIMEOUT = 12   # segundos — coherente con el timeout por defecto (10s) de sandbox.py
 
@@ -1195,12 +1214,19 @@ class FunctionScope(BaseModel):
     stage: Optional[str] = None
 
 
+class FunctionSchedule(BaseModel):
+    interval_minutes: int
+
+
 class FunctionBody(BaseModel):
     id: Optional[str] = None      # si falta, se deriva del nombre (mismo criterio que vendors)
     name: str
     code: str
     lookup_scope: FunctionScope
     enabled: Optional[bool] = None
+    # None/ausente = solo manual (comportamiento de siempre). Con esto, la
+    # función se auto-dispara sola cada N minutos — ver zero/functions.py.
+    schedule: Optional[FunctionSchedule] = None
 
 
 @app.get("/api/functions")
@@ -1214,11 +1240,25 @@ def upsert_function(body: FunctionBody, request: Request):
     """Crear o editar una función programada. `code` se guarda tal cual lo
     escribió quien la creó — no se valida ni se parsea acá, eso es trabajo
     exclusivo de run_sandboxed (Docker) al momento de correrla."""
+    from zero.functions import compute_next_run
+
     memory = make_memory(STATE_PATH)
     fid = "".join(ch for ch in (body.id or body.name).strip().lower() if ch.isalnum())
     if not fid:
         raise HTTPException(status_code=400, detail="la función necesita un nombre")
     existing = memory.get_function(fid) or {}
+
+    schedule = None
+    next_run = None
+    if body.schedule is not None:
+        if body.schedule.interval_minutes <= 0:
+            raise HTTPException(status_code=400, detail="interval_minutes debe ser > 0")
+        schedule = {"interval_minutes": body.schedule.interval_minutes}
+        # Recalculado desde AHORA en cada guardado (crear o editar) — cambiar
+        # el intervalo de una función no debe heredar el next_run del
+        # intervalo viejo.
+        next_run = compute_next_run(schedule["interval_minutes"])
+
     now = datetime.now(timezone.utc).isoformat()
     fn = {
         "id": fid,
@@ -1226,6 +1266,8 @@ def upsert_function(body: FunctionBody, request: Request):
         "code": body.code,
         "lookup_scope": {"client_id": body.lookup_scope.client_id, "stage": body.lookup_scope.stage},
         "enabled": body.enabled if body.enabled is not None else existing.get("enabled", True),
+        "schedule": schedule,
+        "next_run": next_run,
         "created_by": existing.get("created_by") or _current_identity_label(request),
         "created_at": existing.get("created_at") or now,
         "updated_at": now,
@@ -1247,10 +1289,11 @@ def delete_function(function_id: str):
 
 @app.post("/api/functions/{function_id}/run")
 def run_function(function_id: str):
-    """Ejecuta la función AHORA: arma el ctx curado desde su lookup_scope
-    (leads reales del cliente, opcionalmente filtrados por etapa — ver
-    _lead_view), la corre aislada en Docker (zero/sandbox.py::run_sandboxed) y
-    deja el resultado guardado en last_run además de devolverlo."""
+    """Ejecuta la función AHORA, a pedido (evento "manual") — mismo camino de
+    ejecución real que usa el scheduler automático (zero/functions.py::
+    execute), nunca una segunda implementación."""
+    from zero.functions import MissingScopeError, execute
+
     memory = make_memory(STATE_PATH)
     fn = memory.get_function(function_id)
     if fn is None:
@@ -1258,26 +1301,93 @@ def run_function(function_id: str):
     if not fn.get("enabled", True):
         raise HTTPException(status_code=409, detail="esa función está deshabilitada")
 
-    from zero.functions import build_ctx, summarize_run
-    from zero.sandbox import run_sandboxed
-
-    scope = fn.get("lookup_scope") or {}
-    client_id = scope.get("client_id")
-    if not client_id:
-        raise HTTPException(status_code=400, detail="la función no tiene lookup_scope.client_id")
-
     crm = make_crm(CRM_PATH)
-    ctx = build_ctx(crm.list(client_id, scope.get("stage")), client_id)
-
     try:
-        out = run_sandboxed(fn["code"], ctx, timeout=_FUNCTION_RUN_TIMEOUT)
+        updated, out = execute(fn, crm, event="manual", timeout=_FUNCTION_RUN_TIMEOUT)
+    except MissingScopeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except ValueError as e:   # ctx no pasó _assert_ctx_is_safe — no debería pasar nunca
         raise HTTPException(status_code=500, detail=f"ctx inválido para el sandbox: {e}")
 
-    fn["last_run"] = summarize_run(out)
-    memory.upsert_function(fn)
+    memory.upsert_function(updated)
     memory.save()
-    return {"function": fn, "run": out}
+    return {"function": updated, "run": out}
+
+
+# --- scheduler en segundo plano: dispara funciones con `schedule` vencido ----
+# Un hilo único (threading, stdlib — sin dependencias nuevas) que arranca con
+# la app y cada FUNCTIONS_SCHEDULER_INTERVAL_SECONDS revisa qué funciones
+# tienen next_run vencido y las corre solas, sin que nadie apriete "/run".
+# Cada función due se corre en su propio hilo corto (para que una lenta no
+# bloquee a las demás); la lógica de "¿ya está corriendo?" vive en
+# zero.functions.RunGuard (pura, testeable sin hilos) — acá solo se sincroniza
+# su acceso con un lock, porque quien la llama sí corre en varios hilos.
+from zero.functions import RunGuard
+
+_scheduler_stop = threading.Event()
+_scheduler_thread: Optional[threading.Thread] = None
+_running_lock = threading.Lock()
+_run_guard = RunGuard()
+
+
+def _run_due_function(fn: dict) -> None:
+    """Corre UNA función disparada por el scheduler y persiste el resultado.
+    Nunca lanza — un fallo (Docker no disponible, código roto, lo que sea)
+    queda registrado en last_run, igual que degradaría un /run manual; el
+    hilo del scheduler no debe caerse nunca por esto."""
+    fid = fn["id"]
+    try:
+        crm = make_crm(CRM_PATH)
+        from zero.functions import execute
+        updated, _out = execute(fn, crm, event="schedule.tick", timeout=_FUNCTION_RUN_TIMEOUT)
+    except Exception as e:   # noqa: BLE001 — degradar, nunca tumbar el scheduler
+        updated = dict(fn)
+        updated["last_run"] = {
+            "at": datetime.now(timezone.utc).isoformat(),
+            "ok": False, "result_summary": str(e)[:500], "error": str(e)[:500],
+        }
+    finally:
+        with _running_lock:
+            _run_guard.finish(fid)
+    memory = make_memory(STATE_PATH)
+    memory.upsert_function(updated)
+    memory.save()
+
+
+def _scheduler_tick() -> None:
+    """Un tick: revisa todas las funciones y dispara las que están vencidas.
+    Pública (sin `_`) en el sentido de ser llamable directo desde tests —
+    así se prueba la lógica de un tick sin esperar el intervalo real."""
+    from zero.functions import due_functions
+    memory = make_memory(STATE_PATH)
+    for fn in due_functions(memory.list_functions()):
+        fid = fn["id"]
+        with _running_lock:
+            if not _run_guard.try_start(fid):
+                continue   # ya está corriendo — se salta este tick, no se encola
+        threading.Thread(target=_run_due_function, args=(fn,), daemon=True).start()
+
+
+def _scheduler_loop() -> None:
+    interval = float(os.environ.get("FUNCTIONS_SCHEDULER_INTERVAL_SECONDS", "30"))
+    while not _scheduler_stop.wait(interval):
+        try:
+            _scheduler_tick()
+        except Exception:   # noqa: BLE001 — un tick roto no debe matar el hilo
+            pass
+
+
+@app.on_event("startup")
+def _start_functions_scheduler():
+    global _scheduler_thread
+    _scheduler_stop.clear()
+    _scheduler_thread = threading.Thread(target=_scheduler_loop, daemon=True)
+    _scheduler_thread.start()
+
+
+@app.on_event("shutdown")
+def _stop_functions_scheduler():
+    _scheduler_stop.set()
 
 
 # --- config (secrets stored in .env, set once from the dashboard) -------------
