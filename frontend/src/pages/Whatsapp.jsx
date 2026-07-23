@@ -405,7 +405,7 @@ function StatusCard({ cfg, provider, webhookUrl }) {
             : 'Webhook (configúralo en Meta for Developers → WhatsApp → Configuración)'}
         </div>
         <div className="flex items-center gap-2">
-          <code className="flex-1 text-xs bg-white border border-zinc-200 rounded-lg px-2 py-1.5 break-all">{webhookUrl}</code>
+          <code className="flex-1 text-xs bg-white dark:bg-[#1D2016] border border-zinc-200 rounded-lg px-2 py-1.5 break-all">{webhookUrl}</code>
           <Button variant="soft" onClick={copy} className="shrink-0">
             {copied ? <Check size={14} /> : <Copy size={14} />} {copied ? 'Copiado' : 'Copiar'}
           </Button>

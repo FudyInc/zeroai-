@@ -9,7 +9,7 @@ export default function QuoteCard({ quote }) {
   if (!quote?.lines?.length) return null
   const ivaPct = Math.round((quote.iva_rate ?? 0.19) * 100)
   return (
-    <div className="inline-block text-left rounded-2xl border border-gold/40 bg-white px-4 py-3 min-w-[250px] max-w-full shadow-sm">
+    <div className="inline-block text-left rounded-2xl border border-gold/40 bg-white dark:bg-[#1D2016] px-4 py-3 min-w-[250px] max-w-full shadow-sm">
       <div className="flex items-center gap-1.5 text-[11px] font-semibold text-gold-deep uppercase tracking-wide">
         <Calculator size={12} /> Presupuesto
       </div>

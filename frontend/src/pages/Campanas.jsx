@@ -178,12 +178,14 @@ export default function Campanas() {
                       <stop offset="100%" stopColor="#C9A45C" stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#71717a' }} axisLine={false} tickLine={false} />
+                  <CartesianGrid vertical={false} stroke="var(--color-zinc-100)" />
+                  <XAxis dataKey="name" tick={{ fontSize: 12, fill: 'var(--color-zinc-500)' }} axisLine={false} tickLine={false} />
                   <YAxis hide />
-                  <Tooltip cursor={{ stroke: '#C9A45C', strokeWidth: 1 }} contentStyle={{ borderRadius: 12, border: '1px solid #e4e4e7', fontSize: 13 }}
+                  <Tooltip cursor={{ stroke: '#C9A45C', strokeWidth: 1 }}
+                    contentStyle={{ borderRadius: 12, border: '1px solid var(--color-zinc-200)', fontSize: 13, background: 'var(--color-zinc-50)' }}
+                    labelStyle={{ color: 'var(--color-zinc-700)' }}
                     formatter={(v) => [clp(v), 'Gasto (estimado)']} />
-                  <Area type="monotone" dataKey="spent" stroke="#8A6B2D" strokeWidth={2} strokeDasharray="4 4" fill="url(#spentFill)" />
+                  <Area type="monotone" dataKey="spent" stroke="var(--color-gold-deep)" strokeWidth={2} strokeDasharray="4 4" fill="url(#spentFill)" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -195,10 +197,12 @@ export default function Campanas() {
             <div className="h-44">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={byObjective(campaigns)} layout="vertical" margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-                  <CartesianGrid horizontal={false} stroke="#f1f5f9" />
-                  <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12, fill: '#71717a' }} axisLine={false} tickLine={false} />
-                  <YAxis type="category" dataKey="name" tick={{ fontSize: 12, fill: '#71717a' }} axisLine={false} tickLine={false} width={70} />
-                  <Tooltip cursor={{ fill: '#f4f4f5' }} contentStyle={{ borderRadius: 12, border: '1px solid #e4e4e7', fontSize: 13 }} />
+                  <CartesianGrid horizontal={false} stroke="var(--color-zinc-100)" />
+                  <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12, fill: 'var(--color-zinc-500)' }} axisLine={false} tickLine={false} />
+                  <YAxis type="category" dataKey="name" tick={{ fontSize: 12, fill: 'var(--color-zinc-500)' }} axisLine={false} tickLine={false} width={70} />
+                  <Tooltip cursor={{ fill: 'var(--color-zinc-100)' }}
+                    contentStyle={{ borderRadius: 12, border: '1px solid var(--color-zinc-200)', fontSize: 13, background: 'var(--color-zinc-50)' }}
+                    labelStyle={{ color: 'var(--color-zinc-700)' }} />
                   <Bar dataKey="value" radius={[0, 8, 8, 0]} maxBarSize={28} fill="#2C3529" animationDuration={700} />
                 </BarChart>
               </ResponsiveContainer>
@@ -244,11 +248,14 @@ export default function Campanas() {
   )
 }
 
+// bg fijo (ej. #ecfdf5) se sacó del map: era un fondo opaco que en oscuro
+// quedaba como una pastilla clara pegada de más — Badge ya resuelve
+// color+alpha (y su versión oscura) solo, con el mismo `c`.
 const ACTIONS = {
-  scale: { l: 'Escalar', c: '#16a34a', bg: '#ecfdf5' },
-  reallocate: { l: 'Realojar', c: '#d97706', bg: '#fff7ed' },
-  pause: { l: 'Pausar', c: '#e11d48', bg: '#fef2f2' },
-  keep: { l: 'Mantener', c: '#64748b', bg: '#f4f4f5' },
+  scale: { l: 'Escalar', c: '#16a34a' },
+  reallocate: { l: 'Realojar', c: '#d97706' },
+  pause: { l: 'Pausar', c: '#e11d48' },
+  keep: { l: 'Mantener', c: '#64748b' },
 }
 
 // El plan de gestión que propone Claude: recomienda acciones, no gasta.
@@ -264,8 +271,8 @@ function OptimizePanel({ opt }) {
         {opt.recommendations.map((r, i) => {
           const a = ACTIONS[r.action] || ACTIONS.keep
           return (
-            <div key={i} className="flex items-start gap-3 bg-white rounded-xl border border-zinc-200 p-3">
-              <span className="text-xs font-bold px-2 py-1 rounded-full shrink-0" style={{ color: a.c, background: a.bg }}>{a.l}</span>
+            <div key={i} className="flex items-start gap-3 bg-white dark:bg-[#1D2016] rounded-xl border border-zinc-200 p-3">
+              <Badge color={a.c} className="shrink-0">{a.l}</Badge>
               <div>
                 <div className="text-sm font-medium">{r.name}</div>
                 <div className="text-xs text-zinc-500">{r.reason}</div>
