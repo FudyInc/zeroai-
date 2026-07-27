@@ -17,6 +17,8 @@
 //   - Funciones (2026-07-22): SOLO admin — corre código Python arbitrario
 //     (sandboxed en Docker) contra leads reales de un cliente. Mismo
 //     fail-closed que el resto de las páginas admin-only.
+//   - Preferencias (2026-07-23): TODOS los roles — es personal (tema, por
+//     ahora), 100% cliente/localStorage, nada sensible ni de la agencia.
 export const PAGE_ROLES = {
   '/': ['cro', 'cto', 'cco'],
   '/leads': ['cto'],
@@ -33,6 +35,7 @@ export const PAGE_ROLES = {
   '/config': [],
   '/equipo': [],
   '/funciones': [],
+  '/preferencias': ['cro', 'cto', 'cco'],
 }
 
 // `authEnabled=false` (sin cuentas dadas de alta, mock/dev) → sin restricción,

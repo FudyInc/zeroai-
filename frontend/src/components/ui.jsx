@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '../lib/util'
+import { useIsDark } from '../lib/theme'
 
 /* Superficie base. Estilo editorial premium dentro de la marca: hairline cálido,
    sombra casi plana (la profundidad viene del borde + contraste, no de
@@ -8,8 +9,8 @@ export function Card({ className, interactive, ...p }) {
   return (
     <div
       className={cn(
-        'bg-white border border-[#e8e3d9] rounded-2xl shadow-[0_1px_2px_rgba(44,53,41,0.04)]',
-        interactive && 'transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_34px_-18px_rgba(44,53,41,0.20)] hover:border-[#ddd6c6]',
+        'bg-white dark:bg-[#1D2016] border border-[#e8e3d9] dark:border-[#2A2E22] rounded-2xl shadow-[0_1px_2px_rgba(44,53,41,0.04)]',
+        interactive && 'transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_34px_-18px_rgba(44,53,41,0.20)] hover:border-[#ddd6c6] dark:hover:border-[#3a4030]',
         className,
       )}
       {...p}
@@ -37,10 +38,15 @@ export function Button({ className, variant = 'primary', ...p }) {
   )
 }
 
+/* El color viene por prop (hex arbitrario, ej. por etapa) — no es un token
+   Tailwind, así que no hereda .dark solo. El fondo es ese color a ~10% alpha
+   ('1a'); sobre fondo oscuro casi no se nota, así que en dark subimos a
+   ~20% ('33') para que la píldora siga leyéndose como píldora. */
 export function Badge({ color = '#71717a', children, className }) {
+  const dark = useIsDark()
   return (
     <span className={cn('px-2 py-0.5 rounded-full text-xs font-semibold', className)}
-      style={{ background: color + '1a', color }}>
+      style={{ background: color + (dark ? '33' : '1a'), color }}>
       {children}
     </span>
   )
@@ -83,7 +89,7 @@ export function Select({ className, ...p }) {
   return (
     <select
       className={cn(
-        'border border-zinc-200 rounded-xl px-3 py-2 text-sm bg-white outline-none transition',
+        'border border-zinc-200 rounded-xl px-3 py-2 text-sm bg-white dark:bg-[#1D2016] outline-none transition',
         'focus:ring-4 focus:ring-champagne/40 focus:border-gold/60',
         className,
       )}

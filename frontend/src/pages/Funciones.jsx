@@ -188,7 +188,7 @@ export default function Funciones() {
 
       {form && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setForm(null)}>
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white dark:bg-[#1D2016] rounded-2xl max-w-lg w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="text-lg font-bold">{form.id ? 'Editar función' : 'Nueva función'}</div>
 
             <div className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 flex items-start gap-2">

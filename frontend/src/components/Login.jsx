@@ -45,7 +45,7 @@ export default function Login({ onSuccess }) {
   }
 
   return (
-    <div className="min-h-screen grid place-items-center bg-[radial-gradient(120%_120%_at_100%_0%,#f2f1ec_0%,#f4f4f4_45%,#f6f5f2_100%)] p-4">
+    <div className="min-h-screen grid place-items-center bg-[radial-gradient(120%_120%_at_100%_0%,#f2f1ec_0%,#f4f4f4_45%,#f6f5f2_100%)] dark:bg-[radial-gradient(120%_120%_at_100%_0%,#1a1d13_0%,#16180f_45%,#141610_100%)] p-4">
       <Card className="p-8 w-full max-w-sm">
         <div className="flex items-center gap-3 mb-1">
           <Mark />
@@ -56,7 +56,7 @@ export default function Login({ onSuccess }) {
         <div className="text-sm text-zinc-500 mb-5">Ingresa con tu cuenta de Google, o con usuario y contraseña.</div>
 
         <button type="button" onClick={submitGoogle} disabled={busyGoogle}
-          className="w-full inline-flex items-center justify-center gap-2.5 rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 shadow-sm transition-all hover:bg-zinc-50 active:scale-[.98] disabled:opacity-50 disabled:pointer-events-none">
+          className="w-full inline-flex items-center justify-center gap-2.5 rounded-xl border border-zinc-200 bg-white dark:bg-[#232427] px-4 py-2.5 text-sm font-medium text-zinc-700 shadow-sm transition-all hover:bg-zinc-50 active:scale-[.98] disabled:opacity-50 disabled:pointer-events-none">
           <GoogleMark /> {busyGoogle ? 'Redirigiendo…' : 'Continuar con Google'}
         </button>
 

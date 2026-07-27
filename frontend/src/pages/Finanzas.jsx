@@ -59,12 +59,12 @@ export default function Finanzas() {
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="inline-flex items-center gap-1 bg-zinc-100 rounded-full p-1">
-          <button onClick={() => shiftMonth(-1)} className="p-1.5 rounded-full hover:bg-white transition-colors" aria-label="Mes anterior">
+          <button onClick={() => shiftMonth(-1)} className="p-1.5 rounded-full hover:bg-white dark:hover:bg-zinc-200 transition-colors" aria-label="Mes anterior">
             <ChevronLeft size={15} />
           </button>
           <span className="text-sm font-semibold capitalize px-2 min-w-[92px] text-center tabular-nums">{monthLabel(data.month)}</span>
           <button onClick={() => shiftMonth(1)} disabled={atCurrentMonth}
-            className="p-1.5 rounded-full hover:bg-white transition-colors disabled:opacity-30 disabled:hover:bg-transparent" aria-label="Mes siguiente">
+            className="p-1.5 rounded-full hover:bg-white dark:hover:bg-zinc-200 transition-colors disabled:opacity-30 disabled:hover:bg-transparent" aria-label="Mes siguiente">
             <ChevronRight size={15} />
           </button>
         </div>
@@ -111,12 +111,14 @@ export default function Finanzas() {
                     <stop offset="100%" stopColor="#C9A45C" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#71717a' }} axisLine={false} tickLine={false} />
+                <CartesianGrid vertical={false} stroke="var(--color-zinc-100)" />
+                <XAxis dataKey="name" tick={{ fontSize: 12, fill: 'var(--color-zinc-500)' }} axisLine={false} tickLine={false} />
                 <YAxis hide />
-                <Tooltip cursor={{ stroke: '#C9A45C', strokeWidth: 1 }} contentStyle={{ borderRadius: 12, border: '1px solid #e4e4e7', fontSize: 13 }}
+                <Tooltip cursor={{ stroke: '#C9A45C', strokeWidth: 1 }}
+                  contentStyle={{ borderRadius: 12, border: '1px solid var(--color-zinc-200)', fontSize: 13, background: 'var(--color-zinc-50)' }}
+                  labelStyle={{ color: 'var(--color-zinc-700)' }}
                   formatter={(v) => [clp(v), 'Margen']} />
-                <Area type="monotone" dataKey="margin" stroke="#8A6B2D" strokeWidth={2} fill="url(#marginFill)" />
+                <Area type="monotone" dataKey="margin" stroke="var(--color-gold-deep)" strokeWidth={2} fill="url(#marginFill)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>

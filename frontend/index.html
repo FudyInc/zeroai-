@@ -12,6 +12,18 @@
     <meta property="og:image" content="/logo.png" />
     <meta property="og:type" content="website" />
     <title>ZeroAI · Dashboard</title>
+    <script>
+      // Aplica .dark ANTES del primer paint (evita el flash claro→oscuro).
+      // Sincrónico y sin dependencias: localStorage gana, si no hay
+      // preferencia guardada se respeta prefers-color-scheme del sistema.
+      (function () {
+        try {
+          var saved = localStorage.getItem('zero-theme');
+          var dark = saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+          if (dark) document.documentElement.classList.add('dark');
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

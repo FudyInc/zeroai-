@@ -1,6 +1,11 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Montserrat:wght@600;700;800&display=swap');
 @import "tailwindcss";
 
+/* Modo oscuro por CLASE (no por prefers-color-scheme): togglear .dark en
+   <html> — ver ThemeToggle.jsx + el script inline de index.html. Convención
+   Tailwind v4 para dark mode manual. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* ─── ZEROAI design tokens ───────────────────────────────────────────────
    Paleta oficial de marca (brand sheet 2026): slate / pewter / champagne
    gold / off-white. Usar SIEMPRE estos tokens (bg-brand, text-gold-deep,
@@ -17,9 +22,34 @@
   --font-display: 'Montserrat', 'Inter', sans-serif;
 }
 
+/* ─── Modo oscuro — paleta propia ZEROAI, no un invert genérico ──────────
+   Redefine los MISMOS custom properties bajo .dark: cualquier utilidad que
+   ya use estos tokens o la escala zinc-* de Tailwind (bg-zinc-50,
+   text-zinc-500, bg-brand, text-gold-deep, …) hereda el cambio sola, sin
+   tocar cada página. --color-gold y --color-champagne no cambian: ya
+   funcionan bien sobre fondo oscuro. Plain CSS custom properties (no
+   @theme anidado) — @theme es un at-rule de nivel superior, no anida
+   dentro de un selector. */
+.dark {
+  --color-offwhite: #16180F;     /* slate-oliva oscuro, mismo ADN que brand */
+  --color-gold-deep: #E0BD7A;    /* el claro (#8A6B2D) es ilegible en oscuro */
+  --color-pewter: #A6ACB4;       /* texto secundario, un poco más claro */
+
+  --color-zinc-50: #1C1D1F;
+  --color-zinc-100: #232427;
+  --color-zinc-200: #2E2F33;
+  --color-zinc-300: #45464B;
+  --color-zinc-400: #6B6C72;
+  --color-zinc-500: #9497A0;
+  --color-zinc-600: #B4B6BE;
+  --color-zinc-700: #D4D5DA;
+  --color-zinc-800: #E8E9ED;
+  --color-zinc-900: #F5F5F7;
+}
+
 :root { --brand: #2C3529; --brand-accent: #C9A45C; }
 
-html { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+html { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background-color: var(--color-offwhite); }
 body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
 
 /* paleta de marca — oscura y sobria (negro → slate), botones/píldoras/scrollbars */
