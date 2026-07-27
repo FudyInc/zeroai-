@@ -1209,6 +1209,16 @@ def _current_identity_label(request: Request) -> str:
     return auth.get("email") or auth.get("username") or "admin"
 
 
+def _zero_for_actions(crm, memory):
+    """El orquestador que ejecuta las acciones de ENVÍO que pide una función
+    (ver zero/function_actions.py). Agentes en mock a propósito: acá no se
+    redacta nada con IA — el texto del mensaje ya viene escrito por la función,
+    solo hace falta el camino de envío de Zero._deliver (credenciales del
+    vendedor, nombre del remitente, registro en el historial). Levantar el
+    motor real sería gasto y latencia para nada."""
+    return Zero(build_agents(mock=True), memory=memory, crm=crm, outbox=make_outbox())
+
+
 class FunctionScope(BaseModel):
     client_id: str
     stage: Optional[str] = None
@@ -1303,7 +1313,8 @@ def run_function(function_id: str):
 
     crm = make_crm(CRM_PATH)
     try:
-        updated, out = execute(fn, crm, event="manual", timeout=_FUNCTION_RUN_TIMEOUT)
+        updated, out = execute(fn, crm, event="manual", timeout=_FUNCTION_RUN_TIMEOUT,
+                              zero=_zero_for_actions(crm, memory))
     except MissingScopeError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except ValueError as e:   # ctx no pasó _assert_ctx_is_safe — no debería pasar nunca
@@ -1336,10 +1347,12 @@ def _run_due_function(fn: dict) -> None:
     queda registrado en last_run, igual que degradaría un /run manual; el
     hilo del scheduler no debe caerse nunca por esto."""
     fid = fn["id"]
+    memory = make_memory(STATE_PATH)
     try:
         crm = make_crm(CRM_PATH)
         from zero.functions import execute
-        updated, _out = execute(fn, crm, event="schedule.tick", timeout=_FUNCTION_RUN_TIMEOUT)
+        updated, _out = execute(fn, crm, event="schedule.tick", timeout=_FUNCTION_RUN_TIMEOUT,
+                               zero=_zero_for_actions(crm, memory))
     except Exception as e:   # noqa: BLE001 — degradar, nunca tumbar el scheduler
         updated = dict(fn)
         updated["last_run"] = {
@@ -1349,7 +1362,6 @@ def _run_due_function(fn: dict) -> None:
     finally:
         with _running_lock:
             _run_guard.finish(fid)
-    memory = make_memory(STATE_PATH)
     memory.upsert_function(updated)
     memory.save()
 

@@ -122,7 +122,7 @@ class MissingScopeError(ValueError):
 
 
 def execute(fn: Dict[str, Any], crm: Any, *, event: str = "manual",
-           timeout: int = 12) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+           timeout: int = 12, zero: Any = None) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Corre `fn` de verdad (manual o disparada por el scheduler) contra su
     lookup_scope real, y devuelve (función_actualizada, resultado_crudo) —
     el llamador (api.py::run_function o el scheduler) decide cómo persistir
@@ -137,9 +137,16 @@ def execute(fn: Dict[str, Any], crm: Any, *, event: str = "manual",
     seguidas por accidente (una prueba manual justo antes de que tocara el
     tick automático).
 
+    Si la función pidió acciones (ver zero/function_actions.py), se validan y
+    ejecutan ACÁ — fuera del sandbox, del lado confiable — y el reporte queda
+    en out["actions"] y resumido en last_run. `zero` (el orquestador,
+    duck-typed) hace falta solo para las acciones de envío; sin él, las de CRM
+    igual corren y las de envío se rechazan con motivo.
+
     Lanza MissingScopeError si falta lookup_scope.client_id, o ValueError si
     el ctx no pasa la validación de seguridad del sandbox (no debería pasar
     nunca) — el llamador decide cómo reportar cada uno."""
+    from .function_actions import apply_actions
     from .sandbox import run_sandboxed
     scope = fn.get("lookup_scope") or {}
     client_id = scope.get("client_id")
@@ -147,6 +154,13 @@ def execute(fn: Dict[str, Any], crm: Any, *, event: str = "manual",
         raise MissingScopeError("la función no tiene lookup_scope.client_id")
     ctx = build_ctx(crm.list(client_id, scope.get("stage")), client_id, event=event)
     out = run_sandboxed(fn["code"], ctx, timeout=timeout)
+    # Solo se procesan acciones de una corrida que terminó bien: si el código
+    # reventó a mitad de camino, su `result` es basura (o de una ejecución
+    # parcial) y no se actúa sobre eso.
+    if out.get("error") is None:
+        out["actions"] = apply_actions(out.get("result"), fn, crm=crm, zero=zero)
+        if out["actions"]["requested"]:
+            crm.save()   # las acciones tocaron el CRM (etapas/notas/historial)
     updated = dict(fn)
     updated["last_run"] = summarize_run(out)
     schedule = updated.get("schedule") or {}
@@ -158,16 +172,34 @@ def execute(fn: Dict[str, Any], crm: Any, *, event: str = "manual",
 def summarize_run(out: Dict[str, Any]) -> Dict[str, Any]:
     """Convierte lo que devolvió run_sandboxed en el registro que se guarda en
     last_run — prioriza mostrar el error si lo hay, si no el resultado, si no
-    lo que se imprimió, si no dice explícitamente que no hubo salida."""
+    lo que se imprimió, si no dice explícitamente que no hubo salida.
+
+    Si la corrida ejecutó acciones, eso encabeza el resumen: "mandó 3 WhatsApp"
+    es lo que un humano necesita ver de un vistazo en el dashboard, mucho más
+    que el valor crudo que devolvió el código. `actions` (cuántas se aplicaron
+    y cuántas se rechazaron) va aparte, para poder mostrarlo distinto."""
     if out.get("error"):
         summary = out["error"]
     elif out.get("result") is not None:
         summary = str(out["result"])
     else:
         summary = out.get("stdout") or "(sin salida)"
+
+    actions = out.get("actions") or {}
+    applied, rejected = actions.get("applied", 0), len(actions.get("rejected") or [])
+    if applied or rejected:
+        parts = []
+        if applied:
+            parts.append(f"{applied} acci{'ón' if applied == 1 else 'ones'} aplicada"
+                        f"{'' if applied == 1 else 's'}")
+        if rejected:
+            parts.append(f"{rejected} rechazada{'' if rejected == 1 else 's'}")
+        summary = f"{', '.join(parts)} · {summary}"
+
     return {
         "at": datetime.now(timezone.utc).isoformat(),
         "ok": out.get("error") is None,
         "result_summary": summary[:500],
         "error": out.get("error"),
+        "actions": {"applied": applied, "rejected": rejected} if (applied or rejected) else None,
     }

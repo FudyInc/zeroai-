@@ -837,10 +837,12 @@ class ProgrammedFunctionsHttpTest(unittest.TestCase):
         status, body = self._send(f"/api/functions/{fid}/run", {}, token=admin)
         self.assertEqual(status, 200)
         self.assertEqual(set(body), {"function", "run"})
-        self.assertEqual(set(body["run"]), {"result", "stdout", "error"})
+        # `actions` (el reporte de acciones pedidas) solo aparece si la corrida
+        # terminó sin error — sin Docker en esta máquina, no está.
+        self.assertLessEqual({"result", "stdout", "error"}, set(body["run"]))
         last_run = body["function"]["last_run"]
         self.assertIsNotNone(last_run)
-        self.assertEqual(set(last_run), {"at", "ok", "result_summary", "error"})
+        self.assertEqual(set(last_run), {"at", "ok", "result_summary", "error", "actions"})
 
         # quedó guardado de verdad — no solo en la respuesta de /run
         status, body = self._get("/api/functions", token=admin)

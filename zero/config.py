@@ -36,6 +36,29 @@ DEFAULT_VENDOR_ID = "fernanda"
 # DEFAULT_VENDOR_ID = fernanda, ver zero/orchestrator.py::handle_inbound).
 DEFAULT_INBOUND_CLIENT_ID = "demo"
 
+# --- Acciones que una función programada puede PEDIR --------------------------
+# Una función sandboxeada nunca actúa por sí misma: corre con --network=none y
+# sin credenciales (zero/sandbox.py), así que lo único que puede hacer es
+# DEVOLVER acciones como datos ({"actions": [...]} en su `result`). El lado
+# confiable —fuera de Docker— las valida contra esta política y recién ahí las
+# ejecuta con el mismo Outbox/CRM de siempre (zero/function_actions.py). Darle
+# red y credenciales al sandbox para que mandara mensajes él mismo sería
+# regalarle a código arbitrario la capacidad de exfiltrar el CRM entero.
+#
+# Tipos permitidos. Sacar uno de acá lo deshabilita para TODAS las funciones,
+# sin tocar lógica — un tipo no listado se rechaza con motivo claro:
+#   whatsapp / email → mandan un mensaje al lead (vía Outbox: sigue siendo mock
+#                      salvo que OUTBOX_LIVE=1, igual que cualquier otro envío)
+#   stage            → mueve el lead de etapa en el CRM
+#   note             → deja una nota en el historial del lead
+FUNCTION_ALLOWED_ACTION_TYPES = ("whatsapp", "email", "stage", "note")
+
+# Tope de acciones por corrida. Una función con un bug (un bucle que agrega una
+# acción por lead sin filtrar) no puede convertirse en un envío masivo
+# accidental a toda la cartera: lo que pase de este número se rechaza y queda
+# reportado, no se ejecuta a medias en silencio.
+FUNCTION_MAX_ACTIONS_PER_RUN = 25
+
 # --- WhatsApp Business — plantilla para contacto en frío ----------------------
 # Meta EXIGE una plantilla pre-aprobada para el primer mensaje a un lead que nunca
 # escribió, o cualquier mensaje fuera de la ventana de 24h desde su último mensaje —

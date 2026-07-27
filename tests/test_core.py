@@ -2839,6 +2839,261 @@ class ProgrammedFunctionsLogicTest(unittest.TestCase):
         self.assertEqual(len(out["result_summary"]), 500)
 
 
+class FunctionActionsTest(unittest.TestCase):
+    """Acciones que una función PIDE y el lado confiable ejecuta
+    (zero/function_actions.py). El sandbox nunca actúa por sí mismo: devuelve
+    acciones como datos y acá se validan contra la política de config.py. Cada
+    riel de seguridad tiene su test — es la superficie más sensible del
+    sistema (código arbitrario pidiendo mandar mensajes reales)."""
+
+    def _crm_with_lead(self, client_id="acme", email="ceo@acme.cl", phone="56911112222"):
+        crm = CRM(None)
+        crm.upsert(client_id, {"company": "Acme", "email": email, "phone": phone,
+                              "channel": "whatsapp", "score": 80})
+        return crm
+
+    class _RecordingZero:
+        """Sustituto del orquestador: registra los envíos sin tocar la red.
+        Mismo contrato que Zero._deliver (lo único que usa apply_actions)."""
+        def __init__(self):
+            self.delivered = []
+
+        def _deliver(self, client_id, lead_key, to, msg, wa_creds=None):
+            self.delivered.append({"client": client_id, "lead": lead_key, "to": to, **msg})
+            return {"channel": msg.get("channel"), "to": to, "status": "sent",
+                   "id": "x", "error": None, "via": "mock"}
+
+    def _fn(self, client_id="acme"):
+        return {"id": "f1", "name": "F", "code": "", "lookup_scope": {"client_id": client_id}}
+
+    # --- extracción -----------------------------------------------------------
+    def test_result_without_actions_is_not_an_error(self):
+        """El `result` normal de una función (un número, un texto, una lista)
+        no pide acciones — no es un error, simplemente no hay nada que hacer."""
+        from zero.function_actions import extract_actions
+        for result in (42, "hola", ["a", "b"], None, {"total": 3}, {"actions": "no-es-lista"}):
+            self.assertEqual(extract_actions(result), [])
+
+    def test_extract_actions_ignores_non_dict_entries(self):
+        from zero.function_actions import extract_actions
+        got = extract_actions({"actions": [{"type": "note"}, "basura", 42]})
+        self.assertEqual(got, [{"type": "note"}])
+
+    # --- riel: tipo permitido -------------------------------------------------
+    def test_unknown_action_type_is_rejected(self):
+        from zero.function_actions import apply_actions
+        crm = self._crm_with_lead()
+        rep = apply_actions({"actions": [{"type": "borrar_todo", "lead": "ceo@acme.cl"}]},
+                            self._fn(), crm=crm)
+        self.assertEqual(rep["applied"], 0)
+        self.assertIn("no permitido", rep["rejected"][0]["reason"])
+
+    # --- riel: aislamiento entre clientes (el más importante) -----------------
+    def test_function_cannot_touch_another_clients_lead(self):
+        """Una función del cliente A jamás puede actuar sobre un lead del
+        cliente B, aunque ponga su email exacto — find_by_contact busca en
+        TODOS los clientes, así que sin este chequeo sería trivial cruzar
+        datos entre clientes."""
+        from zero.function_actions import apply_actions
+        crm = CRM(None)
+        crm.upsert("otro-cliente", {"company": "Ajena", "email": "jefe@ajena.cl",
+                                   "channel": "email", "score": 70})
+        z = self._RecordingZero()
+        rep = apply_actions({"actions": [{"type": "whatsapp", "lead": "jefe@ajena.cl",
+                                         "body": "hola"}]},
+                            self._fn("acme"), crm=crm, zero=z)
+        self.assertEqual(rep["applied"], 0)
+        self.assertIn("otro cliente", rep["rejected"][0]["reason"])
+        self.assertEqual(z.delivered, [])          # jamás se envió nada
+
+    def test_unknown_lead_is_rejected(self):
+        from zero.function_actions import apply_actions
+        crm = self._crm_with_lead()
+        rep = apply_actions({"actions": [{"type": "note", "lead": "nadie@nada.cl", "text": "x"}]},
+                            self._fn(), crm=crm)
+        self.assertEqual(rep["applied"], 0)
+        self.assertIn("no hay ningún lead", rep["rejected"][0]["reason"])
+
+    # --- riel: opt-out --------------------------------------------------------
+    def test_blocked_lead_never_receives_messages(self):
+        """Un lead que pidió no ser contactado (opt-out) no recibe mensajes ni
+        aunque una función los pida — el bloqueo no se puede saltar por acá."""
+        from zero.function_actions import apply_actions
+        crm = self._crm_with_lead()
+        key = crm.list("acme")[0]["key"]
+        crm.block("acme", key, reason="pidió no ser contactado")
+        z = self._RecordingZero()
+        rep = apply_actions({"actions": [{"type": "whatsapp", "lead": "ceo@acme.cl", "body": "hola"}]},
+                            self._fn(), crm=crm, zero=z)
+        self.assertEqual(rep["applied"], 0)
+        self.assertIn("opt-out", rep["rejected"][0]["reason"])
+        self.assertEqual(z.delivered, [])
+
+    def test_blocked_lead_still_accepts_internal_actions(self):
+        """El opt-out prohíbe CONTACTAR, no registrar: mover de etapa o dejar
+        una nota siguen siendo válidos (son registro interno de la agencia)."""
+        from zero.function_actions import apply_actions
+        crm = self._crm_with_lead()
+        key = crm.list("acme")[0]["key"]
+        crm.block("acme", key)
+        rep = apply_actions({"actions": [{"type": "note", "lead": "ceo@acme.cl", "text": "nota"}]},
+                            self._fn(), crm=crm)
+        self.assertEqual(rep["applied"], 1)
+
+    # --- riel: tope de cantidad ----------------------------------------------
+    def test_actions_over_the_cap_are_rejected_not_silently_truncated(self):
+        """Una función con un bug (un bucle sin filtrar) no puede convertirse
+        en un envío masivo: lo que pasa del tope se rechaza y queda VISIBLE en
+        el reporte, no se ejecuta a medias en silencio."""
+        import zero.config as config
+        from zero.function_actions import apply_actions
+        prev = config.FUNCTION_MAX_ACTIONS_PER_RUN
+        config.FUNCTION_MAX_ACTIONS_PER_RUN = 2
+        try:
+            crm = self._crm_with_lead()
+            actions = [{"type": "note", "lead": "ceo@acme.cl", "text": f"n{i}"} for i in range(5)]
+            rep = apply_actions({"actions": actions}, self._fn(), crm=crm)
+            self.assertEqual(rep["requested"], 5)
+            self.assertEqual(rep["applied"], 2)
+            self.assertEqual(len(rep["rejected"]), 3)
+            self.assertIn("tope", rep["rejected"][0]["reason"])
+        finally:
+            config.FUNCTION_MAX_ACTIONS_PER_RUN = prev
+
+    # --- ejecución real de cada tipo -----------------------------------------
+    def test_whatsapp_action_delivers_through_the_orchestrator(self):
+        from zero.function_actions import apply_actions
+        crm = self._crm_with_lead()
+        z = self._RecordingZero()
+        rep = apply_actions({"actions": [{"type": "whatsapp", "lead": "56911112222",
+                                         "body": "hola, ¿seguimos?"}]},
+                            self._fn(), crm=crm, zero=z)
+        self.assertEqual(rep["applied"], 1)
+        self.assertEqual(len(z.delivered), 1)
+        self.assertEqual(z.delivered[0]["channel"], "whatsapp")
+        self.assertEqual(z.delivered[0]["body"], "hola, ¿seguimos?")
+        self.assertEqual(z.delivered[0]["client"], "acme")
+
+    def test_send_action_without_orchestrator_is_rejected_cleanly(self):
+        """Sin orquestador (contexto sin capacidad de envío) las acciones de
+        envío se rechazan con motivo — nunca se pierden en silencio."""
+        from zero.function_actions import apply_actions
+        crm = self._crm_with_lead()
+        rep = apply_actions({"actions": [{"type": "whatsapp", "lead": "ceo@acme.cl", "body": "x"}]},
+                            self._fn(), crm=crm, zero=None)
+        self.assertEqual(rep["applied"], 0)
+        self.assertIn("sin orquestador", rep["rejected"][0]["reason"])
+
+    def test_empty_message_is_rejected(self):
+        from zero.function_actions import apply_actions
+        crm = self._crm_with_lead()
+        z = self._RecordingZero()
+        rep = apply_actions({"actions": [{"type": "whatsapp", "lead": "ceo@acme.cl", "body": "   "}]},
+                            self._fn(), crm=crm, zero=z)
+        self.assertEqual(rep["applied"], 0)
+        self.assertEqual(z.delivered, [])
+
+    def test_stage_action_moves_the_lead(self):
+        from zero.function_actions import apply_actions
+        crm = self._crm_with_lead()
+        key = crm.list("acme")[0]["key"]
+        rep = apply_actions({"actions": [{"type": "stage", "lead": "ceo@acme.cl",
+                                         "stage": "contacted"}]},
+                            self._fn(), crm=crm)
+        self.assertEqual(rep["applied"], 1)
+        self.assertEqual(crm.get("acme", key)["stage"], "contacted")
+
+    def test_invalid_stage_is_rejected_with_a_clear_reason(self):
+        from zero.function_actions import apply_actions
+        crm = self._crm_with_lead()
+        rep = apply_actions({"actions": [{"type": "stage", "lead": "ceo@acme.cl",
+                                         "stage": "etapa-inventada"}]},
+                            self._fn(), crm=crm)
+        self.assertEqual(rep["applied"], 0)
+        self.assertIn("etapa inválida", rep["rejected"][0]["reason"])
+
+    def test_note_action_lands_in_the_lead_history(self):
+        from zero.function_actions import apply_actions
+        crm = self._crm_with_lead()
+        key = crm.list("acme")[0]["key"]
+        rep = apply_actions({"actions": [{"type": "note", "lead": "ceo@acme.cl",
+                                         "text": "7 días sin responder"}]},
+                            self._fn(), crm=crm)
+        self.assertEqual(rep["applied"], 1)
+        history = crm.get("acme", key)["history"]
+        self.assertTrue(any(h["event"] == "function_note" and "7 días" in (h.get("detail") or "")
+                           for h in history))
+
+    def test_one_bad_action_does_not_stop_the_others(self):
+        """Robustez: una acción rota se rechaza y las demás siguen — nunca
+        deja el trabajo a medias por un solo dato malo."""
+        from zero.function_actions import apply_actions
+        crm = self._crm_with_lead()
+        rep = apply_actions({"actions": [
+            {"type": "note", "lead": "ceo@acme.cl", "text": "primera"},
+            {"type": "stage", "lead": "ceo@acme.cl", "stage": "no-existe"},
+            {"type": "note", "lead": "ceo@acme.cl", "text": "tercera"},
+        ]}, self._fn(), crm=crm)
+        self.assertEqual(rep["applied"], 2)
+        self.assertEqual(len(rep["rejected"]), 1)
+
+    def test_function_without_client_scope_rejects_everything(self):
+        from zero.function_actions import apply_actions
+        crm = self._crm_with_lead()
+        fn = {"id": "x", "lookup_scope": {}}
+        rep = apply_actions({"actions": [{"type": "note", "lead": "ceo@acme.cl", "text": "x"}]},
+                            fn, crm=crm)
+        self.assertEqual(rep["applied"], 0)
+        self.assertEqual(len(rep["rejected"]), 1)
+
+    # --- integración con execute() -------------------------------------------
+    def test_execute_applies_actions_and_reports_them_in_last_run(self):
+        from unittest import mock
+        from zero.functions import execute
+        crm = self._crm_with_lead()
+        z = self._RecordingZero()
+        fn = {"id": "f", "code": "...", "lookup_scope": {"client_id": "acme"}}
+        sandbox_out = {"result": {"actions": [
+            {"type": "whatsapp", "lead": "ceo@acme.cl", "body": "hola"},
+            {"type": "note", "lead": "ceo@acme.cl", "text": "contactado por función"},
+        ]}, "stdout": "", "error": None}
+        with mock.patch("zero.sandbox.run_sandboxed", return_value=sandbox_out):
+            updated, out = execute(fn, crm, zero=z)
+        self.assertEqual(out["actions"]["applied"], 2)
+        self.assertEqual(len(z.delivered), 1)
+        self.assertEqual(updated["last_run"]["actions"], {"applied": 2, "rejected": 0})
+        self.assertIn("2 acciones aplicadas", updated["last_run"]["result_summary"])
+
+    def test_execute_ignores_actions_when_the_code_crashed(self):
+        """Si el código reventó, su `result` es basura o de una ejecución
+        parcial — no se actúa sobre eso, nunca."""
+        from unittest import mock
+        from zero.functions import execute
+        crm = self._crm_with_lead()
+        z = self._RecordingZero()
+        fn = {"id": "f", "code": "...", "lookup_scope": {"client_id": "acme"}}
+        crashed = {"result": {"actions": [{"type": "whatsapp", "lead": "ceo@acme.cl", "body": "x"}]},
+                  "stdout": "", "error": "ZeroDivisionError: division by zero"}
+        with mock.patch("zero.sandbox.run_sandboxed", return_value=crashed):
+            _updated, out = execute(fn, crm, zero=z)
+        self.assertNotIn("actions", out)
+        self.assertEqual(z.delivered, [])
+
+    def test_execute_without_actions_keeps_last_run_actions_none(self):
+        """Una función normal (que solo calcula) no cambia de forma: su
+        last_run.actions queda en None, sin ruido."""
+        from unittest import mock
+        from zero.functions import execute
+        crm = self._crm_with_lead()
+        fn = {"id": "f", "code": "...", "lookup_scope": {"client_id": "acme"}}
+        with mock.patch("zero.sandbox.run_sandboxed",
+                        return_value={"result": 7, "stdout": "", "error": None}):
+            updated, out = execute(fn, crm)
+        self.assertEqual(out["actions"]["requested"], 0)
+        self.assertIsNone(updated["last_run"]["actions"])
+        self.assertEqual(updated["last_run"]["result_summary"], "7")
+
+
 class FunctionsSchedulingTest(unittest.TestCase):
     """Disparo automático por intervalo (2026-07-23) — lógica pura de
     zero/functions.py, sin hilos ni sleeps reales: se le inyecta `now`/un
