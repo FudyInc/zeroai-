@@ -3,6 +3,18 @@
 > Instrucciones para Claude Code corriendo en el PC de Diego (WSL2).
 > Este archivo ES la tarea: léelo y ejecútalo.
 
+> ⚠️ **LEE ESTO PRIMERO — te vas a apagar a ti mismo si no lo tienes en cuenta.**
+> Corres DENTRO de WSL2. El paso 2 pide `wsl --shutdown`, que mata la distro
+> entera **incluida esta sesión tuya**. Ya pasó una vez y se perdió el contexto.
+>
+> Antes de cualquier `wsl --shutdown`:
+> 1. Anota lo que llevas hecho en `PASO-GPU-progreso.md` (créalo si no existe):
+>    qué pasos completaste, qué decidiste y por qué, qué falta.
+> 2. Dile a Diego que va a cortarse la sesión y que la reabra con `claude`.
+>
+> **Al iniciar**: si `PASO-GPU-progreso.md` existe, léelo primero y retoma
+> desde ahí en vez de empezar de cero.
+
 ## OBJETIVO
 
 Dejar Docker y Ollama operativos en WSL2 aprovechando la RTX 5060 Ti 16GB, y
@@ -43,9 +55,18 @@ enabled=true
 appendWindowsPath=true
 ```
 
-Después `wsl --shutdown` desde PowerShell. Al reabrir, confirmar que
-`powershell.exe` corre desde bash y que systemd sigue siendo PID 1
-(`ps -p 1 -o comm=`).
+Después hace falta `wsl --shutdown` **desde PowerShell** (no desde bash).
+
+⚠️ **Esto te mata a ti también.** Antes de pedírselo a Diego: anota tu progreso
+en `PASO-GPU-progreso.md` y avísale que reabra la sesión con `claude` después.
+
+Al reabrir, confirmar que `powershell.exe` corre desde bash y que systemd sigue
+siendo PID 1 (`ps -p 1 -o comm=`).
+
+**Alternativa para no cortarte:** deja este paso 2 para el FINAL. La interop no
+es requisito de Docker ni de Ollama — solo sirve para lanzar programas de
+Windows desde bash. Puedes hacer los pasos 3 al 6 primero, medir todo, y dejar
+el reinicio de WSL como último movimiento.
 
 ### 3. Docker Engine nativo
 Instalar desde el **repositorio oficial de Docker** (no el `docker.io` de
