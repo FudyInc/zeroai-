@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 .env
+google-sheets-key.json
 state.json
 crm.json
 inbox.json

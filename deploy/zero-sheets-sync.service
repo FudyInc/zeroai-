@@ -1,0 +1,8 @@
+[Unit]
+Description=ZeroAI — sync a Google Sheets (oneshot, disparado por zero-sheets-sync.timer)
+
+[Service]
+Type=oneshot
+User=diego
+WorkingDirectory=/home/diego/zeroai
+ExecStart=/usr/bin/python3 scripts/sync_sheets.py

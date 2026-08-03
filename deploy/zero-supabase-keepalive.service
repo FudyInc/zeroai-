@@ -1,0 +1,8 @@
+[Unit]
+Description=ZeroAI — ping keepalive a Supabase (oneshot, disparado por zero-supabase-keepalive.timer)
+
+[Service]
+Type=oneshot
+User=diego
+WorkingDirectory=/home/diego/zeroai
+ExecStart=/usr/bin/python3 scripts/supabase_keepalive.py

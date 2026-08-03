@@ -1,0 +1,14 @@
+[Unit]
+Description=ZeroAI ngrok tunnel (dominio fijo, expone el backend a Twilio)
+After=network.target zero-backend.service
+Requires=zero-backend.service
+
+[Service]
+Type=simple
+User=diego
+ExecStart=/usr/local/bin/ngrok http --domain=handpick-monogamy-spiny.ngrok-free.dev 8800
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
