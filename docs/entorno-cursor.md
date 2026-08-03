@@ -3,6 +3,9 @@
 Conductor era una app **solo para Mac**. Lo que hacía por debajo se replica con
 `git worktree` + los terminales de Cursor, sin instalar nada extra y sin costo.
 
+En el PC Linux (WSL2) el home es `/home/<usuario>` directo — **no hay carpeta
+`Desktop`**. El script deja las carpetas ahí, hermanas del repo clonado.
+
 ## Montarlo (una sola vez)
 
 ```bash
@@ -14,7 +17,7 @@ bash scripts/setup-workspaces.sh
 Eso deja una carpeta por sección, hermanas del repo, cada una en su propia rama:
 
 ```
-~/Desktop/
+/home/<usuario>/
 ├── zeroai/                  ← main (integración)
 ├── zero-core/               ← rama core
 ├── zero-dashboard/          ← rama dashboard
@@ -28,12 +31,18 @@ Eso deja una carpeta por sección, hermanas del repo, cada una en su propia rama
 Al abrir `zeroai.code-workspace`, Cursor muestra las 7 carpetas en una sola
 ventana, cada una con su rama, sin que se mezclen entre sí.
 
+**Cómo abrirlo en Cursor (WSL):** con la ventana de Cursor ya conectada a WSL
+(`Remote-WSL`), `Ctrl+K Ctrl+O` → **"Open Workspace from File..."** → navegar a
+`/home/<usuario>/zeroai.code-workspace`. Si Cursor abre por fuera de WSL (en
+Windows), primero conéctate a la distro con la paleta de comandos
+(`Ctrl+Shift+P` → "Connect to WSL").
+
 ## Trabajar
 
 Una terminal por sección (`Ctrl+Shift+ñ` abre una nueva en Cursor):
 
 ```bash
-cd ~/Desktop/zero-core && claude
+cd /home/<usuario>/zero-core && claude
 ```
 
 Ese es el equivalente exacto a un terminal de Conductor: un agente por sección,
