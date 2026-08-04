@@ -469,6 +469,51 @@ class LocalSessionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(s.messages[-1]["type"], "status")
 
 
+class ShutdownTest(unittest.TestCase):
+    """Regresión de producción (2026-08-04): con una pestaña del panel abierta,
+    `systemctl restart` se colgaba ~90s hasta el SIGKILL de systemd — el
+    handler del WebSocket esperaba en queue.get() para siempre y uvicorn no
+    completa su apagado elegante mientras haya una conexión viva. El backend
+    quedaba caído todo ese rato, webhooks de Twilio incluidos."""
+
+    def setUp(self):
+        self.session = _session("shut-1")
+        conductor._SESSIONS[self.session.id] = self.session
+        self.addCleanup(lambda: conductor._SESSIONS.pop(self.session.id, None))
+
+    def test_subscribers_get_the_shutdown_sentinel(self):
+        q: asyncio.Queue = asyncio.Queue(maxsize=10)
+        self.session.subscribers.add(q)
+        conductor.shutdown()
+        self.assertIs(q.get_nowait(), conductor.SHUTDOWN)
+
+    def test_subscribers_are_cleared(self):
+        q: asyncio.Queue = asyncio.Queue(maxsize=10)
+        self.session.subscribers.add(q)
+        conductor.shutdown()
+        self.assertEqual(self.session.subscribers, set())
+
+    def test_live_processes_are_terminated(self):
+        terminated = []
+        self.session.process.terminate = lambda: terminated.append(True)
+        conductor.shutdown()
+        self.assertTrue(terminated)
+
+    def test_shutdown_never_raises_on_a_full_queue(self):
+        """Un cliente que dejó de leer no puede impedir que el backend cierre."""
+        q: asyncio.Queue = asyncio.Queue(maxsize=1)
+        q.put_nowait({"type": "relleno"})
+        self.session.subscribers.add(q)
+        conductor.shutdown()   # no debe lanzar
+
+    def test_shutdown_with_a_local_session_does_not_raise(self):
+        """LocalSession no tiene `process` — el apagado no puede asumir que sí."""
+        s = conductor.LocalSession("shut-2", "consultas", "/tmp", "main", None)
+        conductor._SESSIONS[s.id] = s
+        self.addCleanup(lambda: conductor._SESSIONS.pop(s.id, None))
+        conductor.shutdown()
+
+
 class AvailabilityTest(unittest.TestCase):
     """is_available/list_worktrees son el gate de la página entera: si lanzan
     en vez de degradar, se cae la vista completa en un servidor sin `claude`."""

@@ -65,6 +65,10 @@ export const api = {
     req('/api/leads/' + q(k) + '/reply?client=' + q(c), {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}),
     }),
+  // Bandeja de aprobación. Sin cliente = de todos a la vez (lo que trabajaron
+  // las corridas automáticas del día, ver /api/leads/pending).
+  pendingOutreach: (c) =>
+    req('/api/leads/pending' + (c ? '?client=' + q(c) : '')).then((d) => d.pending),
   sendOutreach: (c, k, body) =>
     req('/api/leads/' + q(k) + '/send?client=' + q(c), {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}),

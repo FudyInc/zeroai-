@@ -507,6 +507,32 @@ def leads(client: str, group: str = "todos", limit: int = 50, offset: int = 0):
     return {"leads": rows, "total": total, "limit": limit, "offset": offset}
 
 
+@app.get("/api/leads/pending")
+def leads_pending(client: Optional[str] = None):
+    """La bandeja de aprobación: todo lo que los agentes redactaron y espera
+    el visto bueno de una persona. Sin `client`, de TODOS los clientes a la vez
+    — es la vista que Diego abre desde el celular para despachar el trabajo que
+    las corridas automáticas dejaron durante el día (ver la política de
+    borradores en zero/config.py::FUNCTION_JOBS_AUTO_SEND).
+
+    Devuelve solo lo que la bandeja necesita mostrar, no el registro completo
+    del CRM: se lee por datos móviles y el historial de un lead puede ser
+    largo. Para el detalle completo ya está GET /api/leads."""
+    rows = _crm().pending_outreach(client)
+    return {"pending": [{
+        "key": r.get("key"),
+        "client_id": r.get("client_id"),
+        "company": r.get("company"),
+        "name": r.get("name"),
+        "role": r.get("role"),
+        "email": r.get("email"),
+        "phone": r.get("phone"),
+        "stage": r.get("stage"),
+        "score": r.get("score"),
+        "outreach": r.get("outreach") or {},
+    } for r in rows], "total": len(rows)}
+
+
 @app.get("/api/leads/search")
 def leads_search(q: str, limit: int = 20):
     """Busca un lead por company/email/phone en TODOS los clientes a la vez — el
@@ -1439,6 +1465,13 @@ def _start_functions_scheduler():
 @app.on_event("shutdown")
 def _stop_functions_scheduler():
     _scheduler_stop.set()
+    # Suelta los WebSockets de Conductor y mata sus procesos `claude`; sin
+    # esto el apagado se cuelga esperando conexiones que nunca cierran solas.
+    try:
+        from zero import conductor
+        conductor.shutdown()
+    except Exception:   # noqa: BLE001 — apagando: nada acá puede impedir el cierre
+        pass
 
 
 # --- config (secrets stored in .env, set once from the dashboard) -------------
@@ -1740,6 +1773,13 @@ async def conductor_stream(ws: WebSocket, session_id: str):
     try:
         while True:
             event = await queue.get()
+            # Sentinela de apagado: sin esto el handler espera para siempre y
+            # uvicorn no completa su shutdown elegante — una sola pestaña
+            # abierta dejaba `systemctl restart` colgado ~90s hasta el SIGKILL
+            # de systemd, con el backend caído todo ese rato (encontrado en
+            # producción, 2026-08-04). Ver zero/conductor.py::shutdown.
+            if event is conductor.SHUTDOWN:
+                break
             await ws.send_json(event)
     except WebSocketDisconnect:
         pass

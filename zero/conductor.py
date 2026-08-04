@@ -851,3 +851,34 @@ def unsubscribe(session_id: str, q: "asyncio.Queue[Dict[str, Any]]") -> None:
     session = _SESSIONS.get(session_id)
     if session is not None:
         session.subscribers.discard(q)
+
+
+# Sentinela que le dice a un WebSocket suscrito que se cierre. Un objeto propio
+# (no un dict) para que nunca se confunda con un evento real.
+SHUTDOWN = {"__conductor_shutdown__": True}
+
+
+def shutdown() -> None:
+    """Cierra todo al apagar el backend. Existe por un problema encontrado en
+    producción (2026-08-04): el handler del WebSocket espera en `queue.get()`
+    para siempre, y uvicorn no termina su apagado elegante mientras haya una
+    conexión viva — con una sola pestaña del panel abierta, `systemctl restart`
+    se colgaba ~90s hasta que systemd mandaba SIGKILL. El servicio quedaba
+    caído todo ese rato, con los webhooks de Twilio incluidos.
+
+    Dos cosas, en orden: avisarle a cada suscriptor que se vaya (así el
+    WebSocket devuelve y uvicorn puede cerrar), y matar los procesos `claude`
+    vivos para no dejarlos huérfanos."""
+    for session in list(_SESSIONS.values()):
+        for q in list(session.subscribers):
+            try:
+                q.put_nowait(SHUTDOWN)
+            except asyncio.QueueFull:
+                pass
+        session.subscribers.clear()
+        proc = getattr(session, "process", None)
+        if proc is not None and proc.returncode is None:
+            try:
+                proc.terminate()
+            except Exception:   # noqa: BLE001 — apagando, nada acá puede fallar ruidoso
+                pass

@@ -187,5 +187,56 @@ class _FakeCRMNoLead(_FakeCRM):
         return None
 
 
+class PendingOutreachTest(unittest.TestCase):
+    """La bandeja de aprobación: lo que las corridas automáticas dejaron
+    esperando. El contador y la lista comparten predicado a propósito — si
+    discreparan, el badge diría "3 pendientes" y la vista mostraría otra cosa."""
+
+    def setUp(self):
+        import tempfile
+        from zero.crm import CRM
+        self.crm = CRM(tempfile.mktemp(suffix=".json"))
+
+    def _lead(self, client, email, status=None, at=None):
+        self.crm.upsert(client, {"company": email.split("@")[1], "email": email,
+                                 "role": "CEO", "channel": "email"})
+        rec = self.crm.find_by_contact(email=email)
+        if status:
+            rec["outreach"] = {"status": status, "channel": "email",
+                               "body": "hola", "at": at}
+        return rec
+
+    def test_only_drafts_are_listed(self):
+        self._lead("acme", "a@uno.cl", status="draft", at="2026-08-01")
+        self._lead("acme", "b@dos.cl", status="sent", at="2026-08-02")
+        self._lead("acme", "c@tres.cl")   # sin outreach
+        rows = self.crm.pending_outreach()
+        self.assertEqual([r["email"] for r in rows], ["a@uno.cl"])
+
+    def test_list_and_count_agree(self):
+        for i in range(3):
+            self._lead("acme", f"l{i}@x.cl", status="draft", at=f"2026-08-0{i+1}")
+        self.assertEqual(len(self.crm.pending_outreach()),
+                         self.crm.pending_outreach_count())
+
+    def test_oldest_first(self):
+        self._lead("acme", "nuevo@x.cl", status="draft", at="2026-08-03")
+        self._lead("acme", "viejo@x.cl", status="draft", at="2026-08-01")
+        self.assertEqual([r["email"] for r in self.crm.pending_outreach()],
+                         ["viejo@x.cl", "nuevo@x.cl"])
+
+    def test_draft_without_date_goes_last_instead_of_breaking(self):
+        self._lead("acme", "sinfecha@x.cl", status="draft", at=None)
+        self._lead("acme", "confecha@x.cl", status="draft", at="2026-08-01")
+        self.assertEqual([r["email"] for r in self.crm.pending_outreach()],
+                         ["confecha@x.cl", "sinfecha@x.cl"])
+
+    def test_can_filter_by_client(self):
+        self._lead("acme", "a@x.cl", status="draft", at="2026-08-01")
+        self._lead("otro", "b@y.cl", status="draft", at="2026-08-01")
+        self.assertEqual(len(self.crm.pending_outreach()), 2)
+        self.assertEqual([r["email"] for r in self.crm.pending_outreach("acme")], ["a@x.cl"])
+
+
 if __name__ == "__main__":
     unittest.main()

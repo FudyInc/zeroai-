@@ -20,6 +20,10 @@
 //   - Conductor (2026-08-04): SOLO admin — lanza procesos reales del CLI
 //     `claude` (shell/filesystem del servidor). Mismo fail-closed; el backend
 //     ya lo exige (sin entrada en _ROLE_ALLOWED de api.py).
+//   - Por aprobar (2026-08-04): admin + cro/cto/cco. Es la bandeja de
+//     borradores que dejaron las corridas automáticas; revisar y enviar
+//     outreach ya es trabajo de esos tres roles (mismo criterio que el
+//     POST /api/leads/{key}/send que ya tenían).
 //   - Preferencias (2026-07-23): TODOS los roles — es personal (tema, por
 //     ahora), 100% cliente/localStorage, nada sensible ni de la agencia.
 export const PAGE_ROLES = {
@@ -39,6 +43,7 @@ export const PAGE_ROLES = {
   '/equipo': [],
   '/funciones': [],
   '/conductor': [],
+  '/aprobar': ['cro', 'cto', 'cco'],
   '/preferencias': ['cro', 'cto', 'cco'],
 }
 

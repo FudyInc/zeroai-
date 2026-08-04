@@ -249,6 +249,23 @@ class CRM:
             self._ensure(cid)
         return sum(1 for r in self.leads.values() if (r.get("outreach") or {}).get("status") == "draft")
 
+    def pending_outreach(self, client_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Los leads con un borrador esperando aprobación, de un cliente o de
+        todos. Misma definición que pending_outreach_count() (outreach.status
+        == "draft") — el contador y la lista no pueden discrepar, así que
+        comparten el predicado.
+
+        Ordenados del borrador más viejo al más nuevo: lo que lleva más tiempo
+        esperando es lo que más urge revisar. Un lead sin fecha en el borrador
+        (registros viejos, antes de que se guardara `at`) va al final en vez de
+        romper el orden."""
+        for cid in self.client_ids():
+            self._ensure(cid)
+        rows = [r for r in self.leads.values()
+                if (r.get("outreach") or {}).get("status") == "draft"
+                and (client_id is None or r.get("client_id") == client_id)]
+        return sorted(rows, key=lambda r: (r.get("outreach") or {}).get("at") or "9999")
+
     def clear(self, client_id: str) -> int:
         """Borra TODOS los leads de un cliente (ej. limpiar datos de prueba antes
         de una corrida real). Irreversible salvo por el `.bak` de save(). Devuelve

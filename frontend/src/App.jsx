@@ -30,6 +30,7 @@ import Finanzas from './pages/Finanzas'
 import Equipo from './pages/Equipo'
 import Funciones from './pages/Funciones'
 import Conductor from './pages/Conductor'
+import Aprobar from './pages/Aprobar'
 import Preferencias from './pages/Preferencias'
 
 const AppCtx = createContext(null)
@@ -52,6 +53,7 @@ const TITLES = {
   '/equipo': ['Equipo', 'Quién tiene cuenta, qué rol y quién está conectado'],
   '/funciones': ['Funciones', 'Código a medida corriendo aislado contra leads reales'],
   '/conductor': ['Conductor', 'Lanza y monitorea las terminales de Claude Code del proyecto'],
+  '/aprobar': ['Por aprobar', 'Lo que los agentes redactaron y espera tu visto bueno'],
   '/preferencias': ['Preferencias', 'Cómo ves tu propio dashboard — por dispositivo'],
 }
 
@@ -186,6 +188,7 @@ export default function App() {
                 <Route path="/equipo" element={<Equipo />} />
                 <Route path="/funciones" element={<Funciones />} />
                 <Route path="/conductor" element={<Conductor />} />
+                <Route path="/aprobar" element={<Aprobar />} />
                 <Route path="/preferencias" element={<Preferencias />} />
               </Routes>
             </motion.div>

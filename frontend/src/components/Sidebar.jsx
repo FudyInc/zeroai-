@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, NavLink } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  LayoutDashboard, Users, GitBranch, Bot, TrendingUp, Briefcase, Settings, Mail, Network, LogOut, Megaphone, X, User, Wallet, AlertTriangle, ShieldCheck, Terminal, SlidersHorizontal, SquareTerminal,
+  LayoutDashboard, Users, GitBranch, Bot, TrendingUp, Briefcase, Settings, Mail, Network, LogOut, Megaphone, X, User, Wallet, AlertTriangle, ShieldCheck, Terminal, SlidersHorizontal, SquareTerminal, CheckCheck,
 } from 'lucide-react'
 import { cn } from '../lib/util'
 import { api } from '../lib/api'
@@ -14,6 +14,7 @@ const SECTIONS = [
       { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
       { to: '/leads', label: 'Leads', icon: Users },
       { to: '/pipeline', label: 'Pipeline', icon: GitBranch },
+      { to: '/aprobar', label: 'Por aprobar', icon: CheckCheck },
       { to: '/forecast', label: 'Forecast', icon: TrendingUp },
     ],
   },
