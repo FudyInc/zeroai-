@@ -48,7 +48,7 @@ class MediaBuyer(BaseAgent):
                 # leads=0 y cpl=0: activa pero sin resultados todavía (p.ej. insights
                 # de Meta aún no conectados) — no es "rendimiento aceptable", es "sin dato".
                 action = "keep"
-                reason = "Activa pero sin leads reportados todavía. Esperá unos días o revisá que los insights de Meta estén conectados."
+                reason = "Activa pero sin leads reportados todavía. Espera unos días o revisa que los insights de Meta estén conectados."
             elif status == "paused":
                 action = "keep"
                 reason = "Pausada. Reactivá solo si liberás presupuesto de una de CPL alto."

@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { ArrowRight, Plus, Wallet } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
+import { useDismiss } from '../hooks/useDismiss'
 import { Card, Skeleton, Select, Input, Button, CountUp, pageState, SectionTitle } from '../components/ui'
 import { useApp } from '../App'
 
@@ -110,6 +111,7 @@ export default function Clientes() {
 // vendors/functions en el backend (api.py: alfanumérico en minúsculas), acá
 // en el cliente para mostrar el preview antes de crear.
 function NewClientModal({ plans, onClose, onCreated }) {
+  useDismiss(true, onClose)
   const [name, setName] = useState('')
   const [tier, setTier] = useState(Object.keys(plans)[0] || 'GROWTH')
   const [busy, setBusy] = useState(false)

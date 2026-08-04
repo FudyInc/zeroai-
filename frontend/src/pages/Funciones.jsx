@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { Terminal, AlertTriangle, Play, Pencil, Trash2, Plus, CheckCircle2, XCircle, Repeat } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
+import { useDismiss } from '../hooks/useDismiss'
 import { useApp } from '../App'
 import { Card, Button, Input, Skeleton, pageState, Eyebrow, SectionTitle } from '../components/ui'
 
@@ -46,6 +47,9 @@ export default function Funciones() {
   const { client } = useApp()
   const qc = useQueryClient()
   const [form, setForm] = useState(null) // null = form cerrado; objeto = abierto (nuevo o edición)
+  // useCallback para que el efecto de Escape no se re-suscriba en cada render.
+  const closeForm = useCallback(() => setForm(null), [])
+  useDismiss(!!form, closeForm)
   const [runningId, setRunningId] = useState(null)
 
   const { data: functions, isLoading, error, refetch } = useQuery({ queryKey: ['functions'], queryFn: api.functions })
@@ -129,7 +133,7 @@ export default function Funciones() {
           <b>leads reales</b> del cliente activo (<b>{client}</b>) — solo ve campos curados
           (empresa, nombre, rol, email, teléfono, etapa, score), nunca credenciales ni datos de
           otros clientes. Puedes dejarla disparándose sola cada N minutos (disparo automático),
-          o correrla solo cuando apretás "Correr ahora" — ambas conviven, "Correr ahora" siempre
+          o correrla solo cuando aprietas "Correr ahora" — ambas conviven, "Correr ahora" siempre
           funciona aunque esté en automático.
         </div>
       </Card>
@@ -187,14 +191,20 @@ export default function Funciones() {
       )}
 
       {form && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setForm(null)}>
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4" onClick={closeForm}>
           <div className="bg-white dark:bg-[#1D2016] rounded-2xl max-w-lg w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="text-lg font-bold">{form.id ? 'Editar función' : 'Nueva función'}</div>
 
+            {/* El texto va envuelto en <span>: si queda suelto dentro del flex,
+                cada trozo y el <b> se vuelven ítems flex separados y el `gap-2`
+                los espacia — el nombre del cliente y el punto final terminaban
+                flotando lejos de la frase. */}
             <div className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 flex items-start gap-2">
               <AlertTriangle size={14} className="shrink-0 mt-0.5" />
-              Se guarda tal cual — no se valida hasta que la corras. Va a ejecutarse aislada, pero
-              contra leads reales de <b>{client}</b>.
+              <span>
+                Se guarda tal cual — no se valida hasta que la corras. Va a ejecutarse aislada,
+                pero contra leads reales de <b>{client}</b>.
+              </span>
             </div>
 
             <div>
@@ -239,7 +249,7 @@ export default function Funciones() {
             </div>
 
             <div className="flex justify-end gap-2 pt-1">
-              <Button variant="ghost" onClick={() => setForm(null)}>Cancelar</Button>
+              <Button variant="ghost" onClick={closeForm}>Cancelar</Button>
               <Button variant="accent" onClick={submit} disabled={save.isPending}>Guardar</Button>
             </div>
           </div>

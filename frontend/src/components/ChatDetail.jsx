@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Gift } from 'lucide-react'
 import { api } from '../lib/api'
+import { useDismiss } from '../hooks/useDismiss'
 import { Badge, Skeleton, Button } from './ui'
 import { STAGES, scoreColor } from '../lib/util'
 
@@ -45,6 +46,7 @@ function fmtTime(ts) {
 // /whatsapp.
 export default function ChatDetailModal({ client, leadKey, onClose }) {
   const open = !!leadKey
+  useDismiss(open, onClose)
   const { data: r, isLoading, error, refetch } = useQuery({
     queryKey: ['lead', client, leadKey],
     queryFn: () => api.lead(client, leadKey),

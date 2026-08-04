@@ -141,9 +141,13 @@ export default function App() {
                 <ArrowLeft size={18} />
               </button>
             )}
-            <div className="min-w-0">
+            {/* En 390px la barra lleva menú + volver + título + tema + cliente
+                + "Buscar leads": el título quedaba truncado a una letra ("P…").
+                El subtítulo es contexto, no navegación, así que desaparece
+                primero y el título recupera el ancho. */}
+            <div className="min-w-0 flex-1">
               <div className="font-display text-lg font-bold leading-tight truncate">{title}</div>
-              <div className="text-xs text-zinc-500 truncate">{sub}</div>
+              <div className="text-xs text-zinc-500 truncate max-sm:hidden">{sub}</div>
             </div>
             <div className="ml-auto flex items-center gap-2">
               <ThemeToggle />
@@ -152,13 +156,17 @@ export default function App() {
                 <Search size={13} /> <kbd className="font-sans">⌘K</kbd>
               </button>
               {clients.length > 0 && (
-                <Select value={client || ''} onChange={(e) => setClient(e.target.value)}>
+                <Select value={client || ''} onChange={(e) => setClient(e.target.value)}
+                  className="max-sm:max-w-[7rem] max-sm:px-2">
                   {clients.map((c) => <option key={c} value={c}>{c}</option>)}
                 </Select>
               )}
               <Glow>
-                <Button variant="primary" onClick={() => setRunOpen(true)}>
-                  <Plus size={15} /> Buscar leads
+                {/* En móvil queda solo el "+": la etiqueta se come el ancho del
+                    título y la acción se entiende igual por el icono. */}
+                <Button variant="primary" onClick={() => setRunOpen(true)}
+                  className="max-sm:px-3" title="Buscar leads">
+                  <Plus size={15} /> <span className="max-sm:hidden">Buscar leads</span>
                 </Button>
               </Glow>
             </div>

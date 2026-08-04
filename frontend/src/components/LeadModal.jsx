@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { X, MessageSquareReply, Send } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
+import { useDismiss } from '../hooks/useDismiss'
 import { STAGES, scoreColor } from '../lib/util'
 import { Badge, Skeleton, Button, Input } from './ui'
 import ConversationThread from './ConversationThread'
@@ -13,6 +14,7 @@ const REPLYABLE = new Set(['contacted', 'nurturing'])
 
 export default function LeadModal({ client, leadKey, onClose }) {
   const open = !!leadKey
+  useDismiss(open, onClose)
   const { data: r, isLoading, error, refetch } = useQuery({
     queryKey: ['lead', client, leadKey],
     queryFn: () => api.lead(client, leadKey),
