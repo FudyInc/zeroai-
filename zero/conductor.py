@@ -36,6 +36,10 @@ import json
 import os
 import shutil
 import subprocess
+import threading
+import time
+import urllib.error
+import urllib.request
 import uuid
 from collections import deque
 from dataclasses import dataclass
@@ -86,16 +90,76 @@ def _now_iso() -> str:
 # LocalBackend), que es otra ruta de ejecución — no se mezclan acá para no
 # ofrecer como equivalentes dos cosas que no lo son (un 14B no maneja de forma
 # confiable el bucle de herramientas de Claude Code).
-MODELS: List[Dict[str, str]] = [
-    {"id": "opus", "label": "Opus", "hint": "Arquitectura y decisiones difíciles"},
-    {"id": "sonnet", "label": "Sonnet", "hint": "Implementación y refactors"},
-    {"id": "haiku", "label": "Haiku", "hint": "Tareas mecánicas y repetitivas"},
+MODELS: List[Dict[str, Any]] = [
+    {"id": "opus", "label": "Opus", "engine": "claude", "tools": True,
+     "hint": "Arquitectura y decisiones difíciles"},
+    {"id": "sonnet", "label": "Sonnet", "engine": "claude", "tools": True,
+     "hint": "Implementación y refactors"},
+    {"id": "haiku", "label": "Haiku", "engine": "claude", "tools": True,
+     "hint": "Tareas mecánicas y repetitivas"},
 ]
-_MODEL_IDS = {m["id"] for m in MODELS}
+
+LOCAL_MODEL_ID = "local"
 
 
-def models_catalog() -> List[Dict[str, str]]:
-    return list(MODELS)
+def _local_config() -> Optional[Dict[str, str]]:
+    """El modelo local se configura con las MISMAS variables que usa el
+    pipeline de leads (LOCAL_MODEL / LOCAL_MODEL_URL, ver main.py y
+    zero/backends.py) — una sola fuente de verdad para "cuál es el modelo
+    local de esta máquina". Sin LOCAL_MODEL configurado, no se ofrece."""
+    name = (os.environ.get("LOCAL_MODEL") or "").strip()
+    if not name:
+        return None
+    base = (os.environ.get("LOCAL_MODEL_URL") or "http://localhost:11434/v1").strip().rstrip("/")
+    return {"model": name, "endpoint": f"{base}/chat/completions", "base": base}
+
+
+_LOCAL_PROBE: Dict[str, Any] = {"at": 0.0, "ok": False}
+_LOCAL_PROBE_TTL = 30.0
+
+
+def _local_reachable(force: bool = False) -> bool:
+    """Sonda cacheada al endpoint local. Barata (es localhost) pero no gratis,
+    así que no se repite en cada carga de la página. Nunca lanza: si el
+    servidor de modelos está caído, la opción simplemente no se ofrece en vez
+    de romper el catálogo entero."""
+    cfg = _local_config()
+    if cfg is None:
+        return False
+    now = time.time()
+    if not force and now - _LOCAL_PROBE["at"] < _LOCAL_PROBE_TTL:
+        return bool(_LOCAL_PROBE["ok"])
+    ok = False
+    try:
+        with urllib.request.urlopen(f"{cfg['base']}/models", timeout=1.5) as r:
+            ok = r.status == 200
+    except Exception:
+        ok = False
+    _LOCAL_PROBE.update({"at": now, "ok": ok})
+    return ok
+
+
+def models_catalog() -> List[Dict[str, Any]]:
+    """Los tres de Claude Code (suscripción ya pagada, con herramientas) más,
+    si esta máquina lo tiene levantado, el modelo local (gratis, sin
+    herramientas). Van en la misma lista a propósito: la elección real es "qué
+    cerebro mueve esta terminal", y el `tools: False` es lo que evita que se
+    lean como equivalentes."""
+    models = [dict(m) for m in MODELS]
+    cfg = _local_config()
+    if cfg and _local_reachable():
+        models.append({
+            "id": LOCAL_MODEL_ID,
+            "label": f"{cfg['model'].split(':')[0]} · local",
+            "engine": "local",
+            "tools": False,
+            "hint": "Gratis en tu GPU — conversa, pero no toca archivos",
+        })
+    return models
+
+
+def _model_ids() -> Set[str]:
+    return {m["id"] for m in models_catalog()}
 
 
 @dataclass
@@ -281,33 +345,37 @@ _LOCK = asyncio.Lock()
 
 # --- sesión ------------------------------------------------------------------
 
-class Session:
-    """Una sesión = un proceso `claude` real vivo. Efímera: no se persiste a
-    disco, muere con el proceso del backend."""
+class BaseSession:
+    """Lo común a los dos motores: identidad, estado, buffer de replay y
+    suscriptores. Las dos subclases emiten EXACTAMENTE el mismo contrato de
+    eventos (`user`, `stream_event`, `assistant`, `result`, `status`) — por eso
+    el WebSocket, el replay y toda la UI del chat funcionan igual con
+    cualquiera de los dos sin saber cuál es."""
+
+    engine = "claude"
+    tools = True
 
     def __init__(self, session_id: str, role_id: str, worktree_path: str,
-                 worktree_branch: Optional[str], process: "asyncio.subprocess.Process",
+                 worktree_branch: Optional[str],
                  started_by: Optional[Dict[str, Any]], model: Optional[str] = None) -> None:
         self.id = session_id
         self.role_id = role_id
         self.model = model
         self.worktree_path = worktree_path
         self.worktree_branch = worktree_branch
-        self.process = process
-        self.pid = process.pid
         self.started_by = started_by
-        self.claude_session_id: Optional[str] = None
         self.status = "running"
         self.started_at = _now_iso()
         self.ended_at: Optional[str] = None
-        self.exit_code: Optional[int] = None
+        # Id de sesión del CLI. Vive en la base (no en Session) porque
+        # _record_event es compartido por los dos motores; en el local se queda
+        # en None para siempre, que es exactamente la verdad.
+        self.claude_session_id: Optional[str] = None
         self.turn_in_flight = False
         self.messages: Deque[Dict[str, Any]] = deque(maxlen=500)
         self.stderr_tail: Deque[str] = deque(maxlen=50)
         self.subscribers: Set["asyncio.Queue[Dict[str, Any]]"] = set()
         self.stop_requested = False
-        self.reader_task: Optional[asyncio.Task] = None
-        self.stderr_task: Optional[asyncio.Task] = None
 
     def summary(self) -> Dict[str, Any]:
         role = ROLES.get(self.role_id)
@@ -315,21 +383,71 @@ class Session:
             "id": self.id,
             "role_id": self.role_id,
             "role_label": role.label if role else self.role_id,
+            "engine": self.engine,
+            "tools": self.tools,
             "model": self.model,
             "worktree_path": self.worktree_path,
             "worktree_branch": self.worktree_branch,
-            "pid": self.pid,
+            "pid": getattr(self, "pid", None),
             "status": self.status,
             "started_at": self.started_at,
             "started_by": self.started_by,
             "ended_at": self.ended_at,
-            "exit_code": self.exit_code,
+            "exit_code": getattr(self, "exit_code", None),
             "turn_in_flight": self.turn_in_flight,
-            "claude_session_id": self.claude_session_id,
+            "claude_session_id": getattr(self, "claude_session_id", None),
         }
 
 
-_SESSIONS: Dict[str, Session] = {}
+class Session(BaseSession):
+    """Motor `claude`: un proceso real del CLI, con herramientas (lee, edita,
+    corre comandos). Efímera: no se persiste a disco, muere con el backend."""
+
+    engine = "claude"
+    tools = True
+
+    def __init__(self, session_id: str, role_id: str, worktree_path: str,
+                 worktree_branch: Optional[str], process: "asyncio.subprocess.Process",
+                 started_by: Optional[Dict[str, Any]], model: Optional[str] = None) -> None:
+        super().__init__(session_id, role_id, worktree_path, worktree_branch,
+                         started_by, model=model)
+        self.process = process
+        self.pid = process.pid
+        self.exit_code: Optional[int] = None
+        self.reader_task: Optional[asyncio.Task] = None
+        self.stderr_task: Optional[asyncio.Task] = None
+
+
+class LocalSession(BaseSession):
+    """Motor local (Ollama, GPU de esta máquina): gratis e ilimitado, pero
+    SIN herramientas — no lee ni edita archivos, no corre comandos. Solo
+    conversa sobre lo que le pegues en el mensaje.
+
+    Es una diferencia real, no un matiz: un 14B no sostiene de forma confiable
+    el bucle de herramientas de Claude Code, y fingir que sí haría que el
+    modelo dijera "ya revisé api.py" sin haberlo abierto nunca. Por eso `tools`
+    es False, la UI lo muestra, y el system prompt se lo dice explícitamente
+    (ver _local_system_prompt).
+
+    No hay proceso: la conversación vive en `history` y cada turno es una
+    llamada HTTP en streaming al endpoint OpenAI-compatible."""
+
+    engine = "local"
+    tools = False
+
+    def __init__(self, session_id: str, role_id: str, worktree_path: str,
+                 worktree_branch: Optional[str],
+                 started_by: Optional[Dict[str, Any]], model: Optional[str] = None,
+                 endpoint: str = "", model_name: str = "") -> None:
+        super().__init__(session_id, role_id, worktree_path, worktree_branch,
+                         started_by, model=model)
+        self.endpoint = endpoint
+        self.model_name = model_name
+        self.history: List[Dict[str, str]] = []
+        self.turn_task: Optional[asyncio.Task] = None
+
+
+_SESSIONS: Dict[str, BaseSession] = {}
 
 
 def list_sessions() -> List[Dict[str, Any]]:
@@ -440,7 +558,7 @@ async def start_session(role_id: str, started_by: Optional[Dict[str, Any]] = Non
     role = ROLES.get(role_id)
     if role is None:
         raise KeyError(f"rol desconocido: {role_id!r}")
-    if model is not None and model not in _MODEL_IDS:
+    if model is not None and model not in _model_ids():
         raise ValueError(f"modelo desconocido: {model!r}")
     chosen_model = model or role.default_model
 
@@ -451,6 +569,38 @@ async def start_session(role_id: str, started_by: Optional[Dict[str, Any]] = Non
     async with _LOCK:
         if not _GUARD.try_start(key, session_id):
             raise SessionAlreadyRunning(_GUARD.existing(key))  # type: ignore[arg-type]
+
+    # Motor local: no hay subproceso que lanzar — la sesión queda lista y cada
+    # turno es una llamada HTTP. Se valida acá (no al primer turno) para que un
+    # Ollama caído se vea al apretar Iniciar y no después de escribir.
+    if chosen_model == LOCAL_MODEL_ID:
+        cfg = _local_config()
+        if cfg is None or not _local_reachable(force=True):
+            async with _LOCK:
+                _GUARD.finish(key)
+            raise RuntimeError(
+                "el modelo local no responde — revisa que Ollama esté corriendo "
+                "y que LOCAL_MODEL esté configurado")
+        try:
+            session = LocalSession(
+                session_id, role_id, worktree_path, _branch_for(worktree_path),
+                started_by, model=chosen_model,
+                endpoint=cfg["endpoint"], model_name=cfg["model"],
+            )
+            _SESSIONS[session_id] = session
+            _record_event(session, {
+                "type": "system", "subtype": "init",
+                "engine": "local", "model": cfg["model"], "tools": False,
+            })
+        except Exception:
+            # Sin esto, cualquier fallo después de tomar el guard deja el rol
+            # bloqueado para siempre: la sesión rota queda en _SESSIONS y todo
+            # intento posterior recibe un 409 "ya hay una sesión corriendo".
+            _SESSIONS.pop(session_id, None)
+            async with _LOCK:
+                _GUARD.finish(key)
+            raise
+        return session
 
     cmd = [
         "claude", "-p",
@@ -487,6 +637,114 @@ async def start_session(role_id: str, started_by: Optional[Dict[str, Any]] = Non
     return session
 
 
+# --- motor local (Ollama) ----------------------------------------------------
+
+# Cuántos turnos previos se le reenvían al modelo local. No hay compactación de
+# contexto como en Claude Code: la ventana es finita y la conversación entera
+# viaja en cada llamada, así que se acota a mano. 20 mensajes ≈ 10 turnos.
+_LOCAL_HISTORY_MAX = 20
+
+
+def _local_system_prompt(role: Optional[RoleDef]) -> str:
+    """El prompt del rol MÁS el aviso de que no hay herramientas. Sin esto, un
+    modelo con un system prompt que dice "tu zona de escritura es zero/agents/"
+    responde como si hubiera abierto los archivos — inventando su contenido.
+    Decírselo explícitamente es la diferencia entre una respuesta honesta
+    ("pégame el archivo") y una alucinación con forma de trabajo hecho."""
+    base = role.system_prompt if role else "Eres una terminal del proyecto ZERO."
+    return (
+        base
+        + "\n\nIMPORTANTE — en esta sesión NO tienes herramientas: no puedes leer "
+          "ni editar archivos, ni ejecutar comandos, ni buscar en el repositorio. "
+          "Trabaja solo con lo que el usuario escriba en el mensaje. Si necesitas "
+          "ver un archivo, pídele que te lo pegue; nunca afirmes que lo revisaste."
+    )
+
+
+def _stream_local_chat(endpoint: str, payload: Dict[str, Any], on_delta, timeout: float = 300.0) -> None:
+    """Lee la respuesta SSE del endpoint OpenAI-compatible y va entregando el
+    texto por trozos. Síncrono a propósito (urllib, stdlib) — el caller lo corre
+    en un hilo aparte para no bloquear el event loop."""
+    req = urllib.request.Request(
+        endpoint, data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"}, method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        for raw in r:
+            line = raw.decode("utf-8", errors="replace").strip()
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if data == "[DONE]":
+                return
+            try:
+                chunk = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+            delta = ((chunk.get("choices") or [{}])[0].get("delta") or {}).get("content")
+            if delta:
+                on_delta(delta)
+
+
+async def _run_local_turn(session: "LocalSession", text: str) -> None:
+    """Un turno contra el modelo local, traducido al MISMO contrato de eventos
+    que emite el CLI (`stream_event` con text_delta, luego `assistant`, luego
+    `result`). Por eso el frontend no distingue motores: recibe lo mismo."""
+    role = ROLES.get(session.role_id)
+    messages = [{"role": "system", "content": _local_system_prompt(role)}]
+    messages += session.history[-_LOCAL_HISTORY_MAX:]
+    messages.append({"role": "user", "content": text})
+    payload = {"model": session.model_name, "messages": messages,
+               "stream": True, "temperature": 0.2}
+
+    loop = asyncio.get_running_loop()
+    queue: "asyncio.Queue[Tuple[str, Optional[str]]]" = asyncio.Queue()
+
+    def worker() -> None:
+        try:
+            _stream_local_chat(
+                session.endpoint, payload,
+                lambda d: loop.call_soon_threadsafe(queue.put_nowait, ("delta", d)),
+            )
+            loop.call_soon_threadsafe(queue.put_nowait, ("done", None))
+        except Exception as e:   # noqa: BLE001 — cualquier fallo se reporta al chat
+            loop.call_soon_threadsafe(queue.put_nowait, ("error", str(e)))
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    parts: List[str] = []
+    try:
+        while True:
+            kind, value = await queue.get()
+            if kind == "delta" and value:
+                parts.append(value)
+                _record_event(session, {
+                    "type": "stream_event",
+                    "event": {"type": "content_block_delta",
+                              "delta": {"type": "text_delta", "text": value}},
+                }, store=False)
+            elif kind == "error":
+                _record_event(session, {
+                    "type": "result", "subtype": "error",
+                    "error": f"el modelo local falló: {value}",
+                })
+                return
+            else:
+                break
+    except asyncio.CancelledError:
+        session.turn_in_flight = False
+        raise
+
+    full = "".join(parts)
+    session.history.append({"role": "user", "content": text})
+    session.history.append({"role": "assistant", "content": full})
+    _record_event(session, {
+        "type": "assistant",
+        "message": {"role": "assistant", "content": [{"type": "text", "text": full}]},
+    })
+    _record_event(session, {"type": "result", "subtype": "success"})
+
+
 async def send_turn(session_id: str, text: str) -> None:
     session = _SESSIONS.get(session_id)
     if session is None:
@@ -495,6 +753,22 @@ async def send_turn(session_id: str, text: str) -> None:
         raise RuntimeError(f"la sesión no está corriendo (status={session.status})")
     if session.turn_in_flight:
         raise RuntimeError("ya hay un turno en curso en esta sesión")
+
+    # El turno del humano se registra igual en los dos motores, y ANTES de
+    # despachar, para que aparezca en el chat apenas se envía.
+    def _record_user_turn() -> None:
+        _record_event(session, {
+            "type": "user",
+            "message": {"role": "user", "content": [{"type": "text", "text": text}]},
+            "at": _now_iso(),
+        })
+
+    if isinstance(session, LocalSession):
+        session.turn_in_flight = True
+        _record_user_turn()
+        session.turn_task = asyncio.create_task(_run_local_turn(session, text))
+        return
+
     assert session.process.stdin is not None
     payload = json.dumps({"type": "user", "message": {"role": "user", "content": text}},
                          ensure_ascii=False)
@@ -514,18 +788,34 @@ async def send_turn(session_id: str, text: str) -> None:
     # sesión (quedaba un monólogo del asistente). Se guarda con la MISMA forma
     # que un evento `assistant` (content = lista de bloques) para que el
     # frontend recorra ambos con el mismo código.
-    _record_event(session, {
-        "type": "user",
-        "message": {"role": "user", "content": [{"type": "text", "text": text}]},
-        "at": _now_iso(),
-    })
+    _record_user_turn()
 
 
-async def stop_session(session_id: str) -> Session:
+async def stop_session(session_id: str) -> BaseSession:
     session = _SESSIONS.get(session_id)
     if session is None:
         raise KeyError(session_id)
     session.stop_requested = True
+
+    # Motor local: no hay proceso que matar. Se cancela el turno en vuelo (si
+    # lo hay) y se cierra la sesión a mano — el _reader_loop, que es quien hace
+    # esto en el motor `claude`, acá no existe.
+    if isinstance(session, LocalSession):
+        if session.turn_task is not None and not session.turn_task.done():
+            session.turn_task.cancel()
+            try:
+                await session.turn_task
+            except (asyncio.CancelledError, Exception):   # noqa: B014
+                pass
+        session.status = "killed"
+        session.ended_at = _now_iso()
+        session.turn_in_flight = False
+        _record_event(session, {
+            "type": "status", "status": "killed", "exit_code": None, "stderr_tail": [],
+        })
+        _GUARD.finish((session.role_id, session.worktree_path))
+        return session
+
     if session.process.returncode is None:
         session.process.terminate()
         try:

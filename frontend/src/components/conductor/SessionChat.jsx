@@ -104,6 +104,16 @@ export default function SessionChat({ sessionId, onClose }) {
         </div>
       </div>
 
+      {/* El motor local no tiene herramientas. Decirlo acá arriba, y no en una
+          nota al pie, es lo que evita pedirle "revisa api.py" y creerle la
+          respuesta. */}
+      {session?.tools === false && (
+        <div className="text-xs text-gold-deep bg-champagne/20 rounded-xl px-3 py-2 mb-3">
+          Motor local, sin herramientas: no lee ni edita archivos del repo. Pégale el código
+          o el texto en el mensaje. Gratis e ilimitado — corre en la GPU de esta máquina.
+        </div>
+      )}
+
       <div className="space-y-2.5 mb-3 max-h-[28rem] overflow-auto rounded-xl bg-zinc-50 p-3.5">
         {items.length === 0 && !streaming && (
           <div className="text-xs text-pewter text-center py-6">

@@ -31,6 +31,15 @@ export default function RoleCard({ role, session, busy, models, model, onModelCh
   const Icon = ROLE_ICON[role.id] || Terminal
   const state = session ? (STATUS[session.status] || STATUS.running) : null
   const canStart = !session || ENDED.has(session.status)
+  const live = session && !ENDED.has(session.status)
+
+  /* Con el motor local no hay herramientas, así que la "zona de escritura" del
+     rol sería una promesa falsa: esa terminal no escribe nada. Se dice lo que
+     de verdad puede hacer. */
+  const noTools = live
+    ? session.tools === false
+    : models.find((m) => m.id === model)?.tools === false
+  const zone = noTools ? 'sin herramientas — solo conversa' : role.write_zone_hint
 
   return (
     <Card className="p-4 flex items-center gap-4">
@@ -49,8 +58,8 @@ export default function RoleCard({ role, session, busy, models, model, onModelCh
           )}
         </div>
         <div className="text-xs text-pewter mt-0.5 truncate">
-          {role.write_zone_hint}
-          {session?.model && !ENDED.has(session.status) && <> · {session.model}</>}
+          <span className={cn(noTools && 'text-gold-deep')}>{zone}</span>
+          {live && session.model && <> · {session.model}</>}
         </div>
         {session?.started_by && !ENDED.has(session.status) && (
           <div className="text-[11px] text-pewter/80 mt-0.5 truncate">

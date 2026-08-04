@@ -1621,6 +1621,10 @@ async def conductor_start_session(body: ConductorStartBody, request: Request):
              "existing_session_id": e.existing_session_id},
             status_code=409,
         )
+    except RuntimeError as e:
+        # Motor local pedido pero Ollama no responde — 503, no 500: el servidor
+        # está bien, el modelo no está disponible ahora mismo.
+        raise HTTPException(status_code=503, detail=str(e))
     return JSONResponse(session.summary(), status_code=201)
 
 

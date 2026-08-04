@@ -13,6 +13,7 @@ Stdlib puro. Correr solo:  python3 -m unittest tests.test_conductor -v
 from __future__ import annotations
 
 import asyncio
+import os
 import unittest
 
 from zero import conductor
@@ -263,6 +264,209 @@ class SessionSummaryTest(unittest.TestCase):
 
     def test_delete_unknown_session_returns_false(self):
         self.assertFalse(conductor.delete_session("no-existe"))
+
+
+class LocalEngineCatalogTest(unittest.TestCase):
+    """El modelo local se ofrece solo si esta máquina lo tiene configurado y
+    levantado — y cuando se ofrece, va marcado como SIN herramientas."""
+
+    def setUp(self):
+        self._saved = {k: os.environ.get(k) for k in ("LOCAL_MODEL", "LOCAL_MODEL_URL")}
+        conductor._LOCAL_PROBE.update({"at": 0.0, "ok": False})
+
+    def tearDown(self):
+        for k, v in self._saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        conductor._LOCAL_PROBE.update({"at": 0.0, "ok": False})
+
+    def test_without_local_model_configured_it_is_not_offered(self):
+        os.environ.pop("LOCAL_MODEL", None)
+        ids = {m["id"] for m in conductor.models_catalog()}
+        self.assertNotIn(conductor.LOCAL_MODEL_ID, ids)
+
+    def test_claude_models_are_always_offered(self):
+        os.environ.pop("LOCAL_MODEL", None)
+        ids = {m["id"] for m in conductor.models_catalog()}
+        self.assertEqual(ids, {"opus", "sonnet", "haiku"})
+
+    def test_unreachable_endpoint_is_not_offered(self):
+        """Configurado pero caído: la opción no aparece, en vez de aparecer y
+        fallar recién cuando el usuario aprieta Iniciar."""
+        os.environ["LOCAL_MODEL"] = "modelo-de-prueba"
+        os.environ["LOCAL_MODEL_URL"] = "http://127.0.0.1:9/v1"   # puerto descarte
+        ids = {m["id"] for m in conductor.models_catalog()}
+        self.assertNotIn(conductor.LOCAL_MODEL_ID, ids)
+
+    def test_every_claude_model_declares_tools(self):
+        for m in conductor.models_catalog():
+            self.assertIn("engine", m)
+            self.assertIn("tools", m)
+            if m["engine"] == "claude":
+                self.assertTrue(m["tools"], m["id"])
+
+
+class LocalSystemPromptTest(unittest.TestCase):
+    def test_prompt_states_there_are_no_tools(self):
+        """Sin este aviso el modelo responde como si hubiera abierto los
+        archivos que su prompt de rol menciona — alucinación con forma de
+        trabajo hecho."""
+        role = conductor.ROLES["worker"]
+        prompt = conductor._local_system_prompt(role)
+        self.assertIn(role.system_prompt, prompt)
+        low = prompt.lower()
+        self.assertIn("no tienes herramientas", low)
+        self.assertIn("pegue", low)
+
+    def test_works_without_a_role(self):
+        self.assertTrue(conductor._local_system_prompt(None))
+
+
+class LocalStreamParsingTest(unittest.TestCase):
+    """El parseo del SSE contra la forma real que devuelve Ollama (capturada
+    del endpoint en vivo), sin tocar la red."""
+
+    def _parse(self, body: str):
+        chunks = []
+
+        class _FakeResp:
+            def __enter__(self_inner): return self_inner
+            def __exit__(self_inner, *a): return False
+            def __iter__(self_inner): return iter(body.encode("utf-8").splitlines(True))
+
+        real = conductor.urllib.request.urlopen
+        conductor.urllib.request.urlopen = lambda *a, **k: _FakeResp()
+        try:
+            conductor._stream_local_chat("http://x/v1/chat/completions", {}, chunks.append)
+        finally:
+            conductor.urllib.request.urlopen = real
+        return chunks
+
+    def test_collects_content_deltas_in_order(self):
+        body = (
+            'data: {"choices":[{"delta":{"content":"Hola"}}]}\n\n'
+            'data: {"choices":[{"delta":{"content":" mundo"}}]}\n\n'
+            'data: [DONE]\n\n'
+        )
+        self.assertEqual(self._parse(body), ["Hola", " mundo"])
+
+    def test_ignores_empty_and_malformed_lines(self):
+        body = (
+            '\n'
+            'data: no-es-json\n'
+            'data: {"choices":[{"delta":{}}]}\n'
+            'data: {"choices":[{"delta":{"content":"ok"}}]}\n'
+            'data: [DONE]\n'
+        )
+        self.assertEqual(self._parse(body), ["ok"])
+
+    def test_stops_at_done_marker(self):
+        body = (
+            'data: {"choices":[{"delta":{"content":"a"}}]}\n'
+            'data: [DONE]\n'
+            'data: {"choices":[{"delta":{"content":"no-deberia-llegar"}}]}\n'
+        )
+        self.assertEqual(self._parse(body), ["a"])
+
+
+class LocalSessionTest(unittest.IsolatedAsyncioTestCase):
+    """La sesión local emite el MISMO contrato de eventos que el motor
+    `claude` — es lo que permite que el WebSocket y toda la UI del chat no
+    sepan cuál de los dos está detrás."""
+
+    def _session(self, sid="loc-1"):
+        s = conductor.LocalSession(sid, "consultas", "/tmp/wt", "main", None,
+                                   model=conductor.LOCAL_MODEL_ID,
+                                   endpoint="http://x/v1/chat/completions",
+                                   model_name="modelo-falso")
+        conductor._SESSIONS[sid] = s
+        self.addCleanup(lambda: conductor._SESSIONS.pop(sid, None))
+        return s
+
+    def _fake_stream(self, pieces, fail=None):
+        def _impl(endpoint, payload, on_delta, timeout=300.0):
+            if fail:
+                raise RuntimeError(fail)
+            for p in pieces:
+                on_delta(p)
+        return _impl
+
+    async def test_turn_emits_deltas_then_assistant_then_result(self):
+        s = self._session()
+        real = conductor._stream_local_chat
+        conductor._stream_local_chat = self._fake_stream(["ho", "la"])
+        try:
+            await conductor.send_turn(s.id, "saluda")
+            await s.turn_task
+        finally:
+            conductor._stream_local_chat = real
+
+        types = [e["type"] for e in s.messages]
+        self.assertEqual(types, ["user", "assistant", "result"])   # deltas no se guardan
+        texto = s.messages[1]["message"]["content"][0]["text"]
+        self.assertEqual(texto, "hola")
+        self.assertFalse(s.turn_in_flight)
+
+    async def test_local_session_reports_no_tools(self):
+        s = self._session("loc-2")
+        summary = s.summary()
+        self.assertEqual(summary["engine"], "local")
+        self.assertFalse(summary["tools"])
+        self.assertIsNone(summary["pid"])
+
+    async def test_history_grows_with_each_turn(self):
+        s = self._session("loc-3")
+        real = conductor._stream_local_chat
+        conductor._stream_local_chat = self._fake_stream(["ok"])
+        try:
+            await conductor.send_turn(s.id, "uno")
+            await s.turn_task
+        finally:
+            conductor._stream_local_chat = real
+        self.assertEqual(s.history, [{"role": "user", "content": "uno"},
+                                     {"role": "assistant", "content": "ok"}])
+
+    async def test_backend_failure_becomes_a_result_error_not_a_crash(self):
+        """Un Ollama caído a mitad de turno se reporta en el chat y libera la
+        sesión — no deja el turno colgado para siempre."""
+        s = self._session("loc-4")
+        real = conductor._stream_local_chat
+        conductor._stream_local_chat = self._fake_stream([], fail="conexión rechazada")
+        try:
+            await conductor.send_turn(s.id, "hola")
+            await s.turn_task
+        finally:
+            conductor._stream_local_chat = real
+        last = s.messages[-1]
+        self.assertEqual(last["type"], "result")
+        self.assertEqual(last["subtype"], "error")
+        self.assertFalse(s.turn_in_flight)
+
+    async def test_failure_after_taking_the_guard_frees_the_role(self):
+        """Regresión (encontrada en vivo): al crear la sesión local se lanzaba
+        un AttributeError DESPUÉS de tomar el guard, así que el rol quedaba
+        bloqueado para siempre y todo intento posterior recibía un 409 'ya hay
+        una sesión corriendo' sin que existiera ninguna."""
+        key = ("consultas", str(conductor.REPO_ROOT))
+        real_reach, real_cls = conductor._local_reachable, conductor.LocalSession
+        conductor._local_reachable = lambda force=False: True
+        conductor.LocalSession = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))
+        os.environ.setdefault("LOCAL_MODEL", "modelo-de-prueba")
+        try:
+            with self.assertRaises(RuntimeError):
+                await conductor.start_session("consultas", model=conductor.LOCAL_MODEL_ID)
+        finally:
+            conductor._local_reachable, conductor.LocalSession = real_reach, real_cls
+        self.assertIsNone(conductor._GUARD.existing(key))
+
+    async def test_stop_closes_a_local_session_without_a_process(self):
+        s = self._session("loc-5")
+        stopped = await conductor.stop_session(s.id)
+        self.assertEqual(stopped.status, "killed")
+        self.assertIsNotNone(stopped.ended_at)
+        self.assertEqual(s.messages[-1]["type"], "status")
 
 
 class AvailabilityTest(unittest.TestCase):
