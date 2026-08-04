@@ -17,6 +17,9 @@
 //   - Funciones (2026-07-22): SOLO admin — corre código Python arbitrario
 //     (sandboxed en Docker) contra leads reales de un cliente. Mismo
 //     fail-closed que el resto de las páginas admin-only.
+//   - Conductor (2026-08-04): SOLO admin — lanza procesos reales del CLI
+//     `claude` (shell/filesystem del servidor). Mismo fail-closed; el backend
+//     ya lo exige (sin entrada en _ROLE_ALLOWED de api.py).
 //   - Preferencias (2026-07-23): TODOS los roles — es personal (tema, por
 //     ahora), 100% cliente/localStorage, nada sensible ni de la agencia.
 export const PAGE_ROLES = {
@@ -35,6 +38,7 @@ export const PAGE_ROLES = {
   '/config': [],
   '/equipo': [],
   '/funciones': [],
+  '/conductor': [],
   '/preferencias': ['cro', 'cto', 'cco'],
 }
 

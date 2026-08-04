@@ -26,13 +26,25 @@ async function req(path, opts = {}) {
     throw new Error('Sesión no autorizada')
   }
   if (!r.ok) {
-    let msg
-    try { msg = (await r.json()).detail } catch { msg = r.statusText }
-    throw new Error(msg || 'HTTP ' + r.status)
+    let body = null
+    try { body = await r.json() } catch { /* respuesta sin JSON */ }
+    const err = new Error((body && body.detail) || r.statusText || 'HTTP ' + r.status)
+    err.status = r.status
+    err.body = body
+    throw err
   }
   return r.json()
 }
 const q = encodeURIComponent
+
+// ws(s)://mismo-origen-que-BASE — para el streaming de Conductor. En dev BASE
+// es '' (mismo origen que la página, 5173, proxied por Vite a 8800); en prod
+// BASE es la URL absoluta http(s) de Render.
+export const wsBase = () => {
+  if (BASE) return BASE.replace(/^http/, 'ws')
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${proto}//${window.location.host}`
+}
 
 export const api = {
   clients: () => req('/api/clients').then((d) => d.clients),
@@ -124,4 +136,27 @@ export const api = {
     req('/api/functions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   deleteFunction: (id) => req('/api/functions/' + q(id), { method: 'DELETE' }),
   runFunction: (id) => req('/api/functions/' + q(id) + '/run', { method: 'POST' }),
+
+  // Conductor — lanza/monitorea sesiones del CLI real `claude` (ver
+  // zero/conductor.py). Admin-only del lado del backend.
+  conductorStatus: () => req('/api/conductor/status'),
+  conductorRoles: () => req('/api/conductor/roles').then((d) => d.roles),
+  conductorSessions: () => req('/api/conductor/sessions').then((d) => d.sessions),
+  conductorStartSession: (roleId) =>
+    req('/api/conductor/sessions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role_id: roleId }),
+    }),
+  // 409 con existing_session_id: el caller decide "adjuntarse" a esa sesión
+  // en vez de tratarlo como un error — por eso req() adjunta status/body al
+  // Error en vez de solo el mensaje (ver arriba).
+  conductorSession: (id) => req('/api/conductor/sessions/' + q(id)),
+  conductorSendTurn: (id, text) =>
+    req('/api/conductor/sessions/' + q(id) + '/turns', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }),
+    }),
+  conductorStop: (id) => req('/api/conductor/sessions/' + q(id) + '/stop', { method: 'POST' }),
+  conductorDelete: (id) => req('/api/conductor/sessions/' + q(id), { method: 'DELETE' }),
+  // El WebSocket nativo del navegador no permite headers custom en el
+  // handshake — el token va por query param (ver api.py::conductor_stream).
+  conductorStreamUrl: (id) => `${wsBase()}/api/conductor/sessions/${q(id)}/stream?token=${q(getToken() || '')}`,
 }

@@ -66,3 +66,38 @@ Backends: mock (default) · `--local` (modelo local OpenAI-compatible, p.ej. Oll
 - Tras cambiar lógica del núcleo: correr la suite de tests.
 - `state.json` y `crm.json` son datos locales (en `.gitignore`); nunca sobrescribirlos a
   ciegas — si están corruptos, el código avisa en vez de borrarlos.
+
+---
+
+## Rol: conductor
+
+Tu trabajo por defecto en este repo es **dirigir, no ejecutar**. Hay sub-agentes
+definidos en `.claude/agents/`; úsalos.
+
+Ante una tarea de más de un paso:
+
+1. **Reconocimiento.** `explorador` primero. No asumas dónde vive algo — en este
+   repo la política está en `config.py` y el mecanismo en otro lado, y confundirlos
+   es el error más caro que puedes cometer aquí.
+2. **Plan.** Escríbelo en pasos concretos y muéstralo antes de tocar archivos. Cada
+   paso nombra a su sub-agente.
+3. **Delegación.** Reparte. Los pasos independientes van en paralelo, en un solo
+   bloque de llamadas.
+4. **Cierre.** `revisor` y `verificador` corren siempre antes de dar algo por hecho.
+   Nada se declara terminado sin la suite en verde.
+
+Tú mantienes el contexto global y la coherencia entre piezas. Los sub-agentes
+arrancan en frío: dales rutas exactas, decisiones ya tomadas y restricciones,
+porque no ven esta conversación.
+
+### Cuándo NO delegar
+
+Delegar cuesta tiempo. Hazlo tú si es una pregunta que se responde leyendo uno o
+dos archivos, un cambio de una línea, o algo conversacional. La regla: si
+describir la tarea cuesta más que hacerla, hazla.
+
+### Antes de confirmar con el usuario
+
+Pregunta antes de: borrar archivos, `git push`, instalar cualquier dependencia
+(rompe la regla de solo-stdlib), tocar `state.json` o `crm.json`, o mover números
+de negocio fuera de `config.py`.

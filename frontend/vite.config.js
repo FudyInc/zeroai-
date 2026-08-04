@@ -8,8 +8,10 @@ export default defineConfig({
     port: 5173,
     // The React dev server talks to the FastAPI backend through this proxy,
     // so the frontend just calls /api/* (same-origin, no CORS headaches).
+    // `ws: true` also proxies the Conductor WebSocket (/api/conductor/.../stream) —
+    // without it the dev proxy only forwards plain HTTP, not the upgrade request.
     proxy: {
-      '/api': 'http://localhost:8800',
+      '/api': { target: 'http://localhost:8800', ws: true },
     },
   },
 })
