@@ -1589,7 +1589,7 @@ def conductor_status():
 @app.get("/api/conductor/roles")
 def conductor_roles():
     from zero import conductor
-    return {"roles": conductor.roles_catalog()}
+    return {"roles": conductor.roles_catalog(), "models": conductor.models_catalog()}
 
 
 @app.get("/api/conductor/sessions")
@@ -1600,6 +1600,7 @@ def conductor_sessions():
 
 class ConductorStartBody(BaseModel):
     role_id: str
+    model: Optional[str] = None   # None -> el sugerido del rol (ver conductor.MODELS)
 
 
 @app.post("/api/conductor/sessions")
@@ -1608,9 +1609,12 @@ async def conductor_start_session(body: ConductorStartBody, request: Request):
     identity = getattr(request.state, "auth", None)
     started_by = {"username": identity.get("username"), "email": identity.get("email")} if identity else None
     try:
-        session = await conductor.start_session(body.role_id, started_by=started_by)
+        session = await conductor.start_session(body.role_id, started_by=started_by,
+                                                model=body.model)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"rol desconocido: {body.role_id}")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except conductor.SessionAlreadyRunning as e:
         return JSONResponse(
             {"detail": "ya hay una sesión de este rol corriendo",

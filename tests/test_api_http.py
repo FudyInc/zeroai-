@@ -1088,5 +1088,103 @@ class TwilioWebhookHttpTest(unittest.TestCase):
         self.assertTrue(found, "el mensaje se recibió pero el registro en background nunca se completó")
 
 
+@unittest.skipUnless(_UVICORN_AVAILABLE, "uvicorn no instalado — este test es opcional, no núcleo")
+class ConductorHttpTest(unittest.TestCase):
+    """Conductor sobre HTTP real. Lo que se prueba acá es el CIERRE: la página
+    lanza procesos con acceso al shell y al filesystem del servidor, así que
+    ningún rol que no sea admin puede tocar ninguno de sus endpoints — y eso
+    depende del fail-closed de _ROLE_ALLOWED en api.py, no de zero/conductor.py.
+
+    A propósito NO se lanza ninguna sesión: eso arrancaría un `claude` real
+    (tokens, login del CLI, red). El ciclo de vida del proceso vive en
+    tests/test_conductor.py contra un proceso falso."""
+
+    JWT_SECRET = "jwt-secret-para-conductor"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.port = _free_port()
+        cls.base = f"http://127.0.0.1:{cls.port}"
+        repo_root = Path(__file__).resolve().parent.parent
+        env = dict(os.environ)
+        env["SUPABASE_JWT_SECRET"] = cls.JWT_SECRET
+        env["AUTH_USERS_PATH"] = os.path.join(tempfile.mkdtemp(), "users.json")
+        # Mismos gotchas ya documentados arriba: sin vaciarlos, el subproceso
+        # hereda Supabase/Ollama/Anthropic reales del .env del repo.
+        env["SUPABASE_URL"] = ""
+        env["SUPABASE_KEY"] = ""
+        env["LOCAL_MODEL"] = ""
+        env["ANTHROPIC_API_KEY"] = ""
+        cls.proc = _start_and_wait(
+            [sys.executable, "-m", "uvicorn", "api:app", "--port", str(cls.port),
+             "--log-level", "warning"],
+            str(repo_root), env, cls.base,
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        proc = getattr(cls, "proc", None)
+        if proc is not None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+
+    def _get(self, path: str, token: str | None = None):
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        req = urllib.request.Request(f"{self.base}{path}", headers=headers)
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return r.status, json.loads(r.read().decode("utf-8"))
+
+    def _jwt(self, **kw) -> str:
+        return _make_supabase_jwt(self.JWT_SECRET, **kw)
+
+    def test_every_non_admin_role_is_locked_out(self):
+        for role in ("cro", "cto", "cco"):
+            for path in ("/api/conductor/status", "/api/conductor/roles",
+                         "/api/conductor/sessions"):
+                with self.assertRaises(urllib.error.HTTPError) as ctx:
+                    self._get(path, token=self._jwt(role=role))
+                self.assertEqual(ctx.exception.code, 403, f"{role} {path}")
+
+    def test_no_token_is_401(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/api/conductor/status")
+        self.assertEqual(ctx.exception.code, 401)
+
+    def test_admin_sees_status_roles_and_sessions(self):
+        admin = self._jwt(role="admin", email="diego@zeroai.cl")
+        status, body = self._get("/api/conductor/status", token=admin)
+        self.assertEqual(status, 200)
+        self.assertIn("available", body)
+
+        status, body = self._get("/api/conductor/roles", token=admin)
+        self.assertEqual(status, 200)
+        self.assertTrue(body["roles"])
+        self.assertTrue(body["models"])
+
+        status, body = self._get("/api/conductor/sessions", token=admin)
+        self.assertEqual(status, 200)
+        self.assertIsInstance(body["sessions"], list)
+
+    def test_roles_payload_carries_selectable_models(self):
+        """El frontend arma el selector con esto — si el backend deja de
+        mandar `models`, la página se queda sin opciones y no se puede elegir
+        con qué modelo se lanza una terminal."""
+        _, body = self._get("/api/conductor/roles", token=self._jwt(role="admin"))
+        valid = {m["id"] for m in body["models"]}
+        self.assertTrue(valid)
+        for r in body["roles"]:
+            self.assertNotIn("emoji", r)
+            self.assertIn(r["default_model"], valid | {None}, r["id"])
+
+    def test_unknown_session_is_404_not_500(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/api/conductor/sessions/no-existe", token=self._jwt(role="admin"))
+        self.assertEqual(ctx.exception.code, 404)
+
+
 if __name__ == "__main__":
     unittest.main()

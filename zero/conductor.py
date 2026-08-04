@@ -74,12 +74,35 @@ def _now_iso() -> str:
 # también a mano). `uso-terminal.sh` queda fuera: es un panel de métricas
 # (btop + ccusage), no un agente lanzable.
 
+# Modelos elegibles al lanzar una sesión. El criterio es el de siempre en este
+# repo: el más barato que alcance (ver la política de selección de modelo —
+# mecánico -> haiku, implementación -> sonnet, arquitectura -> el potente).
+# Cada rol trae un `default_model` sugerido, pero quien lanza puede cambiarlo:
+# el rol define QUÉ toca, el modelo cuánto piensa. Son ejes distintos.
+#
+# Todos corren contra la suscripción de Claude Code ya pagada (costo marginal
+# cero), NO contra el modelo local de Ollama: el CLI `claude` habla con
+# Anthropic. El motor local mueve el pipeline de leads (zero/backends.py::
+# LocalBackend), que es otra ruta de ejecución — no se mezclan acá para no
+# ofrecer como equivalentes dos cosas que no lo son (un 14B no maneja de forma
+# confiable el bucle de herramientas de Claude Code).
+MODELS: List[Dict[str, str]] = [
+    {"id": "opus", "label": "Opus", "hint": "Arquitectura y decisiones difíciles"},
+    {"id": "sonnet", "label": "Sonnet", "hint": "Implementación y refactors"},
+    {"id": "haiku", "label": "Haiku", "hint": "Tareas mecánicas y repetitivas"},
+]
+_MODEL_IDS = {m["id"] for m in MODELS}
+
+
+def models_catalog() -> List[Dict[str, str]]:
+    return list(MODELS)
+
+
 @dataclass
 class RoleDef:
     id: str
     label: str
-    emoji: str
-    model: Optional[str]           # None = default del CLI (hoy Opus)
+    default_model: Optional[str]    # sugerido; None = default del CLI. Overridable al lanzar.
     permission_mode: Optional[str]  # None -> se resuelve a "acceptEdits" al lanzar
     system_prompt: str
     write_zone_hint: str            # informativo, no enforced
@@ -89,8 +112,7 @@ class RoleDef:
         return {
             "id": self.id,
             "label": self.label,
-            "emoji": self.emoji,
-            "model": self.model,
+            "default_model": self.default_model,
             "permission_mode": self.permission_mode or "acceptEdits",
             "write_zone_hint": self.write_zone_hint,
             "relaunch_on_exit": self.relaunch_on_exit,
@@ -99,7 +121,7 @@ class RoleDef:
 
 _ROLE_LIST: List[RoleDef] = [
     RoleDef(
-        id="agents", label="AGENTS", emoji="🤖", model=None, permission_mode=None,
+        id="agents", label="AGENTS", default_model="sonnet", permission_mode=None,
         write_zone_hint="zero/agents/",
         system_prompt=(
             "Eres la terminal 🤖 AGENTS del proyecto ZERO. Implementas y afinas los "
@@ -109,7 +131,7 @@ _ROLE_LIST: List[RoleDef] = [
         ),
     ),
     RoleDef(
-        id="worker", label="WORKER", emoji="🔨", model=None, permission_mode=None,
+        id="worker", label="WORKER", default_model="sonnet", permission_mode=None,
         write_zone_hint="api.py, main.py, zero/ (excepto zero/agents/)",
         system_prompt=(
             "Eres la terminal 🔨 WORKER del proyecto ZERO. Implementas y modificas la "
@@ -120,7 +142,7 @@ _ROLE_LIST: List[RoleDef] = [
         ),
     ),
     RoleDef(
-        id="debug", label="DEBUG", emoji="🔍", model=None, permission_mode=None,
+        id="debug", label="DEBUG", default_model="sonnet", permission_mode=None,
         write_zone_hint="tests/",
         relaunch_on_exit=True,
         system_prompt=(
@@ -132,7 +154,7 @@ _ROLE_LIST: List[RoleDef] = [
         ),
     ),
     RoleDef(
-        id="design", label="DESIGN", emoji="🎨", model=None, permission_mode=None,
+        id="design", label="DESIGN", default_model="sonnet", permission_mode=None,
         write_zone_hint="frontend/, web/",
         system_prompt=(
             "Eres la terminal 🎨 DESIGN del proyecto ZERO. Diseñas e implementas el "
@@ -145,7 +167,7 @@ _ROLE_LIST: List[RoleDef] = [
         ),
     ),
     RoleDef(
-        id="prompts", label="PROMPTS", emoji="📝", model="haiku", permission_mode=None,
+        id="prompts", label="PROMPTS", default_model="haiku", permission_mode=None,
         write_zone_hint="prompts/*.md, PROMPTS_*.md",
         system_prompt=(
             "Eres la terminal 📝 PROMPTS del proyecto ZERO. Tu único trabajo es "
@@ -158,7 +180,7 @@ _ROLE_LIST: List[RoleDef] = [
         ),
     ),
     RoleDef(
-        id="consultas", label="CONSULTAS", emoji="🔎", model="sonnet", permission_mode="plan",
+        id="consultas", label="CONSULTAS", default_model="sonnet", permission_mode="plan",
         write_zone_hint="solo lectura (--permission-mode plan)",
         system_prompt=(
             "Eres la terminal 🔎 CONSULTAS del proyecto ZERO. Tu trabajo es responder "
@@ -265,9 +287,10 @@ class Session:
 
     def __init__(self, session_id: str, role_id: str, worktree_path: str,
                  worktree_branch: Optional[str], process: "asyncio.subprocess.Process",
-                 started_by: Optional[Dict[str, Any]]) -> None:
+                 started_by: Optional[Dict[str, Any]], model: Optional[str] = None) -> None:
         self.id = session_id
         self.role_id = role_id
+        self.model = model
         self.worktree_path = worktree_path
         self.worktree_branch = worktree_branch
         self.process = process
@@ -292,7 +315,7 @@ class Session:
             "id": self.id,
             "role_id": self.role_id,
             "role_label": role.label if role else self.role_id,
-            "role_emoji": role.emoji if role else "",
+            "model": self.model,
             "worktree_path": self.worktree_path,
             "worktree_branch": self.worktree_branch,
             "pid": self.pid,
@@ -329,12 +352,20 @@ def delete_session(session_id: str) -> bool:
 
 # --- ciclo de vida del proceso ------------------------------------------------
 
-def _record_event(session: Session, event: Dict[str, Any]) -> None:
+def _record_event(session: Session, event: Dict[str, Any], *, store: bool = True) -> None:
+    """`store=False` reparte el evento a los suscriptores vivos pero NO lo deja
+    en el buffer de replay. Es lo que se hace con los `stream_event` (los
+    deltas token a token de --include-partial-messages): son miles por turno y
+    llenarían los 500 slots del deque en un par de frases, tirando afuera el
+    historial de verdad. El texto completo llega igual en el evento
+    `assistant` que cierra cada bloque — ESE sí se guarda, y es el que se
+    reproduce al reabrir la sesión."""
     if event.get("type") == "system" and event.get("subtype") == "init" and not session.claude_session_id:
         session.claude_session_id = event.get("session_id")
     if event.get("type") == "result":
         session.turn_in_flight = False
-    session.messages.append(event)
+    if store:
+        session.messages.append(event)
     dead = []
     for q in session.subscribers:
         try:
@@ -372,7 +403,7 @@ async def _reader_loop(session: Session) -> None:
                 event = json.loads(line)
             except json.JSONDecodeError:
                 event = {"type": "raw", "text": line}
-            _record_event(session, event)
+            _record_event(session, event, store=event.get("type") != "stream_event")
     finally:
         await proc.wait()
         session.ended_at = _now_iso()
@@ -393,15 +424,25 @@ async def _reader_loop(session: Session) -> None:
         role = ROLES.get(session.role_id)
         if role and role.relaunch_on_exit and not session.stop_requested:
             try:
-                await start_session(role.id, started_by=session.started_by)
+                await start_session(role.id, started_by=session.started_by,
+                                    model=session.model)
             except Exception:
                 pass   # un relanzamiento fallido no debe tumbar nada más
 
 
-async def start_session(role_id: str, started_by: Optional[Dict[str, Any]] = None) -> Session:
+async def start_session(role_id: str, started_by: Optional[Dict[str, Any]] = None,
+                        model: Optional[str] = None) -> Session:
+    """`model` sobreescribe el sugerido del rol (ver MODELS). El guard sigue
+    siendo por (rol, worktree) a propósito, SIN el modelo en la clave: un rol,
+    una sesión, sin importar con qué modelo se lanzó — si el modelo entrara en
+    la clave, el mismo rol podría abrir tres terminales en paralelo sobre el
+    mismo worktree y el panel dejaría de leerse de un vistazo."""
     role = ROLES.get(role_id)
     if role is None:
         raise KeyError(f"rol desconocido: {role_id!r}")
+    if model is not None and model not in _MODEL_IDS:
+        raise ValueError(f"modelo desconocido: {model!r}")
+    chosen_model = model or role.default_model
 
     worktree_path = str(REPO_ROOT)
     key = (role_id, worktree_path)
@@ -416,11 +457,15 @@ async def start_session(role_id: str, started_by: Optional[Dict[str, Any]] = Non
         "--input-format", "stream-json",
         "--output-format", "stream-json",
         "--verbose",
+        # Deltas token a token: sin esto el turno entero aparece de golpe al
+        # terminar (un log que se refresca, no un chat). Ver _record_event
+        # para por qué estos eventos no entran al buffer de replay.
+        "--include-partial-messages",
         "--permission-mode", role.permission_mode or "acceptEdits",
         "--append-system-prompt", role.system_prompt,
     ]
-    if role.model:
-        cmd += ["--model", role.model]
+    if chosen_model:
+        cmd += ["--model", chosen_model]
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -435,7 +480,7 @@ async def start_session(role_id: str, started_by: Optional[Dict[str, Any]] = Non
         raise
 
     session = Session(session_id, role_id, worktree_path, _branch_for(worktree_path),
-                      proc, started_by)
+                      proc, started_by, model=chosen_model)
     _SESSIONS[session_id] = session
     session.reader_task = asyncio.create_task(_reader_loop(session))
     session.stderr_task = asyncio.create_task(_drain_stderr(session))
@@ -454,8 +499,26 @@ async def send_turn(session_id: str, text: str) -> None:
     payload = json.dumps({"type": "user", "message": {"role": "user", "content": text}},
                          ensure_ascii=False)
     session.turn_in_flight = True
-    session.process.stdin.write((payload + "\n").encode("utf-8"))
-    await session.process.stdin.drain()
+    try:
+        session.process.stdin.write((payload + "\n").encode("utf-8"))
+        await session.process.stdin.drain()
+    except (BrokenPipeError, ConnectionResetError) as e:
+        # El proceso murió entre el chequeo de status y la escritura. Sin este
+        # rescate, turn_in_flight queda en True para siempre y la sesión no
+        # vuelve a aceptar un turno ni aunque el reader_loop la marque muerta.
+        session.turn_in_flight = False
+        raise RuntimeError("la sesión murió antes de recibir el turno") from e
+    # El CLI no devuelve el turno del usuario en su stdout — solo responde. Si
+    # no lo registramos acá, lo que escribe el humano no existe en ninguna
+    # parte: no se dibuja en el chat y desaparece del historial al reabrir la
+    # sesión (quedaba un monólogo del asistente). Se guarda con la MISMA forma
+    # que un evento `assistant` (content = lista de bloques) para que el
+    # frontend recorra ambos con el mismo código.
+    _record_event(session, {
+        "type": "user",
+        "message": {"role": "user", "content": [{"type": "text", "text": text}]},
+        "at": _now_iso(),
+    })
 
 
 async def stop_session(session_id: str) -> Session:

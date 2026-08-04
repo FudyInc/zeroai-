@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { SquareTerminal, AlertTriangle } from 'lucide-react'
 import { api } from '../lib/api'
-import { Card, Skeleton, pageState, SectionTitle } from '../components/ui'
+import { Card, Skeleton, pageState, SectionTitle, Eyebrow } from '../components/ui'
 import RoleCard from '../components/conductor/RoleCard'
 import SessionChat from '../components/conductor/SessionChat'
 
@@ -16,6 +16,10 @@ export default function Conductor() {
   const qc = useQueryClient()
   const [openSessionId, setOpenSessionId] = useState(null)
   const [startingRole, setStartingRole] = useState(null)
+  // Modelo elegido por rol, solo mientras dura la vista. El default viene del
+  // backend (role.default_model); esto guarda únicamente lo que el usuario
+  // cambia a mano antes de darle Iniciar.
+  const [modelByRole, setModelByRole] = useState({})
 
   const statusQ = useQuery({ queryKey: ['conductor', 'status'], queryFn: api.conductorStatus })
   const rolesQ = useQuery({
@@ -54,7 +58,8 @@ export default function Conductor() {
     )
   }
 
-  const roles = rolesQ.data || []
+  const roles = rolesQ.data?.roles || []
+  const models = rolesQ.data?.models || []
   const sessions = sessionsQ.data || []
   const latestByRole = {}
   for (const s of sessions) {
@@ -62,10 +67,13 @@ export default function Conductor() {
     if (!prev || new Date(s.started_at) > new Date(prev.started_at)) latestByRole[s.role_id] = s
   }
 
-  const start = async (roleId) => {
-    setStartingRole(roleId)
+  const modelFor = (role) =>
+    modelByRole[role.id] || role.default_model || models[0]?.id || 'sonnet'
+
+  const start = async (role) => {
+    setStartingRole(role.id)
     try {
-      const session = await api.conductorStartSession(roleId)
+      const session = await api.conductorStartSession(role.id, modelFor(role))
       qc.invalidateQueries({ queryKey: ['conductor', 'sessions'] })
       setOpenSessionId(session.id)
     } catch (e) {
@@ -95,21 +103,24 @@ export default function Conductor() {
         <SquareTerminal size={18} className="text-gold-deep" />
         <SectionTitle>Conductor</SectionTitle>
       </div>
-      <p className="text-sm text-zinc-500 max-w-2xl">
-        Lanza y monitorea las terminales de Claude Code del proyecto — mismo rol, modelo y prompt
-        de siempre (AGENTS, WORKER, DEBUG, DESIGN, PROMPTS, CONSULTAS), ahora desde acá en vez de
-        una pestaña aparte. Las sesiones no se guardan: mueren si se reinicia el backend, igual
-        que las terminales de hoy.
+      <p className="text-sm text-pewter max-w-2xl">
+        Lanza y monitorea las terminales de Claude Code del proyecto. El rol define qué zona del
+        repo toca cada terminal; el modelo, cuánto piensa — se elige antes de iniciar. Las sesiones
+        no se guardan: mueren si se reinicia el backend, igual que las terminales de hoy.
       </p>
 
       <div className="space-y-2">
+        <Eyebrow>Terminales</Eyebrow>
         {roles.map((role) => (
           <RoleCard
             key={role.id}
             role={role}
+            models={models}
+            model={modelFor(role)}
+            onModelChange={(m) => setModelByRole((prev) => ({ ...prev, [role.id]: m }))}
             session={latestByRole[role.id]}
             busy={startingRole === role.id}
-            onStart={() => start(role.id)}
+            onStart={() => start(role)}
             onOpen={() => setOpenSessionId(latestByRole[role.id]?.id)}
             onStop={() => stop(latestByRole[role.id]?.id)}
           />

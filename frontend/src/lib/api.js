@@ -140,11 +140,14 @@ export const api = {
   // Conductor — lanza/monitorea sesiones del CLI real `claude` (ver
   // zero/conductor.py). Admin-only del lado del backend.
   conductorStatus: () => req('/api/conductor/status'),
-  conductorRoles: () => req('/api/conductor/roles').then((d) => d.roles),
+  // { roles, models } — los modelos elegibles vienen del backend (una sola
+  // fuente de verdad, conductor.MODELS), no duplicados en el frontend.
+  conductorRoles: () => req('/api/conductor/roles'),
   conductorSessions: () => req('/api/conductor/sessions').then((d) => d.sessions),
-  conductorStartSession: (roleId) =>
+  conductorStartSession: (roleId, model) =>
     req('/api/conductor/sessions', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role_id: roleId }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role_id: roleId, model: model || null }),
     }),
   // 409 con existing_session_id: el caller decide "adjuntarse" a esa sesión
   // en vez de tratarlo como un error — por eso req() adjunta status/body al
