@@ -1209,14 +1209,53 @@ def _current_identity_label(request: Request) -> str:
     return auth.get("email") or auth.get("username") or "admin"
 
 
+def _agents_autonomous(source=None):
+    """El cerebro de las corridas DESATENDIDAS (scheduler). Invierte la
+    preferencia de _agents_best a propósito: modelo local (gratis) ANTES que
+    Anthropic (pago).
+
+    El porqué: _agents_best elige la máxima calidad, que es lo correcto cuando
+    una persona aprieta un botón y mira el resultado. Pero el scheduler dispara
+    solo, cada N minutos, para siempre — con la API paga eso es gasto continuo
+    que nadie está viendo, justo lo que la política de costo del proyecto
+    evita. El destino de producción del motor es el modelo local; acá se
+    respeta literalmente."""
+    local = (os.environ.get("LOCAL_MODEL") or "").strip()
+    if local:
+        try:
+            from zero.backends import LocalBackend
+            url = os.environ.get("LOCAL_MODEL_URL", "http://localhost:11434/v1")
+            return build_agents(backend=LocalBackend(model=local, base_url=url),
+                                mock=False, source=source), "local"
+        except Exception:
+            pass
+    key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+    if key:
+        try:
+            from zero.backends import AnthropicBackend
+            return build_agents(backend=AnthropicBackend(api_key=key), mock=False,
+                                source=source), "live"
+        except Exception:
+            pass
+    return build_agents(mock=True, source=source), "mock"
+
+
 def _zero_for_actions(crm, memory):
-    """El orquestador que ejecuta las acciones de ENVÍO que pide una función
-    (ver zero/function_actions.py). Agentes en mock a propósito: acá no se
-    redacta nada con IA — el texto del mensaje ya viene escrito por la función,
-    solo hace falta el camino de envío de Zero._deliver (credenciales del
-    vendedor, nombre del remitente, registro en el historial). Levantar el
-    motor real sería gasto y latencia para nada."""
-    return Zero(build_agents(mock=True), memory=memory, crm=crm, outbox=make_outbox())
+    """El orquestador que ejecuta lo que pide una función: los ENVÍOS (usa
+    Zero._deliver — credenciales del vendedor, remitente, historial) y ahora
+    también los TRABAJOS DE AGENTE (pipeline/followups, ver
+    zero/function_actions.py::run_job).
+
+    Antes los agentes iban en mock a propósito, porque una acción de envío trae
+    el texto ya escrito y no necesita IA. Con los trabajos de agente eso dejó de
+    ser inofensivo: run_pipeline con agentes mock inventa leads deterministas y
+    los escribe en el CRM real. Por eso ahora se levanta un cerebro de verdad,
+    con discovery web real, y `_engine_mode` queda anotado para que run_job
+    pueda NEGARSE a correr un pipeline si lo único disponible es mock."""
+    agents, mode = _agents_autonomous(source=_discovery_source())
+    zero = Zero(agents, memory=memory, crm=crm, outbox=make_outbox())
+    zero._engine_mode = mode   # leído por function_actions.run_job (duck-typing)
+    return zero
 
 
 class FunctionScope(BaseModel):

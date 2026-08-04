@@ -59,6 +59,33 @@ FUNCTION_ALLOWED_ACTION_TYPES = ("whatsapp", "email", "stage", "note")
 # reportado, no se ejecuta a medias en silencio.
 FUNCTION_MAX_ACTIONS_PER_RUN = 25
 
+# --- trabajos de agente pedidos por una función programada -------------------
+# Lo que convierte al panel de Funciones en una empresa que opera sola: una
+# función vencida puede pedir que corran los AGENTES (buscar leads nuevos,
+# avanzar seguimientos), no solo tocar leads uno por uno. Misma regla de
+# siempre: el sandbox no ejecuta nada — pide, y este lado confiable valida y
+# corre. Ver zero/function_actions.py.
+FUNCTION_ALLOWED_JOB_TYPES = ("pipeline", "followups")
+
+# Un trabajo por corrida. Los `actions` normales toleran 25 porque son baratos
+# (mover una etapa, dejar una nota); un trabajo de agente sale a la web, llama
+# al modelo y tarda minutos. Una función con un bucle con bug que pidiera 25
+# pipelines dejaría al scheduler ocupado horas y llenaría el CRM de basura.
+FUNCTION_MAX_JOBS_PER_RUN = 1
+
+# Tope duro de leads por corrida automática, por encima de lo que pida la
+# función. El límite mensual del tier sigue aplicando aparte (tier_config);
+# esto es el freno de mano de lo desatendido: nadie mira una corrida a las
+# 07:00, así que no puede irse a 200 leads por un número mal escrito.
+FUNCTION_JOB_MAX_COUNT = 10
+
+# Las corridas automáticas NUNCA envían: dejan el mensaje en borrador
+# (outreach.status="draft") para que una persona lo apruebe desde el dashboard.
+# Es la misma decisión que ya rige el disparo manual (auto_send=False por
+# defecto en la API desde 2026-07-19), sostenida acá donde más importa: si algo
+# sale mal a las 07:00, ensucia el CRM — no le llega a un cliente real.
+FUNCTION_JOBS_AUTO_SEND = False
+
 # --- WhatsApp Business — plantilla para contacto en frío ----------------------
 # Meta EXIGE una plantilla pre-aprobada para el primer mensaje a un lead que nunca
 # escribió, o cualquier mensaje fuera de la ventana de 24h desde su último mensaje —
