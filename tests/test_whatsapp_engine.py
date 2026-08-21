@@ -344,5 +344,69 @@ class EmailSubjectTest(unittest.TestCase):
         self.assertNotIn("\r", s)
 
 
+class TwilioResultTest(unittest.TestCase):
+    """Un envío que Twilio rechazó no puede reportarse como enviado.
+
+    El POST devolviendo 200 solo dice que Twilio aceptó la petición. El cuerpo
+    puede traer `status: "failed"` con su error_code — y eso es justo lo que pasó
+    con el primer aviso al celular del dueño (63015, número no unido al sandbox),
+    reportado como "sent" durante toda la sesión.
+    """
+
+    def test_a_failed_send_is_reported_as_error(self):
+        from zero.channels import _twilio_result
+        r = _twilio_result("56978398103", {
+            "sid": "SM1", "status": "failed", "error_code": 63015,
+            "error_message": "Channel has not been joined"})
+        self.assertEqual(r["status"], "error")
+        self.assertIn("63015", r["error"])
+
+    def test_an_error_code_alone_is_enough(self):
+        # Twilio puede traer el código con un estado que suena inocente.
+        from zero.channels import _twilio_result
+        r = _twilio_result("569", {"sid": "SM2", "status": "sent", "error_code": 30008})
+        self.assertEqual(r["status"], "error")
+
+    def test_undelivered_counts_as_failure(self):
+        from zero.channels import _twilio_result
+        r = _twilio_result("569", {"sid": "SM3", "status": "undelivered"})
+        self.assertEqual(r["status"], "error")
+
+    def test_queued_is_the_normal_path(self):
+        # "queued" es lo que devuelve un envío sano: aceptado y en camino.
+        from zero.channels import _twilio_result
+        r = _twilio_result("569", {"sid": "SM4", "status": "queued", "error_code": None})
+        self.assertEqual(r["status"], "sent")
+        self.assertEqual(r["id"], "SM4")
+
+    def test_delivered_is_a_success(self):
+        from zero.channels import _twilio_result
+        self.assertEqual(_twilio_result("569", {"sid": "SM5", "status": "delivered"})["status"], "sent")
+
+    def test_a_failed_alert_does_not_burn_the_throttle(self):
+        """Si el aviso falla, el próximo problema tiene que poder reintentar.
+
+        Junta las dos piezas: alerts marca la ventana solo cuando el envío no dio
+        error, y ahora un rechazo de Twilio SÍ llega como error.
+        """
+        alerts.reset_throttle()
+        self.addCleanup(alerts.reset_throttle)
+
+        class TwilioRechaza:
+            def __init__(self): self.envios = 0
+            def send(self, msg, wa_creds=None):
+                self.envios += 1
+                from zero.channels import _twilio_result
+                return _twilio_result(msg["to"], {"sid": "SM", "status": "failed",
+                                                  "error_code": 63015})
+
+        box = TwilioRechaza()
+        with mock.patch.dict(os.environ, {"OWNER_WHATSAPP_TO": "+56978398103"}, clear=False):
+            alerts.notify_owner("uno", outbox=box, now=1000.0)
+            res = alerts.notify_owner("dos", outbox=box, now=1001.0)
+        self.assertNotEqual(res["status"], "throttled")
+        self.assertEqual(box.envios, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

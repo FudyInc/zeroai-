@@ -50,6 +50,36 @@ def _result(channel: str, to: Optional[str], status: str, *, id: Optional[str] =
     return {"channel": channel, "to": to, "status": status, "id": id, "error": error, "via": via}
 
 
+# Estados con los que Twilio dice "esto NO salió". El resto (queued, accepted,
+# sending, sent, delivered, read) es camino normal.
+_TWILIO_ESTADOS_FALLIDOS = ("failed", "undelivered")
+
+
+def _twilio_result(to: str, res: Dict[str, Any]) -> Dict[str, Any]:
+    """Traduce la respuesta de Twilio a nuestro contrato, MIRANDO lo que dijo.
+
+    Que el POST devuelva 200 solo significa que Twilio aceptó la petición, no que
+    el mensaje haya salido: el cuerpo puede traer `status: "failed"` con su
+    `error_code`. Antes se devolvía "sent" incondicionalmente y un fallo real se
+    reportaba como éxito.
+
+    Encontrado en vivo (2026-08-21): un aviso al celular del dueño devolvió
+    "sent" y Twilio lo tenía como `failed / 63015` (el número no está unido al
+    sandbox, la sesión dura 3 días). Un sistema de alertas que informa éxito
+    mientras falla es peor que no tener alertas — es la única pieza cuyo fallo
+    nadie más va a notar.
+    """
+    estado = str(res.get("status") or "").lower()
+    codigo = res.get("error_code")
+    if codigo or estado in _TWILIO_ESTADOS_FALLIDOS:
+        detalle = res.get("error_message") or f"Twilio devolvió estado '{estado or "?"}'"
+        if codigo:
+            detalle = f"[{codigo}] {detalle}"
+        return _result("whatsapp", to, "error", id=res.get("sid"),
+                       error=detalle, via="whatsapp")
+    return _result("whatsapp", to, "sent", id=res.get("sid"), via="whatsapp")
+
+
 class MockSender:
     """Records a send without any network. Faithful to the real contract."""
     name = "mock"
@@ -211,7 +241,7 @@ class TwilioWhatsAppSender:
         frm = "".join(ch for ch in str(self.from_number) if ch.isdigit())
         form = {"From": f"whatsapp:+{frm}", "To": f"whatsapp:+{to}", **fields}
         res = self._post(form)
-        return _result("whatsapp", to, "sent", id=res.get("sid"), via="whatsapp")
+        return _twilio_result(to, res)
 
     @staticmethod
     def _template_fields(text: str) -> Optional[Dict[str, str]]:
