@@ -300,5 +300,49 @@ class IcpLeakTest(unittest.TestCase):
         self.assertEqual(capturado["data"]["icp"], {})
 
 
+class EmailSubjectTest(unittest.TestCase):
+    """Ningún correo puede salir sin asunto.
+
+    El transporte cae a "Hola" cuando falta (zero/channels.py), y un correo B2B
+    en frío titulado "Hola" desde una dirección desconocida se va a spam. Los
+    prompts permiten `subject: null` y el modelo lo aprovecha, así que esto se
+    asegura en el mecanismo — igual que la fuga del ICP.
+    """
+
+    def test_email_without_subject_gets_one(self):
+        from zero.orchestrator import _asunto
+        s = _asunto({"channel": "email", "subject": None}, "Mejores Mudanzas")
+        self.assertTrue(s)
+        self.assertIn("Mejores Mudanzas", s)
+
+    def test_blank_subject_counts_as_missing(self):
+        from zero.orchestrator import _asunto
+        self.assertTrue(_asunto({"channel": "email", "subject": "   "}, "Acme"))
+
+    def test_a_real_subject_is_respected(self):
+        from zero.orchestrator import _asunto
+        s = _asunto({"channel": "email", "subject": "Propuesta para Acme"}, "Acme")
+        self.assertEqual(s, "Propuesta para Acme")
+
+    def test_whatsapp_keeps_no_subject(self):
+        # WhatsApp no tiene asunto: inventarle uno sería ruido, no una mejora.
+        from zero.orchestrator import _asunto
+        self.assertIsNone(_asunto({"channel": "whatsapp", "subject": None}, "Acme"))
+
+    def test_fallback_survives_a_missing_company(self):
+        from zero.config import email_subject_fallback
+        for nombre in (None, "", "   "):
+            self.assertTrue(email_subject_fallback(nombre).strip())
+
+    def test_fallback_is_a_sane_subject_line(self):
+        # Menos de 60 caracteres y sin saltos de línea: una cabecera de correo
+        # con \n es inyección de cabeceras, y una larga se corta en el cliente.
+        from zero.config import email_subject_fallback
+        s = email_subject_fallback("Mudanzas Santiago")
+        self.assertLess(len(s), 60)
+        self.assertNotIn("\n", s)
+        self.assertNotIn("\r", s)
+
+
 if __name__ == "__main__":
     unittest.main()

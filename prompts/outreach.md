@@ -57,3 +57,12 @@ Devuelve **solo** un objeto JSON:
   "notes": "string|null"
 }
 ```
+
+> **`subject` es obligatorio cuando `channel` es `"email"`.** `null` solo vale para
+> WhatsApp, que no tiene asunto. Un correo en frío sin asunto sale con el default del
+> transporte ("Hola") y se va a spam. Escribe uno **corto (menos de 60 caracteres),
+> concreto y sin clickbait** — que diga de qué se trata, no "¡Oportunidad única!".
+> Encontrado en vivo (2026-08-21): teniendo `null` permitido, el modelo lo devolvía
+> null casi siempre. El código ahora rellena un asunto de respaldo, pero el tuyo
+> —que conoce a la empresa— siempre va a ser mejor que el genérico.
+

@@ -263,6 +263,28 @@ MIN_ICP_SCORE_BY_TIER = {
     "SCALE": 70,
     "ENTERPRISE": 80,
 }
+# --- Asunto de correo (2026-08-21) -------------------------------------------
+# Los prompts de OUTREACH/TRACKER declaran `"subject": "string|null"` y el
+# modelo, teniendo permitido null, lo devuelve null casi siempre. El transporte
+# entonces caía a "Hola" (zero/channels.py) — un correo B2B en frío titulado
+# "Hola", desde una dirección desconocida, es candidato directo a spam.
+#
+# Se pide bien en el prompt Y se asegura acá: con motor local ya comprobamos que
+# pedir por prompt no alcanza (ver converse_result). El asunto es texto de cara
+# al cliente, o sea política: se cambia acá, no en la lógica.
+# `{company}` es el único campo que se sustituye; si falta, se usa la variante corta.
+EMAIL_SUBJECT_FALLBACK = "{company}: una idea para conseguir más clientes"
+EMAIL_SUBJECT_FALLBACK_SIN_EMPRESA = "Una idea para conseguir más clientes"
+
+
+def email_subject_fallback(company: Optional[str] = None) -> str:
+    """Asunto de respaldo cuando el modelo no redactó uno. Nunca vacío."""
+    nombre = (company or "").strip()
+    if not nombre:
+        return EMAIL_SUBJECT_FALLBACK_SIN_EMPRESA
+    return EMAIL_SUBJECT_FALLBACK.format(company=nombre)
+
+
 RECONTACT_BLACKOUT_DAYS = 90  # do not deliver a lead contacted more recently
 REQUIRED_FIELDS = ("company", "role", "channel")  # minimum fields a lead needs
 

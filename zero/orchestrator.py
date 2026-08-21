@@ -18,6 +18,7 @@ from .config import (
     MAX_INBOUND_MESSAGE_CHARS,
     RECONTACT_BLACKOUT_DAYS,
     REQUIRED_FIELDS,
+    email_subject_fallback,
     followup_step,
     min_icp_score,
     project_funnel,
@@ -133,6 +134,16 @@ def _merge_qualifier_scores(raw_leads: List[Lead], qual_leads: List[Dict[str, An
     return merged
 
 
+def _asunto(msg: Dict[str, Any], company: Optional[str] = None) -> Optional[str]:
+    """El asunto que va al borrador. Para email nunca vacío (ver
+    config.email_subject_fallback); para WhatsApp sigue siendo None, que es lo
+    correcto: ese canal no tiene asunto."""
+    if (msg.get("channel") or "") != "email":
+        return msg.get("subject")
+    return (msg.get("subject") or "").strip() or email_subject_fallback(
+        msg.get("company") or company)
+
+
 class Zero:
     def __init__(self, agents: Dict[str, Any], memory: Optional[SessionMemory] = None,
                  crm: Any = None, outbox: Optional[Outbox] = None,
@@ -200,6 +211,12 @@ class Zero:
         if wa_creds is None and (msg.get("channel") or "") == "whatsapp" and client_id:
             wa_creds = credentials_for(vendor)
         payload = {**msg, "to": to}
+        # Un correo sin asunto sale con el default del transporte ("Hola" en
+        # channels.py): en frío, desde una dirección desconocida, eso es spam.
+        # Se rellena acá —el punto por el que pasa TODO envío— para que ningún
+        # camino de redacción pueda saltárselo. Ver config.email_subject_fallback.
+        if (msg.get("channel") or "") == "email" and not (msg.get("subject") or "").strip():
+            payload["subject"] = email_subject_fallback(msg.get("company"))
         # Nombre del remitente en el "From" del email (EmailSender lo usa si viene) —
         # sin esto, el correo sale con la dirección pelada (ej. una Gmail personal),
         # que se ve poco profesional y no dice de parte de quién escribe.
@@ -355,7 +372,7 @@ class Zero:
                 continue
             self.crm.set_outreach(client_id, lead.key(), {
                 "channel": msg.get("channel"),
-                "subject": msg.get("subject"),
+                "subject": _asunto(msg, lead.company),
                 "body": msg.get("body"),
                 "status": "draft",
             })
@@ -644,7 +661,8 @@ class Zero:
                 # mande a mano — ver Zero.send_pending_outreach.
                 if self.crm:
                     self.crm.set_outreach(client_id, s["lead_key"], {
-                        "channel": msg.get("channel"), "subject": msg.get("subject"),
+                        "channel": msg.get("channel"),
+                        "subject": _asunto(msg, s.get("company")),
                         "body": msg.get("body"), "status": "draft",
                     })
                     cadence = followup_step(s["step"]) or {}
