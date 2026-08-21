@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 .env
+.env.bak-*
 google-sheets-key.json
 state.json
 crm.json
@@ -9,6 +10,7 @@ finance.json
 users.json
 activity.json
 *.json.bak
+*.json.bak-*
 *.json.tmp
 .venv/
 venv/
