@@ -1,0 +1,8 @@
+[Unit]
+Description=ZeroAI — pone los workspaces al día con origin/main
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/diego/zeroai
+ExecStart=/usr/bin/env bash /home/diego/zeroai/scripts/sincronizar-workspaces.sh

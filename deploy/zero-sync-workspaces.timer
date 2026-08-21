@@ -1,0 +1,13 @@
+[Unit]
+Description=Sincroniza los workspaces cada mañana
+
+[Timer]
+# 07:30 hora local. Antes de que empieces a trabajar, para que nunca abras
+# Cursor sobre una rama de hace un mes.
+OnCalendar=*-*-* 07:30:00
+# Si el PC estaba apagado a esa hora, corre al encender — un workspace
+# desactualizado es exactamente el problema que esto evita.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

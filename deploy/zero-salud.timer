@@ -1,0 +1,12 @@
+[Unit]
+Description=Revisa la salud de ZeroAI cada 30 minutos
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=30min
+# De paso mantiene el modelo local caliente en VRAM: la primera respuesta de
+# WhatsApp tras un rato ocioso pasa de ~10s a ~2s.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
