@@ -766,7 +766,19 @@ class Zero:
         # devuelva algo irreconocible → reply vacío para el lead, en silencio.
         # Visto en vivo (2026-07-13): 3000 repeticiones de "hola " bastaron.
         message = (message or "")[:MAX_INBOUND_MESSAGE_CHARS]
-        icp = self.memory.get_client_icp(client_id) if client_id else {}
+        # CONCIERGE recibe SOLO qué vende la empresa, no a quién sale a buscar.
+        # El resto del ICP (industry, buyer_roles, regions, must_have, exclude,
+        # context) es política de PROSPECCIÓN: describe al lead que queremos
+        # encontrar, no al lead que ya está escribiendo. MEDIABUYER sí recibe el
+        # ICP completo — ahí el targeting es justo el punto.
+        #
+        # Encontrado en vivo (2026-08-21): con `industry = "empresas de mudanzas"`,
+        # el agente abría con "ayudamos a empresas de mudanzas como la tuya" a un
+        # lead del que solo sabía el nombre. Pedírselo por prompt NO bastó — el
+        # motor local (qwen2.5:14b) siguió usando el campo igual. Se resuelve
+        # mecánicamente: si el dato no viaja, no puede filtrarse a la respuesta.
+        _icp_completo = self.memory.get_client_icp(client_id) if client_id else {}
+        icp = {"sells": _icp_completo["sells"]} if _icp_completo.get("sells") else {}
         # La ficha de la empresa cargada desde el dashboard: acotada para que un
         # documento largo no reviente el presupuesto de contexto del modelo.
         knowledge = (self.memory.get_client_knowledge(client_id) if client_id else "")[:4000]

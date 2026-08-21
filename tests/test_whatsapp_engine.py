@@ -249,5 +249,56 @@ class EngineStatusTest(unittest.TestCase):
         self.assertNotIn("sk-ant-secreta", repr(st))
 
 
+class IcpLeakTest(unittest.TestCase):
+    """CONCIERGE no puede ver a quién SALIMOS A BUSCAR — solo qué vendemos.
+
+    Los campos de segmentación (industry, buyer_roles, regions...) describen al
+    lead que queremos encontrar, no al que ya está escribiendo. Filtrarlos a la
+    respuesta produce "ayudamos a empresas de mudanzas como la tuya" dicho a
+    cualquiera. Pedirlo por prompt no alcanzó con motor local: se corta en el
+    mecanismo, y esto lo vigila.
+    """
+
+    def _zero_con_icp(self, icp):
+        from unittest.mock import MagicMock
+        from zero.orchestrator import Zero
+
+        z = Zero.__new__(Zero)                     # sin __init__: no queremos backends
+        z.memory = MagicMock()
+        z.memory.get_client_icp.return_value = icp
+        z.memory.get_client_knowledge.return_value = "ficha de la empresa"
+        z.memory.get_client_pricing.return_value = {}
+        z.memory.get_conversation.return_value = []
+        z.crm = None
+        z.vendor_for = lambda _c: {"name": "Fernanda", "tone": "cálido"}
+        capturado = {}
+
+        def _dispatch(_agent, payload, **_kw):
+            capturado["data"] = payload.data
+            return MagicMock(status="done", result={"reply": "ok", "intent": "info"})
+
+        z.dispatch = _dispatch
+        return z, capturado
+
+    def test_concierge_only_sees_what_we_sell(self):
+        icp = {"sells": "leads B2B", "industry": "empresas de mudanzas",
+               "buyer_roles": ["dueño"], "regions": ["RM"],
+               "context": "Buscamos empresas de mudanzas para ofrecerles el servicio"}
+        z, capturado = self._zero_con_icp(icp)
+        z.converse_result("zeroai", "hola", lead={"name": "Marcela"}, history=[])
+
+        visto = capturado["data"]["icp"]
+        self.assertEqual(visto, {"sells": "leads B2B"})
+        for filtrado in ("industry", "buyer_roles", "regions", "context"):
+            self.assertNotIn(filtrado, visto)
+        # y que no se cuele por otra puerta del mismo task
+        self.assertNotIn("mudanzas", str(capturado["data"]["icp"]))
+
+    def test_an_empty_icp_stays_empty(self):
+        z, capturado = self._zero_con_icp({})
+        z.converse_result("zeroai", "hola", lead={}, history=[])
+        self.assertEqual(capturado["data"]["icp"], {})
+
+
 if __name__ == "__main__":
     unittest.main()

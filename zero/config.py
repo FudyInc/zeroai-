@@ -32,9 +32,16 @@ DEFAULT_VENDOR_ID = "fernanda"
 # compartido para cualquier prueba — cae aquí.
 # `None`/"" desactiva el catch-all (vuelve al comportamiento anterior: ignora
 # al desconocido) — útil si algún día hay varios clientes reales y ya no
-# tiene sentido adivinar. Mientras dure el sandbox: "demo" (atendido por
-# DEFAULT_VENDOR_ID = fernanda, ver zero/orchestrator.py::handle_inbound).
-DEFAULT_INBOUND_CLIENT_ID = "demo"
+# tiene sentido adivinar.
+#
+# 2026-08-21: pasa de "demo" a "zeroai". El catch-all decide CON QUÉ NEGOCIO se
+# atiende a un desconocido, y "demo" era una ficha de prueba (pallets de madera):
+# quien escribiera al WhatsApp recibía una oferta de pallets en vez de nuestros
+# servicios. Hoy el número entrante es el nuestro y a quien escribe le vendemos
+# lo nuestro. Cuando haya un segundo cliente real con número propio, esto deja de
+# usarse: `_resolve_inbound_client` resuelve por `phone_id` del vendedor y solo
+# cae acá si no puede (ver zero/orchestrator.py::handle_inbound).
+DEFAULT_INBOUND_CLIENT_ID = "zeroai"
 
 # --- Acciones que una función programada puede PEDIR --------------------------
 # Una función sandboxeada nunca actúa por sí misma: corre con --network=none y
