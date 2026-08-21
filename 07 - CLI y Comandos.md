@@ -103,9 +103,17 @@ python3 demo.py                              # recorrido animado en terminal
 
 ### Dashboard local
 
+Backend, túnel y dashboard corren como **servicios** y arrancan solos con el
+sistema. No hay que levantar nada a mano: entra a http://localhost:5173.
+
 ```bash
-./start.sh        # backend :8800 + dashboard :5173  → http://localhost:5173
-./start.sh --lan  # accesible en la wifi (para el socio)
+./start.sh          # revisa que los 3 servicios estén arriba y muestra las URLs
+./start.sh --dev    # instancia aparte (:8801 + :5174) para probar sin tocar los servicios
+
+# manejo de los servicios
+sudo systemctl status zero-backend zero-tunnel   # backend + túnel (sistema)
+systemctl --user status zero-dashboard           # dashboard (usuario, por el node de nvm)
+journalctl --user -u zero-dashboard -n 50        # logs del dashboard
 ```
 
 > [!note]

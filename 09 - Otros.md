@@ -37,7 +37,8 @@ El dashboard elige: **Anthropic** (si hay `ANTHROPIC_API_KEY`) → **local** (si
 - **Presentación separada de los datos** — `board.py` / `export.py` / `frontend/` solo muestran; no deciden.
 - **Disciplina de alcance** — cada feature es un pasivo; adueñarse del núcleo antes de expandir. Equipo de 1.
 - **Costo cero** — posponer toda integración de pago; perfeccionar lo gratis primero. Ver [[06 - Roadmap]].
-- **Hosting local** (2026-06-10) — se corre con `./start.sh` (backend :8800 + dashboard :5173) por la fricción de Render free (disco efímero que borraba keys). El `.env` local persiste; Supabase mantiene los datos en la nube.
+- **Hosting local** (2026-06-10) — corre en esta máquina (backend :8800 + dashboard :5173) por la fricción de Render free (disco efímero que borraba keys). El `.env` local persiste; Supabase mantiene los datos en la nube.
+- **Todo arranca solo** (2026-08-21) — `zero-backend` y `zero-tunnel` son unidades de sistema (`deploy/install.sh`, con sudo); `zero-dashboard` es unidad **de usuario** (`deploy/install-dashboard.sh`, sin sudo) porque necesita el node de nvm del home. Lo que lo levanta en el boot es `loginctl enable-linger diego`. `./start.sh` ya no levanta nada: solo reporta estado.
 
 ## TODOs / discrepancias detectadas
 

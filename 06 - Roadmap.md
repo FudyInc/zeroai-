@@ -16,7 +16,7 @@ Los cinco agentes del núcleo son reales en **todos** los backends (mock · loca
 - [x] Cada lead aterriza en el **[[04 - CRM y Pipeline de Ventas|CRM]]** con etapa e historial.
 - [x] Agentes de extensión: **CONCIERGE** (respuestas), **MEDIABUYER** (Meta Ads), **PITCHWRITER** (pitch).
 - [x] Dashboard web (`api.py` + `frontend/`), datos en la nube (Supabase), config persistente.
-- [x] Corre **local** (`./start.sh`) como fuente de verdad. Ver [[09 - Otros]].
+- [x] Corre **local** como fuente de verdad, con backend, túnel y dashboard arrancando solos en el boot (systemd). Ver [[09 - Otros]].
 
 ## Próximos pasos
 

@@ -51,8 +51,9 @@ En la página del sandbox, campo **"When a message comes in"**, pega:
 https://<tu-host-público>/api/webhooks/twilio-whatsapp     (método: POST)
 ```
 
-- La API corre local (`./start.sh`), así que necesitas una URL pública hacia el
-  puerto 8800 — un túnel gratis sirve (ej. `cloudflared tunnel --url http://localhost:8800`).
+- La API corre local (servicio `zero-backend`, :8800), así que necesitas una URL
+  pública hacia ese puerto. Ya hay una: el servicio `zero-tunnel` levanta ngrok
+  con dominio fijo y arranca solo con el sistema.
 - Si hay túnel/proxy delante, agrega en `.env` la URL exacta que pegaste en la
   consola: `TWILIO_WEBHOOK_URL=https://<tu-host-público>/api/webhooks/twilio-whatsapp`.
   La firma de Twilio se calcula sobre esa URL carácter por carácter; detrás de un

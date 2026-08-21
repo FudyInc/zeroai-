@@ -1,0 +1,21 @@
+# Unidad de USUARIO (no de sistema): se instala en ~/.config/systemd/user/ y se
+# maneja con `systemctl --user`. Va acá y no en /etc/systemd/system porque el
+# dashboard necesita el node de nvm, que vive en el home de diego.
+# Arranca en el boot gracias a `loginctl enable-linger diego`.
+# Instalar con: bash deploy/install-dashboard.sh   (sin sudo)
+[Unit]
+Description=ZeroAI dashboard (vite dev server, :5173)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/diego/zeroai/frontend
+# systemd no carga nvm: hay que darle el PATH del node instalado a mano.
+# Si actualizas node con nvm, corre de nuevo deploy/install-dashboard.sh.
+Environment=PATH=__NODE_BIN__:/usr/local/bin:/usr/bin:/bin
+ExecStart=__NODE_BIN__/npm run dev -- --host 0.0.0.0
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
