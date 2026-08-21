@@ -748,6 +748,76 @@ def _agents_best(source=None):
     return build_agents(mock=True, source=source), "mock"
 
 
+def _agents_whatsapp(source=None):
+    """El cerebro que contesta un WhatsApp entrante: modelo LOCAL, a propósito.
+
+    Este es el único frente del producto con motor local (ver
+    `config.WHATSAPP_ENGINE`, donde vive la política y el porqué). El resto del
+    sistema sigue usando `_agents_best` / `_agents_autonomous` sin cambios: la
+    jaula es deliberada y no se extiende sin decisión explícita.
+
+    Si el local no responde, contesta la API paga y se avisa al celular del dueño
+    — caer al motor pagado es justo el evento que no debe pasar inadvertido,
+    porque empieza a costar sin que nadie lo haya pedido.
+    """
+    from zero.config import WHATSAPP_ENGINE
+    from zero.backends import FallbackBackend, LocalBackend
+
+    # El entorno puede pisar el modelo/URL (una máquina con otro modelo cargado),
+    # pero la decisión de correr local es de la política, no del entorno.
+    model = (os.environ.get("LOCAL_MODEL") or "").strip() or WHATSAPP_ENGINE["model"]
+    url = (os.environ.get("LOCAL_MODEL_URL") or "").strip() or WHATSAPP_ENGINE["base_url"]
+
+    paid = None
+    if WHATSAPP_ENGINE.get("fallback_to_paid"):
+        key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+        if key:
+            try:
+                from zero.backends import AnthropicBackend
+                paid = AnthropicBackend(api_key=key)
+            except Exception:
+                paid = None
+
+    def _warn(err: Exception) -> None:
+        from zero.alerts import notify_owner
+        notify_owner(
+            f"ZERO: el motor local de WhatsApp no respondió ({err}). "
+            f"Estoy contestando con Claude (API paga) hasta que vuelva.",
+            kind="whatsapp_engine_fallback",
+        )
+
+    backend = FallbackBackend(LocalBackend(model=model, base_url=url),
+                              secondary=paid, on_fallback=_warn)
+    return build_agents(backend=backend, mock=False, source=source), "local"
+
+
+def _whatsapp_engine_status():
+    """Qué cerebro contesta un WhatsApp entrante, para mostrarlo (solo lectura).
+
+    Se arma desde la MISMA política y los mismos overrides que usa
+    `_agents_whatsapp`, para que el panel no pueda mentir sobre lo que corre.
+    No hay endpoint para cambiar esto a propósito: el motor local está enjaulado
+    en WhatsApp por decisión de producto, y un selector en la UI sería justo la
+    puerta que esa jaula existe para mantener cerrada.
+    """
+    from zero.config import WHATSAPP_ENGINE
+
+    model = (os.environ.get("LOCAL_MODEL") or "").strip() or WHATSAPP_ENGINE["model"]
+    url = (os.environ.get("LOCAL_MODEL_URL") or "").strip() or WHATSAPP_ENGINE["base_url"]
+    # "declarado" es la política; "listo" es si el suplente se puede construir de
+    # verdad (hay key). Separados a propósito: un respaldo declarado pero sin key
+    # es un respaldo que no existe, y el panel tiene que poder decirlo.
+    declared = bool(WHATSAPP_ENGINE.get("fallback_to_paid"))
+    return {
+        "model": model,
+        "base_url": url,
+        "fallback_to_paid": declared,
+        "fallback_ready": declared and bool((os.environ.get("ANTHROPIC_API_KEY") or "").strip()),
+        # a quién se avisa si el local se cae y empieza a gastar
+        "alerts_to": bool((os.environ.get("OWNER_WHATSAPP_TO") or "").strip()),
+    }
+
+
 def _discovery_source():
     """Discovery web real (DuckDuckGo, sin key) por defecto; DISCOVER=none vuelve
     al camino mock/LLM. Si la red falla, PROSPECTOR degrada a 'partial' sin crashear."""
@@ -826,7 +896,9 @@ def _process_inbound_messages(msgs: list, to_key: str) -> None:
     kwarg `to_phone_id` (ese nombre no cambia entre proveedores)."""
     crm = make_crm(CRM_PATH)
     memory = make_memory(STATE_PATH)
-    agents, _ = _agents_best()
+    # Motor local a propósito — NO _agents_best (que prefiere la API paga). Ver
+    # _agents_whatsapp y config.WHATSAPP_ENGINE.
+    agents, _ = _agents_whatsapp()
     zero = Zero(agents, memory=memory, crm=crm, outbox=make_outbox())
     for m in msgs:
         zero.handle_inbound(m["from"], m["text"], to_phone_id=m.get(to_key))
@@ -1512,6 +1584,8 @@ def get_config():
         "metaads": bool(os.environ.get("META_ADS_TOKEN") and os.environ.get("META_AD_ACCOUNT_ID")),
         # nombres de los secretos respaldados en la nube (sobreviven a redeploys)
         "backed_up": backed_up_keys(),
+        # Motor de WhatsApp: solo lectura (la política vive en config.WHATSAPP_ENGINE)
+        "whatsapp_engine": _whatsapp_engine_status(),
     }
 
 

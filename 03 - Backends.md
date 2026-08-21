@@ -46,3 +46,29 @@ En el backend web (`api.py`), `_agents_best()` elige el mejor cerebro disponible
 
 > [!note]
 > Coste cero por ahora: la integración Anthropic (de pago) está pospuesta; el sistema corre en mock/local. Ver [[06 - Roadmap]].
+
+## El motor de WhatsApp — la excepción enjaulada (2026-08-21)
+
+WhatsApp entrante **no** pasa por `_agents_best`. Tiene su propia función,
+`_agents_whatsapp()`, que corre **siempre modelo local**. Es el único frente del
+producto con esa regla, y es a propósito:
+
+- Un WhatsApp entrante es corto, conversacional y de alto volumen — justo donde un
+  modelo local de 14B alcanza y donde pagar por token dolería.
+- Los modelos locales son menos capaces: se los deja en **una** jaula (este frente)
+  en vez de sueltos por todo el sistema. Extenderla es una decisión explícita, no
+  algo que se arrastre solo.
+
+La política vive en `zero/config.py` → `WHATSAPP_ENGINE` (modelo, endpoint, si cae a
+la API paga). El mecanismo, en `api.py` → `_agents_whatsapp()`. La jaula está
+cubierta por tests (`tests/test_whatsapp_engine.py`): si alguien manda WhatsApp de
+vuelta a `_agents_best`, o extiende el local al resto, la suite se cae.
+
+**Si el local no responde** entra `FallbackBackend` (`zero/backends.py`): contesta la
+API paga y dispara un aviso al WhatsApp del dueño (`zero/alerts.py`,
+`OWNER_WHATSAPP_TO`), porque empezar a gastar no puede pasar inadvertido. El aviso
+tiene antirrebote (`ALERT_THROTTLE_MINUTES`) y **nunca** puede romper la respuesta al
+lead.
+
+El panel de WhatsApp muestra qué motor corre, **sin selector**: poder cambiarlo desde
+la UI sería abrir la jaula. Se cambia en `config.py`.

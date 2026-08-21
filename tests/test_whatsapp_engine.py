@@ -1,0 +1,253 @@
+"""El motor de WhatsApp: modelo local, enjaulado, con respaldo que avisa.
+
+Decisión de Diego (2026-08-21): el modelo local corre SOLO en el agente de
+WhatsApp. Estos tests existen para que esa jaula no dependa de que alguien la
+recuerde — si un cambio futuro manda WhatsApp a la API paga, o extiende el local
+al resto del sistema, acá se cae.
+
+Stdlib unittest, sin deps, sin red. Desde la raíz del proyecto:
+
+    python3 -m unittest discover -s tests -t .
+"""
+from __future__ import annotations
+
+import os
+import unittest
+from unittest import mock
+
+from zero import alerts
+from zero.backends import FallbackBackend, LocalBackend
+from zero.config import ALERT_THROTTLE_MINUTES, WHATSAPP_ENGINE
+
+
+class _Boom:
+    """Un backend que siempre falla — el Ollama caído."""
+
+    def __init__(self, msg: str = "local backend unreachable"):
+        self.msg = msg
+        self.calls = 0
+
+    def complete(self, system, user, model, max_tokens=4096):
+        self.calls += 1
+        raise RuntimeError(self.msg)
+
+
+class _Echo:
+    """Un backend que siempre contesta — el suplente."""
+
+    def __init__(self, reply: str = "respuesta del suplente"):
+        self.reply = reply
+        self.calls = 0
+
+    def complete(self, system, user, model, max_tokens=4096):
+        self.calls += 1
+        return self.reply
+
+
+class _RecordingOutbox:
+    def __init__(self, status: str = "sent"):
+        self.status = status
+        self.sent = []
+
+    def send(self, msg, wa_creds=None):
+        self.sent.append(msg)
+        return {"channel": "whatsapp", "to": msg.get("to"), "status": self.status}
+
+
+class WhatsAppEnginePolicyTest(unittest.TestCase):
+    """La política dice lo que tiene que decir."""
+
+    def test_engine_points_at_a_local_endpoint(self):
+        # localhost: si esto apunta a un host remoto, dejó de ser "modelo local".
+        self.assertIn("localhost", WHATSAPP_ENGINE["base_url"])
+        self.assertTrue(WHATSAPP_ENGINE["model"])
+
+    def test_paid_fallback_is_declared(self):
+        # Diego eligió explícitamente caer a Claude en vez de degradar a mock.
+        self.assertTrue(WHATSAPP_ENGINE["fallback_to_paid"])
+
+    def test_alert_throttle_is_sane(self):
+        # 0 permitiría un aviso por mensaje: el modo de falla que la ventana evita.
+        self.assertGreater(ALERT_THROTTLE_MINUTES, 0)
+
+
+class FallbackBackendTest(unittest.TestCase):
+    """El suplente entra cuando debe, y no antes."""
+
+    def test_primary_answers_when_healthy(self):
+        primary, secondary = _Echo("local"), _Echo("pagado")
+        b = FallbackBackend(primary, secondary=secondary)
+        self.assertEqual(b.complete("s", "u", "m"), "local")
+        self.assertEqual(secondary.calls, 0)      # nunca se tocó lo pagado
+        self.assertEqual(b.fallbacks, 0)
+
+    def test_secondary_answers_when_primary_fails(self):
+        boom, secondary = _Boom(), _Echo("pagado")
+        b = FallbackBackend(boom, secondary=secondary)
+        self.assertEqual(b.complete("s", "u", "m"), "pagado")
+        self.assertEqual(b.fallbacks, 1)
+
+    def test_raises_when_there_is_no_secondary(self):
+        # Sin suplente el error tiene que verse, no tragarse en silencio.
+        b = FallbackBackend(_Boom(), secondary=None)
+        with self.assertRaises(RuntimeError):
+            b.complete("s", "u", "m")
+
+    def test_fallback_notifies(self):
+        seen = []
+        b = FallbackBackend(_Boom(), secondary=_Echo(), on_fallback=seen.append)
+        b.complete("s", "u", "m")
+        self.assertEqual(len(seen), 1)
+        self.assertIsInstance(seen[0], Exception)
+
+    def test_a_broken_alert_never_breaks_the_reply(self):
+        # Avisar es secundario: si el aviso explota, el lead igual recibe respuesta.
+        def explota(_err):
+            raise ValueError("el aviso falló")
+
+        b = FallbackBackend(_Boom(), secondary=_Echo("pagado"), on_fallback=explota)
+        self.assertEqual(b.complete("s", "u", "m"), "pagado")
+
+
+class OwnerAlertTest(unittest.TestCase):
+    """El aviso al celular: llega una vez, y nunca rompe nada."""
+
+    def setUp(self):
+        alerts.reset_throttle()
+        self.addCleanup(alerts.reset_throttle)
+
+    def test_skipped_without_a_number(self):
+        with mock.patch.dict(os.environ, {"OWNER_WHATSAPP_TO": ""}, clear=False):
+            res = alerts.notify_owner("hola", outbox=_RecordingOutbox())
+        self.assertEqual(res["status"], "skipped")
+
+    def test_sends_to_the_owner(self):
+        box = _RecordingOutbox()
+        with mock.patch.dict(os.environ, {"OWNER_WHATSAPP_TO": "+56900000000"}, clear=False):
+            res = alerts.notify_owner("motor caído", outbox=box)
+        self.assertEqual(res["status"], "sent")
+        self.assertEqual(len(box.sent), 1)
+        self.assertEqual(box.sent[0]["to"], "+56900000000")
+        self.assertEqual(box.sent[0]["channel"], "whatsapp")
+
+    def test_throttled_within_the_window(self):
+        box = _RecordingOutbox()
+        with mock.patch.dict(os.environ, {"OWNER_WHATSAPP_TO": "+56900000000"}, clear=False):
+            alerts.notify_owner("uno", outbox=box, now=1000.0)
+            res = alerts.notify_owner("dos", outbox=box, now=1060.0)   # 60s después
+        self.assertEqual(res["status"], "throttled")
+        self.assertEqual(len(box.sent), 1)          # el segundo no salió
+
+    def test_sends_again_after_the_window(self):
+        box = _RecordingOutbox()
+        later = 1000.0 + ALERT_THROTTLE_MINUTES * 60 + 1
+        with mock.patch.dict(os.environ, {"OWNER_WHATSAPP_TO": "+56900000000"}, clear=False):
+            alerts.notify_owner("uno", outbox=box, now=1000.0)
+            res = alerts.notify_owner("dos", outbox=box, now=later)
+        self.assertEqual(res["status"], "sent")
+        self.assertEqual(len(box.sent), 2)
+
+    def test_different_kinds_do_not_share_the_window(self):
+        box = _RecordingOutbox()
+        with mock.patch.dict(os.environ, {"OWNER_WHATSAPP_TO": "+56900000000"}, clear=False):
+            alerts.notify_owner("uno", kind="a", outbox=box, now=1000.0)
+            res = alerts.notify_owner("dos", kind="b", outbox=box, now=1001.0)
+        self.assertEqual(res["status"], "sent")
+
+    def test_a_failed_send_does_not_burn_the_window(self):
+        # Si el envío falla, el próximo mensaje debe poder reintentar el aviso.
+        box = _RecordingOutbox(status="error")
+        with mock.patch.dict(os.environ, {"OWNER_WHATSAPP_TO": "+56900000000"}, clear=False):
+            alerts.notify_owner("uno", outbox=box, now=1000.0)
+            res = alerts.notify_owner("dos", outbox=box, now=1001.0)
+        self.assertNotEqual(res["status"], "throttled")
+
+    def test_never_raises(self):
+        class Explota:
+            def send(self, msg, wa_creds=None):
+                raise RuntimeError("red caída")
+
+        with mock.patch.dict(os.environ, {"OWNER_WHATSAPP_TO": "+56900000000"}, clear=False):
+            res = alerts.notify_owner("hola", outbox=Explota())
+        self.assertEqual(res["status"], "error")
+
+
+class TheCageTest(unittest.TestCase):
+    """Lo que hace que esto siga siendo una jaula y no una convención."""
+
+    def test_whatsapp_builds_a_local_backend(self):
+        import api
+        agents, mode = api._agents_whatsapp()
+        self.assertEqual(mode, "local")
+        backend = agents["CONCIERGE"].backend
+        self.assertIsInstance(backend, FallbackBackend)
+        self.assertIsInstance(backend.primary, LocalBackend)
+
+    def test_inbound_whatsapp_does_not_use_agents_best(self):
+        """El camino de un WhatsApp entrante NO puede pasar por _agents_best.
+
+        _agents_best prefiere la API paga; que WhatsApp lo llame es exactamente
+        la regresión que este archivo existe para atrapar.
+
+        Se miran las LLAMADAS reales vía AST y no el texto de la función: un
+        comentario que nombre _agents_best no es una llamada a _agents_best.
+        """
+        import ast
+        import inspect
+        import textwrap
+
+        import api
+
+        tree = ast.parse(textwrap.dedent(inspect.getsource(api._process_inbound_messages)))
+        called = {
+            node.func.id
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        self.assertIn("_agents_whatsapp", called)
+        self.assertNotIn("_agents_best", called)
+        self.assertNotIn("_agents_autonomous", called)
+
+    def test_the_rest_of_the_system_still_prefers_quality(self):
+        """La jaula NO se extendió: con key de Anthropic, _agents_best sigue pagando."""
+        import api
+        from zero.backends import AnthropicBackend
+        with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ant-falsa"}, clear=False):
+            with mock.patch.object(AnthropicBackend, "__init__", return_value=None):
+                _, mode = api._agents_best()
+        self.assertEqual(mode, "live")
+
+
+class EngineStatusTest(unittest.TestCase):
+    """Lo que el panel muestra tiene que salir de la misma política que corre."""
+
+    def test_status_matches_the_policy(self):
+        import api
+        with mock.patch.dict(os.environ, {"LOCAL_MODEL": "", "LOCAL_MODEL_URL": ""}, clear=False):
+            st = api._whatsapp_engine_status()
+        self.assertEqual(st["model"], WHATSAPP_ENGINE["model"])
+        self.assertEqual(st["base_url"], WHATSAPP_ENGINE["base_url"])
+
+    def test_status_honors_the_env_override(self):
+        import api
+        with mock.patch.dict(os.environ, {"LOCAL_MODEL": "otro:7b"}, clear=False):
+            st = api._whatsapp_engine_status()
+        self.assertEqual(st["model"], "otro:7b")
+
+    def test_declared_fallback_without_a_key_is_not_ready(self):
+        """Un respaldo declarado pero sin key NO puede mostrarse como listo."""
+        import api
+        with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": ""}, clear=False):
+            st = api._whatsapp_engine_status()
+        self.assertTrue(st["fallback_to_paid"])
+        self.assertFalse(st["fallback_ready"])
+
+    def test_status_never_leaks_the_key(self):
+        import api
+        with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ant-secreta"}, clear=False):
+            st = api._whatsapp_engine_status()
+        self.assertNotIn("sk-ant-secreta", repr(st))
+
+
+if __name__ == "__main__":
+    unittest.main()

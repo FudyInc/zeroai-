@@ -417,6 +417,30 @@ function StatusCard({ cfg, provider, webhookUrl }) {
         </div>
       </div>
 
+      {/* Qué cerebro contesta. Informativo a propósito: no hay selector porque el
+          modelo local está enjaulado en WhatsApp por decisión de producto, y
+          poder cambiarlo desde acá sería abrir esa jaula. Se cambia en
+          zero/config.py (WHATSAPP_ENGINE). */}
+      {cfg?.whatsapp_engine && (
+        <div className="text-xs text-zinc-500 bg-zinc-50 rounded-xl px-3 py-2 mb-2">
+          <div className="flex items-center justify-between gap-2">
+            <span>Motor que responde</span>
+            <span className="text-gold-deep font-medium flex items-center gap-1 min-w-0">
+              <Cpu size={13} className="shrink-0" />
+              <span className="truncate">{cfg.whatsapp_engine.model}</span>
+              <span className="text-zinc-400 font-normal shrink-0">· local, sin costo</span>
+            </span>
+          </div>
+          <div className="text-[11px] text-zinc-400 mt-1">
+            {cfg.whatsapp_engine.fallback_ready
+              ? 'Si el motor local no responde, contesta Claude (API paga) y te llega un aviso al celular.'
+              : cfg.whatsapp_engine.fallback_to_paid
+                ? 'Respaldo a Claude declarado pero sin API key: si el motor local se cae, nadie contesta.'
+                : 'Sin respaldo: si el motor local se cae, nadie contesta.'}
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between text-xs text-zinc-500 bg-zinc-50 rounded-xl px-3 py-2">
         <span>Envío real (outbox)</span>
         {cfg?.outbox_live

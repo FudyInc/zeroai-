@@ -118,6 +118,39 @@ OUTBOX_RETRY_DELAY_SECONDS = 1.0
 # ~4096 caracteres; este tope es más chico a propósito, con margen.
 MAX_INBOUND_MESSAGE_CHARS = 2000
 
+# --- Motor de WhatsApp (2026-08-21) -------------------------------------------
+# QUÉ CEREBRO contesta un WhatsApp entrante. Es el único frente del producto que
+# corre con modelo LOCAL a propósito; el resto (dashboard, scheduler, funciones)
+# no cambia de motor por esto.
+#
+# El porqué: WhatsApp es conversación de alto volumen y baja dificultad —
+# responder dudas de un lead con la ficha del vendor delante. Un modelo local
+# lo hace bien y su costo marginal es CERO, mientras que la API paga cobra por
+# cada mensaje de cada lead, para siempre. Medido en esta máquina (2026-08-21):
+# qwen2.5:14b-instruct-q4_K_M en la RTX 5060 Ti da ~40 tokens/s, 100% en GPU.
+#
+# La jaula es deliberada: el modelo local se limita a este canal. No se extiende
+# a otros agentes sin una decisión explícita — decisión de Diego, 2026-08-21.
+#
+# Orden de preferencia: local (gratis) → Anthropic (pago) → mock. El respaldo
+# pago existe porque un Ollama caído no debe dejar a un lead sin respuesta;
+# es un respaldo, no el camino normal.
+WHATSAPP_ENGINE = {
+    "model": "qwen2.5:14b-instruct-q4_K_M",   # el que ya está cargado en VRAM
+    "base_url": "http://localhost:11434/v1",  # Ollama, endpoint OpenAI-compatible
+    "fallback_to_paid": True,                 # si el local no responde → Anthropic
+}
+
+# --- Avisos al dueño (zero/alerts.py) -----------------------------------------
+# Caer al motor pagado es exactamente el evento que no debe pasar inadvertido:
+# empieza a costar plata sin que nadie lo haya pedido. Se avisa al celular por el
+# MISMO WhatsApp del producto (sin servicio nuevo), al número de OWNER_WHATSAPP_TO.
+# Sin esa variable no se avisa a nadie y no es un error — es el default.
+#
+# La ventana evita el peor modo de falla de un aviso: un Ollama caído una hora
+# genera un aviso, no doscientos.
+ALERT_THROTTLE_MINUTES = 30
+
 # --- Mercado activo (2026-07-19) -----------------------------------------------
 # ZeroAI prospecta SOLO en Chile por ahora — decisión explícita de Diego mientras
 # se prueba con leads reales; otros países son plan a futuro (cuando eso cambie,

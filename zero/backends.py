@@ -117,6 +117,43 @@ class LocalBackend:
             raise RuntimeError(f"unexpected response from local backend: {payload!r}") from e
 
 
+class FallbackBackend:
+    """Un cerebro principal con suplente: si el principal falla, contesta el otro.
+
+    Existe por el motor de WhatsApp (ver `config.WHATSAPP_ENGINE`): el modelo local
+    es gratis pero vive en esta máquina, así que un Ollama caído no puede dejar a un
+    lead sin respuesta. El suplente es la API paga — respaldo, no camino normal.
+
+    Por qué envolver y no chequear salud antes: el local puede estar arriba al armar
+    los agentes y caerse a mitad de la conversación (modelo descargándose de VRAM,
+    timeout bajo carga). Un chequeo previo no ve eso; envolver la llamada real, sí.
+
+    `on_fallback(err)` se dispara en cada cambio, para avisar que se está gastando.
+    Si ese aviso falla, se ignora: avisar jamás puede romper la respuesta al lead.
+    """
+
+    def __init__(self, primary: Any, secondary: Optional[Any] = None,
+                 on_fallback: Optional[Any] = None):
+        self.primary = primary
+        self.secondary = secondary
+        self.on_fallback = on_fallback
+        self.fallbacks = 0          # cuántas veces se usó el suplente (para /status y tests)
+
+    def complete(self, system: str, user: str, model: str, max_tokens: int = 4096) -> str:
+        try:
+            return self.primary.complete(system, user, model, max_tokens=max_tokens)
+        except Exception as primary_error:   # noqa: BLE001 — cualquier falla activa el suplente
+            if self.secondary is None:
+                raise
+            self.fallbacks += 1
+            if self.on_fallback is not None:
+                try:
+                    self.on_fallback(primary_error)
+                except Exception:            # noqa: BLE001
+                    pass
+            return self.secondary.complete(system, user, model, max_tokens=max_tokens)
+
+
 def extract_json(text: str) -> Optional[Dict[str, Any]]:
     """Best-effort: pull a JSON object out of a model's text reply.
 
