@@ -44,14 +44,47 @@ RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EMPRESAS = {
     "zeroai": {
         "ficha": "docs/ficha-zeroai.md",
-        # SOLO los campos que queremos corregir. El resto del ICP se PRESERVA:
-        # el de `zeroai` ya trae una segmentación real (empresas de mudanzas en la
-        # RM, con sus must_have y exclude) que costó pensarse y que un genérico
-        # escrito de memoria empeoraría. `sells` sí estaba incompleto: decía solo
-        # generación de leads y son cuatro líneas de servicio.
+        # El tier es el PLAN COMERCIAL, y define el piso del gate
+        # (config.MIN_ICP_SCORE_BY_TIER). `zeroai` estaba en ENTERPRISE = piso 80,
+        # y ningún lead descubierto de verdad ha superado 65 nunca: con ese piso
+        # no califica nada, jamás. GROWTH (60) es el piso realista para nuestra
+        # propia prospección. Decisión del 2026-08-21.
+        "tier": "GROWTH",
+
+        # 2026-08-21: el ICP se ABRE. Antes apuntaba solo a empresas de mudanzas,
+        # y nuestras cuatro líneas de servicio le sirven a casi cualquier rubro —
+        # un restaurante no necesita leads B2B pero sí un agente de WhatsApp que
+        # conteste pedidos. Lo que discrimina ya no es el rubro sino las SEÑALES
+        # de que la empresa nos necesita y puede contratarnos.
         "icp_parcial": {
             "sells": ("generación de leads B2B calificados, agentes de WhatsApp, "
                       "automatización de procesos y agentic marketing"),
+            "industry": ("cualquier rubro: restaurantes, clínicas y consultas, retail y "
+                         "e-commerce, servicios profesionales, constructoras e "
+                         "inmobiliarias, logística y mudanzas, talleres, turismo, "
+                         "educación, gimnasios"),
+            "buyer_roles": ["dueño", "gerente general", "gerente comercial",
+                            "gerente de marketing", "administrador"],
+            "company_size": "pyme y mediana, entre 3 y 200 empleados",
+            "regions": ["Chile", "Región Metropolitana"],
+            # Las señales que reemplazan al rubro como filtro. Sin esto, un ICP
+            # amplio deja al QUALIFIER sin nada con qué discriminar.
+            "must_have": [
+                "presencia digital activa (sitio web o redes con movimiento)",
+                "canal de contacto visible (teléfono, WhatsApp o formulario)",
+                "atiende clientes por mensajería o recibe consultas seguido",
+            ],
+            # Ya NO se excluye B2C: un restaurante o una clínica son clientes
+            # válidos para agente de WhatsApp y automatización.
+            "exclude": [
+                "multinacionales grandes (compran por licitación, ciclo muy largo)",
+                "empresas sin ningún canal de contacto publicado",
+            ],
+            "context": ("Vendemos cuatro cosas y no todas le sirven a todos: leads B2B a "
+                        "quien le vende a empresas; agente de WhatsApp a quien recibe "
+                        "muchas consultas (restaurantes, clínicas, retail); automatización "
+                        "y agentic marketing a casi cualquiera. Califica por la señal de "
+                        "necesidad, no por el rubro."),
         },
     },
 }
@@ -104,7 +137,12 @@ def main() -> int:
     # declarados. Reemplazar borraría segmentación real sin que nadie lo note.
     icp = normalize_icp({**icp_antes, **(cfg.get("icp_parcial") or {})})
 
+    tier_antes = (mem.clients.get(args.empresa) or {}).get("tier")
     print(f"empresa:  {args.empresa}")
+    if cfg.get("tier") and not args.solo_ficha:
+        from zero.config import min_icp_score
+        print(f"tier:     {tier_antes} (gate {min_icp_score(tier_antes)}) → "
+              f"{cfg['tier']} (gate {min_icp_score(cfg['tier'])})")
     print(f"ficha:    {len(ficha_antes)} → {len(ficha)} caracteres")
     if args.solo_ficha:
         print("icp:      sin cambios (--solo-ficha)")
@@ -132,6 +170,8 @@ def main() -> int:
     mem.set_client_knowledge(args.empresa, ficha)
     if not args.solo_ficha:
         mem.set_client_icp(args.empresa, icp)
+        if cfg.get("tier"):
+            mem.register_client(args.empresa, cfg["tier"])
     mem.save()
 
     # Releer del disco: confirmar que quedó, en vez de confiar en que save() anduvo.
