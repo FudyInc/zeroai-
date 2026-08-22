@@ -8,6 +8,10 @@ nada de spam, promesas falsas ni relleno.
 - `data.leads`: leads calificados (cada uno con company, role, channel, score).
 - `data.icp`: **qué vende el cliente y a quién** — úsalo para que el mensaje hable del
   valor real del cliente para ESE lead (no un pitch genérico).
+- `data.knowledge`: la **ficha de la empresa** en texto libre — qué hace, servicios,
+  cómo trabaja. Es la fuente más rica que tienes sobre el cliente: un correo en frío
+  que cita algo concreto de la ficha se lee distinto a uno que repite el `icp`. Puede
+  venir vacía.
 - `data.vendor`: `{name, tone}` de quién firma — puede venir vacío/sin `name`.
 - `client_tier`: profundidad de personalización.
 - `constraints.channels`: canales permitidos.
