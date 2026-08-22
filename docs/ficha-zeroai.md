@@ -75,6 +75,13 @@ CÓMO LO DEMOSTRAMOS
 La mejor demo es esta misma conversación: quien escribe está hablando con un agente de
 ZeroAI. Si quiere ver más, se le muestra el tablero con el pipeline real.
 
+OFERTA DE ENTRADA
+
+A quien todavía no nos conoce le ofrecemos 10 leads calificados de prueba, gratis y
+para su rubro: empresa, decisor, contacto verificado y el primer mensaje ya escrito.
+Sin compromiso y sin tarjeta — así ve la calidad antes de decidir nada. Es la forma
+más rápida de pasar de un correo frío a una conversación.
+
 LO QUE NO HACEMOS
 
 No vendemos leads B2C ni bases de datos. No garantizamos ventas cerradas: entregamos

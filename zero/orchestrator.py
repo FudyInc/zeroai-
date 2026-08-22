@@ -134,6 +134,28 @@ def _merge_qualifier_scores(raw_leads: List[Lead], qual_leads: List[Dict[str, An
     return merged
 
 
+# Los criterios con los que BUSCAMOS un lead no son hechos sobre ese lead. `must_have`
+# ("atiende consultas seguido", "presencia digital activa") y `exclude` son el filtro de
+# prospección: describen qué mirar antes de aceptar a alguien, no algo que se haya
+# comprobado del negocio que tenemos al frente.
+#
+# Encontrado en vivo (2026-08-22): con esos campos en el task, el motor local se los
+# afirmó a tres leads distintos —"he visto que atienden consultas frecuentemente por
+# WhatsApp"— sin haber visto nada. Es una mentira comprobable en el primer correo que esa
+# empresa recibe de nosotros.
+#
+# Mismo remedio que el `icp` de CONCIERGE (2026-08-21): se corta en el mecanismo, no por
+# prompt. Si el dato no viaja, no puede filtrarse a la respuesta. A diferencia de
+# CONCIERGE, aquí el lead SÍ fue elegido por el ICP, así que el segmento (`industry`,
+# `regions`, `company_size`, `buyer_roles`) sigue siendo cierto y se conserva.
+_ICP_SOLO_PROSPECCION = ("must_have", "exclude")
+
+
+def _icp_para_outreach(icp: Dict[str, Any]) -> Dict[str, Any]:
+    """El ICP sin los criterios de filtro — lo que OUTREACH puede decir sin mentir."""
+    return {k: v for k, v in (icp or {}).items() if k not in _ICP_SOLO_PROSPECCION}
+
+
 def _asunto(msg: Dict[str, Any], company: Optional[str] = None) -> Optional[str]:
     """El asunto que va al borrador. Para email nunca vacío (ver
     config.email_subject_fallback); para WhatsApp sigue siendo None, que es lo
@@ -506,7 +528,8 @@ class Zero:
             out = self.dispatch("OUTREACH", TaskPayload(
                 agent="OUTREACH", client_id=client_id, client_tier=tier,
                 instructions="Redacta el primer mensaje para cada lead calificado.",
-                data={"leads": [l.to_dict() for l in qualified], "icp": icp, "vendor": persona,
+                data={"leads": [l.to_dict() for l in qualified],
+                      "icp": _icp_para_outreach(icp), "vendor": persona,
                       "knowledge": self.memory.get_client_knowledge(client_id)[:4000]},
                 constraints=Constraints(channels=channels),
             ))
@@ -824,7 +847,7 @@ class Zero:
         resp = self.dispatch("CONCIERGE", TaskPayload(
             agent="CONCIERGE", client_id=client_id or "", client_tier="",
             instructions=instructions,
-            data={"message": message, "lead": lead or {}, "icp": icp, "vendor": persona,
+            data={"message": message, "lead": lead or {}, "icp": _icp_para_outreach(icp), "vendor": persona,
                   "knowledge": knowledge, "history": history or [],
                   "quote": quote or {}},
             constraints=Constraints(channels=[channel]),
