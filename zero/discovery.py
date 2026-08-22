@@ -41,7 +41,23 @@ _TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.S | re.I)
 _BAD_EMAIL_HINTS = ("example.", "sentry", "wixpress", "@2x", "@3x", ".png", ".jpg", ".gif", ".webp",
                     # placeholders de formularios ("usuario@dominio.com"), no contactos
                     "usuario@", "nombre@", "ejemplo", "tucorreo", "tudominio",
-                    "youremail", "yourdomain")
+                    "youremail", "yourdomain",
+                    # Encontrado en vivo (2026-08-22): el lead "Abc" entró al CRM de
+                    # zeroai como CALIFICADO (score 70) con el correo
+                    # `tumail@dominio.xx` — un placeholder de plantilla web. La lista
+                    # tenía "tucorreo"/"tudominio" pero no estas variantes, así que
+                    # pasó el validador y quedó con un borrador listo para enviarse a
+                    # una dirección que no existe. Un lead falso no solo se pierde:
+                    # ocupa un cupo del gate y ensucia la tasa de respuesta real.
+                    #
+                    # "@dominio." y "@tuempresa." llevan arroba Y punto a propósito: sin
+                    # la arroba se descartaría `contacto@midominio.cl`, y sin el punto,
+                    # `ventas@tuempresafeliz.cl`. Ambos son negocios reales — un filtro
+                    # que se pasa de listo borra leads legítimos, que es peor que dejar
+                    # entrar uno falso (el falso lo pesca la primera respuesta rebotada;
+                    # el legítimo borrado no se entera nadie).
+                    "tumail", "tuemail", "tunombre@", "sucorreo", "sudominio",
+                    "@dominio.", "@tudominio", "@tuempresa.", "yourname@", "yourmail")
 
 # Decision-maker enrichment: a role keyword near a person name on an about/team
 # page. Order matters — list specific titles before generic ones so the longer

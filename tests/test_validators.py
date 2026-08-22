@@ -101,6 +101,41 @@ class TestValidateContact(unittest.TestCase):
             _lead(email="ana@acme.io", phone="+56 9 1234 5678"), "ENTERPRISE"))
 
 
+class TestPlaceholdersDePlantillaWeb(unittest.TestCase):
+    """Un correo de ejemplo copiado de una plantilla web no es un contacto.
+
+    Encontrado en vivo (2026-08-22): el lead "Abc" llegó al CRM de `zeroai` como
+    CALIFICADO (score 70) con `tumail@dominio.xx`, y con un borrador de outreach
+    listo para salir a una dirección que no existe. La lista de placeholders tenía
+    "tucorreo"/"tudominio" pero no esa variante.
+
+    Cuesta doble: el correo se pierde, y el lead falso ocupa un cupo del gate
+    desplazando a uno real.
+    """
+
+    PLACEHOLDERS = ("tumail@dominio.xx", "tuemail@dominio.com", "tunombre@empresa.cl",
+                    "sucorreo@sudominio.cl", "yourname@company.com", "yourmail@web.com",
+                    "tucorreo@tudominio.cl", "usuario@ejemplo.com")
+
+    # El otro lado del filtro: negocios reales cuyo nombre CONTIENE la palabra de un
+    # placeholder. Si alguno de estos empieza a fallar, el filtro se pasó de listo y
+    # está borrando leads legítimos — que es peor que dejar entrar uno falso.
+    LEGITIMOS = ("contacto@midominio.cl", "juan.perez@dominios.cl", "info@tumueble.cl",
+                 "ventas@tuempresafeliz.cl", "hola@sucursal.cl")
+
+    def test_los_placeholders_no_pasan(self):
+        for email in self.PLACEHOLDERS:
+            with self.subTest(email=email):
+                self.assertFalse(V.validate_email(email, GROWTH["email"]),
+                                 f"{email} es un placeholder de plantilla y pasó el filtro")
+
+    def test_los_dominios_reales_siguen_pasando(self):
+        for email in self.LEGITIMOS:
+            with self.subTest(email=email):
+                self.assertTrue(V.validate_email(email, GROWTH["email"]),
+                                f"{email} es un correo legítimo y el filtro lo descartó")
+
+
 class TestValidateBatch(unittest.TestCase):
     def test_preserva_forma_y_filtra(self):
         leads = [_lead(), _lead(email="usuario@", phone=None)]
