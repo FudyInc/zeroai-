@@ -6,7 +6,9 @@ state change, and assembles the client deliverable.
 """
 from __future__ import annotations
 
+import json
 import re
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -156,6 +158,27 @@ def _icp_para_outreach(icp: Dict[str, Any]) -> Dict[str, Any]:
     return {k: v for k, v in (icp or {}).items() if k not in _ICP_SOLO_PROSPECCION}
 
 
+def _nombre_motor(agent: Any) -> str:
+    """Con qué cerebro corrió: 'mock', o el modelo del backend ('qwen2.5:14b…').
+
+    Sirve para responder de un vistazo dos preguntas que hoy hay que adivinar: ¿esto
+    salió del mock o de un modelo de verdad?, ¿y entró el respaldo pagado sin que nadie
+    lo pidiera? Solo lectura y a prueba de todo — si el backend no expone nada, se
+    devuelve cadena vacía en vez de romper el dispatch.
+    """
+    try:
+        if getattr(agent, "mock", False):
+            return "mock"
+        backend = getattr(agent, "backend", None)
+        if backend is None:
+            return ""
+        # FallbackBackend delega en su primario; el nombre del que de verdad respondió.
+        primary = getattr(backend, "primary", None) or backend
+        return str(getattr(primary, "model", "") or type(primary).__name__)
+    except Exception:   # noqa: BLE001
+        return ""
+
+
 def _asunto(msg: Dict[str, Any], company: Optional[str] = None) -> Optional[str]:
     """El asunto que va al borrador. Para email nunca vacío (ver
     config.email_subject_fallback); para WhatsApp sigue siendo None, que es lo
@@ -256,10 +279,25 @@ class Zero:
     def dispatch(self, agent_name: str, task: TaskPayload) -> AgentResponse:
         """Identify → dispatch → record. Validation happens in the caller."""
         agent = self.agents.get(agent_name)
+        inicio = time.monotonic()
         if agent is None:
             resp = AgentResponse(task.task_id, agent_name, "error", {}, "no such agent")
         else:
             resp = agent.run(task)
+        # Cuánto tardó y con qué motor. Va acá y no dentro de cada agente porque este es
+        # el único punto por el que pasan TODOS: un agente nuevo queda medido sin que
+        # nadie se acuerde de instrumentarlo. Envuelto en try porque medir jamás puede
+        # tumbar lo medido (ver zero/telemetry.py).
+        try:
+            from .telemetry import registrar
+            registrar(agent_name, status=resp.status,
+                      ms=(time.monotonic() - inicio) * 1000.0,
+                      engine=_nombre_motor(agent), client_id=task.client_id,
+                      task_id=task.task_id,
+                      in_chars=len(task.to_json() or ""),
+                      out_chars=len(json.dumps(resp.result or {}, ensure_ascii=False)))
+        except Exception:   # noqa: BLE001
+            pass
         self.memory.set_agent_status(agent_name, resp.status)
         self.memory.log(
             "dispatch", agent=agent_name, task_id=task.task_id, status=resp.status, notes=resp.notes

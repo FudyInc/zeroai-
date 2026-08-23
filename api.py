@@ -1589,6 +1589,19 @@ def get_config():
     }
 
 
+@app.get("/api/agents/telemetry")
+def agents_telemetry(limit: int = Query(40, ge=1, le=200)):
+    """Qué agente corrió, con qué motor, cuánto tardó y cómo le fue.
+
+    Solo lectura, y admin-only por omisión (sin entrada en `_ROLE_ALLOWED`, el mismo
+    fail-closed que el resto): expone el ritmo interno del sistema, no datos de un
+    cliente. El registro NO contiene texto de mensajes, solo tamaños — ver
+    zero/telemetry.py.
+    """
+    from zero.telemetry import eventos, resumen
+    return {**resumen(), "recientes": eventos(limit)}
+
+
 class ConfigBody(BaseModel):
     elevenlabs_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None

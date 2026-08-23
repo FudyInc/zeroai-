@@ -129,6 +129,7 @@ export const api = {
   metaadsAccounts: () => req('/api/metaads/accounts').then((d) => d.accounts),
   whatsappStatus: () => req('/api/whatsapp/status'),
   config: () => req('/api/config'),
+  agentsTelemetry: (limit = 40) => req('/api/agents/telemetry?limit=' + limit),
   setConfig: (body) =>
     req('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   assistants: () => req('/api/assistants').then((d) => d.assistants),

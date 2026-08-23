@@ -9,6 +9,8 @@ inbox.json
 finance.json
 users.json
 activity.json
+# telemetría de agentes (anillo local, se regenera solo)
+agent_activity.json
 *.json.bak
 *.json.bak-*
 *.json.tmp
