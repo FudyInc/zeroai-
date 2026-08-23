@@ -1,0 +1,13 @@
+[Unit]
+Description=Prueba diaria del agente de WhatsApp contra el modelo local
+
+[Timer]
+# Una vez al día, de madrugada: seis respuestas del modelo local ocupan la GPU un par
+# de minutos, y a esa hora no compite con un lead real esperando respuesta.
+OnCalendar=*-*-* 04:30:00
+# Si el PC estuvo apagado a esa hora, corre al encender — la prueba sirve poco si se
+# salta justo los días en que la máquina estuvo intervenida.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

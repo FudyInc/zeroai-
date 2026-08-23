@@ -1,0 +1,11 @@
+[Unit]
+Description=ZeroAI — comprueba que el agente de WhatsApp respeta sus reglas
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/diego/zeroai
+ExecStart=/usr/bin/python3 /home/diego/zeroai/scripts/probar-agente.py --avisar
+# 1 = alguna regla se rompió (avisa por su cuenta); 2 = el motor no estaba disponible,
+# que ya lo vigila zero-salud. Ninguno de los dos es un error del timer.
+SuccessExitStatus=0 1 2
