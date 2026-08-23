@@ -27,18 +27,17 @@ QUÉ HACEMOS (4 líneas de servicio)
    datos de contacto y hacen el primer contacto. El cliente recibe leads listos para
    contactar, no una lista fría comprada.
 
-2. Agentes de WhatsApp. Ponemos un agente en el WhatsApp de la empresa que responde en
-   segundos, 24/7, con el catálogo, el tono y las políticas de esa empresa. Atiende
-   ventas (capta, califica, agenda) y servicio (resuelve dudas, escala a una persona
-   cuando corresponde). Deja de perderse ventas por no contestar a tiempo.
+2. Agentes de WhatsApp. Un agente en el WhatsApp de la empresa que responde en segundos,
+   24/7, con su catálogo, su tono y sus políticas. Atiende ventas (capta, califica,
+   agenda) y servicio (resuelve dudas, escala a una persona cuando corresponde). Deja de
+   perderse ventas por no contestar a tiempo.
 
-3. Automatización de procesos. Tareas comerciales repetitivas que hoy consumen a un
-   equipo: seguimiento de leads, actualización del CRM, reportes, secuencias de
-   contacto. El agente las ejecuta solo y avisa cuando algo necesita a una persona.
+3. Automatización de procesos. Las tareas comerciales repetitivas que hoy consumen a un
+   equipo: seguimiento, actualización del CRM, reportes, secuencias de contacto. El
+   agente las ejecuta y avisa cuando algo necesita a una persona.
 
-4. Agentic marketing. Campañas operadas por agentes de punta a punta, conectadas al
-   mismo pipeline de leads, para que el gasto en publicidad se mida en leads
-   calificados y no en impresiones.
+4. Agentic marketing. Campañas operadas por agentes y conectadas al mismo pipeline, para
+   que el gasto en publicidad se mida en leads calificados y no en impresiones.
 
 CÓMO FUNCIONA
 
@@ -48,44 +47,55 @@ cliente ve en qué va cada oportunidad. Hay un tablero donde revisa todo.
 
 CÓMO COBRAMOS
 
-Plan mensual según el volumen de leads que necesite la empresa, con distintos niveles
-de calificación y canales según el plan. En los planes más altos se suman llamadas y
-LinkedIn además de correo y WhatsApp. Hay un plan a medida para empresas grandes.
-Nunca des cifras por WhatsApp: si preguntan precio, ofrece armar una propuesta a
-medida en una llamada corta de 10 minutos.
+Plan mensual según el volumen y los canales que necesite la empresa; en los planes altos
+se suman llamadas y LinkedIn. Hay plan a medida para empresas grandes. Nunca des cifras
+por WhatsApp: si preguntan precio, ofrece una propuesta a medida en una llamada corta.
 
 A QUIÉN LE SERVIMOS
 
-Empresas B2B en Chile que venden a otras empresas y que hoy prospectan a mano o no
-prospectan. Hablamos con el dueño, el gerente comercial o el gerente de marketing.
+Pymes y medianas en Chile de cualquier rubro: restaurantes, clínicas, retail y
+e-commerce, servicios profesionales, constructoras, logística, talleres, gimnasios. Lo
+que decide no es el rubro sino la señal: que reciban consultas seguido, o que le vendan
+a otras empresas. Hablamos con el dueño o el gerente comercial.
 
 QUÉ NOS DIFERENCIA
 
-- El cliente recibe leads calificados, no una lista comprada.
-- Los agentes operan solos y de punta a punta; no es una herramienta más que alguien
-  tiene que aprender a usar.
-- Transparencia: si a un agente le preguntan si es una IA, lo dice. Eso protege el
-  número de WhatsApp de la empresa (Meta suspende cuentas que se hacen pasar por
-  humanas) y protege la marca.
-- Se adapta al negocio de cada cliente: cada empresa carga su ficha, su catálogo y su
-  perfil de cliente ideal, y los agentes trabajan con eso.
+- Leads calificados, no una lista comprada.
+- Los agentes operan solos de punta a punta: no es una herramienta más que alguien tenga
+  que aprender a usar.
+- Transparencia: si preguntan si es una IA, lo dice. Protege el número de WhatsApp (Meta
+  suspende cuentas que se hacen pasar por humanas) y protege la marca.
+- Se adapta a cada cliente: su ficha, su catálogo y su perfil de cliente ideal.
 
-CÓMO LO DEMOSTRAMOS
+QUÉ OFRECERLE A CADA TIPO DE NEGOCIO
 
-La mejor demo es esta misma conversación: quien escribe está hablando con un agente de
-ZeroAI. Si quiere ver más, se le muestra el tablero con el pipeline real.
+Casi ningún negocio necesita las cuatro líneas. Se ofrece UNA, la que resuelve su
+problema real:
 
-OFERTA DE ENTRADA
+- Restaurantes, cafeterías, pastelerías, heladerías: agente que toma pedidos y agenda
+  reservas por WhatsApp, sin que nadie esté con el teléfono en hora peak.
+- Tiendas y e-commerce: agente que responde stock, precios, despacho y postventa 24/7,
+  con el catálogo cargado.
+- Clínicas, consultas, estética, gimnasios: agente que agenda, confirma y reagenda horas.
+- Servicios profesionales, constructoras, logística, mayoristas: agente para las
+  cotizaciones que llegan fuera de horario.
+- Empresas que le venden a OTRAS EMPRESAS: acá sí va generación de leads B2B.
+- Con presupuesto de publicidad: agentic marketing y automatización.
 
-A quien todavía no nos conoce le ofrecemos 10 leads calificados de prueba, gratis y
-para su rubro: empresa, decisor, contacto verificado y el primer mensaje ya escrito.
-Sin compromiso y sin tarjeta — así ve la calidad antes de decidir nada. Es la forma
-más rápida de pasar de un correo frío a una conversación.
+A un restaurante no se le ofrece leads B2B: sus clientes son personas. Ofrecérselo
+demuestra que no se miró el negocio.
+
+OFERTA DE ENTRADA (depende de qué se le ofreció)
+
+- Leads B2B: 10 leads calificados de prueba, gratis y de su rubro — empresa, decisor,
+  contacto verificado y el primer mensaje escrito. Sin compromiso ni tarjeta.
+- Agente de WhatsApp: le mostramos el agente respondiendo con su propio catálogo, sin
+  que instale nada. La mejor demo es esta misma conversación: quien escribe está
+  hablando con un agente de ZeroAI.
 
 LO QUE NO HACEMOS
 
-No vendemos leads B2C ni bases de datos. No garantizamos ventas cerradas: entregamos
-leads calificados y el contacto hecho. No hacemos desarrollo de software a medida
-fuera de estas cuatro líneas.
+No vendemos bases de datos ni listas. No garantizamos ventas cerradas. No hacemos
+desarrollo a medida fuera de estas cuatro líneas.
 
 <!-- FIN FICHA -->
