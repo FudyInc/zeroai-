@@ -11,6 +11,9 @@ users.json
 activity.json
 # telemetría de agentes (anillo local, se regenera solo)
 agent_activity.json
+# cola de trabajo autónomo (local, coordina procesos de esta máquina)
+tareas.json
+tareas.json.tmp
 *.json.bak
 *.json.bak-*
 *.json.tmp
