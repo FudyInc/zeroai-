@@ -116,14 +116,65 @@ class OwnerAlertTest(unittest.TestCase):
         alerts.reset_throttle()
         self.addCleanup(alerts.reset_throttle)
 
+    # Estas variables se fijan explícitamente en cada test porque `zero/_env.py`
+    # carga el .env real al importar: sin fijarlas, el resultado dependería de la
+    # máquina donde corre la suite (y CI, sin .env, daría algo distinto al portátil).
+    SIN_CANALES = {"OWNER_WHATSAPP_TO": "", "OWNER_EMAIL_TO": "",
+                   "SMTP_FROM": "", "SMTP_USER": ""}
+
     def test_skipped_without_a_number(self):
-        with mock.patch.dict(os.environ, {"OWNER_WHATSAPP_TO": ""}, clear=False):
+        with mock.patch.dict(os.environ, self.SIN_CANALES, clear=False):
             res = alerts.notify_owner("hola", outbox=_RecordingOutbox())
         self.assertEqual(res["status"], "skipped")
 
+    def test_email_cuando_no_hay_whatsapp(self):
+        """Sin número configurado el aviso NO se pierde: sale por correo."""
+        box = _RecordingOutbox()
+        with mock.patch.dict(os.environ, {**self.SIN_CANALES,
+                                          "OWNER_EMAIL_TO": "duenio@zeroai.cl"}, clear=False):
+            res = alerts.notify_owner("motor caído", outbox=box)
+        self.assertEqual(res["status"], "sent")
+        self.assertEqual(res["via"], "email")
+        self.assertEqual(box.sent[0]["channel"], "email")
+        self.assertTrue(box.sent[0].get("subject"), "un correo sin asunto se va a spam")
+
+    def test_sale_por_los_dos_canales_aunque_whatsapp_diga_que_si(self):
+        """El aviso NO espera a que WhatsApp falle para usar el correo.
+
+        Comprobado contra la consola de Twilio (2026-08-22): el POST responde
+        queued/accepted y el `failed / 63015` llega después, asíncrono. Un respaldo
+        condicionado a que el primer canal "falle" nunca se habría activado — de ahí
+        que se mande por ambos."""
+        box = _RecordingOutbox()
+        with mock.patch.dict(os.environ, {**self.SIN_CANALES,
+                                          "OWNER_WHATSAPP_TO": "+56900000000",
+                                          "OWNER_EMAIL_TO": "duenio@zeroai.cl"}, clear=False):
+            res = alerts.notify_owner("motor caído", outbox=box)
+        self.assertEqual(res["status"], "sent")
+        self.assertEqual([m["channel"] for m in box.sent], ["whatsapp", "email"])
+        self.assertIn("whatsapp", res["via"])
+        self.assertIn("email", res["via"])
+
+    def test_si_fallan_los_dos_canales_es_error_y_no_quema_la_ventana(self):
+        class TodoRoto:
+            def __init__(self): self.sent = []
+            def send(self, msg, wa_creds=None):
+                self.sent.append(msg)
+                return {"status": "error", "error": "caído"}
+
+        box = TodoRoto()
+        with mock.patch.dict(os.environ, {**self.SIN_CANALES,
+                                          "OWNER_WHATSAPP_TO": "+56900000000",
+                                          "OWNER_EMAIL_TO": "duenio@zeroai.cl"}, clear=False):
+            primero = alerts.notify_owner("uno", outbox=box, now=1000.0)
+            segundo = alerts.notify_owner("dos", outbox=box, now=1001.0)
+        self.assertEqual(primero["status"], "error")
+        self.assertNotEqual(segundo["status"], "throttled")   # pudo reintentar
+
     def test_sends_to_the_owner(self):
         box = _RecordingOutbox()
-        with mock.patch.dict(os.environ, {"OWNER_WHATSAPP_TO": "+56900000000"}, clear=False):
+        with mock.patch.dict(os.environ, {**self.SIN_CANALES,
+                                          "OWNER_WHATSAPP_TO": "+56900000000"}, clear=False):
             res = alerts.notify_owner("motor caído", outbox=box)
         self.assertEqual(res["status"], "sent")
         self.assertEqual(len(box.sent), 1)
@@ -132,7 +183,8 @@ class OwnerAlertTest(unittest.TestCase):
 
     def test_throttled_within_the_window(self):
         box = _RecordingOutbox()
-        with mock.patch.dict(os.environ, {"OWNER_WHATSAPP_TO": "+56900000000"}, clear=False):
+        with mock.patch.dict(os.environ, {**self.SIN_CANALES,
+                                          "OWNER_WHATSAPP_TO": "+56900000000"}, clear=False):
             alerts.notify_owner("uno", outbox=box, now=1000.0)
             res = alerts.notify_owner("dos", outbox=box, now=1060.0)   # 60s después
         self.assertEqual(res["status"], "throttled")
@@ -141,7 +193,8 @@ class OwnerAlertTest(unittest.TestCase):
     def test_sends_again_after_the_window(self):
         box = _RecordingOutbox()
         later = 1000.0 + ALERT_THROTTLE_MINUTES * 60 + 1
-        with mock.patch.dict(os.environ, {"OWNER_WHATSAPP_TO": "+56900000000"}, clear=False):
+        with mock.patch.dict(os.environ, {**self.SIN_CANALES,
+                                          "OWNER_WHATSAPP_TO": "+56900000000"}, clear=False):
             alerts.notify_owner("uno", outbox=box, now=1000.0)
             res = alerts.notify_owner("dos", outbox=box, now=later)
         self.assertEqual(res["status"], "sent")
@@ -149,7 +202,8 @@ class OwnerAlertTest(unittest.TestCase):
 
     def test_different_kinds_do_not_share_the_window(self):
         box = _RecordingOutbox()
-        with mock.patch.dict(os.environ, {"OWNER_WHATSAPP_TO": "+56900000000"}, clear=False):
+        with mock.patch.dict(os.environ, {**self.SIN_CANALES,
+                                          "OWNER_WHATSAPP_TO": "+56900000000"}, clear=False):
             alerts.notify_owner("uno", kind="a", outbox=box, now=1000.0)
             res = alerts.notify_owner("dos", kind="b", outbox=box, now=1001.0)
         self.assertEqual(res["status"], "sent")
@@ -157,7 +211,8 @@ class OwnerAlertTest(unittest.TestCase):
     def test_a_failed_send_does_not_burn_the_window(self):
         # Si el envío falla, el próximo mensaje debe poder reintentar el aviso.
         box = _RecordingOutbox(status="error")
-        with mock.patch.dict(os.environ, {"OWNER_WHATSAPP_TO": "+56900000000"}, clear=False):
+        with mock.patch.dict(os.environ, {**self.SIN_CANALES,
+                                          "OWNER_WHATSAPP_TO": "+56900000000"}, clear=False):
             alerts.notify_owner("uno", outbox=box, now=1000.0)
             res = alerts.notify_owner("dos", outbox=box, now=1001.0)
         self.assertNotEqual(res["status"], "throttled")
@@ -167,7 +222,8 @@ class OwnerAlertTest(unittest.TestCase):
             def send(self, msg, wa_creds=None):
                 raise RuntimeError("red caída")
 
-        with mock.patch.dict(os.environ, {"OWNER_WHATSAPP_TO": "+56900000000"}, clear=False):
+        with mock.patch.dict(os.environ, {**self.SIN_CANALES,
+                                          "OWNER_WHATSAPP_TO": "+56900000000"}, clear=False):
             res = alerts.notify_owner("hola", outbox=Explota())
         self.assertEqual(res["status"], "error")
 
@@ -401,7 +457,10 @@ class TwilioResultTest(unittest.TestCase):
                                                   "error_code": 63015})
 
         box = TwilioRechaza()
-        with mock.patch.dict(os.environ, {"OWNER_WHATSAPP_TO": "+56978398103"}, clear=False):
+        # Sin correo de respaldo: acá se prueba el caso puro de WhatsApp rechazado.
+        with mock.patch.dict(os.environ, {"OWNER_WHATSAPP_TO": "+56978398103",
+                                          "OWNER_EMAIL_TO": "", "SMTP_FROM": "",
+                                          "SMTP_USER": ""}, clear=False):
             alerts.notify_owner("uno", outbox=box, now=1000.0)
             res = alerts.notify_owner("dos", outbox=box, now=1001.0)
         self.assertNotEqual(res["status"], "throttled")

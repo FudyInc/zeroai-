@@ -28,9 +28,21 @@ _last_sent: Dict[str, float] = {}
 
 
 def _result(status: str, *, to: Optional[str] = None, reason: str = "",
-            text: str = "") -> Dict[str, Any]:
+            text: str = "", via: str = "") -> Dict[str, Any]:
     """Forma única de respuesta — igual en mock y en real, para no dar falsa confianza."""
-    return {"alert": True, "status": status, "to": to, "reason": reason, "text": text}
+    return {"alert": True, "status": status, "to": to, "reason": reason,
+            "text": text, "via": via}
+
+
+def _owner_email() -> str:
+    """A qué correo avisar: `OWNER_EMAIL_TO`, o el propio remitente SMTP.
+
+    Caer al remitente es deliberado: un aviso que se manda a sí mismo llega igual a
+    la bandeja del dueño y no exige configurar nada nuevo. Sin SMTP tampoco hay
+    respaldo, y eso se reporta en vez de fallar en silencio."""
+    return ((os.environ.get("OWNER_EMAIL_TO") or "").strip()
+            or (os.environ.get("SMTP_FROM") or "").strip()
+            or (os.environ.get("SMTP_USER") or "").strip())
 
 
 def reset_throttle() -> None:
@@ -57,21 +69,55 @@ def notify_owner(text: str, *, kind: str = "generic",
     if last is not None and window > 0 and (stamp - last) < window:
         return _result("throttled", reason=f"ya se avisó hace {int(stamp - last)}s", text=text)
 
-    to = (os.environ.get("OWNER_WHATSAPP_TO") or "").strip()
-    if not to:
-        # No es un error: es la configuración por defecto. Sin número, no hay a quién avisar.
-        return _result("skipped", reason="OWNER_WHATSAPP_TO no configurado", text=text)
-
-    try:
-        if outbox is None:
+    if outbox is None:
+        try:
             from .channels import make_outbox
             outbox = make_outbox()
-        res = outbox.send({"channel": "whatsapp", "to": to, "body": text})
-    except Exception as e:   # noqa: BLE001 — avisar nunca puede romper al que avisa
-        return _result("error", to=to, reason=str(e), text=text)
+        except Exception as e:   # noqa: BLE001 — avisar nunca puede romper al que avisa
+            return _result("error", reason=str(e), text=text)
 
-    # Solo se marca la ventana si el envío no falló: si falló, el próximo mensaje
-    # debe poder reintentar el aviso en vez de quedar silenciado por 30 minutos.
-    if (res or {}).get("status") != "error":
+    # Se manda por TODOS los canales configurados, no por uno con respaldo.
+    #
+    # La razón es que "envío exitoso" no significa "mensaje entregado": el POST a
+    # Twilio (y a Meta) responde `queued`/`accepted`, y el fallo real llega después,
+    # asíncrono. Comprobado el 2026-08-22 en la consola de Twilio — tres avisos con
+    # `status: sent` de nuestro lado y `failed / 63015` del suyo, porque el número
+    # había salido del sandbox (caduca cada 72 horas). Un respaldo que se activa solo
+    # cuando el primer canal "falla" nunca se habría activado.
+    #
+    # Un aviso es la única pieza cuyo fallo nadie más nota, porque justamente avisa
+    # cuando nadie está mirando. Frente a eso, un correo duplicado cuando ambos
+    # canales funcionan es un precio ridículamente bajo — y el SMTP ya está conectado,
+    # así que no agrega servicio ni cuenta nueva.
+    intentos, salio, destino_ok, via_ok = [], False, None, []
+    for canal, destino in (("whatsapp", (os.environ.get("OWNER_WHATSAPP_TO") or "").strip()),
+                           ("email", _owner_email())):
+        if not destino:
+            intentos.append(f"{canal}: sin destinatario")
+            continue
+        try:
+            msg = {"channel": canal, "to": destino, "body": text}
+            if canal == "email":
+                msg["subject"] = "ZeroAI — aviso del sistema"
+            res = outbox.send(msg) or {}
+        except Exception as e:   # noqa: BLE001
+            intentos.append(f"{canal}: {e}")
+            continue
+        if res.get("status") != "error":
+            salio, destino_ok = True, destino_ok or destino
+            via_ok.append(canal)
+        else:
+            intentos.append(f"{canal}: {res.get('error') or 'error'}")
+
+    if salio:
+        # La ventana se marca solo cuando algo salió. Si todo falla, el próximo evento
+        # debe poder reintentar en vez de quedar callado 30 minutos.
         _last_sent[kind] = stamp
-    return _result((res or {}).get("status", "sent"), to=to, text=text)
+        return _result("sent", to=destino_ok, text=text, via="+".join(via_ok),
+                       reason=" | ".join(intentos))
+
+    # Ningún canal salió. Sin destinatarios es "skipped" (la config por defecto, no un
+    # fallo); con destinatarios que fallaron es "error" y hay que verlo.
+    fallo_real = any(": sin destinatario" not in i for i in intentos)
+    return _result("error" if fallo_real else "skipped",
+                   reason=" | ".join(intentos), text=text)

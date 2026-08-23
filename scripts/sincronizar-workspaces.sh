@@ -44,6 +44,20 @@ done
 if [ ${#saltados[@]} -gt 0 ]; then
   echo
   echo "revisa a mano: ${saltados[*]}"
+  # El journal de systemd no lo lee nadie. Un workspace saltado significa trabajo
+  # tuyo sin subir, envejeciendo mientras main avanza — exactamente la situación que
+  # este script existe para evitar, y la única que no puede resolver solo. Va por el
+  # mismo canal que los avisos de salud (WhatsApp, con respaldo a correo).
+  python3 -c "
+import sys
+sys.path.insert(0, '$REPO')
+from zero._env import load_env
+from zero.alerts import notify_owner
+load_env()
+res = notify_owner('ZERO: workspaces sin sincronizar (trabajo propio sin subir): ${saltados[*]}',
+                   kind='sync-workspaces')
+print('aviso →', res['status'], res.get('via') or res.get('reason') or '')
+" || echo "(el aviso no salió; el resultado igual queda en el journal)"
   exit 2   # distinto de 0: el timer lo deja visible en el journal
 fi
 echo
