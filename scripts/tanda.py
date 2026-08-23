@@ -160,13 +160,40 @@ def correr_agente(tarea: Dict[str, Any], modelo: str) -> Tuple[bool, str]:
 
 
 # --- Puerta 2: alcance ---------------------------------------------------------------
+def archivos_tocados(d: Path) -> List[str]:
+    """Los archivos que el worktree tiene modificados, parseados de `git status`.
+
+    No usa el helper `_git`: ese hace `.strip()` sobre TODA la salida, y el formato
+    porcelain trae dos columnas de estado seguidas de un espacio (` M README.md`), así
+    que el strip se come el espacio inicial de la primera línea y desalinea el corte.
+    Encontrado en la primera corrida real (2026-08-22): el alcance rechazó un
+    `README.md` legítimo porque lo leyó como `EADME.md` — con ese bug, la primera
+    tarea de cualquier tanda se rechazaba sola.
+    """
+    salida = subprocess.run(["git", "status", "--porcelain"], cwd=str(d),
+                            capture_output=True, text=True, timeout=120).stdout
+    return parsear_status(salida)
+
+
+def parsear_status(salida: str) -> List[str]:
+    """Las rutas de una salida `git status --porcelain`. Pura, para poder probarla."""
+    rutas = []
+    for linea in salida.split("\n"):
+        if not linea.strip():
+            continue
+        ruta = linea[2:].strip()          # las 2 primeras columnas son el estado
+        if " -> " in ruta:                # renombrado: cuenta el destino
+            ruta = ruta.split(" -> ", 1)[1].strip()
+        rutas.append(ruta.strip('"'))     # git entrecomilla nombres con espacios
+    return rutas
+
+
 def fuera_de_alcance(tarea: Dict[str, Any]) -> List[str]:
-    d = ruta_workspace(tarea["workspace"])
-    tocados = [l[3:].strip() for l in _git(d, "status", "--porcelain").splitlines() if l]
     permitidos = set(tarea.get("archivos") or [])
     if not permitidos:
         return []
-    return [t for t in tocados if t not in permitidos]
+    return [t for t in archivos_tocados(ruta_workspace(tarea["workspace"]))
+            if t not in permitidos]
 
 
 # --- Puerta 3: tests -----------------------------------------------------------------
@@ -293,7 +320,7 @@ def procesar(tarea: Dict[str, Any], *, ejecutar: bool, modelo: str,
                                 "notas": salida_tests[-400:]})
         return {"tarea": tarea["id"], "resultado": "tests_rojos"}
 
-    tocados = [l[3:].strip() for l in _git(d, "status", "--porcelain").splitlines() if l]
+    tocados = archivos_tocados(d)
     tasks.a_revision(tarea["id"], rama=_git(d, "rev-parse", "--abbrev-ref", "HEAD"))
     veredicto = juzgar(tarea, diff, salida_tests, tocados, modelo_juez)
     print(f"  juez: {'APROBADA' if veredicto['aprobado'] else 'rechazada'}"
