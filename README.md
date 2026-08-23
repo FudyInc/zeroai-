@@ -172,6 +172,18 @@ stages, full pipeline) — no deps, all in mock:
 python3 -m unittest discover -s tests -t .
 ```
 
+## Daily WhatsApp agent check
+
+Automated test that verifies the WhatsApp agent respects hard rules (no cifras,
+no invented segments, proper intent) against the local model. Runs on systemd
+at 04:30 and alerts only on rule violations, never on non-deterministic drifts.
+
+```bash
+python3 scripts/probar-agente.py              # run and report
+python3 scripts/probar-agente.py --avisar     # alert owner if a rule breaks
+python3 scripts/probar-agente.py --cliente X  # test a different client (default: zeroai)
+```
+
 ## Qualified lead — the gate
 
 A lead is delivered only if **all** hold (see `zero/config.py`):
