@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { motion } from 'framer-motion'
 import { Mail, Sparkles, Send } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
 import { Card, Button, Input, Badge, SectionTitle } from '../components/ui'
 import { Glow } from '../components/Glow'
+import { rise, fade, surface } from '../lib/motion'
 
 // Pon el mail de un prospecto → genera el pitch (editable) → envíalo por tu SMTP.
 export default function Vender() {
@@ -43,14 +45,17 @@ export default function Vender() {
   }
 
   return (
-    <div className="max-w-2xl space-y-4">
+    <motion.div className="max-w-2xl space-y-4" initial="hidden" animate="show" variants={rise}>
       {cfg && !cfg.email && (
-        <Card className="p-4 border-amber-200 bg-amber-50/60 text-sm text-amber-800">
-          Aún no conectas el email. Ve a <b>Configuración → Email (SMTP)</b> para poder enviar.
-        </Card>
+        <motion.div variants={fade}>
+          <Card className="p-4 border-amber-200 bg-amber-50/60 text-sm text-amber-800">
+            Aún no conectas el email. Ve a <b>Configuración → Email (SMTP)</b> para poder enviar.
+          </Card>
+        </motion.div>
       )}
 
-      <Card className="p-6 space-y-3">
+      <motion.div variants={surface}>
+        <Card className="p-6 space-y-3">
         <SectionTitle className="flex items-center gap-2"><Mail size={16} /> A quién le escribes</SectionTitle>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="sm:col-span-2">
@@ -82,10 +87,12 @@ export default function Vender() {
           {mode && <Badge color={mode === 'live' ? '#16a34a' : '#94a3b8'}>{mode === 'live' ? 'IA real' : 'mock (varía)'}</Badge>}
           <span className="text-xs text-zinc-400">Cada generación es distinta — con modelo (Anthropic o local) es de verdad creativa.</span>
         </div>
-      </Card>
+        </Card>
+      </motion.div>
 
-      <Card className="p-6 space-y-3">
-        <SectionTitle>El correo (edítalo antes de enviar)</SectionTitle>
+      <motion.div variants={surface}>
+        <Card className="p-6 space-y-3">
+          <SectionTitle>El correo (edítalo antes de enviar)</SectionTitle>
         <div>
           <label className="block text-xs text-zinc-500 mb-1">Asunto</label>
           <Input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Leads B2B calificados para tu empresa" />
@@ -103,7 +110,8 @@ export default function Vender() {
             </Button>
           </Glow>
         </div>
-      </Card>
-    </div>
+        </Card>
+      </motion.div>
+    </motion.div>
   )
 }

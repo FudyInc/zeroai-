@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { SquareTerminal, AlertTriangle } from 'lucide-react'
 import { api } from '../lib/api'
 import { Card, Skeleton, pageState, SectionTitle, Eyebrow } from '../components/ui'
 import RoleCard from '../components/conductor/RoleCard'
 import SessionChat from '../components/conductor/SessionChat'
+import { rise, fade, surface, stagger } from '../lib/motion'
 
 /* Panel exclusivo del admin: lanza y monitorea las terminales de Claude Code
    del proyecto (mismos 6 roles que hoy usan los *-terminal.sh — ver
@@ -40,21 +42,23 @@ export default function Conductor() {
 
   if (!statusQ.data?.available) {
     return (
-      <div className="max-w-xl">
-        <div className="flex items-center gap-2 mb-4">
+      <motion.div className="max-w-xl" initial="hidden" animate="show" variants={rise}>
+        <motion.div className="flex items-center gap-2 mb-4" variants={fade}>
           <SquareTerminal size={18} className="text-gold-deep" />
           <SectionTitle>Conductor</SectionTitle>
-        </div>
-        <Card className="p-6 flex items-start gap-3">
-          <AlertTriangle size={17} className="text-amber-700 shrink-0 mt-0.5" />
-          <div className="text-sm text-zinc-600">
-            <p className="font-medium text-zinc-800">Esta función solo corre local.</p>
-            <p className="mt-1">
-              {statusQ.data?.reason || 'El CLI de Claude Code no está disponible en este servidor.'}
-            </p>
-          </div>
-        </Card>
-      </div>
+        </motion.div>
+        <motion.div variants={fade}>
+          <Card className="p-6 flex items-start gap-3">
+            <AlertTriangle size={17} className="text-amber-700 shrink-0 mt-0.5" />
+            <div className="text-sm text-zinc-600">
+              <p className="font-medium text-zinc-800">Esta función solo corre local.</p>
+              <p className="mt-1">
+                {statusQ.data?.reason || 'El CLI de Claude Code no está disponible en este servidor.'}
+              </p>
+            </div>
+          </Card>
+        </motion.div>
+      </motion.div>
     )
   }
 
@@ -98,38 +102,41 @@ export default function Conductor() {
   }
 
   return (
-    <div className="space-y-5 max-w-3xl">
-      <div className="flex items-center gap-2">
+    <motion.div className="space-y-5 max-w-3xl" initial="hidden" animate="show" variants={rise}>
+      <motion.div className="flex items-center gap-2" variants={fade}>
         <SquareTerminal size={18} className="text-gold-deep" />
         <SectionTitle>Conductor</SectionTitle>
-      </div>
-      <p className="text-sm text-pewter max-w-2xl">
+      </motion.div>
+      <motion.p className="text-sm text-pewter max-w-2xl" variants={fade}>
         Lanza y monitorea las terminales de Claude Code del proyecto. El rol define qué zona del
         repo toca cada terminal; el modelo, cuánto piensa — se elige antes de iniciar. Las sesiones
         no se guardan: mueren si se reinicia el backend, igual que las terminales de hoy.
-      </p>
+      </motion.p>
 
-      <div className="space-y-2">
-        <Eyebrow>Terminales</Eyebrow>
+      <motion.div className="space-y-2" variants={stagger()} initial="hidden" animate="show">
+        <motion.div variants={fade}>
+          <Eyebrow>Terminales</Eyebrow>
+        </motion.div>
         {roles.map((role) => (
-          <RoleCard
-            key={role.id}
-            role={role}
-            models={models}
-            model={modelFor(role)}
-            onModelChange={(m) => setModelByRole((prev) => ({ ...prev, [role.id]: m }))}
-            session={latestByRole[role.id]}
-            busy={startingRole === role.id}
-            onStart={() => start(role)}
-            onOpen={() => setOpenSessionId(latestByRole[role.id]?.id)}
-            onStop={() => stop(latestByRole[role.id]?.id)}
-          />
+          <motion.div key={role.id} variants={surface}>
+            <RoleCard
+              role={role}
+              models={models}
+              model={modelFor(role)}
+              onModelChange={(m) => setModelByRole((prev) => ({ ...prev, [role.id]: m }))}
+              session={latestByRole[role.id]}
+              busy={startingRole === role.id}
+              onStart={() => start(role)}
+              onOpen={() => setOpenSessionId(latestByRole[role.id]?.id)}
+              onStop={() => stop(latestByRole[role.id]?.id)}
+            />
+          </motion.div>
         ))}
-      </div>
+      </motion.div>
 
       {openSessionId && (
         <SessionChat sessionId={openSessionId} onClose={() => setOpenSessionId(null)} />
       )}
-    </div>
+    </motion.div>
   )
 }

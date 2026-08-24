@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { motion } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { Phone } from 'lucide-react'
 import { api } from '../lib/api'
 import { Card, Button, Input, Select, Skeleton, SectionTitle } from '../components/ui'
+import { rise, fade } from '../lib/motion'
 
 export default function Llamadas() {
   const agentsQ = useQuery({ queryKey: ['assistants'], queryFn: api.assistants, retry: false })
@@ -63,11 +65,12 @@ export default function Llamadas() {
   }
 
   return (
-    <Card className="p-6 max-w-xl space-y-4">
-      <div>
-        <SectionTitle>Llamar con un agente</SectionTitle>
-        <div className="text-sm text-zinc-500">Elegí el agente de voz y llamá. Probá con tu celular primero.</div>
-      </div>
+    <motion.div initial="hidden" animate="show" variants={rise}>
+      <Card className="p-6 max-w-xl space-y-4">
+        <motion.div variants={fade}>
+          <SectionTitle>Llamar con un agente</SectionTitle>
+          <div className="text-sm text-zinc-500">Elegí el agente de voz y llamá. Probá con tu celular primero.</div>
+        </motion.div>
 
       <div>
         <label className="block text-xs text-zinc-500 mb-1">Agente de voz</label>
@@ -99,7 +102,8 @@ export default function Llamadas() {
         </div>
       </div>
 
-      {msg && <div className={'text-sm ' + (msg.ok ? 'text-gold-deep' : 'text-rose-600')}>{msg.ok ? '✓ ' : ''}{msg.t}</div>}
-    </Card>
+      {msg && <motion.div variants={fade} className={'text-sm ' + (msg.ok ? 'text-gold-deep' : 'text-rose-600')}>{msg.ok ? '✓ ' : ''}{msg.t}</motion.div>}
+      </Card>
+    </motion.div>
   )
 }

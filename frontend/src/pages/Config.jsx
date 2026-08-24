@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { motion } from 'framer-motion'
 import { CheckCircle2, AlertCircle, WifiOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, BASE } from '../lib/api'
 import { Card, Button, Input, Skeleton, Badge, SectionTitle } from '../components/ui'
 import AgentTester from '../components/AgentTester'
+import { rise, fade, surface, stagger } from '../lib/motion'
 
 export default function Config() {
   const qc = useQueryClient()
@@ -26,139 +28,171 @@ export default function Config() {
   if (error) return <div className="max-w-xl py-16 text-center"><p className="text-rose-600">No se pudo cargar la configuración.</p><Button variant="soft" className="mt-3" onClick={() => refetch()}>Reintentar</Button></div>
 
   return (
-    <div className="max-w-xl space-y-4">
-      <CloudBackupBanner backedUp={cfg?.backed_up || []} supabase={cfg?.supabase} />
+    <motion.div className="max-w-xl space-y-4" initial="hidden" animate="show" variants={rise}>
+      <motion.div variants={fade}>
+        <CloudBackupBanner backedUp={cfg?.backed_up || []} supabase={cfg?.supabase} />
+      </motion.div>
 
-      <IntegrationCard title="Acceso (login de agencia)" ok={cfg?.auth} hint="protege el dashboard con una contraseña · vacío = abierto (solo local)">
-        <div className="flex gap-2">
-          <Input type="password" placeholder="Nueva contraseña" value={vals.pw || ''} onChange={(e) => set('pw', e.target.value)} />
-          <Button onClick={() => vals.pw && save({ auth_password: vals.pw }, ['pw'])}>{cfg?.auth ? 'Cambiar' : 'Activar login'}</Button>
-        </div>
-      </IntegrationCard>
-
-      <IntegrationCard title="ElevenLabs (voz)" ok={cfg?.elevenlabs} hint="se guarda en .env (local)">
-        <div className="flex gap-2">
-          <Input type="password" placeholder="sk_..." value={vals.el || ''} onChange={(e) => set('el', e.target.value)} />
-          <Button onClick={() => vals.el && save({ elevenlabs_api_key: vals.el }, ['el'])}>Guardar</Button>
-        </div>
-      </IntegrationCard>
-
-      <IntegrationCard title="Vapi (llamadas)" ok={cfg?.vapi} hint="con tu API key se listan agentes y números solos">
-        <div className="space-y-2">
-          <Input type="password" placeholder="Vapi API key" value={vals.vk || ''} onChange={(e) => set('vk', e.target.value)} />
-          <Input placeholder="Assistant ID (opcional)" value={vals.va || ''} onChange={(e) => set('va', e.target.value)} />
-          <Input placeholder="Phone Number ID (opcional)" value={vals.vp || ''} onChange={(e) => set('vp', e.target.value)} />
-          <Button onClick={() => save({
-            ...(vals.vk && { vapi_api_key: vals.vk }),
-            ...(vals.va && { vapi_assistant_id: vals.va }),
-            ...(vals.vp && { vapi_phone_number_id: vals.vp }),
-          }, ['vk', 'va', 'vp'])}>Guardar Vapi</Button>
-        </div>
-      </IntegrationCard>
-
-      <IntegrationCard title="Supabase (datos en la nube · equipo)" ok={cfg?.supabase} hint="al conectarlo, el CRM pasa de archivos locales a Postgres compartido">
-        <div className="space-y-2">
-          <Input placeholder="Project URL (https://xxxx.supabase.co)" value={vals.su || ''} onChange={(e) => set('su', e.target.value)} />
-          <Input type="password" placeholder="service_role key" value={vals.sk || ''} onChange={(e) => set('sk', e.target.value)} />
-          <Button onClick={() => save({
-            ...(vals.su && { supabase_url: vals.su }),
-            ...(vals.sk && { supabase_key: vals.sk }),
-          }, ['su', 'sk'])}>Conectar Supabase</Button>
-        </div>
-      </IntegrationCard>
-
-      <IntegrationCard title="Anthropic (modo --live, opcional)" ok={cfg?.anthropic} hint="para correr el motor con Claude">
-        <div className="flex gap-2">
-          <Input type="password" placeholder="sk-ant-..." value={vals.an || ''} onChange={(e) => set('an', e.target.value)} />
-          <Button onClick={() => vals.an && save({ anthropic_api_key: vals.an }, ['an'])}>Guardar</Button>
-        </div>
-      </IntegrationCard>
-
-      <div className="pt-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">Canales de envío</div>
-
-      <IntegrationCard title="Email (SMTP · email marketing)" ok={cfg?.email} hint="con esto el primer toque y los follow-ups salen por correo de verdad">
-        <div className="space-y-2">
-          <Input placeholder="SMTP host (smtp.gmail.com)" value={vals.sh || ''} onChange={(e) => set('sh', e.target.value)} />
+      <motion.div variants={surface}>
+          <IntegrationCard title="Acceso (login de agencia)" ok={cfg?.auth} hint="protege el dashboard con una contraseña · vacío = abierto (solo local)">
           <div className="flex gap-2">
-            <Input placeholder="Puerto (587)" value={vals.sp || ''} onChange={(e) => set('sp', e.target.value)} className="w-28" />
-            <Input placeholder="From (hola@tudominio.com)" value={vals.sfrom || ''} onChange={(e) => set('sfrom', e.target.value)} />
+            <Input type="password" placeholder="Nueva contraseña" value={vals.pw || ''} onChange={(e) => set('pw', e.target.value)} />
+            <Button onClick={() => vals.pw && save({ auth_password: vals.pw }, ['pw'])}>{cfg?.auth ? 'Cambiar' : 'Activar login'}</Button>
           </div>
-          <Input placeholder="Usuario" value={vals.suser || ''} onChange={(e) => set('suser', e.target.value)} />
-          <Input type="password" placeholder="Contraseña / app password" value={vals.spass || ''} onChange={(e) => set('spass', e.target.value)} />
-          <Button onClick={() => save({
-            ...(vals.sh && { smtp_host: vals.sh }),
-            ...(vals.sp && { smtp_port: vals.sp }),
-            ...(vals.sfrom && { smtp_from: vals.sfrom }),
-            ...(vals.suser && { smtp_user: vals.suser }),
-            ...(vals.spass && { smtp_pass: vals.spass }),
-          }, ['sh', 'sp', 'sfrom', 'suser', 'spass'])}>Guardar SMTP</Button>
-        </div>
-      </IntegrationCard>
+        </IntegrationCard>
+      </motion.div>
 
-      {cfg?.email && <TestEmailRow />}
-
-      <IntegrationCard title="WhatsApp (Meta Cloud API)" ok={cfg?.whatsapp} hint="token + phone number ID de tu app de WhatsApp Business · el agente responde dentro de la ventana de 24h">
-        <div className="space-y-2">
-          <Input type="password" placeholder="WhatsApp token" value={vals.wt || ''} onChange={(e) => set('wt', e.target.value)} />
-          <Input placeholder="Phone Number ID" value={vals.wp || ''} onChange={(e) => set('wp', e.target.value)} />
-          <Input placeholder="Verify token (lo inventas tú, p/ el webhook)" value={vals.wv || ''} onChange={(e) => set('wv', e.target.value)} />
-          <Input type="password" placeholder="App Secret (Meta Business Settings → App → Basic)" value={vals.was || ''} onChange={(e) => set('was', e.target.value)} />
-          <Button onClick={() => save({
-            ...(vals.wt && { whatsapp_token: vals.wt }),
-            ...(vals.wp && { whatsapp_phone_id: vals.wp }),
-            ...(vals.wv && { whatsapp_verify_token: vals.wv }),
-            ...(vals.was && { whatsapp_app_secret: vals.was }),
-          }, ['wt', 'wp', 'wv', 'was'])}>Guardar WhatsApp</Button>
-        </div>
-      </IntegrationCard>
-
-      <IntegrationCard title="WhatsApp vía Twilio (plan B)" ok={cfg?.twilio} hint="las 3 keys salen de la consola de Twilio: Account SID y Auth Token en home → Account Info; el From es el número del sandbox mientras pruebas (después, tu número real)">
-        <div className="space-y-2">
-          <Input placeholder="Account SID (empieza con AC)" value={vals.tsid || ''} onChange={(e) => set('tsid', e.target.value)} />
-          <Input type="password" placeholder="Auth Token" value={vals.ttok || ''} onChange={(e) => set('ttok', e.target.value)} />
-          <Input placeholder="+14155238886 (sandbox)" value={vals.tfrom || ''} onChange={(e) => set('tfrom', e.target.value)} />
-          <Button onClick={() => save({
-            ...(vals.tsid && { twilio_account_sid: vals.tsid }),
-            ...(vals.ttok && { twilio_auth_token: vals.ttok }),
-            ...(vals.tfrom && { twilio_whatsapp_from: vals.tfrom }),
-          }, ['tsid', 'ttok', 'tfrom'])}>Guardar Twilio</Button>
-          <div className="text-[11px] text-zinc-400 pt-1">
-            Webhook para la consola de Twilio (sandbox → "When a message comes in", método POST):{' '}
-            <code className="select-all text-gold-deep break-all">{(BASE || window.location.origin) + '/api/webhooks/twilio-whatsapp'}</code>
+      <motion.div variants={surface}>
+          <IntegrationCard title="ElevenLabs (voz)" ok={cfg?.elevenlabs} hint="se guarda en .env (local)">
+          <div className="flex gap-2">
+            <Input type="password" placeholder="sk_..." value={vals.el || ''} onChange={(e) => set('el', e.target.value)} />
+            <Button onClick={() => vals.el && save({ elevenlabs_api_key: vals.el }, ['el'])}>Guardar</Button>
           </div>
-        </div>
-      </IntegrationCard>
+        </IntegrationCard>
+      </motion.div>
 
-      <WhatsappProviderCard cfg={cfg} save={save} />
+      <motion.div variants={surface}>
+          <IntegrationCard title="Vapi (llamadas)" ok={cfg?.vapi} hint="con tu API key se listan agentes y números solos">
+          <div className="space-y-2">
+            <Input type="password" placeholder="Vapi API key" value={vals.vk || ''} onChange={(e) => set('vk', e.target.value)} />
+            <Input placeholder="Assistant ID (opcional)" value={vals.va || ''} onChange={(e) => set('va', e.target.value)} />
+            <Input placeholder="Phone Number ID (opcional)" value={vals.vp || ''} onChange={(e) => set('vp', e.target.value)} />
+            <Button onClick={() => save({
+              ...(vals.vk && { vapi_api_key: vals.vk }),
+              ...(vals.va && { vapi_assistant_id: vals.va }),
+              ...(vals.vp && { vapi_phone_number_id: vals.vp }),
+            }, ['vk', 'va', 'vp'])}>Guardar Vapi</Button>
+          </div>
+        </IntegrationCard>
+      </motion.div>
 
-      <MetaAdsCard cfg={cfg} vals={vals} set={set} save={save} />
+      <motion.div variants={surface}>
+          <IntegrationCard title="Supabase (datos en la nube · equipo)" ok={cfg?.supabase} hint="al conectarlo, el CRM pasa de archivos locales a Postgres compartido">
+          <div className="space-y-2">
+            <Input placeholder="Project URL (https://xxxx.supabase.co)" value={vals.su || ''} onChange={(e) => set('su', e.target.value)} />
+            <Input type="password" placeholder="service_role key" value={vals.sk || ''} onChange={(e) => set('sk', e.target.value)} />
+            <Button onClick={() => save({
+              ...(vals.su && { supabase_url: vals.su }),
+              ...(vals.sk && { supabase_key: vals.sk }),
+            }, ['su', 'sk'])}>Conectar Supabase</Button>
+          </div>
+        </IntegrationCard>
+      </motion.div>
 
-      <AgentTester />
+      <motion.div variants={surface}>
+        <IntegrationCard title="Anthropic (modo --live, opcional)" ok={cfg?.anthropic} hint="para correr el motor con Claude">
+          <div className="flex gap-2">
+            <Input type="password" placeholder="sk-ant-..." value={vals.an || ''} onChange={(e) => set('an', e.target.value)} />
+            <Button onClick={() => vals.an && save({ anthropic_api_key: vals.an }, ['an'])}>Guardar</Button>
+          </div>
+        </IntegrationCard>
+      </motion.div>
 
-      <Card className="p-6">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <SectionTitle className="flex items-center gap-2">
-              Envío real
-              {cfg?.outbox_live && (
-                <span className="text-sm text-gold-deep font-medium flex items-center gap-1">
-                  <CheckCircle2 size={16} /> Activado
-                </span>
-              )}
-            </SectionTitle>
-            <div className="text-xs text-zinc-400 mt-0.5">
-              {cfg?.outbox_live
-                ? 'Los mensajes se ENVÍAN de verdad por los canales conectados.'
-                : 'Seguro: los mensajes se simulan (mock). Actívalo solo cuando quieras enviar de verdad.'}
+      <motion.div variants={fade}>
+        <div className="pt-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">Canales de envío</div>
+      </motion.div>
+
+      <motion.div variants={surface}>
+          <IntegrationCard title="Email (SMTP · email marketing)" ok={cfg?.email} hint="con esto el primer toque y los follow-ups salen por correo de verdad">
+          <div className="space-y-2">
+            <Input placeholder="SMTP host (smtp.gmail.com)" value={vals.sh || ''} onChange={(e) => set('sh', e.target.value)} />
+            <div className="flex gap-2">
+              <Input placeholder="Puerto (587)" value={vals.sp || ''} onChange={(e) => set('sp', e.target.value)} className="w-28" />
+              <Input placeholder="From (hola@tudominio.com)" value={vals.sfrom || ''} onChange={(e) => set('sfrom', e.target.value)} />
+            </div>
+            <Input placeholder="Usuario" value={vals.suser || ''} onChange={(e) => set('suser', e.target.value)} />
+            <Input type="password" placeholder="Contraseña / app password" value={vals.spass || ''} onChange={(e) => set('spass', e.target.value)} />
+            <Button onClick={() => save({
+              ...(vals.sh && { smtp_host: vals.sh }),
+              ...(vals.sp && { smtp_port: vals.sp }),
+              ...(vals.sfrom && { smtp_from: vals.sfrom }),
+              ...(vals.suser && { smtp_user: vals.suser }),
+              ...(vals.spass && { smtp_pass: vals.spass }),
+            }, ['sh', 'sp', 'sfrom', 'suser', 'spass'])}>Guardar SMTP</Button>
+          </div>
+        </IntegrationCard>
+      </motion.div>
+
+      {cfg?.email && (
+        <motion.div variants={surface}>
+          <TestEmailRow />
+        </motion.div>
+      )}
+
+      <motion.div variants={surface}>
+          <IntegrationCard title="WhatsApp (Meta Cloud API)" ok={cfg?.whatsapp} hint="token + phone number ID de tu app de WhatsApp Business · el agente responde dentro de la ventana de 24h">
+          <div className="space-y-2">
+            <Input type="password" placeholder="WhatsApp token" value={vals.wt || ''} onChange={(e) => set('wt', e.target.value)} />
+            <Input placeholder="Phone Number ID" value={vals.wp || ''} onChange={(e) => set('wp', e.target.value)} />
+            <Input placeholder="Verify token (lo inventas tú, p/ el webhook)" value={vals.wv || ''} onChange={(e) => set('wv', e.target.value)} />
+            <Input type="password" placeholder="App Secret (Meta Business Settings → App → Basic)" value={vals.was || ''} onChange={(e) => set('was', e.target.value)} />
+            <Button onClick={() => save({
+              ...(vals.wt && { whatsapp_token: vals.wt }),
+              ...(vals.wp && { whatsapp_phone_id: vals.wp }),
+              ...(vals.wv && { whatsapp_verify_token: vals.wv }),
+              ...(vals.was && { whatsapp_app_secret: vals.was }),
+            }, ['wt', 'wp', 'wv', 'was'])}>Guardar WhatsApp</Button>
+          </div>
+        </IntegrationCard>
+      </motion.div>
+
+      <motion.div variants={surface}>
+          <IntegrationCard title="WhatsApp vía Twilio (plan B)" ok={cfg?.twilio} hint="las 3 keys salen de la consola de Twilio: Account SID y Auth Token en home → Account Info; el From es el número del sandbox mientras pruebas (después, tu número real)">
+          <div className="space-y-2">
+            <Input placeholder="Account SID (empieza con AC)" value={vals.tsid || ''} onChange={(e) => set('tsid', e.target.value)} />
+            <Input type="password" placeholder="Auth Token" value={vals.ttok || ''} onChange={(e) => set('ttok', e.target.value)} />
+            <Input placeholder="+14155238886 (sandbox)" value={vals.tfrom || ''} onChange={(e) => set('tfrom', e.target.value)} />
+            <Button onClick={() => save({
+              ...(vals.tsid && { twilio_account_sid: vals.tsid }),
+              ...(vals.ttok && { twilio_auth_token: vals.ttok }),
+              ...(vals.tfrom && { twilio_whatsapp_from: vals.tfrom }),
+            }, ['tsid', 'ttok', 'tfrom'])}>Guardar Twilio</Button>
+            <div className="text-[11px] text-zinc-400 pt-1">
+              Webhook para la consola de Twilio (sandbox → "When a message comes in", método POST):{' '}
+              <code className="select-all text-gold-deep break-all">{(BASE || window.location.origin) + '/api/webhooks/twilio-whatsapp'}</code>
             </div>
           </div>
-          <Button variant={cfg?.outbox_live ? 'soft' : 'accent'}
-            onClick={() => save({ outbox_live: !cfg?.outbox_live }, [])}>
-            {cfg?.outbox_live ? 'Volver a mock' : 'Activar envío real'}
-          </Button>
-        </div>
-      </Card>
-    </div>
+        </IntegrationCard>
+      </motion.div>
+
+      <motion.div variants={surface}>
+        <WhatsappProviderCard cfg={cfg} save={save} />
+      </motion.div>
+
+      <motion.div variants={surface}>
+        <MetaAdsCard cfg={cfg} vals={vals} set={set} save={save} />
+      </motion.div>
+
+      <motion.div variants={fade}>
+        <AgentTester />
+      </motion.div>
+
+      <motion.div variants={surface}>
+        <Card className="p-6">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <SectionTitle className="flex items-center gap-2">
+                Envío real
+                {cfg?.outbox_live && (
+                  <span className="text-sm text-gold-deep font-medium flex items-center gap-1">
+                    <CheckCircle2 size={16} /> Activado
+                  </span>
+                )}
+              </SectionTitle>
+              <div className="text-xs text-zinc-400 mt-0.5">
+                {cfg?.outbox_live
+                  ? 'Los mensajes se ENVÍAN de verdad por los canales conectados.'
+                  : 'Seguro: los mensajes se simulan (mock). Actívalo solo cuando quieras enviar de verdad.'}
+              </div>
+            </div>
+            <Button variant={cfg?.outbox_live ? 'soft' : 'accent'}
+              onClick={() => save({ outbox_live: !cfg?.outbox_live }, [])}>
+              {cfg?.outbox_live ? 'Volver a mock' : 'Activar envío real'}
+            </Button>
+          </div>
+        </Card>
+      </motion.div>
+    </motion.div>
   )
 }
 
