@@ -22,6 +22,16 @@ _ROLES = [
     "Gerente Comercial", "Head of Growth", "CEO", "Director de Operaciones",
     "Gerente de Marketing", "Fundador", "VP Ventas", "Country Manager",
 ]
+_ACTIVITIES = [
+    "Soluciones de software para retail",
+    "Plataforma logística en la nube",
+    "Distribución de alimentos premium",
+    "Análisis de datos y business intelligence",
+    "Energías renovables y sostenibilidad",
+    "Innovación en tecnología fintech",
+    "Servicios digitales de salud",
+    "Automatización agrícola inteligente",
+]
 
 
 def _h(seed: str) -> int:
@@ -85,6 +95,7 @@ class Prospector(BaseAgent):
             channel = channels[_h(seed + "ch") % len(channels)]
             # Simulate imperfect enrichment: ~1 in 6 leads lacks an email.
             has_email = _h(seed + "e") % 6 != 0
+            activity = _ACTIVITIES[_h(seed + "a") % len(_ACTIVITIES)]
             leads.append({
                 "company": company,
                 "domain": domain,
@@ -94,6 +105,7 @@ class Prospector(BaseAgent):
                 "phone": f"+569{_h(seed + 'p') % 90000000 + 10000000}",
                 "channel": channel,
                 "source": "mock_discovery",
+                "activity": activity,
             })
 
         status = "done" if len(leads) >= cap else "partial"

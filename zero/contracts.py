@@ -150,6 +150,7 @@ class Lead:
     source: Optional[str] = None
     score: Optional[int] = None
     icp_reasons: List[str] = field(default_factory=list)
+    activity: Optional[str] = None
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "Lead":
@@ -164,6 +165,7 @@ class Lead:
             source=d.get("source"),
             score=_as_int(d.get("score")),
             icp_reasons=list(d.get("icp_reasons") or []),
+            activity=d.get("activity"),
         )
 
     def to_dict(self) -> Dict[str, Any]:
