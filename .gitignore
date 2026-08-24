@@ -34,3 +34,6 @@ node_modules/
 
 # Claude Code — overrides personales, no compartidos
 .claude/settings.local.json
+
+# informe de la auditoría diaria (se regenera; no es fuente de verdad)
+auditoria.json

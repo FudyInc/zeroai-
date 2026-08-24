@@ -113,6 +113,28 @@ def modulos_sin_test() -> List[str]:
     return faltantes[:15]
 
 
+def hallazgos_de_la_auditoria() -> List[str]:
+    """Lo que `scripts/auditar.py` probó que está roto HOY.
+
+    Es la señal de mayor calidad que tiene el planificador, porque cada línea viene con
+    un comando que la reproduce: no es "podría haber un problema en X", es "esto falla,
+    corre esto y lo ves". Una tarea nacida de acá tiene criterio de terminado gratis —
+    el comando deja de fallar— que es justo lo que le falta a las tareas vagas.
+
+    Se lee del informe en disco y no se corre la auditoría acá: el planificador no debe
+    tardar diez minutos ni decidir cuándo se audita. Si el informe no existe todavía, no
+    hay señal, y punto.
+    """
+    try:
+        informe = json.loads((REPO / "auditoria.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    # Solo gravedad alta: lo medio se reporta para que una persona lo mire, no para
+    # gastarle una corrida de agente automáticamente.
+    return [f"[{h['check']}] {h['detalle']} — reproducir: {h['evidencia']}"
+            for h in informe.get("hallazgos", []) if h.get("gravedad") == "alta"][:10]
+
+
 def tareas_atascadas() -> List[str]:
     """Lo que el juez rechazó dos veces: o la tarea estaba mal planteada, o el problema
     es más difícil de lo que parecía. En ambos casos hay que replantearla, no repetirla."""
@@ -122,6 +144,7 @@ def tareas_atascadas() -> List[str]:
 
 def recolectar_senales() -> Dict[str, List[str]]:
     return {
+        "hallazgos_de_la_auditoria": hallazgos_de_la_auditoria(),
         "pendientes_del_roadmap": pendientes_del_roadmap(),
         "marcas_en_el_codigo": marcas_en_el_codigo(),
         "modulos_sin_test_propio": modulos_sin_test(),

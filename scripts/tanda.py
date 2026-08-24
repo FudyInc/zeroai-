@@ -57,6 +57,7 @@ MODELO_JUEZ = os.environ.get("TANDA_MODELO_JUEZ") or "haiku"
 # una tanda nocturna nadie lo va a ver colgado.
 TIMEOUT_AGENTE = int(os.environ.get("TANDA_TIMEOUT") or 900)
 TIMEOUT_TESTS = 900
+TIMEOUT_BUILD = 600
 
 
 def ruta_workspace(ws: str) -> Path:
@@ -197,15 +198,54 @@ def fuera_de_alcance(tarea: Dict[str, Any]) -> List[str]:
 
 
 # --- Puerta 3: tests -----------------------------------------------------------------
-def correr_tests(ws: str) -> Tuple[bool, str]:
+def correr_tests(ws: str, tocados: Optional[List[str]] = None) -> Tuple[bool, str]:
+    """La suite de Python siempre; el build del dashboard solo si se tocó `frontend/`.
+
+    La suite de `unittest` no compila ni una línea de JSX: una tarea de frontend que
+    rompa las 18 páginas la deja igual de verde, y el juez —que lee "822 tests ok"— la
+    aprueba. `vite build` tapa ese hueco. No prueba que la página se vea bien, pero sí
+    que compile: un import inexistente, un export mal escrito o un JSX sin cerrar caen
+    ahí, que es la clase de error que un agente comete de verdad.
+
+    Condicionado a que el diff toque `frontend/`, porque el build tarda y no aporta nada
+    cuando la tarea fue de Python.
+    """
     d = ruta_workspace(ws)
     try:
         r = subprocess.run(["python3", "-m", "unittest", "discover", "-s", "tests", "-t", "."],
                            cwd=str(d), capture_output=True, text=True, timeout=TIMEOUT_TESTS)
         salida = (r.stdout or "") + (r.stderr or "")
-        return r.returncode == 0, salida[-4000:]
+        if r.returncode != 0:
+            return False, salida[-4000:]
     except subprocess.TimeoutExpired:
         return False, f"la suite pasó de {TIMEOUT_TESTS}s"
+
+    if not any(str(t).startswith("frontend/") for t in (tocados or [])):
+        return True, salida[-4000:]
+
+    ok_build, salida_build = correr_build(d)
+    return ok_build, (salida[-2000:] + "\n\n--- vite build ---\n" + salida_build)
+
+
+def correr_build(d: Path) -> Tuple[bool, str]:
+    """`vite build` en el workspace. Si no hay `node_modules`, NO se inventa un verde.
+
+    Un workspace recién creado no tiene dependencias instaladas, e instalarlas acá sería
+    una decisión de una persona (y una descarga de red dentro de una tanda automática).
+    Devolver "no se pudo verificar" como fallo es lo correcto: es preferible que la
+    tarea se devuelva a la cola a que entre código de frontend sin compilar nunca.
+    """
+    if not (d / "frontend" / "node_modules").is_dir():
+        return False, ("no hay frontend/node_modules en el workspace: el build no corrió. "
+                       "Instala las dependencias ahí una vez (npm install) y reintenta.")
+    try:
+        r = subprocess.run(["npm", "run", "build"], cwd=str(d / "frontend"),
+                           capture_output=True, text=True, timeout=TIMEOUT_BUILD)
+        return r.returncode == 0, ((r.stdout or "") + (r.stderr or ""))[-3000:]
+    except subprocess.TimeoutExpired:
+        return False, f"el build pasó de {TIMEOUT_BUILD}s"
+    except FileNotFoundError:
+        return False, "npm no está disponible: el build del dashboard no se pudo verificar"
 
 
 # --- Puerta 4: el juez ---------------------------------------------------------------
@@ -311,8 +351,10 @@ def procesar(tarea: Dict[str, Any], *, ejecutar: bool, modelo: str,
                      veredicto={"motivo_rechazo": "el agente no dejó ningún cambio"})
         return {"tarea": tarea["id"], "resultado": "sin_cambios"}
 
-    verde, salida_tests = correr_tests(ws)
-    print(f"  tests: {'verde' if verde else 'ROJO'}")
+    tocados = archivos_tocados(d)
+    verde, salida_tests = correr_tests(ws, tocados)
+    print(f"  tests: {'verde' if verde else 'ROJO'}"
+          + (" (+ build)" if any(t.startswith("frontend/") for t in tocados) else ""))
     if not verde:
         descartar(ws)
         tasks.juzgar(tarea["id"], aprobada=False,
@@ -320,7 +362,6 @@ def procesar(tarea: Dict[str, Any], *, ejecutar: bool, modelo: str,
                                 "notas": salida_tests[-400:]})
         return {"tarea": tarea["id"], "resultado": "tests_rojos"}
 
-    tocados = archivos_tocados(d)
     tasks.a_revision(tarea["id"], rama=_git(d, "rev-parse", "--abbrev-ref", "HEAD"))
     veredicto = juzgar(tarea, diff, salida_tests, tocados, modelo_juez)
     print(f"  juez: {'APROBADA' if veredicto['aprobado'] else 'rechazada'}"

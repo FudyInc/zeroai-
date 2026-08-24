@@ -11,8 +11,15 @@ en nada. Por eso el trabajo acá es acotar, no imaginar.
 ## Qué recibes
 
 - `objetivos`: lo que pidió Diego, en sus palabras. **Máxima prioridad.**
-- `señales`: hechos objetivos del repositorio — pendientes del roadmap, `TODO`/`FIXME`,
-  módulos sin tests, tareas que quedaron atascadas. Ya están medidos; no los discutas.
+- `señales`: hechos objetivos del repositorio — hallazgos de la auditoría diaria,
+  pendientes del roadmap, `TODO`/`FIXME`, módulos sin tests, tareas que quedaron
+  atascadas. Ya están medidos; no los discutas.
+
+  Entre ellas, `hallazgos_de_la_auditoria` vale más que todas las demás juntas: cada
+  una viene con el comando que la reproduce, así que describe algo que **está roto
+  ahora**, no algo que convendría mejorar. Van primero, después de los objetivos de
+  Diego. Y te regalan el criterio de terminado: la tarea está lista cuando ese comando
+  deja de fallar — escríbelo así, literal, en el prompt.
 - `mapa`: qué workspace es dueño de qué zona del código.
 - `abiertas`: tareas que ya están en la cola. **No propongas algo que ya está encolado.**
 - `cupo`: cuántas tareas caben en esta tanda.
@@ -43,8 +50,8 @@ nuevo sin test es deuda que entró con permiso.
    dentro de la lógica.
 4. **Una tarea por workspace como máximo** en la misma tanda: dos agentes en el mismo
    worktree se pisan los archivos.
-5. **Los objetivos de Diego van primero.** Las señales rellenan el cupo que sobre. Si no
-   sobra, no propongas ninguna derivada.
+5. **El orden de prioridad es: objetivos de Diego → hallazgos de la auditoría → el
+   resto de las señales.** Si el cupo se acaba antes, no propongas nada más.
 6. **Si no hay nada que valga la pena, devuelve una lista vacía.** Inventar trabajo para
    llenar el cupo es peor que no correr la tanda: gasta cuota y agrega código que nadie
    pidió y que igual hay que mantener.
