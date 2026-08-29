@@ -1186,5 +1186,167 @@ class ConductorHttpTest(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 404)
 
 
+@unittest.skipUnless(_UVICORN_AVAILABLE, "uvicorn no instalado — este test es opcional, no núcleo")
+class PublicWaitlistHttpTest(unittest.TestCase):
+    """El formulario público de la landing (POST /api/public/waitlist).
+
+    Los dos formularios de web/ guardaban el lead en el localStorage del propio
+    visitante: quien dejaba sus datos en zeroai.cl no llegaba a ninguna parte. Este
+    endpoint es la otra mitad. Se prueba sobre HTTP real y con la auth ENCENDIDA
+    (una cuenta en un users.json temporal): que responda sin token solo significa
+    algo si el resto del API sí lo exige — con auth apagada, el test pasaría igual
+    aunque la ruta no estuviera en _OPEN_PATHS.
+
+    Subproceso propio con CRM_PATH en un tempdir: este test escribe leads de verdad
+    y jamás debe tocar el crm.json del repo.
+    """
+
+    USERNAME = "diego-waitlist"
+    PASSWORD = "s3cret-para-el-test"
+
+    @classmethod
+    def setUpClass(cls):
+        from zero import auth
+        cls.port = _free_port()
+        cls.base = f"http://127.0.0.1:{cls.port}"
+        repo_root = Path(__file__).resolve().parent.parent
+        cls._tmpdir = tempfile.mkdtemp()
+        cls.crm_path = os.path.join(cls._tmpdir, "crm.json")
+        users_path = os.path.join(cls._tmpdir, "users.json")
+        prev = os.environ.get("AUTH_USERS_PATH")
+        os.environ["AUTH_USERS_PATH"] = users_path
+        try:
+            auth.add_user(cls.USERNAME, cls.PASSWORD)
+        finally:
+            if prev is None:
+                os.environ.pop("AUTH_USERS_PATH", None)
+            else:
+                os.environ["AUTH_USERS_PATH"] = prev
+        env = dict(os.environ)
+        env["AUTH_USERS_PATH"] = users_path
+        env["CRM_PATH"] = cls.crm_path
+        env["STATE_PATH"] = os.path.join(cls._tmpdir, "state.json")
+        # Vacío, no ausente (mismo gotcha de load_env ya documentado arriba): sin
+        # esto el subproceso hereda el Supabase/Ollama real del .env del repo y
+        # los leads del test se irían a la nube de verdad.
+        env["SUPABASE_URL"] = ""
+        env["SUPABASE_KEY"] = ""
+        env["LOCAL_MODEL"] = ""
+        env["ANTHROPIC_API_KEY"] = ""
+        cls.proc = _start_and_wait(
+            [sys.executable, "-m", "uvicorn", "api:app", "--port", str(cls.port),
+             "--log-level", "warning"],
+            str(repo_root), env, cls.base,
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        proc = getattr(cls, "proc", None)
+        if proc is not None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+        shutil.rmtree(getattr(cls, "_tmpdir", "") or "", ignore_errors=True)
+
+    # Cada test manda su propia X-Forwarded-For: el tope es POR IP, y sin esto
+    # los tests se comerían la cuota entre ellos y el orden importaría.
+    def _post(self, body: dict, ip: str = "203.0.113.1"):
+        data = json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(
+            f"{self.base}/api/public/waitlist", data=data,
+            headers={"Content-Type": "application/json", "X-Forwarded-For": ip},
+            method="POST")
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return r.status, json.loads(r.read().decode("utf-8"))
+
+    def _leads(self) -> list:
+        """Los leads tal como quedaron en el crm.json temporal."""
+        if not os.path.exists(self.crm_path):
+            return []
+        return list(json.loads(Path(self.crm_path).read_text("utf-8"))["leads"].values())
+
+    def _lead(self, email: str) -> dict:
+        return next(r for r in self._leads() if r.get("email") == email)
+
+    def test_un_alta_valida_entra_al_crm_como_new(self):
+        status, body = self._post({
+            "email": "ana@empresa.cl", "nombre": "Ana", "empresa": "Empresa SpA",
+            "que_vende": "software contable", "segmento": "pyme", "origen": "waitlist",
+        }, ip="203.0.113.10")
+        self.assertEqual(status, 200)
+        self.assertEqual(body, {"ok": True})
+        rec = self._lead("ana@empresa.cl")
+        self.assertEqual(rec["client_id"], "zeroai")
+        self.assertEqual(rec["stage"], "new")
+        self.assertEqual(rec["name"], "Ana")
+        self.assertEqual(rec["company"], "Empresa SpA")
+        self.assertEqual(rec["activity"], "software contable")
+        self.assertEqual(rec["segment"], "pyme")
+        self.assertEqual(rec["source"], "waitlist")
+
+    def test_responde_sin_token_de_sesion(self):
+        """La landing no tiene con qué autenticarse. Y la auth está encendida:
+        cualquier otra ruta del API contesta 401 desde este mismo servidor."""
+        status, _ = self._post({"email": "sin-token@empresa.cl"}, ip="203.0.113.11")
+        self.assertEqual(status, 200)
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(f"{self.base}/api/clients", timeout=5)
+        self.assertEqual(ctx.exception.code, 401)
+
+    def test_el_chat_usa_el_mismo_endpoint(self):
+        status, _ = self._post({"email": "chat@empresa.cl", "origen": "chat",
+                                "mensaje": "quiero saber precios"}, ip="203.0.113.12")
+        self.assertEqual(status, 200)
+        rec = self._lead("chat@empresa.cl")
+        self.assertEqual(rec["source"], "chat")
+        self.assertIn("quiero saber precios",
+                      " ".join(e.get("detail") or "" for e in rec["history"]))
+
+    def test_email_invalido_es_4xx_y_no_deja_lead(self):
+        for malo in ("", "no-es-un-email", "arroba@", "usuario@ejemplo.com"):
+            with self.subTest(email=malo):
+                with self.assertRaises(urllib.error.HTTPError) as ctx:
+                    self._post({"email": malo}, ip="203.0.113.13")
+                self.assertEqual(ctx.exception.code, 400)
+        self.assertEqual([r for r in self._leads() if not r.get("email")], [])
+
+    def test_origen_desconocido_es_4xx(self):
+        """Mejor un 400 visible que un CRM con etiquetas inventadas por un
+        formulario mal desplegado."""
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._post({"email": "raro@empresa.cl", "origen": "formulario-x"},
+                       ip="203.0.113.14")
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_el_mismo_email_dos_veces_deja_un_registro_con_dos_eventos(self):
+        """Reenviar el formulario no crea un segundo lead ni pisa lo anterior."""
+        for empresa in ("Primera", "Primera SpA"):
+            status, body = self._post({"email": "repite@empresa.cl", "empresa": empresa},
+                                      ip="203.0.113.15")
+            self.assertEqual((status, body), (200, {"ok": True}))
+        iguales = [r for r in self._leads() if r.get("email") == "repite@empresa.cl"]
+        self.assertEqual(len(iguales), 1)
+        rec = iguales[0]
+        self.assertEqual(rec["company"], "Primera SpA")     # refresca, no duplica
+        self.assertEqual(len([e for e in rec["history"] if e["event"] == "waitlist"]), 2)
+
+    def test_una_ip_no_puede_inundar_el_crm(self):
+        """Endpoint sin login: sin tope, un script deja el CRM inservible."""
+        from zero.config import PUBLIC_FORM_MAX_PER_HOUR_PER_IP as tope
+        ip = "203.0.113.99"
+        for i in range(tope):
+            status, _ = self._post({"email": f"masivo{i}@empresa.cl"}, ip=ip)
+            self.assertEqual(status, 200)
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._post({"email": "uno-mas@empresa.cl"}, ip=ip)
+        self.assertEqual(ctx.exception.code, 429)
+        # El tope es POR IP: otro visitante no paga la fiesta del anterior.
+        status, _ = self._post({"email": "otra-ip@empresa.cl"}, ip="203.0.113.100")
+        self.assertEqual(status, 200)
+
+
 if __name__ == "__main__":
     unittest.main()

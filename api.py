@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 import urllib.parse
 from datetime import datetime, timezone
 from typing import Optional
@@ -28,7 +29,9 @@ from zero.agents import build_agents
 load_env()   # secrets locales (.env) — los de Render env ya están en os.environ
 from zero.cloud_env import backed_up_keys, load_into_environ, save_secret
 load_into_environ()   # + secretos guardados en la nube (sobreviven a redeploys)
-from zero.config import AVG_DEAL_VALUE_CLP, CRM_OPEN_STAGES, CRM_STAGES, DEFAULT_VENDOR_ID, TIERS
+from zero.config import (AGENCY_CLIENT_ID, AVG_DEAL_VALUE_CLP, CRM_OPEN_STAGES, CRM_STAGES,
+                         DEFAULT_VENDOR_ID, MAX_INBOUND_MESSAGE_CHARS, PUBLIC_FORM_MAX_PER_HOUR_PER_IP,
+                         PUBLIC_FORM_ORIGINS, TIERS)
 from zero.channels import make_outbox, whatsapp_provider
 from zero.icp import normalize_icp
 from zero.orchestrator import Zero
@@ -63,9 +66,10 @@ async def supabase_error_handler(request: Request, exc: SupabaseError):
     )
 
 # Endpoints reachable without a token: login, health, auth status, the public
-# plans (landing pública, sin login), and the Meta webhook (Meta calls it with
-# its own verify token, not ours).
-_OPEN_PATHS = {"/api/login", "/api/health", "/api/auth/status", "/api/public/plans"}
+# plans and the public waitlist (landing pública, sin login), and the Meta
+# webhook (Meta calls it with its own verify token, not ours).
+_OPEN_PATHS = {"/api/login", "/api/health", "/api/auth/status", "/api/public/plans",
+               "/api/public/waitlist"}
 
 # --- roles no-admin: a qué (método, ruta) tiene acceso cada uno --------------
 # Todo lo que NO matchee acá para un rol dado exige "admin" — fail closed por
@@ -389,6 +393,113 @@ def public_plans():
     ese dict ya está filtrado a segment/price_clp/leads_per_mo, nunca MRR ni
     datos de clientes reales — eso lo sigue protegiendo el login en /api/accounts."""
     return {"plans": _PLANS}
+
+
+class Waitlist(BaseModel):
+    """Lo que manda un formulario de la landing. Solo `email` es obligatorio:
+    pedir más campos duros en un formulario público baja la conversión y no mejora
+    el lead — lo que falte se pregunta después, por el canal que el visitante ya
+    aceptó al dejar su correo."""
+    email: str
+    nombre: Optional[str] = None
+    empresa: Optional[str] = None
+    que_vende: Optional[str] = None
+    segmento: Optional[str] = None
+    origen: str = "waitlist"
+    mensaje: Optional[str] = None
+
+
+# Envíos recientes por IP: {ip: [timestamps]}. En memoria y por proceso a
+# propósito — un reinicio olvida los conteos, y eso es aceptable para lo que
+# esto frena (ver PUBLIC_FORM_MAX_PER_HOUR_PER_IP en config.py). Guardarlo en
+# disco o en Supabase sería pagar una escritura por visita para proteger una
+# escritura por visita.
+_public_form_hits: dict = {}
+_public_form_lock = threading.Lock()
+_HORA = 3600.0
+
+
+def _client_ip(request: Request) -> str:
+    """La IP del visitante. Detrás de un proxy (Vercel/Render/Cloudflare) la real
+    llega en X-Forwarded-For y `request.client` es la del proxy — sin esto, TODA
+    la landing compartiría una sola cuota. La cabecera se puede falsificar: por
+    eso el tope es un amortiguador, no un control de seguridad."""
+    reenviada = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    if reenviada:
+        return reenviada
+    return request.client.host if request.client else "?"
+
+
+def _rate_limited(ip: str, max_per_hour: int) -> bool:
+    """True si esa IP ya gastó su cuota de la última hora (y no la cuenta)."""
+    ahora = time.time()
+    with _public_form_lock:
+        recientes = [t for t in _public_form_hits.get(ip, []) if ahora - t < _HORA]
+        if len(recientes) >= max_per_hour:
+            _public_form_hits[ip] = recientes
+            return True
+        recientes.append(ahora)
+        _public_form_hits[ip] = recientes
+        if len(_public_form_hits) > 5000:      # poda: el dict no crece para siempre
+            for k in [k for k, v in _public_form_hits.items()
+                      if not v or ahora - v[-1] > _HORA]:
+                _public_form_hits.pop(k, None)
+    return False
+
+
+@app.post("/api/public/waitlist")
+def public_waitlist(body: Waitlist, request: Request):
+    """Un visitante de la landing deja sus datos: entra al CRM, no a su propio
+    navegador (los dos formularios de web/ los guardaban en localStorage, donde
+    el lead se pierde apenas cierra la pestaña).
+
+    Público y sin login, como /api/public/plans — está en _OPEN_PATHS. Por eso
+    todo lo que entra pasa por tres filtros: tope por IP, email validado con las
+    MISMAS reglas que cualquier otro lead (zero/validators.py, nada especial para
+    la landing) y texto truncado.
+
+    Responde `{"ok": true}` igual si es alta nueva o reenvío: distinguirlos le
+    permitiría a cualquiera con curl preguntarle a la landing quién ya está
+    inscrito, correo por correo.
+    """
+    from zero.validators import ValidatorRules
+
+    if _rate_limited(_client_ip(request), PUBLIC_FORM_MAX_PER_HOUR_PER_IP):
+        raise HTTPException(status_code=429,
+                            detail="demasiados envíos desde esta conexión; inténtalo más tarde")
+    if body.origen not in PUBLIC_FORM_ORIGINS:
+        raise HTTPException(status_code=400,
+                            detail=f"origen inválido: {body.origen!r} "
+                                   f"(válidos: {list(PUBLIC_FORM_ORIGINS)})")
+    email = (body.email or "").strip()
+    if not ValidatorRules.validate_email(email):
+        raise HTTPException(status_code=400, detail="email inválido")
+
+    def _texto(v, limite=200):
+        return (v or "").strip()[:limite] or None
+
+    lead = {
+        "email": email.lower(),
+        "name": _texto(body.nombre, 120),
+        "company": _texto(body.empresa, 160),
+        "activity": _texto(body.que_vende, 300),      # a qué se dedica el negocio
+        "segment": _texto(body.segmento, 80),
+        "source": body.origen,
+        "channel": "landing",
+        "role": "",
+    }
+    crm = _crm()
+    # upsert() por email: el mismo correo dos veces refresca el registro que ya
+    # existe en vez de crear un segundo — y `stage="new"` no lo arrastra hacia
+    # atrás si mientras tanto alguien ya lo contactó (advance() es forward-only).
+    rec = crm.upsert(AGENCY_CLIENT_ID, lead, stage="new")
+    detalle = f"formulario {body.origen}"
+    mensaje = _texto(body.mensaje, MAX_INBOUND_MESSAGE_CHARS)
+    if mensaje:
+        detalle += f": {mensaje}"
+    crm.log(AGENCY_CLIENT_ID, rec["key"], "waitlist", detalle)
+    crm.save()
+    return {"ok": True}
 
 
 def _accounts_and_mrr():

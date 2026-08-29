@@ -344,6 +344,29 @@ FINANCE_COST_CATEGORIES = (
 )
 
 
+# --- Formularios públicos de la landing (zeroai.cl) ----------------------------
+# Quien deja sus datos en la landing es un lead NUESTRO, no de un cliente: entra
+# al CRM bajo este client_id. Hoy vale lo mismo que DEFAULT_INBOUND_CLIENT_ID —
+# son la misma idea vista desde dos puertas (el que escribe al WhatsApp y el que
+# llena el formulario), pero responden preguntas distintas y se dejan separadas a
+# propósito: cambiar el catch-all de WhatsApp no debe mudar de dueño a la waitlist.
+AGENCY_CLIENT_ID = "zeroai"
+
+# De qué formulario viene. La landing tiene dos y ambos escriben al mismo
+# endpoint; sin esto, en el CRM no se distingue a quien pidió entrar a la lista
+# de espera de quien estaba conversando con el chat — que son dos intenciones de
+# compra muy distintas. Un origen fuera de esta lista se rechaza: es mejor un 400
+# visible que un CRM con etiquetas inventadas por un formulario mal desplegado.
+PUBLIC_FORM_ORIGINS = ("waitlist", "chat")
+
+# Cuántos envíos por hora se aceptan desde una misma IP. Es un endpoint sin
+# login: sin tope, un script deja el CRM inservible en una tarde. No pretende
+# frenar a un atacante decidido (la IP se puede rotar, y detrás de un proxy
+# llega en una cabecera que se puede falsificar); frena el accidente y el script
+# perezoso, que es lo que de verdad pasa. Súbelo si una campaña real lo topa.
+PUBLIC_FORM_MAX_PER_HOUR_PER_IP = 10
+
+
 # --- CRM pipeline stages -----------------------------------------------------
 # The lifecycle a lead moves through in ZERO's system of record. Ordered; the
 # CRM board renders them left→right. ZERO advances the first ones automatically;
