@@ -76,7 +76,7 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <motion.div className="lg:col-span-2" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12 }}>
-          <Card className="p-5">
+          <Card className="p-4">
             <div className="flex items-start justify-between gap-3 mb-4">
               <div>
                 <Eyebrow>Embudo</Eyebrow>

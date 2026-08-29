@@ -9,8 +9,8 @@ export function Card({ className, interactive, ...p }) {
   return (
     <div
       className={cn(
-        'bg-white dark:bg-[#1D2016] border border-[#e8e3d9] dark:border-[#2A2E22] rounded-2xl shadow-[0_1px_2px_rgba(44,53,41,0.04)]',
-        interactive && 'transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_34px_-18px_rgba(44,53,41,0.20)] hover:border-[#ddd6c6] dark:hover:border-[#3a4030]',
+        'bg-white dark:bg-[#1D2016] border border-champagne/50 dark:border-zinc-700/40 rounded-2xl shadow-[0_1px_2px_rgba(44,53,41,0.04)]',
+        interactive && 'transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_34px_-18px_rgba(44,53,41,0.20)] hover:border-champagne/70 dark:hover:border-zinc-600/60',
         className,
       )}
       {...p}
@@ -76,8 +76,8 @@ export function Input({ className, ...p }) {
   return (
     <input
       className={cn(
-        'w-full border border-zinc-200 rounded-xl px-3 py-2 text-sm outline-none transition',
-        'focus:ring-4 focus:ring-champagne/40 focus:border-gold/60 placeholder:text-zinc-400',
+        'w-full border border-zinc-200 dark:border-zinc-700/50 bg-white dark:bg-zinc-900/20 rounded-xl px-3 py-2 text-sm outline-none transition',
+        'focus:ring-4 focus:ring-champagne/40 focus:border-gold/60 dark:focus:border-gold/40 placeholder:text-zinc-400 dark:placeholder:text-zinc-600',
         className,
       )}
       {...p}
@@ -89,8 +89,8 @@ export function Select({ className, ...p }) {
   return (
     <select
       className={cn(
-        'border border-zinc-200 rounded-xl px-3 py-2 text-sm bg-white dark:bg-[#1D2016] outline-none transition',
-        'focus:ring-4 focus:ring-champagne/40 focus:border-gold/60',
+        'border border-zinc-200 dark:border-zinc-700/50 bg-white dark:bg-zinc-900/20 rounded-xl px-3 py-2 text-sm outline-none transition',
+        'focus:ring-4 focus:ring-champagne/40 focus:border-gold/60 dark:focus:border-gold/40',
         className,
       )}
       {...p}
@@ -144,4 +144,57 @@ export function pageState({ isLoading, error, isEmpty, skeleton, onRetry, emptyT
   )
   if (isEmpty) return <div className="py-16 text-center text-zinc-400">{emptyText}</div>
   return null
+}
+
+/* Dropdown elegante: reemplaza <select> HTML básico. Mantiene el mismo contrato
+   (value/onChange) pero con diseño consistente. Úsalo en cards inline. */
+export function DropdownSelect({ value, onChange, options, className, 'aria-label': label, ...p }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+  const selected = options.find((o) => o.value === value)
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false)
+    }
+    if (open) document.addEventListener('click', handleClickOutside)
+    return () => document.removeEventListener('click', handleClickOutside)
+  }, [open])
+
+  return (
+    <div ref={ref} className={cn('relative inline-block w-full', className)}>
+      <button
+        onClick={() => setOpen(!open)}
+        aria-label={label}
+        className="w-full text-xs border border-zinc-200 dark:border-zinc-700/50 bg-white dark:bg-zinc-900/20 rounded-lg px-2.5 py-1.5 text-zinc-700 dark:text-zinc-300 font-medium flex items-center justify-between gap-2 outline-none hover:border-zinc-300 dark:hover:border-zinc-600/50 focus:ring-2 focus:ring-champagne/40 transition"
+      >
+        <span className="truncate">{selected?.label || 'Seleccionar'}</span>
+        <svg className={cn('w-4 h-4 shrink-0 transition-transform', open && 'rotate-180')} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-[#1D2016] border border-champagne/30 dark:border-zinc-700/40 rounded-lg shadow-lg z-10 overflow-hidden">
+          {options.map((o) => (
+            <button
+              key={o.value}
+              onClick={() => {
+                onChange({ target: { value: o.value } })
+                setOpen(false)
+              }}
+              className={cn(
+                'block w-full text-left px-3 py-2 text-xs transition',
+                value === o.value
+                  ? 'bg-champagne/15 text-brand font-semibold'
+                  : 'hover:bg-zinc-100 dark:hover:bg-zinc-800/50 text-zinc-700 dark:text-zinc-300'
+              )}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
