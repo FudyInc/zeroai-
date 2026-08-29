@@ -31,7 +31,7 @@ from zero.cloud_env import backed_up_keys, load_into_environ, save_secret
 load_into_environ()   # + secretos guardados en la nube (sobreviven a redeploys)
 from zero.config import (AGENCY_CLIENT_ID, AVG_DEAL_VALUE_CLP, CRM_OPEN_STAGES, CRM_STAGES,
                          DEFAULT_VENDOR_ID, MAX_INBOUND_MESSAGE_CHARS, PUBLIC_FORM_MAX_PER_HOUR_PER_IP,
-                         PUBLIC_FORM_ORIGINS, TIERS)
+                         PUBLIC_FORM_MAX_PER_HOUR_TOTAL, PUBLIC_FORM_SOURCES, TIERS)
 from zero.channels import make_outbox, whatsapp_provider
 from zero.icp import normalize_icp
 from zero.orchestrator import Zero
@@ -409,12 +409,13 @@ class Waitlist(BaseModel):
     mensaje: Optional[str] = None
 
 
-# Envíos recientes por IP: {ip: [timestamps]}. En memoria y por proceso a
-# propósito — un reinicio olvida los conteos, y eso es aceptable para lo que
-# esto frena (ver PUBLIC_FORM_MAX_PER_HOUR_PER_IP en config.py). Guardarlo en
+# Envíos recientes: por IP ({ip: [timestamps]}) y en total ([timestamps]). En
+# memoria y por proceso a propósito — un reinicio olvida los conteos, y eso es
+# aceptable para lo que esto frena (ver los dos topes en config.py). Guardarlo en
 # disco o en Supabase sería pagar una escritura por visita para proteger una
 # escritura por visita.
 _public_form_hits: dict = {}
+_public_form_total: list = []
 _public_form_lock = threading.Lock()
 _HORA = 3600.0
 
@@ -430,17 +431,29 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "?"
 
 
-def _rate_limited(ip: str, max_per_hour: int) -> bool:
-    """True si esa IP ya gastó su cuota de la última hora (y no la cuenta)."""
+def _rate_limited(ip: str, max_per_ip: int, max_total: int) -> bool:
+    """True si el envío no se acepta: o esa IP gastó su cuota de la última hora,
+    o se llegó al techo total. Un envío rechazado no se cuenta.
+
+    El techo total se mira PRIMERO y, sobre todo, se mira antes de anotar la IP:
+    así una cabecera X-Forwarded-For rotatoria ya no puede inflar
+    `_public_form_hits` con una clave nueva por request — el dict no crece más
+    allá del techo, que es lo que dejaba sin efecto la poda por antigüedad.
+    """
+    global _public_form_total
     ahora = time.time()
     with _public_form_lock:
+        _public_form_total = [t for t in _public_form_total if ahora - t < _HORA]
+        if len(_public_form_total) >= max_total:
+            return True
         recientes = [t for t in _public_form_hits.get(ip, []) if ahora - t < _HORA]
-        if len(recientes) >= max_per_hour:
+        if len(recientes) >= max_per_ip:
             _public_form_hits[ip] = recientes
             return True
         recientes.append(ahora)
         _public_form_hits[ip] = recientes
-        if len(_public_form_hits) > 5000:      # poda: el dict no crece para siempre
+        _public_form_total.append(ahora)
+        if len(_public_form_hits) > max_total:   # poda: quedan solo las de la última hora
             for k in [k for k, v in _public_form_hits.items()
                       if not v or ahora - v[-1] > _HORA]:
                 _public_form_hits.pop(k, None)
@@ -454,9 +467,9 @@ def public_waitlist(body: Waitlist, request: Request):
     el lead se pierde apenas cierra la pestaña).
 
     Público y sin login, como /api/public/plans — está en _OPEN_PATHS. Por eso
-    todo lo que entra pasa por tres filtros: tope por IP, email validado con las
-    MISMAS reglas que cualquier otro lead (zero/validators.py, nada especial para
-    la landing) y texto truncado.
+    todo lo que entra pasa por tres filtros: topes de envíos (por IP y total),
+    email validado con las MISMAS reglas que cualquier otro lead
+    (zero/validators.py, nada especial para la landing) y texto truncado.
 
     Responde `{"ok": true}` igual si es alta nueva o reenvío: distinguirlos le
     permitiría a cualquiera con curl preguntarle a la landing quién ya está
@@ -464,13 +477,16 @@ def public_waitlist(body: Waitlist, request: Request):
     """
     from zero.validators import ValidatorRules
 
-    if _rate_limited(_client_ip(request), PUBLIC_FORM_MAX_PER_HOUR_PER_IP):
+    # Un solo mensaje para los dos topes, a propósito: decirle a quien está
+    # probando cuál de los dos pegó le dice si vale la pena rotar la IP.
+    if _rate_limited(_client_ip(request), PUBLIC_FORM_MAX_PER_HOUR_PER_IP,
+                     PUBLIC_FORM_MAX_PER_HOUR_TOTAL):
         raise HTTPException(status_code=429,
-                            detail="demasiados envíos desde esta conexión; inténtalo más tarde")
-    if body.origen not in PUBLIC_FORM_ORIGINS:
+                            detail="demasiados envíos; inténtalo más tarde")
+    if body.origen not in PUBLIC_FORM_SOURCES:
         raise HTTPException(status_code=400,
                             detail=f"origen inválido: {body.origen!r} "
-                                   f"(válidos: {list(PUBLIC_FORM_ORIGINS)})")
+                                   f"(válidos: {list(PUBLIC_FORM_SOURCES)})")
     email = (body.email or "").strip()
     if not ValidatorRules.validate_email(email):
         raise HTTPException(status_code=400, detail="email inválido")

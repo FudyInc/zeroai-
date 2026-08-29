@@ -355,16 +355,37 @@ AGENCY_CLIENT_ID = "zeroai"
 # De qué formulario viene. La landing tiene dos y ambos escriben al mismo
 # endpoint; sin esto, en el CRM no se distingue a quien pidió entrar a la lista
 # de espera de quien estaba conversando con el chat — que son dos intenciones de
-# compra muy distintas. Un origen fuera de esta lista se rechaza: es mejor un 400
+# compra muy distintas. Un valor fuera de esta lista se rechaza: es mejor un 400
 # visible que un CRM con etiquetas inventadas por un formulario mal desplegado.
-PUBLIC_FORM_ORIGINS = ("waitlist", "chat")
+#
+# SOURCES y no ORIGINS: son nombres de formulario, no orígenes HTTP. El CORS de
+# este API está treinta líneas más arriba en api.py y es `allow_origins=["*"]` —
+# una constante llamada PUBLIC_FORM_ORIGINS invitaba a leerla como una allowlist
+# de CORS y concluir que los POST cruzados están restringidos. No lo están.
+PUBLIC_FORM_SOURCES = ("waitlist", "chat")
 
-# Cuántos envíos por hora se aceptan desde una misma IP. Es un endpoint sin
-# login: sin tope, un script deja el CRM inservible en una tarde. No pretende
-# frenar a un atacante decidido (la IP se puede rotar, y detrás de un proxy
-# llega en una cabecera que se puede falsificar); frena el accidente y el script
-# perezoso, que es lo que de verdad pasa. Súbelo si una campaña real lo topa.
+# Dos topes por hora, y hacen falta los dos.
+#
+# El de POR IP frena al visitante que aprieta enviar quince veces y al script
+# perezoso. No frena nada más: X-Forwarded-For se falsifica —y su elemento
+# izquierdo, el que se lee, lo escribe el cliente—, las IPs se rotan, y como el
+# CORS es abierto cualquier página puede disparar altas con las IPs reales de sus
+# visitantes. Con solo ese tope, el peor caso no es "muchas altas": es ilimitado,
+# y cada alta reescribe crm.json entero.
+#
+# El TOTAL es el techo que convierte "ilimitado" en "acotado": pasado ese número
+# de altas en la última hora, el endpoint deja de aceptar, venga de donde venga.
+# Acota también la memoria del contador — una IP nueva solo se anota si el techo
+# total todavía lo permite, así que rotar la cabecera ya no hace crecer el dict
+# sin límite. Súbelos si una campaña real los topa; el costo de toparlos es que
+# un visitante legítimo vea un 429 y vuelva a intentar.
+#
+# Ambos contadores viven EN MEMORIA Y POR PROCESO. Hoy eso es exacto: start.sh:24,
+# deploy/zero-backend.service:9 y render.yaml:9 levantan uvicorn sin `--workers`,
+# un solo proceso. El día que alguien agregue `--workers 4`, los dos topes se
+# multiplican por 4 en silencio y nadie lo va a notar hasta auditarlo.
 PUBLIC_FORM_MAX_PER_HOUR_PER_IP = 10
+PUBLIC_FORM_MAX_PER_HOUR_TOTAL = 100
 
 
 # --- CRM pipeline stages -----------------------------------------------------

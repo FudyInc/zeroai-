@@ -37,6 +37,8 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+from zero.config import PUBLIC_FORM_MAX_PER_HOUR_PER_IP, PUBLIC_FORM_MAX_PER_HOUR_TOTAL
+
 try:
     import uvicorn  # noqa: F401
     _UVICORN_AVAILABLE = True
@@ -1186,19 +1188,22 @@ class ConductorHttpTest(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 404)
 
 
-@unittest.skipUnless(_UVICORN_AVAILABLE, "uvicorn no instalado — este test es opcional, no núcleo")
-class PublicWaitlistHttpTest(unittest.TestCase):
-    """El formulario público de la landing (POST /api/public/waitlist).
+class _WaitlistApiBase(unittest.TestCase):
+    """Subproceso propio de api.py para probar el formulario público de la landing
+    (POST /api/public/waitlist). Los dos formularios de web/ guardaban el lead en el
+    localStorage del propio visitante: quien dejaba sus datos en zeroai.cl no
+    llegaba a ninguna parte. Este endpoint es la otra mitad.
 
-    Los dos formularios de web/ guardaban el lead en el localStorage del propio
-    visitante: quien dejaba sus datos en zeroai.cl no llegaba a ninguna parte. Este
-    endpoint es la otra mitad. Se prueba sobre HTTP real y con la auth ENCENDIDA
-    (una cuenta en un users.json temporal): que responda sin token solo significa
-    algo si el resto del API sí lo exige — con auth apagada, el test pasaría igual
-    aunque la ruta no estuviera en _OPEN_PATHS.
+    Sin tests propios: existe para que cada clase de abajo tenga SU PROPIO servidor.
+    Los topes de envíos viven en memoria del proceso, así que dos clases que
+    compartieran servidor se gastarían la cuota entre ellas y el resultado
+    dependería del orden en que unittest corriera los métodos.
 
-    Subproceso propio con CRM_PATH en un tempdir: este test escribe leads de verdad
-    y jamás debe tocar el crm.json del repo.
+    Auth ENCENDIDA (una cuenta en un users.json temporal): que la waitlist responda
+    sin token solo significa algo si el resto del API sí lo exige — con auth
+    apagada, el test pasaría igual aunque la ruta no estuviera en _OPEN_PATHS.
+    CRM_PATH en un tempdir: esto escribe leads de verdad y jamás debe tocar el
+    crm.json del repo.
     """
 
     USERNAME = "diego-waitlist"
@@ -1262,6 +1267,23 @@ class PublicWaitlistHttpTest(unittest.TestCase):
         with urllib.request.urlopen(req, timeout=10) as r:
             return r.status, json.loads(r.read().decode("utf-8"))
 
+    def _ip(self, i: int) -> str:
+        return f"198.51.{100 + i // 250}.{i % 250}"
+
+    def _llenar_el_techo(self, desde: int = 0) -> int:
+        """Manda altas desde IPs SIEMPRE distintas —una sola por IP, así ninguna
+        gasta su cuota propia— hasta que el techo total contesta 429. Devuelve
+        cuántas alcanzaron a entrar."""
+        aceptadas = 0
+        for i in range(desde, desde + PUBLIC_FORM_MAX_PER_HOUR_TOTAL + 5):
+            try:
+                self._post({"email": f"masivo{i}@empresa.cl"}, ip=self._ip(i))
+                aceptadas += 1
+            except urllib.error.HTTPError as e:
+                self.assertEqual(e.code, 429)
+                return aceptadas
+        self.fail("el techo total nunca frenó: el endpoint sigue siendo ilimitado")
+
     def _leads(self) -> list:
         """Los leads tal como quedaron en el crm.json temporal."""
         if not os.path.exists(self.crm_path):
@@ -1270,6 +1292,12 @@ class PublicWaitlistHttpTest(unittest.TestCase):
 
     def _lead(self, email: str) -> dict:
         return next(r for r in self._leads() if r.get("email") == email)
+
+@unittest.skipUnless(_UVICORN_AVAILABLE, "uvicorn no instalado — este test es opcional, no núcleo")
+class PublicWaitlistHttpTest(_WaitlistApiBase):
+    """Qué hace el endpoint con un envío: dónde queda el lead y qué se responde.
+    Los topes de envíos se prueban en las dos clases de abajo, con servidor propio.
+    """
 
     def test_un_alta_valida_entra_al_crm_como_new(self):
         status, body = self._post({
@@ -1333,11 +1361,15 @@ class PublicWaitlistHttpTest(unittest.TestCase):
         self.assertEqual(rec["company"], "Primera SpA")     # refresca, no duplica
         self.assertEqual(len([e for e in rec["history"] if e["event"] == "waitlist"]), 2)
 
+
+@unittest.skipUnless(_UVICORN_AVAILABLE, "uvicorn no instalado — este test es opcional, no núcleo")
+class PublicWaitlistLimitePorIpHttpTest(_WaitlistApiBase):
+    """El tope por IP, con servidor propio para no compartir cuota con nadie."""
+
     def test_una_ip_no_puede_inundar_el_crm(self):
         """Endpoint sin login: sin tope, un script deja el CRM inservible."""
-        from zero.config import PUBLIC_FORM_MAX_PER_HOUR_PER_IP as tope
         ip = "203.0.113.99"
-        for i in range(tope):
+        for i in range(PUBLIC_FORM_MAX_PER_HOUR_PER_IP):
             status, _ = self._post({"email": f"masivo{i}@empresa.cl"}, ip=ip)
             self.assertEqual(status, 200)
         with self.assertRaises(urllib.error.HTTPError) as ctx:
@@ -1346,6 +1378,54 @@ class PublicWaitlistHttpTest(unittest.TestCase):
         # El tope es POR IP: otro visitante no paga la fiesta del anterior.
         status, _ = self._post({"email": "otra-ip@empresa.cl"}, ip="203.0.113.100")
         self.assertEqual(status, 200)
+
+
+@unittest.skipUnless(_UVICORN_AVAILABLE, "uvicorn no instalado — este test es opcional, no núcleo")
+class PublicWaitlistTechoTotalHttpTest(_WaitlistApiBase):
+    """El techo total, que es el que convierte "ilimitado" en "acotado".
+
+    El tope por IP se evade de tres maneras y las tres son baratas: X-Forwarded-For
+    se falsifica (y el elemento que se lee es justo el que escribe el cliente), las
+    IPs se rotan, y con el CORS abierto cualquier página puede disparar altas con
+    las IPs reales de sus visitantes. Sin techo total, el peor caso no es "muchas
+    altas": es ilimitadas, y cada alta reescribe crm.json entero.
+
+    Servidor propio: estos tests agotan la cuota global del proceso a propósito.
+    """
+
+    def test_el_techo_total_frena_a_una_ip_que_no_gasto_su_cuota(self):
+        aceptadas = self._llenar_el_techo()
+        self.assertLessEqual(aceptadas, PUBLIC_FORM_MAX_PER_HOUR_TOTAL)
+        # Una IP nueva, con sus envíos propios intactos, igual recibe 429: el techo
+        # es del endpoint, no del visitante. Es lo que hace inútil rotar la IP.
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._post({"email": "recien-llegada@empresa.cl"}, ip="192.0.2.77")
+        self.assertEqual(ctx.exception.code, 429)
+
+
+@unittest.skipUnless(_UVICORN_AVAILABLE, "uvicorn no instalado — este test es opcional, no núcleo")
+class PublicWaitlistMensaje429HttpTest(_WaitlistApiBase):
+    """Servidor propio también acá: este test necesita pegarle primero al tope por
+    IP con la cuota global INTACTA, y después al techo total. Compartir servidor
+    con la clase de arriba haría que el resultado dependiera del orden."""
+
+    def test_los_dos_429_son_indistinguibles(self):
+        """Decirle a quien está probando CUÁL de los dos topes pegó le dice si vale
+        la pena rotar la IP. Los dos mensajes tienen que ser el mismo."""
+        ip = "192.0.2.50"
+        for i in range(PUBLIC_FORM_MAX_PER_HOUR_PER_IP):
+            self._post({"email": f"cuota{i}@empresa.cl"}, ip=ip)
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._post({"email": "pasada@empresa.cl"}, ip=ip)
+        por_ip = json.loads(ctx.exception.read().decode("utf-8"))
+
+        self._llenar_el_techo(desde=1000)
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._post({"email": "otra@empresa.cl"}, ip="192.0.2.51")
+        por_techo = json.loads(ctx.exception.read().decode("utf-8"))
+
+        self.assertEqual(por_ip, por_techo)
+        self.assertNotIn("total", json.dumps(por_techo).lower())
 
 
 if __name__ == "__main__":

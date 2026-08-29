@@ -151,6 +151,7 @@ class Lead:
     score: Optional[int] = None
     icp_reasons: List[str] = field(default_factory=list)
     activity: Optional[str] = None
+    segment: Optional[str] = None       # a qué segmento pertenece el negocio (pyme, startup…)
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "Lead":
@@ -166,6 +167,7 @@ class Lead:
             score=_as_int(d.get("score")),
             icp_reasons=list(d.get("icp_reasons") or []),
             activity=d.get("activity"),
+            segment=d.get("segment"),
         )
 
     def to_dict(self) -> Dict[str, Any]:
