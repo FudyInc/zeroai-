@@ -197,6 +197,104 @@ class ArchivoCorrupto(ColaBase):
             tasks.listar()
 
 
+class SinDuplicados(ColaBase):
+    """La cola no puede volver a encolar trabajo que ya está abierto o hecho.
+
+    Pasó de verdad: dos pares de duplicados exactos por título conviviendo en la cola,
+    porque al planificador las tareas abiertas le llegan como *contexto* — una sugerencia
+    a un modelo, no una regla. Cada duplicado se come una corrida del cupo diario para
+    rehacer trabajo ya hecho.
+    """
+
+    def test_el_segundo_crear_devuelve_el_primero_y_no_encola(self):
+        primera = self._crear(titulo="Agregar rubro del negocio a leads")
+        segunda = self._crear(titulo="Agregar rubro del negocio a leads")
+        self.assertEqual(segunda["id"], primera["id"])
+        self.assertEqual(len(tasks.listar()), 1)
+
+    def test_no_lanza_excepcion(self):
+        """El planificador corre desatendido de noche: no puede caerse por esto."""
+        self._crear(titulo="misma")
+        self.assertIsNotNone(self._crear(titulo="misma"))
+
+    def test_permitir_duplicado_fuerza_la_repeticion(self):
+        primera = self._crear(titulo="misma")
+        segunda = self._crear(titulo="misma", permitir_duplicado=True)
+        self.assertNotEqual(segunda["id"], primera["id"])
+        self.assertEqual(len(tasks.listar()), 2)
+
+    def test_el_titulo_se_normaliza(self):
+        """Mayúsculas, espacios de más y un punto final no hacen una tarea distinta."""
+        self._crear(titulo="Unificar animaciones del dashboard")
+        for variante in ("unificar animaciones del dashboard",
+                         "  Unificar   animaciones del dashboard  ",
+                         "Unificar animaciones del dashboard."):
+            with self.subTest(variante=variante):
+                self._crear(titulo=variante)
+        self.assertEqual(len(tasks.listar()), 1)
+
+    def test_el_mismo_titulo_en_otro_workspace_si_pasa(self):
+        """Dos workspaces distintos son dos trabajos distintos."""
+        self._crear(ws="core", titulo="subir la cobertura de tests")
+        self._crear(ws="dashboard", titulo="subir la cobertura de tests")
+        self.assertEqual(len(tasks.listar()), 2)
+
+    def test_una_tarea_aprobada_tambien_bloquea(self):
+        """Volver a encolar algo ya hecho es el caso caro: rehace trabajo entregado."""
+        t = self._crear(titulo="ya hecha")
+        tasks.tomar("core")
+        tasks.juzgar(t["id"], aprobada=True, veredicto={"notas": "bien"})
+        self._crear(titulo="ya hecha")
+        self.assertEqual(len(tasks.listar()), 1)
+
+    def test_una_cancelada_se_puede_volver_a_encolar(self):
+        """Bajar una tarea a mano no es prohibirla para siempre."""
+        t = self._crear(titulo="tal vez después")
+        tasks.cancelar(t["id"], "por ahora no")
+        nueva = self._crear(titulo="tal vez después")
+        self.assertNotEqual(nueva["id"], t["id"])
+        self.assertEqual(len(tasks.listar()), 2)
+
+    def test_una_rechazada_se_puede_volver_a_encolar(self):
+        """Que el juez la haya bajado es motivo legítimo para replantearla."""
+        t = self._crear(titulo="replantearla")
+        for _ in range(tasks.MAX_INTENTOS):
+            tasks.tomar("core")
+            tasks.juzgar(t["id"], aprobada=False, veredicto={"notas": "no"})
+        self.assertEqual(tasks.get(t["id"])["estado"], tasks.ATASCADA)
+        nueva = self._crear(titulo="replantearla")
+        self.assertNotEqual(nueva["id"], t["id"])
+
+    def test_duplicado_de_encuentra_la_existente(self):
+        t = self._crear(titulo="Hacer   ALGO.")
+        self.assertEqual(tasks.duplicado_de("core", "hacer algo")["id"], t["id"])
+        self.assertIsNone(tasks.duplicado_de("dashboard", "hacer algo"))
+
+
+class ListarDuplicados(ColaBase):
+    """Ver qué se coló antes de la guardia. Solo lista: la limpieza la decide una persona."""
+
+    def test_sin_duplicados_no_hay_grupos(self):
+        self._crear(titulo="una")
+        self._crear(titulo="otra")
+        self.assertEqual(tasks.duplicados(), [])
+
+    def test_agrupa_los_repetidos(self):
+        a = self._crear(titulo="repetida", permitir_duplicado=True)
+        b = self._crear(titulo="Repetida.", permitir_duplicado=True)
+        self._crear(titulo="sola")
+        grupos = tasks.duplicados()
+        self.assertEqual(len(grupos), 1)
+        self.assertEqual({t["id"] for t in grupos[0]}, {a["id"], b["id"]})
+
+    def test_una_cancelada_no_cuenta_como_duplicado(self):
+        a = self._crear(titulo="repetida", permitir_duplicado=True)
+        b = self._crear(titulo="repetida", permitir_duplicado=True)
+        tasks.cancelar(b["id"])
+        self.assertEqual(tasks.duplicados(), [])
+        self.assertEqual(tasks.duplicado_de("core", "repetida")["id"], a["id"])
+
+
 class Resumen(ColaBase):
     def test_cuenta_por_estado_y_workspace(self):
         self._crear(ws="core")

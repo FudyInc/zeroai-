@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import time
 import uuid
@@ -43,6 +44,12 @@ CANCELADA = "cancelada"        # la bajó una persona
 
 ESTADOS = (PENDIENTE, EN_CURSO, EN_REVISION, APROBADA, RECHAZADA, ATASCADA, CANCELADA)
 ABIERTOS = (PENDIENTE, EN_CURSO, EN_REVISION, RECHAZADA)
+
+# Los estados en los que una tarea "ya está cubierta" y encolarla otra vez es rehacer
+# trabajo: en la cola, en manos de un agente, esperando al juez, o ya aprobada.
+# `rechazada` y `atascada` quedan fuera a propósito (reintentar lo que el juez bajó es
+# legítimo), y `cancelada` también (Diego la bajó, puede querer volver a pedirla).
+VIVOS = (PENDIENTE, EN_CURSO, EN_REVISION, APROBADA)
 
 # Workspaces válidos — los mismos que sincroniza scripts/sincronizar-workspaces.sh.
 WORKSPACES = ("core", "dashboard", "landing", "motor-llamadas", "motor-whatsapp", "prompts")
@@ -98,11 +105,68 @@ def _valida_alcance(archivos: List[str]) -> None:
                     f"(datos de negocio, credenciales o despliegue)")
 
 
+def _clave(workspace: str, titulo: str) -> str:
+    """Cómo se decide que dos tareas son 'la misma'.
+
+    Normalización deliberadamente tosca: minúsculas, espacios colapsados y sin
+    puntuación final. No intenta entender el título — un planificador que reformula
+    ("Agregar rubro..." vs "Añadir el rubro...") va a colar el duplicado igual, y eso
+    es aceptable: esto ataja la repetición literal, que es la que se vio en la cola.
+    """
+    limpio = re.sub(r"\s+", " ", (titulo or "").strip().lower())
+    return f"{workspace}\x00{limpio.rstrip('.,;:!?¡¿…').strip()}"
+
+
+def duplicado_de(workspace: str, titulo: str) -> Optional[Dict[str, Any]]:
+    """La tarea viva que ya cubre ese (workspace, título), o None.
+
+    Vivas = abiertas o aprobadas. `cancelada` y `rechazada` NO cuentan: bajar una tarea
+    a mano o que el juez la rechace son motivos legítimos para volver a intentarla, y
+    bloquear eso convertiría un rechazo en una prohibición permanente. `atascada` es un
+    rechazo sin intentos: mismo criterio.
+    """
+    clave = _clave(workspace, titulo)
+    with _lock:
+        for t in _leer():
+            if t.get("estado") not in VIVOS:
+                continue
+            if _clave(t.get("workspace", ""), t.get("titulo", "")) == clave:
+                return t
+    return None
+
+
+def duplicados() -> List[List[Dict[str, Any]]]:
+    """Los grupos de tareas vivas que comparten (workspace, título normalizado).
+
+    Solo informa: la limpieza la decide una persona. Borrar automáticamente una tarea
+    porque "se parece" a otra es exactamente el tipo de decisión que no se puede
+    revertir cuando el criterio se equivoca.
+    """
+    with _lock:
+        tareas = _leer()
+    grupos: Dict[str, List[Dict[str, Any]]] = {}
+    for t in tareas:
+        if t.get("estado") not in VIVOS:
+            continue
+        grupos.setdefault(_clave(t.get("workspace", ""), t.get("titulo", "")), []).append(t)
+    return [sorted(g, key=lambda t: t.get("creada", 0))
+            for g in grupos.values() if len(g) > 1]
+
+
 def crear(workspace: str, titulo: str, prompt: str, *,
           archivos: Optional[List[str]] = None, origen: str = "diego",
-          objetivo: str = "") -> Dict[str, Any]:
+          objetivo: str = "", permitir_duplicado: bool = False) -> Dict[str, Any]:
     """Encola una tarea. `origen` distingue lo que pediste tú de lo que dedujo el
-    sistema: cuando hay que recortar, lo tuyo va primero."""
+    sistema: cuando hay que recortar, lo tuyo va primero.
+
+    Si ya hay una tarea viva con el mismo (workspace, título), **no encola nada** y
+    devuelve la existente. La guardia vive acá y no en el planificador porque esta es la
+    frontera real: al planificador se le pasan las tareas abiertas como contexto, pero
+    eso es una sugerencia a un modelo, y cada duplicado que se cuela se come una corrida
+    del cupo diario rehaciendo trabajo ya hecho. No lanza excepción: el planificador
+    corre desatendido de noche y no puede caerse por esto. `permitir_duplicado=True`
+    para forzar una repetición a mano.
+    """
     if workspace not in WORKSPACES:
         raise ValueError(f"workspace desconocido: {workspace!r} (válidos: {list(WORKSPACES)})")
     if not (titulo or "").strip() or not (prompt or "").strip():
@@ -126,8 +190,14 @@ def crear(workspace: str, titulo: str, prompt: str, *,
         "veredicto": None,
         "historial": [{"ts": time.time(), "estado": PENDIENTE, "detalle": f"creada ({origen})"}],
     }
+    clave = _clave(workspace, titulo)
     with _lock:
         tareas = _leer()
+        if not permitir_duplicado:
+            for t in tareas:
+                if t.get("estado") in VIVOS and _clave(
+                        t.get("workspace", ""), t.get("titulo", "")) == clave:
+                    return t
         tareas.append(tarea)
         _escribir(tareas)
     return tarea
