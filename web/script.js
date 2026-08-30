@@ -1,3 +1,178 @@
+// ---- Puente con la API pública ---------------------------------------------
+// Mismo criterio que frontend/src/lib/api.js (VITE_API_URL): en desarrollo
+// local pega directo al backend en :8800; en producción usa la URL pública del
+// backend. La landing no tiene build step (sin Vite), así que no hay una env
+// var real que inyectar aquí — esta constante cumple el mismo rol a mano.
+//
+// Es la ÚNICA base de URL de la landing: la usan /api/public/plans (precios) y
+// /api/public/waitlist (los dos formularios). Si cambia, cambia en un solo sitio.
+const PRICING_API_BASE =
+  location.hostname === "localhost" || location.hostname === "127.0.0.1"
+    ? "http://localhost:8800"
+    : "https://handpick-monogamy-spiny.ngrok-free.dev"; // URL pública conocida (ngrok fijo) — confirmar con CORE si cambió
+
+const API_HEADERS = {
+  "Content-Type": "application/json",
+  "ngrok-skip-browser-warning": "true",
+};
+
+// ---- Respaldo local + envío del lead ---------------------------------------
+// El lead vive en el CRM; localStorage quedó SOLO como respaldo de lo que
+// todavía no llegó. El envío es optimista: primero se guarda, después se hace
+// el POST. Si el POST falla, el visitante ve el mensaje de éxito igual — no se
+// le castiga porque el backend esté caído — y la entrada queda
+// `sincronizado: false` para reintentarla sola más tarde.
+const WAITLIST_PATH = "/api/public/waitlist";
+
+// Espera creciente antes de reintentar. No es adorno: el endpoint tiene un tope
+// GLOBAL de 100 altas/hora (PUBLIC_FORM_MAX_PER_HOUR_TOTAL), además del tope por
+// IP. Si ese techo se topa, TODOS los visitantes quedan pendientes a la vez; sin
+// espera, cada uno reintentaría al abrir la página y volvería a consumir el mismo
+// cupo, manteniéndolo topado. El jitter evita que los que sí esperan vuelvan
+// todos en el mismo instante.
+const RETRY_BASE_MS = 60 * 1000; // 1 min tras el primer fallo
+const RETRY_MAX_MS = 6 * 60 * 60 * 1000; // techo de la espera: 6 h
+const RETRY_MAX_ATTEMPTS = 8; // después de esto la entrada se deja quieta
+
+const readStore = (key) => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+// localStorage tira excepción en modo privado o con la cuota llena. Que el
+// respaldo no se pueda escribir no debe impedir el POST, que es lo que importa.
+const writeStore = (key, list) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(list));
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const newId = () =>
+  globalThis.crypto?.randomUUID?.() ??
+  `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+const retryDelay = (intentos) => {
+  const espera = Math.min(RETRY_BASE_MS * 2 ** (intentos - 1), RETRY_MAX_MS);
+  return Math.round(espera * (0.5 + Math.random())); // jitter ±50%
+};
+
+// El cuerpo que espera el endpoint. Solo `email` es obligatorio; el resto viaja
+// como null si el formulario no lo pide.
+const payloadWaitlist = (e) => ({
+  email: (e.email || "").trim(),
+  nombre: (e.name || "").trim() || null,
+  empresa: (e.company || "").trim() || null,
+  que_vende: (e.offer || "").trim() || null,
+  segmento: (e.segment || "").trim() || null,
+  origen: "waitlist",
+  mensaje: null,
+});
+
+// El chat pide teléfono y el contrato del endpoint no tiene campo para él: va
+// dentro de `mensaje`, que el backend deja en el historial del lead.
+const payloadChat = (e) => ({
+  email: (e.email || "").trim(),
+  nombre: [e.firstName, e.lastName].filter(Boolean).join(" ").trim() || null,
+  empresa: null,
+  que_vende: null,
+  segmento: null,
+  origen: "chat",
+  mensaje: e.phone ? `Teléfono: ${e.phone}` : null,
+});
+
+// "ok" | "reintentar" | "descartar".
+// 429 (cualquiera de los dos topes) y 5xx/caída de red son transitorios. Un 400
+// es definitivo — email u origen que el backend no acepta — y reintentarlo para
+// siempre solo dejaría basura en la cola.
+const postLead = async (payload) => {
+  let respuesta;
+  try {
+    respuesta = await fetch(PRICING_API_BASE + WAITLIST_PATH, {
+      method: "POST",
+      headers: API_HEADERS,
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    return "reintentar";
+  }
+  if (respuesta.ok) return "ok";
+  if (respuesta.status >= 400 && respuesta.status < 500 && respuesta.status !== 429) {
+    return "descartar";
+  }
+  return "reintentar";
+};
+
+// Se relee la lista en vez de mutar la que tenía el llamador: entre el POST y su
+// respuesta el visitante pudo enviar otro formulario y reescribir la clave.
+const marcarResultado = (key, id, resultado) => {
+  const list = readStore(key);
+  const entrada = list.find((e) => e && e.id === id);
+  if (!entrada) return;
+  if (resultado === "ok") {
+    entrada.sincronizado = true;
+    delete entrada.proximoIntento;
+  } else if (resultado === "descartar") {
+    entrada.sincronizado = false;
+    entrada.descartado = true;
+  } else {
+    entrada.sincronizado = false;
+    entrada.intentos = (entrada.intentos || 0) + 1;
+    entrada.proximoIntento = Date.now() + retryDelay(entrada.intentos);
+  }
+  writeStore(key, list);
+};
+
+const enviarLead = async (key, id, payload) => {
+  const resultado = await postLead(payload);
+  marcarResultado(key, id, resultado);
+  return resultado;
+};
+
+const pendientes = (key, ahora) =>
+  readStore(key).filter(
+    (e) =>
+      e &&
+      e.sincronizado === false &&
+      !e.descartado &&
+      e.payload &&
+      (e.intentos || 0) < RETRY_MAX_ATTEMPTS &&
+      (e.proximoIntento || 0) <= ahora,
+  );
+
+// Reintento silencioso: en serie, y se corta al primer fallo transitorio. Si el
+// backend está caído o topado, insistir con el resto de la cola no lo arregla —
+// solo gasta cupo del tope global que es justo lo que hay que dejar respirar.
+const sincronizarPendientes = async (key) => {
+  for (const entrada of pendientes(key, Date.now())) {
+    const resultado = await enviarLead(key, entrada.id, entrada.payload);
+    if (resultado === "reintentar") break;
+  }
+};
+
+// Entradas guardadas antes de que la landing tuviera backend: no traen id ni
+// payload. Se les arma uno para que entren a la cola — son leads reales que hoy
+// están muertos en el navegador del visitante.
+const adoptarPendientesViejos = (key, construirPayload) => {
+  const list = readStore(key);
+  if (!list.some((e) => e && !e.id)) return;
+  list.forEach((e) => {
+    if (!e || e.id) return;
+    e.id = newId();
+    e.sincronizado = false;
+    e.intentos = 0;
+    e.proximoIntento = 0;
+    e.payload = construirPayload(e);
+  });
+  writeStore(key, list);
+};
+
 const STORAGE_KEY = "zeroai_waitlist";
 
 const form = document.querySelector("#diagnosticForm");
@@ -5,16 +180,10 @@ const formNote = document.querySelector("#formNote");
 const waitlistCount = document.querySelector("#waitlistCount");
 const revealItems = document.querySelectorAll("[data-reveal]");
 
-const getEntries = () => {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-  } catch {
-    return [];
-  }
-};
+const getEntries = () => readStore(STORAGE_KEY);
 
 const setEntries = (entries) => {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+  writeStore(STORAGE_KEY, entries);
   waitlistCount.textContent = String(entries.length);
 };
 
@@ -25,6 +194,11 @@ form?.addEventListener("submit", (event) => {
   const formData = new FormData(form);
   const entry = Object.fromEntries(formData.entries());
   entry.createdAt = new Date().toISOString();
+  entry.id = newId();
+  entry.payload = payloadWaitlist(entry);
+  entry.sincronizado = false;
+  entry.intentos = 0;
+  entry.proximoIntento = 0;
 
   const entries = getEntries();
   const existingIndex = entries.findIndex(
@@ -37,10 +211,12 @@ form?.addEventListener("submit", (event) => {
     entries.push(entry);
   }
 
-  setEntries(entries);
+  setEntries(entries); // respaldo primero
+  enviarLead(STORAGE_KEY, entry.id, entry.payload).catch(() => {}); // y el POST despu\u00e9s, sin bloquear la UI
+
   form.reset();
   formNote.textContent =
-    "Solicitud guardada. Quedaste en la waitlist para el diagn\u00f3stico gratuito.";
+    "Solicitud recibida. Quedaste en la waitlist para el diagn\u00f3stico gratuito.";
   formNote.classList.add("success");
 });
 
@@ -101,21 +277,23 @@ chatForm?.addEventListener("submit", (event) => {
   const data = Object.fromEntries(new FormData(chatForm).entries());
   const fullPhone = `${data.prefix}${data.phone.replace(/\D/g, "")}`;
   const lead = {
+    id: newId(),
     firstName: data.firstName.trim(),
     lastName: data.lastName.trim(),
     email: data.email.trim(),
     phone: fullPhone,
     source: "chat",
     createdAt: new Date().toISOString(),
+    sincronizado: false,
+    intentos: 0,
+    proximoIntento: 0,
   };
+  lead.payload = payloadChat(lead);
 
-  try {
-    const leads = JSON.parse(localStorage.getItem(CHAT_KEY) || "[]");
-    leads.push(lead);
-    localStorage.setItem(CHAT_KEY, JSON.stringify(leads));
-  } catch {
-    localStorage.setItem(CHAT_KEY, JSON.stringify([lead]));
-  }
+  const leads = readStore(CHAT_KEY); // respaldo primero
+  leads.push(lead);
+  writeStore(CHAT_KEY, leads);
+  enviarLead(CHAT_KEY, lead.id, lead.payload).catch(() => {}); // y el POST después
 
   if (WHATSAPP_NUMBER) {
     const text = encodeURIComponent(
@@ -339,20 +517,11 @@ document.querySelectorAll(".faq-q").forEach((btn) => {
 });
 
 // ---- Precios (fetch en vivo desde /api/public/plans) -------------------
-// Mismo criterio que frontend/src/lib/api.js (VITE_API_URL): en desarrollo
-// local pega directo al backend en :8800; en producción usa la URL pública
-// del backend. La landing no tiene build step (sin Vite), así que no hay una
-// env var real que inyectar aquí — esta constante cumple el mismo rol a mano.
-//
 // GET /api/public/plans ya existe y está desplegado (CORE, 2026-07-15) — sin
 // login, exento en _OPEN_PATHS. Igual se deja el estado de error de abajo para
 // cualquier falla de red/backend caído: nunca mostramos precios inventados
-// como fallback.
-const PRICING_API_BASE =
-  location.hostname === "localhost" || location.hostname === "127.0.0.1"
-    ? "http://localhost:8800"
-    : "https://handpick-monogamy-spiny.ngrok-free.dev"; // URL pública conocida (ngrok fijo) — confirmar con CORE si cambió
-
+// como fallback. La base de URL (PRICING_API_BASE) está declarada arriba, junto
+// al resto del puente con la API.
 (() => {
   const grid = document.querySelector("#pricingGrid");
   if (!grid) return;
@@ -461,4 +630,15 @@ const PRICING_API_BASE =
       renderPlans(data.plans);
     })
     .catch(() => renderError());
+})();
+
+// ---- Sincronización al cargar ----------------------------------------------
+// Va al final a propósito: necesita STORAGE_KEY y CHAT_KEY, declaradas más
+// arriba. En serie y en silencio — el visitante no tiene por qué enterarse de
+// que se está reenviando lo que quedó pendiente de una visita anterior.
+(async () => {
+  adoptarPendientesViejos(STORAGE_KEY, payloadWaitlist);
+  adoptarPendientesViejos(CHAT_KEY, payloadChat);
+  await sincronizarPendientes(STORAGE_KEY);
+  await sincronizarPendientes(CHAT_KEY);
 })();
