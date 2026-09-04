@@ -6,11 +6,13 @@ snapshot the system prompt calls a "state handoff block".
 """
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .config import DEFAULT_VENDOR_ID, followup_step
+from .config import (DEFAULT_VENDOR_ID, MAX_KNOWLEDGE_VERSIONS, MAX_TEST_CASES_PER_CLIENT,
+                     followup_step)
 from .persistence import load_json, save_json
 from .vendors import seed_vendors
 
@@ -22,6 +24,32 @@ def _now() -> str:
 def _parse(iso: str) -> datetime:
     dt = datetime.fromisoformat(iso)
     return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
+
+def normalize_cases(cases: Any) -> List[Dict[str, Any]]:
+    """Deja el banco de casos en su forma canónica y descarta la basura.
+
+    Un caso sin pregunta no es un caso: no se puede repetir. `respuesta_esperada`
+    y `nota` son opcionales y quedan en "" — nunca en None — para que el
+    dashboard no tenga que distinguir "no hay campo" de "está vacío".
+    """
+    limpios: List[Dict[str, Any]] = []
+    for c in (cases if isinstance(cases, list) else []):
+        if not isinstance(c, dict):
+            continue
+        pregunta = str(c.get("pregunta") or "").strip()
+        if not pregunta:
+            continue
+        limpios.append({
+            "id": str(c.get("id") or uuid.uuid4().hex[:12]),
+            "pregunta": pregunta[:1000],
+            "respuesta_esperada": str(c.get("respuesta_esperada") or "").strip()[:2000],
+            "nota": str(c.get("nota") or "").strip()[:500],
+            "creado": str(c.get("creado") or _now()),
+        })
+    # El techo descarta lo último que llegó: si el banco ya está lleno, lo que
+    # vale es el set de preguntas que se viene repitiendo, no el recién agregado.
+    return limpios[:max(1, MAX_TEST_CASES_PER_CLIENT)]
 
 
 class SessionMemory:
@@ -69,13 +97,113 @@ class SessionMemory:
         return self.clients.get(client_id, {}).get("meta") or {}
 
     # --- knowledge base (la "ficha de la empresa" que carga el dashboard) -----
-    def set_client_knowledge(self, client_id: str, knowledge: str) -> None:
-        """Texto libre sobre el negocio del cliente (qué vende, precios, horarios,
-        tono, políticas...). Es el contexto que hace personal al agente."""
-        self.clients.setdefault(client_id, {})["knowledge"] = (knowledge or "").strip()
+    # Todo el historial vive DENTRO de la ficha del cliente, junto a
+    # icp/meta/knowledge/pricing (mismo criterio que `conversations`): así el
+    # snapshot no cambia de forma y los snapshots viejos siguen restaurando bien.
+    #
+    #   clients[id]["knowledge"]          -> el texto vigente (lo que lee el agente)
+    #   clients[id]["knowledge_version"]  -> número de la versión vigente
+    #   clients[id]["knowledge_versions"] -> historial, la vigente incluida
+    #
+    # El texto vigente sigue en su campo de siempre a propósito: el motor de
+    # WhatsApp y los agentes lo leen por ahí, y hacerles buscar "la última del
+    # historial" sería cambiar el contrato de lectura para todos por un cambio
+    # que solo le importa a quien edita la ficha.
+
+    def _ensure_knowledge_versions(self, client_id: str) -> List[Dict[str, Any]]:
+        """El historial del cliente, sembrado con la ficha que ya existía.
+
+        Sin esto, la primera edición sobre una ficha anterior al historial la
+        borraría sin dejar rastro — exactamente el problema que el historial
+        viene a resolver, y justo en la ficha que más importa: la que está en
+        producción hoy.
+        """
+        ficha = self.clients.setdefault(client_id, {})
+        versiones = ficha.setdefault("knowledge_versions", [])
+        actual = (ficha.get("knowledge") or "").strip()
+        if not versiones and actual:
+            versiones.append({
+                "version": 1, "knowledge": actual, "chars": len(actual),
+                "guardada": _now(), "motivo": "ficha anterior al historial",
+            })
+            ficha["knowledge_version"] = 1
+        return versiones
+
+    def set_client_knowledge(self, client_id: str, knowledge: str,
+                             motivo: str = "") -> Dict[str, Any]:
+        """Guarda la ficha como una versión NUEVA y la deja vigente.
+
+        Texto libre sobre el negocio del cliente (qué vende, precios, horarios,
+        tono, políticas...). Es el contexto que hace personal al agente. Devuelve
+        la versión creada; nada se sobrescribe, solo se agrega.
+        """
+        texto = (knowledge or "").strip()
+        ficha = self.clients.setdefault(client_id, {})
+        versiones = self._ensure_knowledge_versions(client_id)
+        numero = int(ficha.get("knowledge_version") or 0) + 1
+        entrada = {"version": numero, "knowledge": texto, "chars": len(texto),
+                   "guardada": _now(), "motivo": (motivo or "").strip()[:200]}
+        versiones.append(entrada)
+        # El techo descarta por el frente (las más viejas). La vigente es la
+        # última, así que nunca cae; el max(1, ...) lo deja explícito para que un
+        # techo mal configurado no pueda dejar al cliente sin ficha vigente.
+        sobran = len(versiones) - max(1, MAX_KNOWLEDGE_VERSIONS)
+        if sobran > 0:
+            del versiones[:sobran]
+        ficha["knowledge"] = texto
+        ficha["knowledge_version"] = numero
+        return entrada
 
     def get_client_knowledge(self, client_id: str) -> str:
         return self.clients.get(client_id, {}).get("knowledge") or ""
+
+    def get_client_knowledge_version(self, client_id: str) -> int:
+        """Número de la versión vigente. 0 = el cliente no tiene ficha todavía."""
+        ficha = self.clients.get(client_id, {})
+        if ficha.get("knowledge_version"):
+            return int(ficha["knowledge_version"])
+        return 1 if (ficha.get("knowledge") or "").strip() else 0
+
+    def list_client_knowledge_versions(self, client_id: str) -> List[Dict[str, Any]]:
+        """El historial completo, de la más nueva a la más vieja."""
+        self._ensure_knowledge_versions(client_id)
+        versiones = self.clients.get(client_id, {}).get("knowledge_versions") or []
+        return sorted(versiones, key=lambda v: v.get("version", 0), reverse=True)
+
+    def get_client_knowledge_version_entry(self, client_id: str,
+                                           version: int) -> Optional[Dict[str, Any]]:
+        for v in self.list_client_knowledge_versions(client_id):
+            if int(v.get("version", 0)) == int(version):
+                return v
+        return None
+
+    def rollback_client_knowledge(self, client_id: str, version: int) -> Optional[Dict[str, Any]]:
+        """Restaura una versión anterior COMO VERSIÓN NUEVA. None si no existe.
+
+        Volver atrás no borra lo que se está dejando: el intento fallido queda en
+        el historial, que es donde sirve para entender qué se probó y por qué no
+        funcionó. Sin eso, "volver a la anterior" sería otra forma de perder trabajo.
+        """
+        entrada = self.get_client_knowledge_version_entry(client_id, version)
+        if entrada is None:
+            return None
+        return self.set_client_knowledge(client_id, entrada.get("knowledge") or "",
+                                         motivo=f"rollback a la versión {version}")
+
+    # --- banco de casos de prueba (por cliente) -------------------------------
+    # El mismo set de preguntas, repetible después de cada cambio de ficha. La
+    # `respuesta_esperada` es una REFERENCIA para que una persona compare, no un
+    # assert: acá no hay juez que puntúe la salida del modelo, ni ningún test que
+    # la compare literal. Decisión de Diego, y es la razón de que el campo sea
+    # texto libre y opcional.
+    def set_client_cases(self, client_id: str, cases: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Reemplaza el banco completo (mismo patrón que pricing/meta) ya normalizado."""
+        limpios = normalize_cases(cases)
+        self.clients.setdefault(client_id, {})["cases"] = limpios
+        return limpios
+
+    def get_client_cases(self, client_id: str) -> List[Dict[str, Any]]:
+        return self.clients.get(client_id, {}).get("cases") or []
 
     # --- pricing (lista de precios estructurada, para presupuestos) -----------
     def set_client_pricing(self, client_id: str, pricing: Dict[str, Any]) -> None:

@@ -5,7 +5,7 @@ calificado: email, WhatsApp o guion de llamada. Suena humano, específico y úti
 nada de spam, promesas falsas ni relleno.
 
 ## Entrada (JSON del task)
-- `data.leads`: leads calificados (cada uno con company, role, channel, score).
+- `data.leads`: leads calificados (cada uno con company, role, channel, score, industry).
 - `data.icp`: **qué vende el cliente y a quién** — úsalo para que el mensaje hable del
   valor real del cliente para ESE lead (no un pitch genérico).
 
@@ -42,7 +42,7 @@ credibilidad del primer contacto.
 
 Escala la personalización al `client_tier`:
 - `STARTER`: limpio, genérico, breve.
-- `GROWTH`: menciona el segmento/rubro del lead.
+- `GROWTH`: menciona el segmento/rubro del lead (usa `industry` si viene en `data.leads`).
 - `SCALE`: agrega una prueba concreta / ángulo de intención.
 - `ENTERPRISE`: consultivo y a medida (vertical, piloto).
 

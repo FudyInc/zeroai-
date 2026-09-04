@@ -60,6 +60,31 @@ _BAD_EMAIL_HINTS = ("example.", "sentry", "wixpress", "@2x", "@3x", ".png", ".jp
                     "tumail", "tuemail", "tunombre@", "sucorreo", "sudominio",
                     "@dominio.", "@tudominio", "@tuempresa.", "yourname@", "yourmail")
 
+# Industry detection keywords: map industries to phrases found on web pages.
+# Used to enrich leads with industry/rubro information.
+_INDUSTRY_KEYWORDS = {
+    "fintech": ["banco", "pago", "cripto", "tarjeta", "financiero", "préstamo",
+                "inversión", "wallet", "transacción", "fintech", "transferencia",
+                "criptomoneda", "mercado de valores", "bróker"],
+    "retail": ["tienda", "store", "shop", "comercio", "venta", "retail", "ecommerce",
+               "compra", "cliente", "producto", "catálogo", "boutique"],
+    "saas": ["software", "aplicación", "app", "plataforma", "sistema", "saas", "cloud",
+             "herramienta", "servicio digital", "solución web", "suscripción"],
+    "healthcare": ["salud", "médico", "clínica", "hospital", "doctor", "enfermería",
+                   "farmacia", "healthcare", "telemedicina", "paciente", "médica"],
+    "education": ["educación", "colegio", "universidad", "curso", "formación",
+                  "escuela", "académico", "capacitación", "learning", "taller"],
+    "manufacturing": ["manufactura", "fábrica", "producción", "industrial", "maquinaria",
+                      "fabricación", "factory", "línea de producción"],
+    "real_estate": ["inmuebles", "propiedad", "real estate", "terreno", "vivienda",
+                    "construcción", "proyecto inmobiliario", "casas", "departamentos"],
+    "logistics": ["logística", "transporte", "envío", "almacén", "distribución",
+                  "courier", "carga", "fleet"],
+    "marketing": ["agencia", "marketing", "publicidad", "advertising", "campaña",
+                  "digital", "branding", "comunicación", "redes sociales"],
+    "consulting": ["consultoría", "asesoría", "consulting", "asesor", "consultor"],
+}
+
 # Decision-maker enrichment: a role keyword near a person name on an about/team
 # page. Order matters — list specific titles before generic ones so the longer
 # match wins at a given position.
@@ -211,6 +236,7 @@ class DuckDuckGoSource(DiscoverySource):
                 except Exception:
                     name, role = (None, None)
             activity = self._activity(page, title)
+            industry = self._detect_industry(page, activity or "", title, domain)
             leads.append({
                 "company": company,
                 "domain": domain,
@@ -222,6 +248,7 @@ class DuckDuckGoSource(DiscoverySource):
                 "source": "duckduckgo",
                 "url": url,
                 "activity": activity,
+                "industry": industry,
             })
 
         from .validators import ValidatorRules  # local import: avoid cycle with validators.py
@@ -421,6 +448,17 @@ class DuckDuckGoSource(DiscoverySource):
         # Fallback to page title if no meta description.
         if title and not _is_generic_description(title):
             return _clean_activity(title)
+        return None
+
+    @staticmethod
+    def _detect_industry(page: str, activity: str, title: str, domain: str) -> Optional[str]:
+        """Detect industry/rubro from page content, activity, title, and domain.
+        Returns the matched industry name or None."""
+        text = (activity + " " + title + " " + domain).lower()
+        for industry, keywords in _INDUSTRY_KEYWORDS.items():
+            for keyword in keywords:
+                if keyword.lower() in text:
+                    return industry
         return None
 
     def _company_name(self, page: str, title: str, domain: str) -> str:

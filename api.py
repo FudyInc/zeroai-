@@ -138,8 +138,10 @@ _ROLE_ALLOWED: dict = {
         ("POST", "/api/vendors"),         # editar el tono de cada agente
         ("GET", "/api/vendor"),           # vendedor asignado a un cliente
         ("POST", "/api/vendor"),          # asignar/desplegar personalidad
-        ("GET", "/api/knowledge"),        # ficha de la empresa (WhatsApp)
-        ("POST", "/api/knowledge"),
+        ("GET", "/api/knowledge"),        # ficha de la empresa (WhatsApp) + /versions
+        ("POST", "/api/knowledge"),       # + /rollback (el match es por prefijo)
+        ("GET", "/api/cases"),            # banco de casos de prueba de la ficha
+        ("POST", "/api/cases"),
         ("GET", "/api/pricing"),          # precios que cita el agente (WhatsApp)
         ("POST", "/api/pricing"),
         ("GET", "/api/whatsapp"),         # /whatsapp/status
@@ -1335,23 +1337,106 @@ def assign_vendor(client: str, body: AssignVendor):
 
 @app.get("/api/knowledge")
 def get_knowledge(client: str):
-    """La ficha de la empresa (texto libre) que alimenta al agente."""
+    """La ficha de la empresa (texto libre) que alimenta al agente, y en qué
+    versión está: sin ese número, quien edita no sabe si está mirando lo mismo
+    que respondió el último ensayo del chat de prueba."""
     memory = make_memory(STATE_PATH)
-    return {"client": client, "knowledge": memory.get_client_knowledge(client)}
+    return {"client": client,
+            "knowledge": memory.get_client_knowledge(client),
+            "version": memory.get_client_knowledge_version(client),
+            "versions": len(memory.list_client_knowledge_versions(client))}
 
 
 class KnowledgeBody(BaseModel):
     knowledge: str
+    motivo: Optional[str] = None      # "por qué este cambio" — se ve en el historial
 
 
 @app.post("/api/knowledge")
 def set_knowledge(client: str, body: KnowledgeBody):
     """Guardar la ficha: qué vende, precios, horarios, tono, políticas... Un
-    trabajador la pega tal cual; no necesita saber de IA."""
+    trabajador la pega tal cual; no necesita saber de IA.
+
+    Guardar NO sobrescribe: cada POST crea una versión nueva y la deja vigente.
+    Se cambia la ficha para arreglar una respuesta y se rompen otras tres — sin
+    historial, esa tarde de ajustes no tiene a dónde volver.
+    """
     memory = make_memory(STATE_PATH)
-    memory.set_client_knowledge(client, body.knowledge)
+    entrada = memory.set_client_knowledge(client, body.knowledge, motivo=body.motivo or "")
     memory.save()
-    return {"client": client, "saved": True, "chars": len(memory.get_client_knowledge(client))}
+    return {"client": client, "saved": True, "chars": entrada["chars"],
+            "version": entrada["version"]}
+
+
+@app.get("/api/knowledge/versions")
+def knowledge_versions(client: str, version: Optional[int] = None):
+    """El historial de la ficha, de la más nueva a la más vieja.
+
+    Con `version=N` devuelve ESA versión con su texto completo; sin él, la lista
+    con metadatos y un vistazo de cada una. La lista no trae los textos enteros a
+    propósito: son fichas de miles de caracteres y el dashboard solo necesita
+    saber qué hay antes de pedir una.
+    """
+    memory = make_memory(STATE_PATH)
+    if version is not None:
+        entrada = memory.get_client_knowledge_version_entry(client, version)
+        if entrada is None:
+            raise HTTPException(status_code=404, detail=f"no existe la versión {version}")
+        return {"client": client, "version": entrada,
+                "current": memory.get_client_knowledge_version(client)}
+    actual = memory.get_client_knowledge_version(client)
+    versiones = [{"version": v["version"], "chars": v.get("chars", 0),
+                  "guardada": v.get("guardada"), "motivo": v.get("motivo") or "",
+                  "vigente": v["version"] == actual,
+                  "preview": (v.get("knowledge") or "")[:160]}
+                 for v in memory.list_client_knowledge_versions(client)]
+    return {"client": client, "current": actual, "versions": versiones}
+
+
+@app.post("/api/knowledge/rollback")
+def knowledge_rollback(client: str, version: int):
+    """Vuelve a una versión anterior de la ficha.
+
+    La restauración queda como versión NUEVA: el intento que se está dejando no
+    se borra, porque saber qué se probó y no funcionó es justamente lo que evita
+    volver a probarlo la semana que viene.
+    """
+    memory = make_memory(STATE_PATH)
+    entrada = memory.rollback_client_knowledge(client, version)
+    if entrada is None:
+        raise HTTPException(status_code=404, detail=f"no existe la versión {version}")
+    memory.save()
+    return {"client": client, "restored_from": version, "version": entrada["version"],
+            "chars": entrada["chars"], "knowledge": entrada["knowledge"]}
+
+
+# --- banco de casos de prueba (por cliente) -----------------------------------
+
+@app.get("/api/cases")
+def get_cases(client: str):
+    """El set de preguntas con el que se prueba a este agente después de cada
+    cambio de ficha."""
+    memory = make_memory(STATE_PATH)
+    return {"client": client, "cases": memory.get_client_cases(client)}
+
+
+class CasesBody(BaseModel):
+    cases: list
+
+
+@app.post("/api/cases")
+def set_cases(client: str, body: CasesBody):
+    """Guardar el banco completo (mismo patrón que /api/pricing: el cuerpo REEMPLAZA
+    lo que había, no agrega). Se normaliza al entrar: un caso sin `pregunta` se
+    descarta, porque no se puede repetir.
+
+    `respuesta_esperada` es una referencia para que una persona compare, no un
+    assert: acá no hay juez que puntúe la salida del modelo.
+    """
+    memory = make_memory(STATE_PATH)
+    cases = memory.set_client_cases(client, body.cases)
+    memory.save()
+    return {"client": client, "saved": True, "cases": cases}
 
 
 # --- lista de precios + presupuestos (la aritmética vive en zero/quotes.py) ----

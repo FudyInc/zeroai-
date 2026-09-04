@@ -25,7 +25,7 @@ datos: si falta información, baja el score y dilo.
 - **<50**: no encaja / fuera del ICP / sin datos suficientes.
 
 ### Qué pesar
-1. **Fit de industria/mercado** con lo que vende el cliente.
+1. **Fit de industria/mercado** con lo que vende el cliente — usa `industry` del lead si viene.
 2. **Fit del decisor** (rol con poder de compra).
 3. **Tamaño/zona** según el ICP (ej. si el cliente solo despacha a cierta región o con
    ciertas medidas/capacidad, penaliza a los que no calzan).
