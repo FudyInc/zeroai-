@@ -8,6 +8,7 @@ import { Card, Skeleton, pageState } from '../components/ui'
 import { Segmented } from '../components/Segmented'
 import { useApp } from '../App'
 import { NoClient } from './Dashboard'
+import { rise, fade, surface, stagger, staggerDense } from '../lib/motion'
 
 const DENSITY = [{ value: 'comodo', label: 'Cómodo' }, { value: 'compacto', label: 'Compacto' }]
 
@@ -44,19 +45,20 @@ export default function Pipeline() {
   if (gate) return gate
 
   return (
-    <div>
-      <div className="flex items-center justify-between gap-3 mb-4">
+    <motion.div initial="hidden" animate="show" variants={rise}>
+      <motion.div className="flex items-center justify-between gap-3 mb-4" variants={fade}>
         <div className="text-xs text-zinc-400">Arrastrá una tarjeta entre columnas para cambiar su etapa — o usá el menú. Tocala para ver el detalle.</div>
         <Segmented options={DENSITY} value={dense} onChange={setDense} />
-      </div>
-      <div className="flex gap-4 overflow-x-auto pb-2">
+      </motion.div>
+      <motion.div className="flex gap-4 overflow-x-auto pb-2" variants={stagger()} initial="hidden" animate="show">
         {ORDER.map((stage) => {
           const m = STAGES[stage] || { l: stage, c: '#94a3b8' }
           const leads = byStage[stage] || []
           const isOver = over === stage
           return (
-            <div
+            <motion.div
               key={stage}
+              variants={fade}
               onDragOver={(e) => { e.preventDefault(); if (over !== stage) setOver(stage) }}
               onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setOver((s) => (s === stage ? null : s)) }}
               onDrop={(e) => { e.preventDefault(); onDrop(stage) }}
@@ -69,12 +71,12 @@ export default function Pipeline() {
                 <span className="w-2 h-2 rounded-full" style={{ background: m.c }} />{m.l}
                 <span className="ml-auto bg-zinc-100 text-zinc-500 rounded-full px-2 py-0.5 text-[11px]">{leads.length}</span>
               </div>
-              <div className="space-y-2.5 min-h-[60px]">
-                {leads.map((r, i) => (
+              <motion.div className="space-y-2.5 min-h-[60px]" variants={staggerDense()}>
+                {leads.map((r) => (
                   <motion.div
                     key={r.key}
                     layout
-                    initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}
+                    variants={surface}
                     draggable
                     onDragStart={() => { drag.current = { key: r.key, from: stage } }}
                     onDragEnd={() => { drag.current = null; setOver(null) }}
@@ -102,11 +104,11 @@ export default function Pipeline() {
                     soltá aquí
                   </div>
                 )}
-              </div>
-            </div>
+              </motion.div>
+            </motion.div>
           )
         })}
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   )
 }

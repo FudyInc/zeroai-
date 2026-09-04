@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { api } from '../lib/api'
 import { Card, Skeleton, Select, pageState, SectionTitle } from '../components/ui'
 import { ROLE_LABELS } from '../lib/roles'
+import { rise, fade, surface, stagger } from '../lib/motion'
 
 /* Panel exclusivo del admin (Diego): quién tiene cuenta en el dashboard, qué
    rol tiene cada uno (o ninguno todavía — alguien que entró con Google pero
@@ -46,31 +47,33 @@ export default function Equipo() {
   const { users, configured } = data
 
   return (
-    <div className="space-y-5 max-w-3xl">
-      <div className="flex items-center gap-2">
+    <motion.div className="space-y-5 max-w-3xl" initial="hidden" animate="show" variants={rise}>
+      <motion.div className="flex items-center gap-2" variants={fade}>
         <ShieldCheck size={18} className="text-gold-deep" />
         <SectionTitle>Equipo</SectionTitle>
-      </div>
-      <p className="text-sm text-zinc-500 max-w-2xl">
+      </motion.div>
+      <motion.p className="text-sm text-zinc-500 max-w-2xl" variants={fade}>
         Quién tiene cuenta, qué rol tiene, quién está conectado ahora, trabajo pendiente según su
         rol, y horas activas esta semana (para CCO, con meta de 20h). Todo esto es una
         <b> aproximación de uso del dashboard, no un timesheet real</b> — no captura trabajo hecho
         fuera de acá (llamadas, WhatsApp desde el celular, reuniones).
-      </p>
+      </motion.p>
 
       {!configured && (
-        <Card className="p-4 flex items-start gap-3 bg-amber-50/60 border-amber-200">
+        <motion.div variants={fade}>
+          <Card className="p-4 flex items-start gap-3 bg-amber-50/60 border-amber-200">
           <AlertTriangle size={17} className="text-amber-700 shrink-0 mt-0.5" />
           <div className="text-sm text-amber-800">
             Falta conectar Supabase (URL + key) para ver las cuentas reales — sin eso este panel
-            no tiene de dónde leer.
-          </div>
-        </Card>
+              no tiene de dónde leer.
+            </div>
+          </Card>
+        </motion.div>
       )}
 
-      <div className="space-y-2">
-        {users.map((u, i) => (
-          <motion.div key={u.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}>
+      <motion.div className="space-y-2" variants={stagger()} initial="hidden" animate="show">
+        {users.map((u) => (
+          <motion.div key={u.id} variants={surface}>
             <Card className={'p-4 flex items-center gap-4 ' + (!u.role ? 'bg-amber-50/40 border-amber-200' : '')}>
               <div className="w-10 h-10 rounded-full bg-champagne/40 text-gold-deep grid place-items-center shrink-0 font-bold text-sm">
                 {(u.full_name || u.email || '?').trim().charAt(0).toUpperCase()}
@@ -130,7 +133,7 @@ export default function Equipo() {
             </Card>
           </motion.div>
         ))}
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   )
 }

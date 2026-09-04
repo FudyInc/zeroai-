@@ -1,12 +1,13 @@
 import { useState, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { Terminal, AlertTriangle, Play, Pencil, Trash2, Plus, CheckCircle2, XCircle, Repeat } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
 import { useDismiss } from '../hooks/useDismiss'
 import { useApp } from '../App'
 import { Card, Button, Input, Skeleton, pageState, Eyebrow, SectionTitle } from '../components/ui'
+import { rise, fade, surface, staggerDense, overlay, dialog } from '../lib/motion'
 
 /* Panel exclusivo del admin: crear/editar/correr/borrar funciones — código
    Python a medida que corre AISLADO (Docker, zero/sandbox.py) contra leads
@@ -117,16 +118,17 @@ export default function Funciones() {
   }
 
   return (
-    <div className="space-y-5 max-w-3xl">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
+    <motion.div className="space-y-5 max-w-3xl" initial="hidden" animate="show" variants={rise}>
+      <motion.div className="flex items-center justify-between gap-3 flex-wrap" variants={fade}>
         <div className="flex items-center gap-2">
           <Terminal size={18} className="text-gold-deep" />
           <SectionTitle>Funciones</SectionTitle>
         </div>
         <Button variant="primary" onClick={openNew}><Plus size={15} /> Nueva función</Button>
-      </div>
+      </motion.div>
 
-      <Card className="p-4 flex items-start gap-3 bg-amber-50/60 border-amber-200">
+      <motion.div variants={fade}>
+        <Card className="p-4 flex items-start gap-3 bg-amber-50/60 border-amber-200">
         <AlertTriangle size={17} className="text-amber-700 shrink-0 mt-0.5" />
         <div className="text-sm text-amber-800">
           Cada función corre código Python real, aislado en un contenedor Docker, contra los{' '}
@@ -136,15 +138,16 @@ export default function Funciones() {
           o correrla solo cuando aprietas "Correr ahora" — ambas conviven, "Correr ahora" siempre
           funciona aunque esté en automático.
         </div>
-      </Card>
+        </Card>
+      </motion.div>
 
       {gate || (
-        <div className="space-y-2">
+        <motion.div className="space-y-2" variants={staggerDense()} initial="hidden" animate="show">
           {(!functions || functions.length === 0) && (
-            <div className="py-16 text-center text-zinc-400">Sin funciones todavía — crea la primera.</div>
+            <motion.div className="py-16 text-center text-zinc-400" variants={fade}>Sin funciones todavía — crea la primera.</motion.div>
           )}
-          {functions?.map((fn, i) => (
-            <motion.div key={fn.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}>
+          {functions?.map((fn) => (
+            <motion.div key={fn.id} variants={surface}>
               <Card className="p-4 space-y-2">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <div className="min-w-0">
@@ -187,12 +190,13 @@ export default function Funciones() {
               </Card>
             </motion.div>
           ))}
-        </div>
+        </motion.div>
       )}
 
-      {form && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4" onClick={closeForm}>
-          <div className="bg-white dark:bg-[#1D2016] rounded-2xl max-w-lg w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+      <AnimatePresence>
+        {form && (
+          <motion.div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4" {...overlay} onClick={closeForm}>
+            <motion.div className="bg-white dark:bg-[#1D2016] rounded-2xl max-w-lg w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto" {...dialog} onClick={(e) => e.stopPropagation()}>
             <div className="text-lg font-bold">{form.id ? 'Editar función' : 'Nueva función'}</div>
 
             {/* El texto va envuelto en <span>: si queda suelto dentro del flex,
@@ -252,9 +256,10 @@ export default function Funciones() {
               <Button variant="ghost" onClick={closeForm}>Cancelar</Button>
               <Button variant="accent" onClick={submit} disabled={save.isPending}>Guardar</Button>
             </div>
-          </div>
-        </div>
-      )}
-    </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
   )
 }

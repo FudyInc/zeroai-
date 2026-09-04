@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { CheckCheck, Send, Mail, MessageCircle, ChevronDown } from 'lucide-react'
 import { api } from '../lib/api'
 import { Card, Button, Skeleton, pageState, SectionTitle, Eyebrow } from '../components/ui'
 import { cn } from '../lib/util'
+import { rise, fade, surface, stagger } from '../lib/motion'
 
 /* La bandeja de aprobación: todo lo que los agentes redactaron solos y espera
    el visto bueno de una persona (ver la política de borradores en
@@ -120,32 +122,38 @@ export default function Aprobar() {
   const refresh = () => qc.invalidateQueries({ queryKey: ['pending-outreach'] })
 
   return (
-    <div className="space-y-5 max-w-2xl">
-      <div className="flex items-center gap-2">
+    <motion.div className="space-y-5 max-w-2xl" initial="hidden" animate="show" variants={rise}>
+      <motion.div className="flex items-center gap-2" variants={fade}>
         <CheckCheck size={18} className="text-gold-deep" />
         <SectionTitle>Por aprobar</SectionTitle>
-      </div>
-      <p className="text-sm text-pewter">
+      </motion.div>
+      <motion.p className="text-sm text-pewter" variants={fade}>
         Lo que los agentes redactaron trabajando solos. Nada de esto se envió: revisa, edita si
         hace falta y aprueba. Lo más antiguo va primero.
-      </p>
+      </motion.p>
 
       {items.length === 0 ? (
-        <Card className="p-8 text-center">
-          <CheckCheck size={22} className="text-pewter mx-auto mb-2" />
-          <p className="text-sm font-medium text-zinc-800">Todo despachado.</p>
-          <p className="text-xs text-pewter mt-1">
-            No hay borradores esperando. Cuando una corrida automática redacte algo, aparece acá.
-          </p>
-        </Card>
+        <motion.div variants={fade}>
+          <Card className="p-8 text-center">
+            <CheckCheck size={22} className="text-pewter mx-auto mb-2" />
+            <p className="text-sm font-medium text-zinc-800">Todo despachado.</p>
+            <p className="text-xs text-pewter mt-1">
+              No hay borradores esperando. Cuando una corrida automática redacte algo, aparece acá.
+            </p>
+          </Card>
+        </motion.div>
       ) : (
-        <div className="space-y-3">
-          <Eyebrow>{items.length} esperando</Eyebrow>
+        <motion.div className="space-y-3" variants={stagger()} initial="hidden" animate="show">
+          <motion.div variants={fade}>
+            <Eyebrow>{items.length} esperando</Eyebrow>
+          </motion.div>
           {items.map((item) => (
-            <DraftCard key={`${item.client_id}:${item.key}`} item={item} onSent={refresh} />
+            <motion.div key={`${item.client_id}:${item.key}`} variants={surface}>
+              <DraftCard item={item} onSent={refresh} />
+            </motion.div>
           ))}
-        </div>
+        </motion.div>
       )}
-    </div>
+    </motion.div>
   )
 }

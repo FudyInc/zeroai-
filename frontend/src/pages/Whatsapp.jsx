@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import {
   MessageCircle, CheckCircle2, WifiOff, AlertCircle, Copy, Check, Clock,
@@ -12,6 +13,7 @@ import { useApp } from '../App'
 import AgentTester from '../components/AgentTester'
 import PricingCard from '../components/PricingCard'
 import ConversationThread from '../components/ConversationThread'
+import { rise, fade, surface } from '../lib/motion'
 
 /* El agente de WhatsApp, en un solo lugar: en 3 pasos dejas a un agente
    atendiendo los leads de una empresa (cuéntale del negocio, elige quién
@@ -59,8 +61,8 @@ export default function Whatsapp() {
   const connected = provider === 'twilio' ? !!cfg?.twilio : !!cfg?.whatsapp
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+    <motion.div className="space-y-6" initial="hidden" animate="show" variants={rise}>
+      <motion.div className="flex flex-wrap items-center gap-x-4 gap-y-1" variants={fade}>
         <p className="text-sm text-zinc-500 max-w-2xl">
           En 3 pasos dejas un agente atendiendo a los leads de <b className="text-zinc-700">{client}</b>:
           cuéntale de la empresa, elige quién atiende y despliega. Pruébalo en el chat antes de que
@@ -71,40 +73,60 @@ export default function Whatsapp() {
             <Cpu size={12} /> Cerebro: {cfg.local_model}{cfg.discover === 'web' ? ' · búsqueda web' : ''}
           </span>
         )}
-      </div>
+      </motion.div>
 
-      {!cfgQ.isLoading && !connected && <ConnectMetaBanner />}
+      {!cfgQ.isLoading && !connected && (
+        <motion.div variants={fade}>
+          <ConnectMetaBanner />
+        </motion.div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
-        <div className="space-y-4">
-          <KnowledgeCard client={client} knowledgeQ={knowledgeQ} />
-          <PricingCard client={client} />
-          <VendorPicker vendorsQ={vendorsQ} assignedId={assignedId} currentId={currentId} onPick={setSelected} />
-          <DeployCard
-            client={client} vendor={currentVendor} assignedId={assignedId}
-            knowledgeSaved={knowledgeSaved} deploy={deploy}
-          />
-        </div>
-        <div className="lg:sticky lg:top-24 space-y-4">
-          <AgentTester
-            title="Probar antes de desplegar"
-            hint="Escribe como si fueras un lead de esta empresa. Nada de esto le llega a nadie: es solo un ensayo."
-            fixedClient={client}
-            vendorId={currentId}
-            vendorName={currentVendor?.name}
-          />
-          {connected && (
-            <StatusCard
-              cfg={cfg}
-              provider={provider}
-              webhookUrl={`${BASE || window.location.origin}/api/webhooks/${provider === 'twilio' ? 'twilio-whatsapp' : 'whatsapp'}`}
+        <motion.div className="space-y-4" variants={surface}>
+          <motion.div variants={surface}>
+            <KnowledgeCard client={client} knowledgeQ={knowledgeQ} />
+          </motion.div>
+          <motion.div variants={surface}>
+            <PricingCard client={client} />
+          </motion.div>
+          <motion.div variants={surface}>
+            <VendorPicker vendorsQ={vendorsQ} assignedId={assignedId} currentId={currentId} onPick={setSelected} />
+          </motion.div>
+          <motion.div variants={surface}>
+            <DeployCard
+              client={client} vendor={currentVendor} assignedId={assignedId}
+              knowledgeSaved={knowledgeSaved} deploy={deploy}
             />
+          </motion.div>
+        </motion.div>
+        <motion.div className="lg:sticky lg:top-24 space-y-4" variants={surface}>
+          <motion.div variants={surface}>
+            <AgentTester
+              title="Probar antes de desplegar"
+              hint="Escribe como si fueras un lead de esta empresa. Nada de esto le llega a nadie: es solo un ensayo."
+              fixedClient={client}
+              vendorId={currentId}
+              vendorName={currentVendor?.name}
+            />
+          </motion.div>
+          {connected && (
+            <motion.div variants={surface}>
+              <StatusCard
+                cfg={cfg}
+                provider={provider}
+                webhookUrl={`${BASE || window.location.origin}/api/webhooks/${provider === 'twilio' ? 'twilio-whatsapp' : 'whatsapp'}`}
+              />
+            </motion.div>
           )}
-        </div>
+        </motion.div>
       </div>
 
-      {connected && <ActivityCard leadsQ={leadsQ} client={client} />}
-    </div>
+      {connected && (
+        <motion.div variants={surface}>
+          <ActivityCard leadsQ={leadsQ} client={client} />
+        </motion.div>
+      )}
+    </motion.div>
   )
 }
 

@@ -8,6 +8,7 @@ import { api } from '../lib/api'
 import { useDismiss } from '../hooks/useDismiss'
 import { Card, Skeleton, Select, Input, Button, CountUp, pageState, SectionTitle } from '../components/ui'
 import { useApp } from '../App'
+import { rise, fade, surface, stagger, overlay, dialog } from '../lib/motion'
 
 const clp = (n) => '$' + Math.round(n || 0).toLocaleString('es-CL')
 
@@ -52,8 +53,8 @@ export default function Clientes() {
   const { accounts, mrr_clp, plans } = data
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
+    <motion.div className="space-y-5" initial="hidden" animate="show" variants={rise}>
+      <motion.div className="flex items-start justify-between gap-4 flex-wrap" variants={surface}>
         <Card className="p-5 inline-flex items-center gap-4 bg-brand text-white">
           <div className="w-11 h-11 rounded-xl grid place-items-center bg-white/10"><Wallet size={20} /></div>
           <div>
@@ -65,16 +66,16 @@ export default function Clientes() {
         <Button variant="accent" onClick={() => setCreating(true)}>
           <Plus size={15} /> Nuevo cliente
         </Button>
-      </div>
+      </motion.div>
 
       {accounts.length === 0 ? (
-        <div className="py-16 text-center text-zinc-400">
+        <motion.div className="py-16 text-center text-zinc-400" variants={fade}>
           Sin clientes aún. Da de alta el primero con <b className="text-zinc-500">"Nuevo cliente"</b>.
-        </div>
+        </motion.div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {accounts.map((a, i) => (
-            <motion.div key={a.client} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
+        <motion.div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" variants={stagger()} initial="hidden" animate="show">
+          {accounts.map((a) => (
+            <motion.div key={a.client} variants={surface}>
               <Card interactive className="p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -102,11 +103,11 @@ export default function Clientes() {
               </Card>
             </motion.div>
           ))}
-        </div>
+        </motion.div>
       )}
 
       {creating && <NewClientModal plans={plans} onClose={() => setCreating(false)} onCreated={afterCreate} />}
-    </div>
+    </motion.div>
   )
 }
 
@@ -137,15 +138,12 @@ function NewClientModal({ plans, onClose, onCreated }) {
     <AnimatePresence>
       <motion.div
         className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
-        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        {...overlay}
         onClick={onClose}
       >
         <motion.div
           className="bg-white dark:bg-[#1D2016] rounded-2xl max-w-sm w-full p-6"
-          initial={{ opacity: 0, scale: 0.96, y: 12 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.96, y: 12 }}
-          transition={{ type: 'spring', stiffness: 320, damping: 28 }}
+          {...dialog}
           onClick={(e) => e.stopPropagation()}
         >
           <div className="text-lg font-bold">Nuevo cliente</div>

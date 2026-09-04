@@ -6,6 +6,7 @@ import { api } from '../lib/api'
 import { repliedRecently } from '../lib/util'
 import { Card } from '../components/ui'
 import { useApp } from '../App'
+import { rise, fade, surface, stagger } from '../lib/motion'
 
 /* Vista general de los canales de contacto — el punto de entrada para elegir
    por dónde llega el agente al lead. La configuración a fondo del agente de
@@ -76,20 +77,22 @@ export default function Agentes() {
   ]
 
   return (
-    <div className="space-y-4">
-      <p className="text-sm text-zinc-500 max-w-2xl">
+    <motion.div className="space-y-4" initial="hidden" animate="show" variants={rise}>
+      <motion.p className="text-sm text-zinc-500 max-w-2xl" variants={fade}>
         Un agente por canal, todos con el mismo cerebro — cambia solo la forma de llegar al prospecto.
         Elige uno para configurarlo o ver su estado.
-      </p>
+      </motion.p>
       {cfgQ.isError && (
-        <Card className="p-4 text-sm text-rose-600">
+        <motion.div variants={fade}>
+          <Card className="p-4 text-sm text-rose-600">
           No se pudo cargar el estado real de los canales (se muestran como "sin configurar" por
-          defecto, puede no ser cierto). <button className="underline" onClick={() => cfgQ.refetch()}>Reintentar</button>
-        </Card>
+            defecto, puede no ser cierto). <button className="underline" onClick={() => cfgQ.refetch()}>Reintentar</button>
+          </Card>
+        </motion.div>
       )}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {agents.map((a, i) => (
-          <motion.div key={a.key} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
+      <motion.div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" variants={stagger()} initial="hidden" animate="show">
+        {agents.map((a) => (
+          <motion.div key={a.key} variants={surface}>
             <Card
               interactive={!a.disabled && !!a.onClick}
               onClick={a.disabled ? undefined : a.onClick}
@@ -111,7 +114,7 @@ export default function Agentes() {
             </Card>
           </motion.div>
         ))}
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   )
 }
