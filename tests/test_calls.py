@@ -22,6 +22,17 @@ def _with_key(**extra):
     return mock.patch.dict(os.environ, env, clear=False)
 
 
+def _capture_body(captured):
+    """side_effect para subprocess.run: guarda el JSON que se HABRÍA enviado.
+
+    Los tests nunca hacen una llamada real — Vapi cobra por minuto.
+    """
+    def fake_run(args, **kw):
+        captured.update(json.loads(args[args.index("--data-binary") + 1]))
+        return _proc(stdout='{"id":"c"}\n200')
+    return fake_run
+
+
 class TestCurl(unittest.TestCase):
     def test_sin_key_lanza(self):
         with mock.patch.dict(os.environ, {}, clear=True):
@@ -128,15 +139,9 @@ class TestPlaceCall(unittest.TestCase):
 
     def test_incluye_name_en_customer(self):
         captured = {}
-
-        def fake_run(args, **kw):
-            body = args[args.index("--data-binary") + 1]
-            captured.update(json.loads(body))
-            return _proc(stdout='{"id":"c"}\n200')
-
         with _with_key(VAPI_ASSISTANT_ID="asst", VAPI_PHONE_NUMBER_ID="ph"), \
              mock.patch("zero.calls.shutil.which", return_value="/usr/bin/curl"), \
-             mock.patch("zero.calls.subprocess.run", side_effect=fake_run):
+             mock.patch("zero.calls.subprocess.run", side_effect=_capture_body(captured)):
             calls.place_call("+56911111111", name="Ana")
             self.assertEqual(captured["customer"]["name"], "Ana")
             self.assertEqual(captured["assistantId"], "asst")
@@ -149,6 +154,59 @@ class TestPlaceCall(unittest.TestCase):
             with self.assertRaises(RuntimeError) as cm:
                 calls.place_call("+56911111111")
             self.assertIn("402", str(cm.exception))
+
+
+class TestLeadVariables(unittest.TestCase):
+    """El contexto del lead que viaja al prompt del asistente (variableValues)."""
+
+    LEAD = {"company": "Acme SpA", "activity": "fintech", "stage": "qualified",
+            "source": "web"}
+
+    def _body(self, **kwargs):
+        captured = {}
+        with _with_key(VAPI_ASSISTANT_ID="asst", VAPI_PHONE_NUMBER_ID="ph"), \
+             mock.patch("zero.calls.shutil.which", return_value="/usr/bin/curl"), \
+             mock.patch("zero.calls.subprocess.run", side_effect=_capture_body(captured)):
+            calls.place_call("+56911111111", **kwargs)
+        return captured
+
+    def test_lead_completo_manda_las_cuatro_variables(self):
+        body = self._body(lead=self.LEAD)
+        variables = body["assistantOverrides"]["variableValues"]
+        self.assertEqual(variables, {"empresa": "Acme SpA", "rubro": "fintech",
+                                     "etapa": "qualified", "origen": "web"})
+        self.assertTrue(all(v for v in variables.values()))
+
+    def test_sin_lead_el_body_es_el_de_siempre(self):
+        # Las llamadas manuales del dashboard no traen lead: el cuerpo no debe
+        # cambiar en nada respecto de antes de esta feature.
+        body = self._body(name="Ana")
+        self.assertNotIn("assistantOverrides", body)
+        self.assertEqual(set(body), {"assistantId", "phoneNumberId", "customer"})
+
+    def test_campo_none_no_viaja_ni_como_texto_None(self):
+        # Una variable con "None" adentro se la lee el asistente en voz alta.
+        body = self._body(lead={**self.LEAD, "activity": None})
+        variables = body["assistantOverrides"]["variableValues"]
+        self.assertNotIn("rubro", variables)
+        self.assertNotIn("None", json.dumps(body))
+
+    def test_campo_vacio_o_en_blanco_no_viaja(self):
+        body = self._body(lead={**self.LEAD, "source": "", "stage": "   "})
+        variables = body["assistantOverrides"]["variableValues"]
+        self.assertEqual(set(variables), {"empresa", "rubro"})
+
+    def test_lead_sin_ningun_campo_util_no_agrega_la_clave(self):
+        body = self._body(lead={"email": "a@b.cl", "phone": "+569"})
+        self.assertNotIn("assistantOverrides", body)
+
+    def test_no_filtra_datos_internos_del_lead(self):
+        # Lo que entra a variableValues termina en el prompt de un tercero.
+        body = self._body(lead={**self.LEAD, "email": "ana@acme.cl",
+                                "phone": "+56922222222", "notes": "regatea mucho"})
+        enviado = json.dumps(body)
+        for privado in ("ana@acme.cl", "+56922222222", "regatea mucho"):
+            self.assertNotIn(privado, enviado)
 
 
 if __name__ == "__main__":

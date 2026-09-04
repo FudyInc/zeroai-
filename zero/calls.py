@@ -71,9 +71,57 @@ def list_phone_numbers() -> list:
             for n in data if isinstance(n, dict)]
 
 
+# Contexto del lead que se inyecta al prompt del asistente en Vapi
+# (assistantOverrides.variableValues). Cada par es (variable en Vapi, campo del CRM).
+# Deliberadamente corto: lo que entra acá termina dentro del prompt de un tercero,
+# así que NO se agregan email, teléfonos alternativos ni notas internas.
+_LEAD_VARIABLES = (
+    ("empresa", "company"),
+    ("rubro", "activity"),
+    ("etapa", "stage"),
+    ("origen", "source"),
+)
+
+
+def _lead_variables(lead: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    """Map a CRM lead dict to Vapi variableValues, dropping anything empty.
+
+    Un valor ausente se omite en vez de mandarse vacío: una variable con None
+    adentro se la lee el asistente en voz alta ("...de la empresa None").
+    """
+    out: Dict[str, str] = {}
+    if not isinstance(lead, dict):
+        return out
+    for variable, field in _LEAD_VARIABLES:
+        value = lead.get(field)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            out[variable] = text
+    return out
+
+
 def place_call(number: str, name: Optional[str] = None,
-               assistant_id: Optional[str] = None, phone_number_id: Optional[str] = None) -> Dict[str, Any]:
-    """Start an outbound call. Agent/number can be chosen per call, else env defaults."""
+               assistant_id: Optional[str] = None, phone_number_id: Optional[str] = None,
+               lead: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Start an outbound call. Agent/number can be chosen per call, else env defaults.
+
+    `lead` es opcional: un registro del CRM para que el asistente sepa a quién
+    llama. Si no viene (ej. una llamada manual desde el dashboard, que no tiene
+    lead), el cuerpo enviado es exactamente el de siempre.
+
+    Las variables que se inyectan vía assistantOverrides.variableValues, y que el
+    prompt del asistente en el panel de Vapi debe referenciar con estos nombres
+    exactos (dobles llaves):
+
+        {{empresa}}   ← lead["company"]    nombre de la empresa
+        {{rubro}}     ← lead["activity"]   a qué se dedica
+        {{etapa}}     ← lead["stage"]      etapa del CRM
+        {{origen}}    ← lead["source"]     de dónde salió el lead
+
+    Una variable sin valor no se envía, así que el prompt en Vapi debe tolerar
+    que falte (redáctalo de modo que la frase siga en pie sin ella)."""
     number = (number or "").strip()
     key = os.environ.get("VAPI_API_KEY")
     assistant = assistant_id or os.environ.get("VAPI_ASSISTANT_ID")
@@ -90,7 +138,12 @@ def place_call(number: str, name: Optional[str] = None,
     customer: Dict[str, Any] = {"number": number}
     if name:
         customer["name"] = name
-    body = json.dumps({"assistantId": assistant, "phoneNumberId": phone_id, "customer": customer})
+    payload: Dict[str, Any] = {"assistantId": assistant, "phoneNumberId": phone_id,
+                               "customer": customer}
+    variables = _lead_variables(lead)
+    if variables:
+        payload["assistantOverrides"] = {"variableValues": variables}
+    body = json.dumps(payload)
 
     try:
         proc = subprocess.run(
