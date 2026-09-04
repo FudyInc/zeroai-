@@ -284,7 +284,7 @@ function OptimizePanel({ opt }) {
         {opt.recommendations.map((r, i) => {
           const a = ACTIONS[r.action] || ACTIONS.keep
           return (
-            <div key={i} className="flex items-start gap-3 bg-white dark:bg-[#1D2016] rounded-xl border border-zinc-200 p-3">
+            <div key={i} className="flex items-start gap-3 bg-white dark:bg-zinc-50 rounded-xl border border-zinc-200 p-3">
               <Badge color={a.c} className="shrink-0">{a.l}</Badge>
               <div>
                 <div className="text-sm font-medium">{r.name}</div>

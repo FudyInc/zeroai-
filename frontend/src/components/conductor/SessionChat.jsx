@@ -137,8 +137,8 @@ export default function SessionChat({ sessionId, onClose }) {
               <span className={cn(
                 'inline-block rounded-2xl px-3.5 py-2 text-sm whitespace-pre-wrap max-w-[85%]',
                 mine
-                  ? 'bg-brand text-white'
-                  : 'bg-white dark:bg-[#1D2016] border border-zinc-200 text-zinc-700',
+                  ? 'bg-brand-surface text-white'
+                  : 'bg-white dark:bg-zinc-50 border border-zinc-200 text-zinc-700',
               )}>
                 {item.text}
               </span>
@@ -150,7 +150,7 @@ export default function SessionChat({ sessionId, onClose }) {
             un evento `assistant`. El cursor deja ver que sigue escribiendo. */}
         {streaming && (
           <div className="flex justify-start">
-            <span className="inline-block rounded-2xl px-3.5 py-2 text-sm whitespace-pre-wrap max-w-[85%] bg-white dark:bg-[#1D2016] border border-zinc-200 text-zinc-700">
+            <span className="inline-block rounded-2xl px-3.5 py-2 text-sm whitespace-pre-wrap max-w-[85%] bg-white dark:bg-zinc-50 border border-zinc-200 text-zinc-700">
               {streaming}
               <span className="inline-block w-[2px] h-3.5 -mb-0.5 ml-0.5 bg-pewter animate-pulse" />
             </span>

@@ -79,7 +79,7 @@ export default function AgentTester({
           {chat.map((m, i) => (
             <div key={i} className={m.who === 'lead' ? 'text-right' : 'text-left'}>
               <span className={'inline-block rounded-2xl px-3 py-1.5 text-sm ' +
-                (m.who === 'lead' ? 'bg-brand text-white' : 'bg-white dark:bg-[#1D2016] border border-zinc-200 text-zinc-700')}>
+                (m.who === 'lead' ? 'bg-brand-surface text-white' : 'bg-white dark:bg-zinc-50 border border-zinc-200 text-zinc-700')}>
                 {m.text}
               </span>
               {m.quote && <div className="mt-1.5"><QuoteCard quote={m.quote} /></div>}

@@ -196,7 +196,7 @@ export default function Funciones() {
       <AnimatePresence>
         {form && (
           <motion.div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4" {...overlay} onClick={closeForm}>
-            <motion.div className="bg-white dark:bg-[#1D2016] rounded-2xl max-w-lg w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto" {...dialog} onClick={(e) => e.stopPropagation()}>
+            <motion.div className="bg-white dark:bg-zinc-50 rounded-2xl max-w-lg w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto" {...dialog} onClick={(e) => e.stopPropagation()}>
             <div className="text-lg font-bold">{form.id ? 'Editar función' : 'Nueva función'}</div>
 
             {/* El texto va envuelto en <span>: si queda suelto dentro del flex,

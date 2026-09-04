@@ -14,6 +14,10 @@
 @theme {
   --color-brand: #2C3529;        /* slate — primario oscuro */
   --color-brand-ink: #222923;    /* slate más profundo (gradientes/hover) */
+  --color-brand-surface: #2C3529; /* botones y superficies sólidas de marca.
+                                     Existe aparte de --color-brand porque en oscuro
+                                     los dos roles divergen: el texto tiene que
+                                     aclararse para leerse, la superficie no. */
   --color-pewter: #8C929B;       /* gris secundario */
   --color-gold: #C9A45C;         /* champagne gold rico — acentos grandes */
   --color-gold-deep: #8A6B2D;    /* dorado legible — links y texto chico */
@@ -50,6 +54,14 @@
   --color-offwhite: #0B0B0C;     /* negro neutro — R=11 G=11 B=12, ningún canal domina */
   --color-gold-deep: #E0BD7A;    /* el claro (#8A6B2D) es ilegible en oscuro */
   --color-pewter: #A6ACB4;       /* texto secundario de marca */
+
+  /* --color-brand es texto en 25 sitios (títulos, cifras grandes) y superficie en 17
+     (botones). En claro ambos roles conviven en el mismo verde oscuro. En oscuro no
+     pueden: #2C3529 sobre el fondo da 1.54:1, invisible — era la causa real de que los
+     títulos y los números se vieran apagados, peor aún que el zinc-400. Aquí el rol de
+     texto se aclara; el de superficie vive en --color-brand-surface y no cambia, porque
+     un botón oscuro con texto blanco sigue leyéndose perfecto sobre negro. */
+  --color-brand: #EDEDEF;        /* texto de marca — 16.83:1 sobre el fondo */
 
   --color-zinc-50: #141416;      /* superficie: tarjetas y paneles */
   --color-zinc-100: #1A1A1D;     /* superficie elevada / hover */

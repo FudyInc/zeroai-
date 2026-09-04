@@ -45,7 +45,7 @@ export default function Login({ onSuccess }) {
   }
 
   return (
-    <div className="min-h-screen grid place-items-center bg-[radial-gradient(120%_120%_at_100%_0%,#f2f1ec_0%,#f4f4f4_45%,#f6f5f2_100%)] dark:bg-[radial-gradient(120%_120%_at_100%_0%,#1a1d13_0%,#16180f_45%,#141610_100%)] p-4">
+    <div className="min-h-screen grid place-items-center bg-[radial-gradient(120%_120%_at_100%_0%,#f2f1ec_0%,#f4f4f4_45%,#f6f5f2_100%)] dark:bg-[radial-gradient(120%_120%_at_100%_0%,#121214_0%,#0B0B0C_45%,#08080A_100%)] p-4">
       <Card className="p-8 w-full max-w-sm">
         <div className="flex items-center gap-3 mb-1">
           <Mark />

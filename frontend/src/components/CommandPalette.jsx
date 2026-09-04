@@ -86,7 +86,7 @@ export default function CommandPalette({ open, onClose, pages, clients, currentC
       {open && (
         <motion.div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-start justify-center p-4 pt-[12vh]"
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
-          <motion.div className="bg-white dark:bg-[#1D2016] rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl"
+          <motion.div className="bg-white dark:bg-zinc-50 rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl"
             initial={{ opacity: 0, scale: 0.96, y: 12 }} animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: 12 }} transition={{ type: 'spring', stiffness: 320, damping: 28 }}
             onClick={(e) => e.stopPropagation()}>
