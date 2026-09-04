@@ -146,6 +146,20 @@ class LeadYCrmHablanDelMismoLeadTest(unittest.TestCase):
         del_contrato = {f.name for f in dataclasses.fields(Lead)}
         self.assertEqual(sorted(set(_FIELDS) - del_contrato), [])
 
+    def test_el_contrato_no_declara_campos_que_el_crm_descarta(self):
+        """El espejo del test de arriba, y la mitad que faltaba.
+
+        Pasó con `industry`: discovery lo detectaba, contracts.Lead lo transportaba,
+        y `upsert()` lo descartaba en silencio porque no estaba en `_FIELDS` — el
+        lead llegaba al CRM sin el rubro, que es justo para lo que se capturaba. La
+        suite seguía verde porque solo se comprobaba la dirección contraria.
+        """
+        import dataclasses
+
+        from zero.crm import _FIELDS
+        del_contrato = {f.name for f in dataclasses.fields(Lead)}
+        self.assertEqual(sorted(del_contrato - set(_FIELDS)), [])
+
     def test_segment_sobrevive_el_viaje_por_el_contrato(self):
         lead = Lead.from_dict({"company": "X", "email": "a@b.cl", "segment": "pyme"})
         self.assertEqual(lead.to_dict()["segment"], "pyme")
