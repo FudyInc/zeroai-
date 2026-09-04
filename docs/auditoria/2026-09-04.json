@@ -1,0 +1,46 @@
+{
+  "cuando": 1788449982.5556836,
+  "checks": [
+    {
+      "check": "suite de tests",
+      "hallazgos": 0,
+      "segundos": 20.3
+    },
+    {
+      "check": "imports del núcleo",
+      "hallazgos": 0,
+      "segundos": 0.8
+    },
+    {
+      "check": "pipeline en mock",
+      "hallazgos": 0,
+      "segundos": 61.8
+    },
+    {
+      "check": "rutas duplicadas en api.py",
+      "hallazgos": 0,
+      "segundos": 0.0
+    },
+    {
+      "check": "límite de la ficha",
+      "hallazgos": 0,
+      "segundos": 0.0
+    },
+    {
+      "check": "datos locales",
+      "hallazgos": 0,
+      "segundos": 0.0
+    },
+    {
+      "check": "secretos versionados",
+      "hallazgos": 0,
+      "segundos": 0.1
+    },
+    {
+      "check": "build del dashboard",
+      "hallazgos": 0,
+      "segundos": 4.4
+    }
+  ],
+  "hallazgos": []
+}
