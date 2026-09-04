@@ -127,5 +127,37 @@ class AsIntCoercionTest(unittest.TestCase):
         self.assertIsNone(_as_int([5]))
 
 
+class LeadYCrmHablanDelMismoLeadTest(unittest.TestCase):
+    """El contrato (`contracts.Lead`) y lo que el CRM persiste (`crm._FIELDS`) no
+    pueden divergir: un campo que el CRM guarda pero el contrato no conoce se
+    pierde en silencio la primera vez que ese lead pasa por el pipeline
+    (orchestrator hace Lead.from_dict sobre cada uno).
+
+    Pasó con `segment`: lo escribía el formulario público, el CRM lo guardaba, y
+    Lead.from_dict lo dejaba en None. No se notaba porque el endpoint escribe el
+    dict directo al CRM — se habría notado el día que un lead de la landing
+    recorriera el pipeline, que es exactamente para lo que se captura.
+    """
+
+    def test_el_crm_no_persiste_campos_que_el_contrato_ignora(self):
+        import dataclasses
+
+        from zero.crm import _FIELDS
+        del_contrato = {f.name for f in dataclasses.fields(Lead)}
+        self.assertEqual(sorted(set(_FIELDS) - del_contrato), [])
+
+    def test_segment_sobrevive_el_viaje_por_el_contrato(self):
+        lead = Lead.from_dict({"company": "X", "email": "a@b.cl", "segment": "pyme"})
+        self.assertEqual(lead.to_dict()["segment"], "pyme")
+
+    def test_los_campos_del_formulario_publico_sobreviven(self):
+        """activity/source/segment son los tres que trae la landing."""
+        d = {"company": "X", "email": "a@b.cl", "activity": "pinturas",
+             "source": "waitlist", "segment": "pyme"}
+        vuelta = Lead.from_dict(d).to_dict()
+        for campo, valor in d.items():
+            self.assertEqual(vuelta[campo], valor, campo)
+
+
 if __name__ == "__main__":
     unittest.main()

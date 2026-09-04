@@ -79,7 +79,7 @@ export default function Dashboard() {
 
       <motion.div className="grid grid-cols-1 lg:grid-cols-3 gap-5" variants={stagger()} initial="hidden" animate="show">
         <motion.div className="lg:col-span-2" variants={surface}>
-          <Card className="p-5 h-full">
+          <Card className="p-4">
             <div className="flex items-start justify-between gap-3 mb-4">
               <div>
                 <Eyebrow>Embudo</Eyebrow>

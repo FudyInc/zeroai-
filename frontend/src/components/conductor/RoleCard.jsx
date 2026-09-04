@@ -43,7 +43,7 @@ export default function RoleCard({ role, session, busy, models, model, onModelCh
 
   return (
     <Card className="p-4 flex items-center gap-4">
-      <div className="w-10 h-10 rounded-xl border border-[#e8e3d9] dark:border-[#2A2E22] grid place-items-center shrink-0 text-pewter">
+      <div className="w-10 h-10 rounded-xl border border-champagne/50 dark:border-zinc-700/40 grid place-items-center shrink-0 text-pewter">
         <Icon size={17} strokeWidth={1.75} />
       </div>
 

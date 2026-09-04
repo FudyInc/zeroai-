@@ -207,7 +207,34 @@ def validar(tarea: Dict[str, Any]) -> List[str]:
         for prohibido in tasks.PROHIBIDOS:
             if str(archivo).startswith(prohibido):
                 problemas.append(f"archivo prohibido: {archivo}")
+    # Ya está en la cola o ya se hizo. Al planificador se le pasan las tareas abiertas
+    # como contexto, pero eso es una sugerencia a un modelo: la cola llegó a tener dos
+    # pares de duplicados exactos por título, y cada uno se come una corrida del cupo
+    # diario rehaciendo trabajo hecho. `tasks.crear()` lo ataja igual; acá se muestra en
+    # el simulacro, que es donde Diego lo puede leer antes de encolar.
+    ya = tasks.duplicado_de(tarea.get("workspace") or "", tarea.get("titulo") or "")
+    if ya is not None:
+        problemas.append(f"duplicado de {ya['id']} ({ya['estado']}): {ya['titulo']}")
     return problemas
+
+
+def mostrar_duplicados() -> int:
+    """Lista los duplicados que ya están en la cola. Solo lista: no borra nada.
+
+    Cuál de los dos se baja es una decisión de Diego — puede haber avanzado la segunda,
+    o tener un prompt mejor. El código no adivina eso.
+    """
+    grupos = tasks.duplicados()
+    if not grupos:
+        print("sin duplicados en la cola")
+        return 0
+    print(f"{len(grupos)} título(s) duplicado(s) en la cola:")
+    for grupo in grupos:
+        print(f"\n  [{grupo[0]['workspace']}] {grupo[0]['titulo']}")
+        for t in grupo:
+            print(f"    · {t['id']}  {t['estado']:<11} origen={t.get('origen', '?')}")
+    print("\n  (bájalas con: python3 -c \"from zero import tasks; tasks.cancelar('<id>')\")")
+    return 0
 
 
 def main() -> int:
@@ -218,7 +245,12 @@ def main() -> int:
     ap.add_argument("--cupo", type=int, default=3, help="tope de tareas a proponer")
     ap.add_argument("--encolar", action="store_true", help="encola de verdad")
     ap.add_argument("--modelo", default=MODELO)
+    ap.add_argument("--duplicados", action="store_true",
+                    help="lista los títulos repetidos que ya están en la cola y sale")
     args = ap.parse_args()
+
+    if args.duplicados:
+        return mostrar_duplicados()
 
     load_env()
     objetivos = leer_objetivos(args.objetivo)
@@ -245,6 +277,9 @@ def main() -> int:
             print(f"  descartada: {d}")
         return 0
 
+    # Para distinguir "encolada" de "ya estaba": crear() devuelve la tarea existente en
+    # vez de duplicarla, así que un id ya conocido significa que no se encoló nada.
+    conocidas = {t["id"] for t in tasks.listar()}
     encoladas = 0
     for t in propuestas:
         problemas = validar(t)
@@ -257,9 +292,14 @@ def main() -> int:
         if problemas:
             continue
         if args.encolar:
-            tasks.crear(t["workspace"], t["titulo"], t["prompt"],
-                        archivos=t.get("archivos"), origen=t.get("origen") or "sistema",
-                        objetivo="; ".join(objetivos)[:200])
+            creada = tasks.crear(t["workspace"], t["titulo"], t["prompt"],
+                                 archivos=t.get("archivos"),
+                                 origen=t.get("origen") or "sistema",
+                                 objetivo="; ".join(objetivos)[:200])
+            if creada["id"] in conocidas:
+                print(f"    = ya estaba en la cola ({creada['id']}, {creada['estado']})")
+                continue
+            conocidas.add(creada["id"])
             encoladas += 1
 
     for d in plan.get("descartadas") or []:

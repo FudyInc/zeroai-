@@ -63,8 +63,8 @@ export default function Pipeline() {
               onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setOver((s) => (s === stage ? null : s)) }}
               onDrop={(e) => { e.preventDefault(); onDrop(stage) }}
               className={
-                'shrink-0 rounded-2xl p-2 transition-colors ' + (compact ? 'w-52 ' : 'w-64 ') +
-                (isOver ? 'bg-champagne/25 ring-2 ring-gold/50' : 'bg-transparent')
+                'shrink-0 rounded-2xl p-3 transition-colors ' + (compact ? 'w-52 ' : 'w-64 ') +
+                (isOver ? 'bg-champagne/20 ring-2 ring-gold/40' : 'bg-transparent')
               }
             >
               <div className="flex items-center gap-2 mb-3 px-1 text-xs font-semibold uppercase tracking-wide" style={{ color: m.c }}>
@@ -81,7 +81,7 @@ export default function Pipeline() {
                     onDragStart={() => { drag.current = { key: r.key, from: stage } }}
                     onDragEnd={() => { drag.current = null; setOver(null) }}
                     onClick={() => openLead(r.key)}
-                    className={'cursor-grab active:cursor-grabbing bg-white dark:bg-[#1D2016] border border-[#e8e3d9] dark:border-[#2A2E22] rounded-xl shadow-[0_1px_2px_rgba(44,53,41,0.04)] hover:shadow-[0_14px_34px_-18px_rgba(44,53,41,0.20)] hover:-translate-y-0.5 dark:hover:border-[#3a4030] transition-all ' + (compact ? 'p-2.5' : 'p-3.5')}
+                    className={'cursor-grab active:cursor-grabbing bg-white dark:bg-[#1D2016] border border-champagne/50 dark:border-zinc-700/40 rounded-xl shadow-[0_1px_2px_rgba(44,53,41,0.04)] hover:shadow-[0_14px_34px_-18px_rgba(44,53,41,0.20)] hover:-translate-y-0.5 dark:hover:border-zinc-600/60 transition-all ' + (compact ? 'p-3' : 'p-4')}
                   >
                     <div className="flex justify-between items-start gap-2">
                       <div className={'font-semibold ' + (compact ? 'text-sm' : '')}>{r.company}</div>
@@ -89,10 +89,10 @@ export default function Pipeline() {
                     </div>
                     {!compact && (
                       <>
-                        <div className="text-[13px] text-zinc-500 mt-1">{r.role || '—'}</div>
-                        <div className="text-[13px] text-zinc-500">{r.email || r.phone || '—'}</div>
+                        <div className="text-xs text-zinc-500 mt-2">{r.role || '—'}</div>
+                        <div className="text-xs text-zinc-400">{r.email || r.phone || '—'}</div>
                         <select value={r.stage} onClick={(e) => e.stopPropagation()} onChange={(e) => move(r.key, e.target.value)}
-                          className="mt-2.5 w-full text-xs border border-zinc-200 rounded-lg px-2 py-1 bg-zinc-50 text-zinc-600 outline-none focus:ring-2 focus:ring-champagne">
+                          className="mt-3 w-full text-xs border border-zinc-200 dark:border-zinc-700/50 rounded-lg px-2.5 py-1.5 bg-white dark:bg-zinc-900/20 text-zinc-700 dark:text-zinc-300 outline-none focus:ring-2 focus:ring-champagne/40 transition">
                           {ORDER.map((st) => <option key={st} value={st}>{STAGES[st].l}</option>)}
                         </select>
                       </>

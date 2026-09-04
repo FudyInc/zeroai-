@@ -37,6 +37,7 @@ _INTL_PHONE_RE = re.compile(r"\+\d{1,3}[\s.\-]?(?:\(?\d{1,4}\)?[\s.\-]?){2,4}\d"
 _RESULT_RE = re.compile(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', re.S)
 _SITE_NAME_RE = re.compile(r'<meta[^>]+property=["\']og:site_name["\'][^>]+content=["\']([^"\']+)["\']', re.I)
 _TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.S | re.I)
+_META_DESC_RE = re.compile(r'<meta[^>]+name=["\']description["\'][^>]+content=["\']([^"\']+)["\']', re.I)
 
 _BAD_EMAIL_HINTS = ("example.", "sentry", "wixpress", "@2x", "@3x", ".png", ".jpg", ".gif", ".webp",
                     # placeholders de formularios ("usuario@dominio.com"), no contactos
@@ -101,6 +102,32 @@ _NOT_NAME = {
 _ENRICH_PATHS = ("nosotros", "equipo", "quienes-somos", "sobre-nosotros", "about", "team")
 # SME sites often expose contact info only on the contact page, not the homepage.
 _CONTACT_PATHS = ("contacto", "contact", "contactenos", "contactanos")
+
+# Generic placeholder descriptions to skip — full matches only, case-insensitive.
+_GENERIC_DESCRIPTIONS = (
+    "just another", "another wordpress", "sitio en construcción",
+    "en construcción", "coming soon", "site under construction",
+)
+
+
+def _is_generic_description(text: str) -> bool:
+    """Check if a description is a generic placeholder."""
+    text_lower = text.lower()
+    for generic in _GENERIC_DESCRIPTIONS:
+        if generic in text_lower:
+            return True
+    return False
+
+
+def _clean_activity(text: str) -> str:
+    """Clean and normalize activity description: unescape HTML, trim whitespace, limit length."""
+    cleaned = html.unescape(text).strip()
+    # Collapse multiple spaces.
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    # Limit to ~200 chars.
+    if len(cleaned) > 200:
+        cleaned = cleaned[:197] + "…"
+    return cleaned
 
 # Search engines, social, and aggregators aren't the company sites we want as leads.
 _SKIP_DOMAINS = (
@@ -183,6 +210,7 @@ class DuckDuckGoSource(DiscoverySource):
                     name, role = self._enrich(domain, page, company)
                 except Exception:
                     name, role = (None, None)
+            activity = self._activity(page, title)
             leads.append({
                 "company": company,
                 "domain": domain,
@@ -193,6 +221,7 @@ class DuckDuckGoSource(DiscoverySource):
                 "channel": self._pick_channel(channels, email, phone),
                 "source": "duckduckgo",
                 "url": url,
+                "activity": activity,
             })
 
         from .validators import ValidatorRules  # local import: avoid cycle with validators.py
@@ -379,6 +408,20 @@ class DuckDuckGoSource(DiscoverySource):
         if len(set(digits)) <= 1:            # 999999999 → placeholder, not a phone
             return False
         return min_digits <= len(digits) <= 12
+
+    @staticmethod
+    def _activity(page: str, title: str) -> Optional[str]:
+        """Extract business activity from meta description or page title.
+        Returns None if no evidence or generic placeholder found."""
+        # Try meta description first (most reliable).
+        m = _META_DESC_RE.search(page)
+        desc = m.group(1) if m else None
+        if desc and not _is_generic_description(desc):
+            return _clean_activity(desc)
+        # Fallback to page title if no meta description.
+        if title and not _is_generic_description(title):
+            return _clean_activity(title)
+        return None
 
     def _company_name(self, page: str, title: str, domain: str) -> str:
         m = _SITE_NAME_RE.search(page)

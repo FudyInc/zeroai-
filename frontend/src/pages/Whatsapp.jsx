@@ -173,7 +173,7 @@ function KnowledgeCard({ client, knowledgeQ }) {
   const dirty = text !== (knowledgeQ.data?.knowledge || '')
 
   return (
-    <Card className="p-6">
+    <Card className="p-5">
       <StepHeader n={1} icon={Building2} title="La ficha de la empresa"
         sub="Pega aquí todo lo que el agente debe saber para atender bien: qué vende, precios, horarios, políticas. Texto libre, como se lo contarías a un vendedor nuevo." />
       {knowledgeQ.isLoading ? (
@@ -209,7 +209,7 @@ function KnowledgeCard({ client, knowledgeQ }) {
 function VendorPicker({ vendorsQ, assignedId, currentId, onPick }) {
   const current = (vendorsQ.data?.vendors || []).find((v) => v.id === currentId)
   return (
-    <Card className="p-6">
+    <Card className="p-5">
       <StepHeader n={2} icon={MessageCircle} title="Elige quién atiende"
         sub="Cada personalidad tiene su propio tono. La que elijas responderá a los leads de esta empresa." />
       {vendorsQ.isLoading ? (
@@ -297,7 +297,7 @@ function ToneEditor({ vendor }) {
 function DeployCard({ client, vendor, assignedId, knowledgeSaved, deploy }) {
   const isDeployed = vendor && vendor.id === assignedId
   return (
-    <Card className="p-6">
+    <Card className="p-5">
       <StepHeader n={3} icon={Rocket} title="Desplegar agente"
         sub={vendor
           ? `${vendor.name} atenderá a los leads de ${client} usando la ficha guardada.`
