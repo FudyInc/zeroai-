@@ -10,5 +10,4 @@
 # Borra lo que ya se logró. Un objetivo cumplido que se queda acá hace que el
 # planificador siga proponiendo trabajo sobre algo terminado.
 
-Los leads deben traer a qué se dedica el negocio, para que OUTREACH no tenga que adivinar el rubro
-Que las 18 páginas del dashboard usen el mismo lenguaje de movimiento (frontend/src/lib/motion.js) en vez de variantes copiadas a mano
+Que OUTREACH y CONCIERGE usen el rubro real del lead (campo activity) en sus plantillas, en vez del ICP del cliente
