@@ -9,6 +9,7 @@ import { Card, CountUp, Skeleton, Button, Badge, Input, Spinner, pageState, Eyeb
 import { Segmented } from '../components/Segmented'
 import { useApp } from '../App'
 import { NoClient } from './Dashboard'
+import { rise, fade, surface, stagger, staggerDense } from '../lib/motion'
 
 const FILTERS = [
   { value: 'todas', label: 'Todas' },
@@ -107,10 +108,10 @@ export default function Campanas() {
   ]
 
   return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {cards.map((c, i) => (
-          <motion.div key={c.l} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }}>
+    <motion.div className="space-y-5" initial="hidden" animate="show" variants={rise}>
+      <motion.div className="grid grid-cols-1 sm:grid-cols-3 gap-4" variants={stagger()} initial="hidden" animate="show">
+        {cards.map((c) => (
+          <motion.div key={c.l} variants={surface}>
             <Card interactive className="p-5 flex items-start justify-between">
               <div className="min-w-0">
                 <Eyebrow>{c.l}</Eyebrow>
@@ -122,9 +123,9 @@ export default function Campanas() {
             </Card>
           </motion.div>
         ))}
-      </div>
+      </motion.div>
 
-      <div className="flex items-center justify-between gap-3 flex-wrap">
+      <motion.div className="flex items-center justify-between gap-3 flex-wrap" variants={fade}>
         <Segmented options={FILTERS} value={filter} onChange={setFilter} />
         <div className="flex items-center gap-2">
           <Badge color="#8C929B"><Activity size={11} className="inline -mt-px mr-1" />{summary.active} activas</Badge>
@@ -142,26 +143,31 @@ export default function Campanas() {
             {optBusy ? <Spinner /> : <Sparkles size={15} />} {optBusy ? 'Analizando…' : 'Gestionar con Claude'}
           </Button>
         </div>
-      </div>
+      </motion.div>
 
       {optBusy && (
-        <Card className="p-3 border-champagne bg-champagne/20 text-sm text-gold-deep flex items-center gap-2">
-          <Spinner /> Analizando campañas con Claude…
-        </Card>
+        <motion.div variants={fade} initial="hidden" animate="show">
+          <Card className="p-3 border-champagne bg-champagne/20 text-sm text-gold-deep flex items-center gap-2">
+            <Spinner /> Analizando campañas con Claude…
+          </Card>
+        </motion.div>
       )}
 
       {summary.error && (
-        <Card className="p-3 border-amber-200 bg-amber-50/70 text-sm text-amber-800">
+        <motion.div variants={fade}>
+          <Card className="p-3 border-amber-200 bg-amber-50/70 text-sm text-amber-800">
           ⚠️ Meta no respondió — mostrando datos de ejemplo. Revisa el token / la cuenta en <b>Configuración → Meta Ads</b>.
-          <div className="text-xs text-amber-700/80 mt-1 break-words">({summary.error})</div>
-        </Card>
+            <div className="text-xs text-amber-700/80 mt-1 break-words">({summary.error})</div>
+          </Card>
+        </motion.div>
       )}
       {showCfg && <ClientConfig client={client} onClose={() => setShowCfg(false)} />}
       {opt && <OptimizePanel opt={opt} onClose={() => setOpt(null)} />}
 
       {campaigns.length > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <Card className="p-5 lg:col-span-2">
+        <motion.div className="grid grid-cols-1 lg:grid-cols-3 gap-4" variants={stagger()} initial="hidden" animate="show">
+          <motion.div className="lg:col-span-2" variants={surface}>
+            <Card className="p-5 h-full">
             <div className="flex items-center justify-between mb-1">
               <SectionTitle className="flex items-center gap-2"><TrendingUp size={16} className="text-gold-deep" /> Tendencia de gasto (7 días)</SectionTitle>
               <Badge color="#8C929B">estimado</Badge>
@@ -189,9 +195,11 @@ export default function Campanas() {
                 </AreaChart>
               </ResponsiveContainer>
             </div>
-          </Card>
+            </Card>
+          </motion.div>
 
-          <Card className="p-5">
+          <motion.div variants={surface}>
+            <Card className="p-5 h-full">
             <SectionTitle className="mb-1">Leads por objetivo</SectionTitle>
             <div className="text-xs text-zinc-400 mb-3">Distribución real de leads del mes.</div>
             <div className="h-44">
@@ -207,25 +215,29 @@ export default function Campanas() {
                 </BarChart>
               </ResponsiveContainer>
             </div>
-          </Card>
-        </div>
+            </Card>
+          </motion.div>
+        </motion.div>
       )}
 
       {campaigns.length === 0 ? (
-        <Card className="py-16 text-center">
+        <motion.div variants={surface}>
+          <Card className="py-16 text-center">
           <img src="/logo-mark.png" alt="" className="w-12 h-12 mx-auto mb-4 grayscale opacity-25" />
           <div className="font-semibold text-zinc-500">No hay campañas activas</div>
-          <p className="text-sm text-zinc-400 mt-1">Conecta Meta Ads o crea una campaña para ver su rendimiento aquí.</p>
-        </Card>
+            <p className="text-sm text-zinc-400 mt-1">Conecta Meta Ads o crea una campaña para ver su rendimiento aquí.</p>
+          </Card>
+        </motion.div>
       ) : (
-        <Card className="overflow-x-auto">
+        <motion.div variants={surface}>
+          <Card className="overflow-x-auto">
           <table className="w-full text-sm min-w-[820px]">
             <thead className="bg-zinc-50 text-zinc-500 text-left text-xs uppercase tracking-wide">
               <tr>{['Campaña', 'Objetivo', 'Zona', 'Estado', 'Presupuesto', 'Gastado', 'Leads', 'CPL', 'Creada'].map((h) => <th key={h} className="px-5 py-3 font-medium">{h}</th>)}</tr>
             </thead>
-            <tbody>
+            <motion.tbody variants={staggerDense()} initial="hidden" animate="show">
               {rows.map((c) => (
-                <tr key={c.id} className="border-t border-zinc-100 hover:bg-zinc-50 transition-colors">
+                <motion.tr key={c.id} variants={fade} className="border-t border-zinc-100 hover:bg-zinc-50 transition-colors">
                   <td className="px-5 py-3 font-medium">{c.name}</td>
                   <td className="px-5 py-3 text-zinc-500">{OBJ[c.objective] || c.objective}</td>
                   <td className="px-5 py-3 text-zinc-500"><span className="inline-flex items-center gap-1"><MapPin size={12} />{c.region}</span></td>
@@ -237,14 +249,15 @@ export default function Campanas() {
                     {c.cpl_clp ? clp(c.cpl_clp) : '—'}
                   </td>
                   <td className="px-5 py-3 text-zinc-400">{timeAgo(c.created_at)}</td>
-                </tr>
+                </motion.tr>
               ))}
               {rows.length === 0 && <tr><td colSpan={9} className="px-5 py-10 text-center text-zinc-400">Sin campañas en este filtro.</td></tr>}
-            </tbody>
+            </motion.tbody>
           </table>
-        </Card>
+          </Card>
+        </motion.div>
       )}
-    </div>
+    </motion.div>
   )
 }
 

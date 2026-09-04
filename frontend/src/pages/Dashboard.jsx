@@ -9,6 +9,7 @@ import { STAGES, repliedRecently } from '../lib/util'
 import { Card, CountUp, Skeleton, Button, pageState, Eyebrow, SectionTitle } from '../components/ui'
 import { Segmented } from '../components/Segmented'
 import { useApp } from '../App'
+import { rise, fade, surface, stagger, meterFill } from '../lib/motion'
 
 const OPEN = ['new', 'qualified', 'contacted', 'nurturing', 'replied', 'meeting']
 const CLOSED = ['won', 'lost', 'disqualified']
@@ -48,16 +49,18 @@ export default function Dashboard() {
   const pct = total ? Math.round((100 * (total - disq)) / total) : 0
 
   return (
-    <div className="space-y-5">
-      <NeedsAttention clients={clients} setClient={setClient} />
+    <motion.div className="space-y-5" initial="hidden" animate="show" variants={rise}>
+      <motion.div variants={fade}>
+        <NeedsAttention clients={clients} setClient={setClient} />
+      </motion.div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
-        {cards.map((c, i) => {
+      <motion.div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5" variants={stagger()} initial="hidden" animate="show">
+        {cards.map((c) => {
           const chip = c.tone === 'gold'
             ? 'bg-champagne/25 text-gold-deep border-champagne/60'
             : 'bg-brand/[0.05] text-brand/90 border-brand/10'
           return (
-            <motion.div key={c.label} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06, ease: [0.22, 1, 0.36, 1] }}>
+            <motion.div key={c.label} variants={surface}>
               <Card interactive className="p-5 flex items-start justify-between">
                 <div className="min-w-0">
                   <Eyebrow>{c.label}</Eyebrow>
@@ -72,11 +75,11 @@ export default function Dashboard() {
             </motion.div>
           )
         })}
-      </div>
+      </motion.div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <motion.div className="lg:col-span-2" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12 }}>
-          <Card className="p-5">
+      <motion.div className="grid grid-cols-1 lg:grid-cols-3 gap-5" variants={stagger()} initial="hidden" animate="show">
+        <motion.div className="lg:col-span-2" variants={surface}>
+          <Card className="p-5 h-full">
             <div className="flex items-start justify-between gap-3 mb-4">
               <div>
                 <Eyebrow>Embudo</Eyebrow>
@@ -113,7 +116,7 @@ export default function Dashboard() {
           </Card>
         </motion.div>
 
-        <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18 }}>
+        <motion.div variants={surface}>
           <Card className="p-5 h-full">
             <Eyebrow>Salud</Eyebrow>
             <SectionTitle className="mt-0.5">Salud del embudo</SectionTitle>
@@ -122,7 +125,7 @@ export default function Dashboard() {
               {boardQ.isLoading ? '—' : <CountUp value={pct} />}%
             </div>
             <div className="w-full h-2 bg-zinc-100 rounded-full mt-3 overflow-hidden">
-              <motion.div className="h-full bg-zinc-900 rounded-full" initial={{ width: 0 }} animate={{ width: pct + '%' }} transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }} />
+              <motion.div className="h-full bg-zinc-900 rounded-full" {...meterFill(pct)} />
             </div>
             <div className="mt-5 space-y-3 text-sm">
               <Row c="#10b981" l="En proceso" v={openN} />
@@ -131,8 +134,8 @@ export default function Dashboard() {
             </div>
           </Card>
         </motion.div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   )
 }
 
@@ -208,22 +211,22 @@ export function NoClient() {
     ['Contacta y sigue', 'Primer mensaje + follow-ups que corren solos.'],
   ]
   return (
-    <div className="max-w-lg mx-auto py-16 text-center">
+    <motion.div className="max-w-lg mx-auto py-16 text-center" initial="hidden" animate="show" variants={rise}>
       <div className="w-14 h-14 rounded-2xl bg-champagne/40 text-gold-deep grid place-items-center mx-auto mb-4"><Rocket size={26} /></div>
       <h2 className="text-2xl font-display font-bold tracking-tight text-brand">Empieza con tu primer cliente</h2>
       <p className="text-zinc-500 mt-1.5 mb-6">En un clic, ZeroAI descubre, califica y prepara leads B2B listos para contactar.</p>
-      <div className="text-left space-y-3 mb-7">
+      <motion.div className="text-left space-y-3 mb-7" variants={stagger()}>
         {steps.map(([t, d], i) => (
-          <div key={i} className="flex gap-3">
+          <motion.div key={i} className="flex gap-3" variants={fade}>
             <span className="w-6 h-6 shrink-0 rounded-full bg-brand text-white text-xs font-bold grid place-items-center">{i + 1}</span>
             <div>
               <div className="text-sm font-semibold">{t}</div>
               <div className="text-xs text-zinc-500">{d}</div>
             </div>
-          </div>
+          </motion.div>
         ))}
-      </div>
+      </motion.div>
       {openRun && <Button variant="accent" className="rounded-full px-6" onClick={openRun}><Plus size={16} /> Buscar leads</Button>}
-    </div>
+    </motion.div>
   )
 }

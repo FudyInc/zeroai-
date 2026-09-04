@@ -9,6 +9,7 @@ import { Card, Skeleton, Button, Input } from '../components/ui'
 import { Segmented } from '../components/Segmented'
 import { useApp } from '../App'
 import { NoClient } from './Dashboard'
+import { rise, fade, surface, staggerDense } from '../lib/motion'
 
 const GROUPS = [
   { value: 'todos', label: 'Todos' },
@@ -69,22 +70,23 @@ export default function Leads() {
     : leads
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center gap-2">
+    <motion.div className="space-y-5" initial="hidden" animate="show" variants={rise}>
+      <motion.div className="flex flex-wrap items-center gap-2" variants={fade}>
         <div className="relative flex-1 min-w-[220px]">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
           <Input className="pl-9" placeholder="Buscar en lo cargado…" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
         <Segmented options={GROUPS} value={group} onChange={setGroup} />
         {!isLoading && <span className="text-xs text-zinc-400">{leads.length} de {total}</span>}
-      </div>
+      </motion.div>
 
-      <Card className="overflow-hidden overflow-x-auto">
+      <motion.div variants={surface}>
+        <Card className="overflow-hidden overflow-x-auto">
         <table className="w-full text-sm min-w-[640px]">
           <thead className="bg-zinc-50 text-zinc-500 text-left text-xs uppercase tracking-wide">
             <tr>{['Empresa', 'Cargo', 'Contacto', 'Score', 'Etapa'].map((h) => <th key={h} className="px-5 py-3 font-medium">{h}</th>)}</tr>
           </thead>
-          <tbody>
+          <motion.tbody variants={staggerDense()} initial="hidden" animate="show">
             {isLoading && [0, 1, 2, 3, 4].map((i) => (
               <tr key={i} className="border-t border-zinc-100">
                 {[0, 1, 2, 3, 4].map((j) => <td key={j} className="px-5 py-3"><Skeleton className="h-4 w-24" /></td>)}
@@ -92,7 +94,7 @@ export default function Leads() {
             ))}
 
             {!isLoading && !error && rows.map((r) => (
-              <motion.tr key={r.key} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }}
+              <motion.tr key={r.key} variants={fade}
                 onClick={() => openLead(r.key)} className="border-t border-zinc-100 hover:bg-zinc-50 cursor-pointer transition-colors">
                 <td className="px-5 py-3 font-medium">{r.company}</td>
                 <td className="px-5 py-3 text-zinc-500">{r.role || '—'}</td>
@@ -118,17 +120,18 @@ export default function Leads() {
                 {total ? 'Ningún lead coincide.' : 'Sin leads. Usá “Buscar leads”.'}
               </td></tr>
             )}
-          </tbody>
+          </motion.tbody>
         </table>
-      </Card>
+        </Card>
+      </motion.div>
 
       {hasNextPage && (
-        <div className="flex justify-center">
+        <motion.div className="flex justify-center" variants={fade}>
           <Button variant="soft" onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
             {isFetchingNextPage ? 'Cargando…' : `Cargar más (${leads.length} de ${total})`}
           </Button>
-        </div>
+        </motion.div>
       )}
-    </div>
+    </motion.div>
   )
 }

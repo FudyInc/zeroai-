@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, DollarSign, TrendingDown, TrendingUp, PiggyB
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip } from 'recharts'
 import { api } from '../lib/api'
 import { Card, Skeleton, Badge, pageState, Eyebrow, SectionTitle } from '../components/ui'
+import { rise, fade, surface, stagger } from '../lib/motion'
 
 const clp = (n) => '$' + Math.round(n || 0).toLocaleString('es-CL')
 const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
@@ -56,8 +57,8 @@ export default function Finanzas() {
     .map((h) => ({ name: monthLabel(h.month), margin: h.margin_clp, mrr: h.mrr_clp, costs: h.costs_clp }))
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
+    <motion.div className="space-y-5" initial="hidden" animate="show" variants={rise}>
+      <motion.div className="flex items-center justify-between gap-3 flex-wrap" variants={fade}>
         <div className="inline-flex items-center gap-1 bg-zinc-100 rounded-full p-1">
           <button onClick={() => shiftMonth(-1)} className="p-1.5 rounded-full hover:bg-white dark:hover:bg-zinc-200 transition-colors" aria-label="Mes anterior">
             <ChevronLeft size={15} />
@@ -69,13 +70,13 @@ export default function Finanzas() {
           </button>
         </div>
         {data.source === 'mock' && <Badge color="#8C929B">cifras de ejemplo — sin finance.json</Badge>}
-      </div>
+      </motion.div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {cards.map((c, i) => {
+      <motion.div className="grid grid-cols-1 sm:grid-cols-3 gap-4" variants={stagger()} initial="hidden" animate="show">
+        {cards.map((c) => {
           const chip = c.tone === 'gold' ? 'bg-champagne/25 text-gold-deep border-champagne/60' : 'bg-brand/[0.05] text-brand/90 border-brand/10'
           return (
-            <motion.div key={c.label} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }}>
+            <motion.div key={c.label} variants={surface}>
               <Card interactive className="p-5 flex items-start justify-between">
                 <div className="min-w-0">
                   <Eyebrow>{c.label}</Eyebrow>
@@ -88,7 +89,7 @@ export default function Finanzas() {
             </motion.div>
           )
         })}
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18 }}>
+        <motion.div variants={surface}>
           <Card className="p-5 h-full flex flex-col items-center justify-center text-center">
             <Eyebrow>Margen</Eyebrow>
             <div className="text-[28px] leading-none font-display font-extrabold tracking-tight text-gold-deep mt-2.5 tabular-nums">
@@ -96,10 +97,11 @@ export default function Finanzas() {
             </div>
           </Card>
         </motion.div>
-      </div>
+      </motion.div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card className="p-5 lg:col-span-2">
+      <motion.div className="grid grid-cols-1 lg:grid-cols-3 gap-4" variants={stagger()} initial="hidden" animate="show">
+        <motion.div className="lg:col-span-2" variants={surface}>
+          <Card className="p-5 h-full">
           <SectionTitle className="flex items-center gap-2 mb-1"><TrendingUp size={16} className="text-gold-deep" /> Margen mensual</SectionTitle>
           <div className="text-xs text-zinc-400 mb-3">Ingresos menos costos, mes a mes.</div>
           <div className="h-52">
@@ -122,9 +124,11 @@ export default function Finanzas() {
               </AreaChart>
             </ResponsiveContainer>
           </div>
-        </Card>
+          </Card>
+        </motion.div>
 
-        <Card className="p-5">
+        <motion.div variants={surface}>
+          <Card className="p-5 h-full">
           <SectionTitle className="mb-1">Desglose de costos</SectionTitle>
           <div className="text-xs text-zinc-400 mb-3">{monthLabel(data.month)}, por categoría.</div>
           {(data.costs || []).length === 0 ? (
@@ -142,8 +146,9 @@ export default function Finanzas() {
               ))}
             </div>
           )}
-        </Card>
-      </div>
-    </div>
+          </Card>
+        </motion.div>
+      </motion.div>
+    </motion.div>
   )
 }

@@ -6,6 +6,7 @@ import { Card, CountUp, Skeleton, pageState, Eyebrow, SectionTitle } from '../co
 import { Segmented } from '../components/Segmented'
 import { useApp } from '../App'
 import { NoClient } from './Dashboard'
+import { rise, fade, surface, stagger } from '../lib/motion'
 
 const SCENARIOS = [
   { value: 'conservador', label: 'Conservador' },
@@ -42,29 +43,31 @@ export default function Forecast() {
     { l: 'Pipeline', v: Math.round(p.expected_pipeline_clp * k), prefix: '$' },
   ]
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
+    <motion.div className="space-y-5" initial="hidden" animate="show" variants={rise}>
+      <motion.div className="flex items-center justify-between gap-3 flex-wrap" variants={fade}>
         <Segmented options={SCENARIOS} value={scen} onChange={setScen} />
         <span className="text-xs text-zinc-400">
           {scen === 'base' ? 'Tasas estimadas por el ANALYST' : `Escenario what-if: ×${k} sobre la base`}
         </span>
-      </div>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((s, idx) => (
-          <motion.div key={s.l} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.06 }}>
+      </motion.div>
+      <motion.div className="grid grid-cols-2 lg:grid-cols-4 gap-4" variants={stagger()} initial="hidden" animate="show">
+        {stats.map((s) => (
+          <motion.div key={s.l} variants={surface}>
             <Card interactive className="p-5">
               <Eyebrow>{s.l}</Eyebrow>
               <div className="text-[28px] leading-none font-display font-extrabold tracking-tight text-brand mt-2.5 tabular-nums">{s.prefix}<CountUp value={s.v} /></div>
             </Card>
           </motion.div>
         ))}
-      </div>
-      <Card className="p-5 text-sm text-zinc-600">
+      </motion.div>
+      <motion.div variants={surface}>
+        <Card className="p-5 text-sm text-zinc-600">
         <SectionTitle className="mb-2">Supuestos</SectionTitle>
         Embudo: descubiertos {i.discovered} → calificados {i.qualified} → contactados {i.contacted}.<br />
         Tasas: respuesta {a.reply_rate} · reunión {a.meeting_rate} · cierre {a.win_rate} · ticket ${(a.avg_deal_value_clp || 0).toLocaleString('es-CL')} CLP.
         {f.commentary && <div className="mt-3 text-zinc-500 italic">{f.commentary}</div>}
-      </Card>
-    </div>
+        </Card>
+      </motion.div>
+    </motion.div>
   )
 }

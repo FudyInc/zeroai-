@@ -71,6 +71,12 @@ export const stagger = (delay = 0.05, initialDelay = 0) => ({
                         delayChildren: initialDelay } },
 })
 
+/* La misma cascada, para listas que pueden ser largas: filas de una tabla, tarjetas de
+   una columna del kanban. Con 0.05 y cincuenta filas la última entra 2.5 s tarde, que ya
+   no es cascada sino espera. A 0.02 el grupo sigue leyéndose ordenado y el total se
+   mantiene dentro de la paciencia del usuario. */
+export const staggerDense = (initialDelay = 0) => stagger(0.02, initialDelay)
+
 /* Cambio de página. Sale hacia arriba y entra desde abajo: da dirección al cambio en
    vez de un parpadeo sin sentido de continuidad. */
 export const page = {
@@ -94,3 +100,32 @@ export const hoverLift = prefersReducedMotion()
   ? {}
   : { whileHover: { y: -2, transition: { duration: DURATION.micro, ease: EDITORIAL } },
       whileTap: { scale: 0.99 } }
+
+/* --- Superficies que se superponen ------------------------------------------------ */
+
+/* El fondo de un modal: solo opacidad. Cualquier desplazamiento acá compite con el panel
+   que sí tiene que llamar la atención. */
+export const overlay = {
+  initial: { opacity: 0 },
+  animate: { opacity: 1, transition: { duration: DURATION.base, ease: EDITORIAL } },
+  exit: { opacity: 0, transition: { duration: DURATION.micro, ease: EDITORIAL } },
+}
+
+/* El panel de un modal: se posa sobre el fondo con el mismo resorte amortiguado que las
+   tarjetas, para que abrir un detalle se sienta igual que ver aparecer una card. */
+export const dialog = {
+  initial: { opacity: 0, y: y(12), scale: prefersReducedMotion() ? 1 : 0.98 },
+  animate: { opacity: 1, y: 0, scale: 1, transition: SPRING },
+  exit: { opacity: 0, y: y(8), scale: prefersReducedMotion() ? 1 : 0.99,
+          transition: { duration: DURATION.micro, ease: EDITORIAL } },
+}
+
+/* Barra de progreso que se llena. Es lo único que puede pasarse de los ~380 ms: acá el
+   recorrido *es* el dato (cuánto de la meta llevas), no una entrada, y verlo crecer
+   comunica algo que el ancho final por sí solo no dice. Con movimiento reducido salta
+   directo al valor: nadie pierde información, solo el recorrido. */
+export const meterFill = (pct) =>
+  prefersReducedMotion()
+    ? { initial: { width: pct + '%' }, animate: { width: pct + '%' } }
+    : { initial: { width: 0 },
+        animate: { width: pct + '%', transition: { duration: 0.7, ease: EDITORIAL } } }
