@@ -1,10 +1,10 @@
 {
-  "cuando": 1788449982.5556836,
+  "cuando": 1788534959.0863366,
   "checks": [
     {
       "check": "suite de tests",
       "hallazgos": 0,
-      "segundos": 20.3
+      "segundos": 20.5
     },
     {
       "check": "imports del núcleo",
@@ -14,7 +14,7 @@
     {
       "check": "pipeline en mock",
       "hallazgos": 0,
-      "segundos": 61.8
+      "segundos": 75.8
     },
     {
       "check": "rutas duplicadas en api.py",
@@ -39,7 +39,7 @@
     {
       "check": "build del dashboard",
       "hallazgos": 0,
-      "segundos": 4.4
+      "segundos": 6.4
     }
   ],
   "hallazgos": []
