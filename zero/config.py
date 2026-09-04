@@ -344,6 +344,22 @@ FINANCE_COST_CATEGORIES = (
 )
 
 
+# --- Ficha de la empresa: historial y banco de casos ---------------------------
+# Cuántas versiones de la ficha se guardan por cliente. La ficha se edita para
+# arreglar una respuesta y de paso rompe otras tres; sin historial no hay a dónde
+# volver, y hoy set_client_knowledge sobrescribía sin dejar rastro. Al pasarse el
+# techo se descartan las MÁS VIEJAS — nunca la vigente, que es la que responde.
+# 20 es holgado para una tarde de ajustes y acota lo que crece state.json: cada
+# versión guarda el texto completo de la ficha, no un diff.
+MAX_KNOWLEDGE_VERSIONS = 20
+
+# Cuántos casos de prueba puede tener el banco de un cliente. El banco existe
+# para repetir el MISMO set de preguntas después de cada cambio de ficha; pasado
+# cierto tamaño nadie vuelve a leer el resultado completo y el valor se pierde.
+# Al pasarse se descartan los últimos que llegaron, no los que ya estaban.
+MAX_TEST_CASES_PER_CLIENT = 50
+
+
 # --- Formularios públicos de la landing (zeroai.cl) ----------------------------
 # Quien deja sus datos en la landing es un lead NUESTRO, no de un cliente: entra
 # al CRM bajo este client_id. Hoy vale lo mismo que DEFAULT_INBOUND_CLIENT_ID —

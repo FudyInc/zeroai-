@@ -1428,5 +1428,154 @@ class PublicWaitlistMensaje429HttpTest(_WaitlistApiBase):
         self.assertNotIn("total", json.dumps(por_techo).lower())
 
 
+@unittest.skipUnless(_UVICORN_AVAILABLE, "uvicorn no instalado — este test es opcional, no núcleo")
+class FichaYCasosHttpTest(unittest.TestCase):
+    """Historial de la ficha y banco de casos, sobre HTTP real.
+
+    zero/memory.py ya tiene los tests unitarios (tests/test_knowledge.py); esto
+    prueba la otra mitad: que el contrato que va a consumir el dashboard sea el
+    que se documentó — nombres de campo, códigos de error y permisos por rol
+    incluidos. Subproceso propio con STATE_PATH en un tempdir: esto ESCRIBE
+    fichas, y jamás debe tocar el state.json real (con Supabase activo, además,
+    esas escrituras se irían a la nube).
+    """
+
+    JWT_SECRET = "jwt-secret-para-la-ficha"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.port = _free_port()
+        cls.base = f"http://127.0.0.1:{cls.port}"
+        repo_root = Path(__file__).resolve().parent.parent
+        cls._tmpdir = tempfile.mkdtemp()
+        env = dict(os.environ)
+        env["SUPABASE_JWT_SECRET"] = cls.JWT_SECRET
+        env["AUTH_USERS_PATH"] = os.path.join(cls._tmpdir, "users.json")
+        env["STATE_PATH"] = os.path.join(cls._tmpdir, "state.json")
+        env["CRM_PATH"] = os.path.join(cls._tmpdir, "crm.json")
+        # Vacío, no ausente (gotcha de load_env ya documentado arriba): si no, el
+        # subproceso hereda el Supabase/Ollama real del .env y las fichas del test
+        # se guardarían en la nube de producción.
+        env["SUPABASE_URL"] = ""
+        env["SUPABASE_KEY"] = ""
+        env["LOCAL_MODEL"] = ""
+        env["ANTHROPIC_API_KEY"] = ""
+        cls.proc = _start_and_wait(
+            [sys.executable, "-m", "uvicorn", "api:app", "--port", str(cls.port),
+             "--log-level", "warning"],
+            str(repo_root), env, cls.base,
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        proc = getattr(cls, "proc", None)
+        if proc is not None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+        shutil.rmtree(getattr(cls, "_tmpdir", "") or "", ignore_errors=True)
+
+    def _jwt(self, **kw) -> str:
+        return _make_supabase_jwt(self.JWT_SECRET, **kw)
+
+    def _get(self, path: str, token: str | None = None):
+        headers = {"Authorization": f"Bearer {token or self._jwt(role='admin')}"}
+        req = urllib.request.Request(f"{self.base}{path}", headers=headers)
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return r.status, json.loads(r.read().decode("utf-8"))
+
+    def _post(self, path: str, body: dict, token: str | None = None):
+        headers = {"Authorization": f"Bearer {token or self._jwt(role='admin')}",
+                   "Content-Type": "application/json"}
+        req = urllib.request.Request(f"{self.base}{path}", data=json.dumps(body).encode("utf-8"),
+                                     headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return r.status, json.loads(r.read().decode("utf-8"))
+
+    def test_guardar_listar_y_volver_atras(self):
+        """La secuencia completa: v1 → v2 → historial → rollback → la ficha vigente
+        vuelve a decir lo de v1, pero como versión nueva."""
+        c = "?client=ficha-secuencia"
+        _, v1 = self._post(f"/api/knowledge{c}", {"knowledge": "Horario: 9 a 18",
+                                                  "motivo": "carga inicial"})
+        self.assertEqual(v1["version"], 1)
+        _, v2 = self._post(f"/api/knowledge{c}", {"knowledge": "Horario: 10 a 19",
+                                                  "motivo": "cambio de horario"})
+        self.assertEqual(v2["version"], 2)
+
+        _, hist = self._get(f"/api/knowledge/versions{c}")
+        self.assertEqual(hist["current"], 2)
+        self.assertEqual([v["version"] for v in hist["versions"]], [2, 1])
+        self.assertTrue(hist["versions"][0]["vigente"])
+        self.assertFalse(hist["versions"][1]["vigente"])
+        self.assertEqual(hist["versions"][1]["motivo"], "carga inicial")
+
+        _, vuelta = self._post(f"/api/knowledge/rollback{c}&version=1", {})
+        self.assertEqual((vuelta["restored_from"], vuelta["version"]), (1, 3))
+
+        _, ficha = self._get(f"/api/knowledge{c}")
+        self.assertEqual(ficha["knowledge"], "Horario: 9 a 18")
+        self.assertEqual(ficha["version"], 3)      # el texto vuelve; el número avanza
+        self.assertEqual(ficha["versions"], 3)     # y el intento de v2 sigue guardado
+
+    def test_una_version_puntual_trae_su_texto_completo(self):
+        """La lista solo trae `preview`; el texto entero se pide por versión."""
+        c = "?client=ficha-puntual"
+        largo = "x" * 500
+        self._post(f"/api/knowledge{c}", {"knowledge": largo})
+        self._post(f"/api/knowledge{c}", {"knowledge": "otra cosa"})
+        _, hist = self._get(f"/api/knowledge/versions{c}")
+        self.assertEqual(len(hist["versions"][1]["preview"]), 160)
+        _, una = self._get(f"/api/knowledge/versions{c}&version=1")
+        self.assertEqual(una["version"]["knowledge"], largo)
+        self.assertEqual(una["current"], 2)
+
+    def test_una_version_inexistente_es_404(self):
+        c = "?client=ficha-404"
+        self._post(f"/api/knowledge{c}", {"knowledge": "algo"})
+        for path in (f"/api/knowledge/versions{c}&version=99", ):
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                self._get(path)
+            self.assertEqual(ctx.exception.code, 404)
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._post(f"/api/knowledge/rollback{c}&version=99", {})
+        self.assertEqual(ctx.exception.code, 404)
+
+    def test_un_cliente_sin_ficha_no_es_un_error(self):
+        """El dashboard abre la página de una empresa nueva antes de que exista
+        ficha: eso es un estado válido, no un 404."""
+        _, ficha = self._get("/api/knowledge?client=recien-creada")
+        self.assertEqual((ficha["knowledge"], ficha["version"], ficha["versions"]), ("", 0, 0))
+        _, casos = self._get("/api/cases?client=recien-creada")
+        self.assertEqual(casos["cases"], [])
+
+    def test_el_banco_de_casos_va_y_vuelve(self):
+        c = "?client=ficha-casos"
+        _, guardado = self._post(f"/api/cases{c}", {"cases": [
+            {"pregunta": "¿hacen despacho a regiones?",
+             "respuesta_esperada": "Sí, con costo según comuna", "nota": "se rompió en la v3"},
+            {"pregunta": "  ", "nota": "sin pregunta, se descarta"},
+        ]})
+        self.assertEqual(len(guardado["cases"]), 1)
+        caso = guardado["cases"][0]
+        self.assertEqual(sorted(caso), ["creado", "id", "nota", "pregunta", "respuesta_esperada"])
+        _, leido = self._get(f"/api/cases{c}")
+        self.assertEqual(leido["cases"], guardado["cases"])
+
+    def test_la_ficha_y_los_casos_son_de_quien_escribe_el_contenido(self):
+        """cco (Maureen) es la dueña de la palabra escrita del negocio; cto no
+        tiene la ficha, así que tampoco su banco de casos — fail-closed."""
+        cco, cto = self._jwt(role="cco"), self._jwt(role="cto")
+        self.assertEqual(self._get("/api/cases?client=acme", token=cco)[0], 200)
+        self.assertEqual(self._get("/api/knowledge/versions?client=acme", token=cco)[0], 200)
+        for path in ("/api/cases?client=acme", "/api/knowledge/versions?client=acme"):
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                self._get(path, token=cto)
+            self.assertEqual(ctx.exception.code, 403, path)
+
+
 if __name__ == "__main__":
     unittest.main()
