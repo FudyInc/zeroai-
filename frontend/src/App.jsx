@@ -61,6 +61,11 @@ export default function App() {
   const [client, setClient] = useState(null)
   const [leadKey, setLeadKey] = useState(null)
   const [runOpen, setRunOpen] = useState(false)
+  /* La corrida recién disparada. Vive acá y no en Leads porque quien la dispara es el
+     modal global —desde cualquier página— y quien la muestra es Leads: es el único
+     punto que los dos ven. Tras un F5 se pierde, y ahí Leads lo reengancha solo
+     preguntando por /api/pipeline/runs. */
+  const [runId, setRunId] = useState(null)
   const { pathname } = useLocation()
   const nav = useNavigate()
   const [title, sub] = TITLES[pathname] || ['ZeroAI', '']
@@ -126,7 +131,7 @@ export default function App() {
   if (authEnabled && !role) return <NoRoleScreen username={username} onLogout={() => api.logout()} />
 
   return (
-    <AppCtx.Provider value={{ client, setClient, clients, openLead: setLeadKey, openRun: () => setRunOpen(true) }}>
+    <AppCtx.Provider value={{ client, setClient, clients, openLead: setLeadKey, openRun: () => setRunOpen(true), runId, setRunId }}>
       <div className="min-h-screen flex text-zinc-900 bg-[radial-gradient(120%_120%_at_100%_0%,#f2f1ec_0%,#f4f4f4_45%,#f6f5f2_100%)] dark:bg-[radial-gradient(120%_120%_at_100%_0%,#121214_0%,#0B0B0C_45%,#08080A_100%)]">
         <Sidebar mobileOpen={navOpen} onClose={() => setNavOpen(false)} username={username} fullName={fullName} role={role} authEnabled={authEnabled} />
         <div className="flex-1 min-w-0">
@@ -204,7 +209,7 @@ export default function App() {
         </div>
 
         <LeadModal client={client} leadKey={leadKey} onClose={() => setLeadKey(null)} />
-        <RunModal open={runOpen} onClose={() => setRunOpen(false)} />
+        <RunModal open={runOpen} onClose={() => setRunOpen(false)} onStarted={setRunId} />
         <CommandPalette
           open={paletteOpen}
           onClose={() => setPaletteOpen(false)}
@@ -239,8 +244,9 @@ function NoRoleScreen({ username, onLogout }) {
   )
 }
 
-function RunModal({ open, onClose }) {
+function RunModal({ open, onClose, onStarted }) {
   const { setClient } = useApp()
+  const nav = useNavigate()
   const qc = useQueryClient()
   const EMPTY_ICP = { sells: '', industry: '', roles: '', companySize: '', regions: '', mustHave: '', exclude: '', context: '' }
   const [form, setForm] = useState({ client: 'demo', tier: 'GROWTH', query: '', count: 8, autoSend: false, ...EMPTY_ICP })
@@ -284,25 +290,24 @@ function RunModal({ open, onClose }) {
     if (form.context.trim()) icp.context = form.context.trim()
     const targetClient = form.client.trim() || 'demo'
 
-    toast.promise(
-      api.runPipeline({
-        client: targetClient,
-        tier: form.tier,
-        query: form.query.trim() || 'leads B2B',
-        count: Number(form.count) || 8,
-        auto_send: form.autoSend,
-        ...(Object.keys(icp).length ? { icp } : {}),
-      }).then((d) => { qc.invalidateQueries(); return d }),
-      {
-        loading: `Buscando leads para "${targetClient}"… con el motor real esto puede tardar varios minutos, puedes seguir usando el dashboard mientras tanto.`,
-        success: (d) => {
-          const s = d?.summary || {}
-          const rest = s.drafted ? `${s.drafted} en borrador para revisar` : `${s.sent || 0} enviados`
-          return `Listo "${targetClient}": ${s.qualified ?? 0} calificados de ${s.discovered ?? 0} encontrados · ${rest}`
-        },
-        error: (e) => `No se pudo completar la búsqueda para "${targetClient}": ${e.message}`,
-      },
-    )
+    /* Antes esto llamaba a /api/pipeline, que deja la request abierta los minutos que
+       tarda la corrida real y solo devuelve algo al final: el único rastro era un toast.
+       Ahora arranca y responde al instante, y el avance se ve empresa por empresa en la
+       pantalla de Leads, que es donde uno quiere estar mirando mientras corre. */
+    api.startPipeline({
+      client: targetClient,
+      tier: form.tier,
+      query: form.query.trim() || 'leads B2B',
+      count: Number(form.count) || 8,
+      auto_send: form.autoSend,
+      ...(Object.keys(icp).length ? { icp } : {}),
+    })
+      .then((d) => {
+        onStarted?.(d.run)
+        nav('/leads')
+      })
+      .catch((e) => toast.error(`No se pudo arrancar la búsqueda para "${targetClient}": ${e.message}`))
+
     setClient(targetClient)
     onClose()
   }

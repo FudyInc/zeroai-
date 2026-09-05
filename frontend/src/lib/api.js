@@ -89,6 +89,22 @@ export const api = {
   finance: (month) => req('/api/finance' + (month ? '?month=' + q(month) : '')),
   runPipeline: (body) =>
     req('/api/pipeline', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+
+  /* La corrida en dos tiempos. `runPipeline` (arriba) abre la request y la deja abierta
+     los minutos que tarde el pipeline real: sirve para un script, pero deja al dashboard
+     sin nada que mostrar mientras tanto. Estos tres devuelven al instante y el avance se
+     lee por separado. El endpoint síncrono sigue existiendo a propósito. */
+  startPipeline: (body) =>
+    req('/api/pipeline/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+
+  /* 404 cuando la corrida no existe o el anillo de 20 ya la olvidó. Para la UI son el
+     mismo caso —no hay nada que mostrar—, así que se deja pasar el error tal cual y lo
+     resuelve quien consulta. */
+  pipelineProgress: (run) => req('/api/pipeline/progress?run=' + q(run)),
+
+  /* Las corridas que el proceso todavía recuerda: con esto la pantalla se reengancha
+     sola después de un F5, sin guardar el id en el navegador. */
+  pipelineRuns: (limit = 10) => req('/api/pipeline/runs?limit=' + q(limit)).then((d) => d.runs || []),
   testEmail: (to) =>
     req('/api/test-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to }) }),
   simulateAgent: (body) =>
