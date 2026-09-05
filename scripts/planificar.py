@@ -172,19 +172,28 @@ def planificar(objetivos: List[str], senales: Dict[str, List[str]], cupo: int,
     }
     cmd = ["claude", "-p", json.dumps(task, ensure_ascii=False),
            "--model", modelo, "--append-system-prompt", prompt]
+    # `error` distingue "el planificador no pudo correr" de "corrió y no propuso nada".
+    # Sin esa distinción los dos casos imprimían una salida casi igual y ambos salían
+    # con 0: el 2026-08-30 el OAuth caducado se veía idéntico a un día sin trabajo
+    # pendiente, y el ciclo autónomo siguió "verde" sin planificar nada.
     try:
         r = subprocess.run(cmd, cwd=str(REPO), capture_output=True, text=True, timeout=600)
         crudo = (r.stdout or "").strip()
     except Exception as e:   # noqa: BLE001
-        return {"tareas": [], "descartadas": [f"el planificador no pudo correr: {e}"]}
+        return {"tareas": [], "descartadas": [], "error": f"no se pudo ejecutar: {e}"}
 
     inicio, fin = crudo.find("{"), crudo.rfind("}")
     if inicio == -1:
-        return {"tareas": [], "descartadas": [f"no devolvió JSON: {crudo[:200]}"]}
+        # Corrió, pero no devolvió JSON: la sesión caducada, el binario pidiendo login,
+        # una cuota agotada. Todo eso sale por acá, y ninguno es "no había trabajo".
+        detalle = (r.stderr or "").strip() or crudo or "sin salida"
+        return {"tareas": [], "descartadas": [], "error": f"no devolvió JSON: {detalle[:300]}"}
     try:
-        return json.loads(crudo[inicio:fin + 1])
+        plan = json.loads(crudo[inicio:fin + 1])
     except json.JSONDecodeError as e:
-        return {"tareas": [], "descartadas": [f"JSON inválido: {e}"]}
+        return {"tareas": [], "descartadas": [], "error": f"JSON inválido: {e}"}
+    plan.setdefault("error", None)
+    return plan
 
 
 def validar(tarea: Dict[str, Any]) -> List[str]:
@@ -271,8 +280,23 @@ def main() -> int:
     plan = planificar(objetivos, senales, args.cupo, args.modelo)
     propuestas = plan.get("tareas") or []
 
+    if plan.get("error"):
+        # No es lo mismo que un día tranquilo: hoy NO se planificó nada, y mañana el
+        # ciclo arranca sin tareas nuevas por un problema de máquina, no de negocio.
+        print(f"✗ EL PLANIFICADOR NO PUDO CORRER: {plan['error']}")
+        print("  (esto NO es 'no había trabajo pendiente': hoy no se planificó nada)")
+        # Solo en corrida real, por el mismo motivo que el aborto de la tanda: un
+        # simulacro a mano no puede gastar mensajes. `kind` propio para que no comparta
+        # ventana de antirrebote con ningún otro aviso.
+        if args.encolar:
+            from zero.alerts import notify_owner
+            notify_owner(f"ZERO — el planificador no pudo correr: {plan['error']}\n"
+                         "Hoy no se encoló ninguna tarea nueva.",
+                         kind="planificador-caido")
+        return 1
+
     if not propuestas:
-        print("el planificador no propuso tareas")
+        print("el planificador corrió bien y no propuso tareas (no hay trabajo pendiente)")
         for d in plan.get("descartadas") or []:
             print(f"  descartada: {d}")
         return 0

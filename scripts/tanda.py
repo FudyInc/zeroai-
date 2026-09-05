@@ -400,6 +400,25 @@ def main() -> int:
             print(f"    {i}")
         print("\n  Un agente autónomo ahí puede mandar correos reales y escribir en el "
               "CRM de producción.\n  Saca esos archivos del workspace antes de correr una tanda.")
+        # El aviso sale por ser un ABORTO, no por `--avisar`. La tanda estuvo ocho días
+        # abortando acá (un crm.json en un workspace) sin que nadie se enterara: este
+        # `return` se ejecutaba antes del único notify_owner que había, que además vivía
+        # detrás de un flag que dia.sh no pasaba. Un aviso que depende de un flag
+        # opcional es exactamente lo que ya falló — el día que alguien edite dia.sh
+        # vuelve el silencio.
+        #
+        # En simulacro no se manda nada: probar a mano no puede gastar mensajes.
+        # `kind` propio y no "tanda": notify_owner separa las ventanas de antirrebote por
+        # kind, y con el mismo un resumen de éxito reciente se tragaría justo el aviso de
+        # que la máquina está muerta.
+        if args.ejecutar:
+            from zero.alerts import notify_owner
+            notify_owner(
+                "ZERO — TANDA ABORTADA: hay credenciales o datos de producción en un "
+                "workspace, así que hoy no se ejecutó ninguna tarea.\n· "
+                + "\n· ".join(intrusos)
+                + "\nSaca esos archivos del workspace y la tanda vuelve sola.",
+                kind="tanda-abortada")
         return 2
 
     # Tareas zombi: si un proceso murió a mitad (se apagó el PC, se colgó el agente),
