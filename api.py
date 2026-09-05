@@ -36,6 +36,7 @@ from zero.channels import make_outbox, whatsapp_provider
 from zero.icp import normalize_icp
 from zero.orchestrator import Zero
 from zero.quotes import compute_quote, format_quote, normalize_pricing
+from zero import runs
 from zero.store import make_crm, make_memory
 from zero.vendors import clients_count_for
 from zero._supabase import SupabaseError
@@ -106,6 +107,7 @@ _ROLE_ALLOWED: dict = {
         ("GET", "/api/kpis"),             # Dashboard.jsx home (compartido con cto)
         ("GET", "/api/icp"),              # modal global "Buscar leads"
         ("POST", "/api/pipeline"),        # modal global "Buscar leads"
+        ("GET", "/api/pipeline"),         # /pipeline/progress — avance en vivo
         ("POST", "/api/followups"),       # correr seguimientos (TRACKER)
         # Finanzas — EXCLUSIVO de cro, "cto" no lo tiene. La ruta todavía no
         # existe en este archivo (GET /api/finance está en revisión, ver
@@ -122,6 +124,7 @@ _ROLE_ALLOWED: dict = {
         ("GET", "/api/kpis"),             # Dashboard.jsx (overview de leads/pipeline)
         ("GET", "/api/icp"),              # modal global "Buscar leads"
         ("POST", "/api/pipeline"),        # modal global "Buscar leads" (operar el pipeline)
+        ("GET", "/api/pipeline"),         # /pipeline/progress — avance en vivo
         ("POST", "/api/followups"),       # correr seguimientos (TRACKER)
     ),
     # CCO — contenido y comunicaciones (Maureen, 2026-07-20): dueña de todo lo
@@ -1140,6 +1143,77 @@ def run_pipeline(req: RunRequest):
         raise HTTPException(status_code=400, detail=str(e))
     out["mode"] = mode
     return out
+
+
+# --- la misma corrida, pero mirándola mientras pasa ---------------------------
+
+@app.post("/api/pipeline/start")
+def start_pipeline(req: RunRequest, tareas: BackgroundTasks):
+    """Arranca el pipeline en segundo plano y devuelve el id para seguirlo.
+
+    `POST /api/pipeline` (el de arriba) sigue igual: abre la request, corre todo y
+    responde al final. Sirve para un script, pero deja al dashboard con una pantalla
+    quieta durante los minutos que de verdad tarda una corrida — no hay nada que
+    consultar mientras tanto. Este devuelve al instante y el avance se lee por
+    `GET /api/pipeline/progress`.
+
+    No reemplaza al otro a propósito: el endpoint síncrono ya lo usa el frontend
+    actual y romperlo para agregar una animación sería cambiar algo que funciona.
+    """
+    run_id = runs.crear(req.client, req.query, req.tier)
+
+    def correr():
+        crm = make_crm(CRM_PATH)
+        memory = make_memory(STATE_PATH)
+        memory.register_client(req.client, req.tier)
+        agents, mode = _agents_best(source=_discovery_source())
+        zero = Zero(agents, memory=memory, crm=crm, outbox=make_outbox())
+
+        def avisar(**datos):
+            if "fase" in datos:
+                runs.fase(run_id, datos["fase"])
+                return
+            empresa = datos.pop("empresa", None)
+            etapa = datos.pop("etapa", None)
+            if empresa and etapa:
+                runs.anotar(run_id, empresa, etapa, **datos)
+
+        try:
+            out = zero.run_pipeline(req.client, req.tier, req.query, count=req.count,
+                                    icp=req.icp, auto_send=req.auto_send,
+                                    on_progress=avisar)
+            out["mode"] = mode
+            runs.terminar(run_id, resumen=out.get("summary"))
+        except Exception as e:   # noqa: BLE001 — corre sin nadie mirando la excepción
+            # Sin esto, un pipeline que revienta deja la corrida "corriendo" para
+            # siempre y el dashboard girando un spinner que no termina nunca.
+            runs.terminar(run_id, error=str(e))
+
+    tareas.add_task(correr)
+    return {"run": run_id, "cliente": req.client, "consulta": req.query}
+
+
+@app.get("/api/pipeline/progress")
+def pipeline_progress(run: str):
+    """Qué empresa va en qué etapa, ahora mismo.
+
+    Pensado para consultarse cada segundo mientras `estado == "corriendo"`. Trae
+    `etapas` (el orden del vocabulario) para que el dashboard pinte la barra sin
+    hardcodear los nombres que usa el backend.
+    """
+    datos = runs.progreso(run)
+    if datos is None:
+        # También cae acá una corrida vieja que el anillo ya olvidó: para el
+        # dashboard es lo mismo, no hay nada que mostrar.
+        raise HTTPException(status_code=404, detail="esa corrida no existe o ya se olvidó")
+    return datos
+
+
+@app.get("/api/pipeline/runs")
+def pipeline_runs(limit: int = 10):
+    """Las corridas que el proceso todavía recuerda — para reenganchar la pantalla
+    después de un F5 sin tener que guardar el id en el navegador."""
+    return {"runs": runs.ultimas(limit)}
 
 
 class FollowupsRun(BaseModel):

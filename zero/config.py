@@ -344,6 +344,13 @@ FINANCE_COST_CATEGORIES = (
 )
 
 
+# --- Progreso en vivo de una corrida del pipeline (zero/runs.py) ---------------
+# Cuántas corridas recuerda el proceso para poder mostrar su avance. Es memoria
+# volátil de una animación, no historial: lo que perdura de una corrida ya vive en
+# el CRM. La que está corriendo nunca se olvida, por más viejas que haya.
+MAX_CORRIDAS_RECORDADAS = 20
+
+
 # --- Ficha de la empresa: historial y banco de casos ---------------------------
 # Cuántas versiones de la ficha se guardan por cliente. La ficha se edita para
 # arreglar una respuesta y de paso rompe otras tres; sin historial no hay a dónde
