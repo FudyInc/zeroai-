@@ -9,7 +9,7 @@ export function Card({ className, interactive, ...p }) {
   return (
     <div
       className={cn(
-        'bg-white dark:bg-[#1D2016] border border-champagne/50 dark:border-zinc-700/40 rounded-2xl shadow-[0_1px_2px_rgba(44,53,41,0.04)]',
+        'bg-white dark:bg-zinc-50 border border-champagne/50 dark:border-zinc-700/40 rounded-2xl shadow-[0_1px_2px_rgba(44,53,41,0.04)]',
         interactive && 'transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_34px_-18px_rgba(44,53,41,0.20)] hover:border-champagne/70 dark:hover:border-zinc-600/60',
         className,
       )}
@@ -22,7 +22,7 @@ export function Card({ className, interactive, ...p }) {
    acciones secundarias. */
 export function Button({ className, variant = 'primary', ...p }) {
   const variants = {
-    primary: 'bg-brand text-white hover:bg-brand-ink shadow-sm',
+    primary: 'bg-brand-surface text-white hover:bg-brand-ink shadow-sm',
     accent: 'bg-brand-grad text-white shadow-sm hover:brightness-105',
     soft: 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200',
     ghost: 'text-zinc-600 hover:bg-zinc-100',
@@ -175,7 +175,7 @@ export function DropdownSelect({ value, onChange, options, className, 'aria-labe
       </button>
 
       {open && (
-        <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-[#1D2016] border border-champagne/30 dark:border-zinc-700/40 rounded-lg shadow-lg z-10 overflow-hidden">
+        <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-zinc-50 border border-champagne/30 dark:border-zinc-700/40 rounded-lg shadow-lg z-10 overflow-hidden">
           {options.map((o) => (
             <button
               key={o.value}

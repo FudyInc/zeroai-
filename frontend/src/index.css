@@ -14,6 +14,10 @@
 @theme {
   --color-brand: #2C3529;        /* slate — primario oscuro */
   --color-brand-ink: #222923;    /* slate más profundo (gradientes/hover) */
+  --color-brand-surface: #2C3529; /* botones y superficies sólidas de marca.
+                                     Existe aparte de --color-brand porque en oscuro
+                                     los dos roles divergen: el texto tiene que
+                                     aclararse para leerse, la superficie no. */
   --color-pewter: #8C929B;       /* gris secundario */
   --color-gold: #C9A45C;         /* champagne gold rico — acentos grandes */
   --color-gold-deep: #8A6B2D;    /* dorado legible — links y texto chico */
@@ -22,29 +26,53 @@
   --font-display: 'Montserrat', 'Inter', sans-serif;
 }
 
-/* ─── Modo oscuro — paleta propia ZEROAI, no un invert genérico ──────────
-   Redefine los MISMOS custom properties bajo .dark: cualquier utilidad que
-   ya use estos tokens o la escala zinc-* de Tailwind (bg-zinc-50,
-   text-zinc-500, bg-brand, text-gold-deep, …) hereda el cambio sola, sin
-   tocar cada página. --color-gold y --color-champagne no cambian: ya
-   funcionan bien sobre fondo oscuro. Plain CSS custom properties (no
-   @theme anidado) — @theme es un at-rule de nivel superior, no anida
-   dentro de un selector. */
-.dark {
-  --color-offwhite: #16180F;     /* slate-oliva oscuro, mismo ADN que brand */
-  --color-gold-deep: #E0BD7A;    /* el claro (#8A6B2D) es ilegible en oscuro */
-  --color-pewter: #A6ACB4;       /* texto secundario, un poco más claro */
+/* ─── Modo oscuro — negro neutro, no un oliva oscuro ─────────────────────
+   Antes el fondo era #16180F: R=22 G=24 B=15. Con el verde dominando y el azul
+   casi ausente, eso no es un negro, es un oliva muy oscuro — el "ADN de brand"
+   aplicado al fondo terminaba tiñendo toda la pantalla de verde.
 
-  --color-zinc-50: #1C1D1F;
-  --color-zinc-100: #232427;
-  --color-zinc-200: #2E2F33;
-  --color-zinc-300: #45464B;
-  --color-zinc-400: #6B6C72;
-  --color-zinc-500: #9497A0;
-  --color-zinc-600: #B4B6BE;
-  --color-zinc-700: #D4D5DA;
-  --color-zinc-800: #E8E9ED;
-  --color-zinc-900: #F5F5F7;
+   Ahora el fondo es neutro y el color lo pone SOLO el champagne gold. Un panel
+   oscuro se lee premium cuando tiene un único acento sobre un neutro limpio; con
+   el fondo también tintado, el dorado deja de destacar y todo se ve apagado.
+
+   El otro arreglo es de legibilidad, y era medible: zinc-400 daba 3.43:1 sobre el
+   fondo viejo, por debajo del mínimo AA (4.5). Es el token del texto secundario y
+   se usa 112 veces, así que "las letras se ven opacas" no era percepción: era un
+   fallo de contraste repetido por toda la app. Subirlo aquí las arregla las 112 de
+   una vez, sin tocar una sola página.
+
+   Contraste de cada token sobre el fondo (#0B0B0C), verificado:
+     zinc-400  7.53:1 AAA   zinc-700  13.95:1 AAA   pewter     8.60:1 AAA
+     zinc-500  9.28:1 AAA   zinc-800  16.38:1 AAA   gold-deep 10.99:1 AAA
+     zinc-600 11.42:1 AAA   zinc-900  18.07:1 AAA   champagne 12.44:1 AAA
+   Los tonos 50–300 son superficies y bordes, no texto: su contraste bajo es
+   deliberado y correcto.
+
+   --color-gold y --color-champagne NO cambian: son la marca y sobre negro
+   funcionan mejor que antes. Lo que muere es el tinte oliva del gris, no ZEROAI. */
+.dark {
+  --color-offwhite: #0B0B0C;     /* negro neutro — R=11 G=11 B=12, ningún canal domina */
+  --color-gold-deep: #E0BD7A;    /* el claro (#8A6B2D) es ilegible en oscuro */
+  --color-pewter: #A6ACB4;       /* texto secundario de marca */
+
+  /* --color-brand es texto en 25 sitios (títulos, cifras grandes) y superficie en 17
+     (botones). En claro ambos roles conviven en el mismo verde oscuro. En oscuro no
+     pueden: #2C3529 sobre el fondo da 1.54:1, invisible — era la causa real de que los
+     títulos y los números se vieran apagados, peor aún que el zinc-400. Aquí el rol de
+     texto se aclara; el de superficie vive en --color-brand-surface y no cambia, porque
+     un botón oscuro con texto blanco sigue leyéndose perfecto sobre negro. */
+  --color-brand: #EDEDEF;        /* texto de marca — 16.83:1 sobre el fondo */
+
+  --color-zinc-50: #141416;      /* superficie: tarjetas y paneles */
+  --color-zinc-100: #1A1A1D;     /* superficie elevada / hover */
+  --color-zinc-200: #232326;     /* bordes */
+  --color-zinc-300: #35353A;     /* bordes marcados, separadores */
+  --color-zinc-400: #9EA0A6;     /* texto secundario — antes 3.43:1, ahora 7.53:1 */
+  --color-zinc-500: #B0B2B8;
+  --color-zinc-600: #C4C5CA;
+  --color-zinc-700: #D8D9DD;
+  --color-zinc-800: #EAEAEC;
+  --color-zinc-900: #F5F5F7;     /* texto principal */
 }
 
 :root { --brand: #2C3529; --brand-accent: #C9A45C; }

@@ -54,7 +54,7 @@ function TreeView() {
       {/* ZERO */}
       <div className="flex justify-center">
         <motion.div variants={surface}>
-          <div className="rounded-2xl px-7 py-4 bg-brand text-white text-center shadow-lg shadow-black/10">
+          <div className="rounded-2xl px-7 py-4 bg-brand-surface text-white text-center shadow-lg shadow-black/10">
             <div className="flex items-center gap-2 justify-center font-display font-extrabold tracking-tight"><Cpu size={18} /> ZERO — orquestador</div>
             <div className="text-[11px] text-champagne/90 mt-0.5">el cerebro · lógica Python (no LLM) · reparte · gate · entrega</div>
           </div>
@@ -65,7 +65,7 @@ function TreeView() {
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {AGENTS.map(([n, d, isNew]) => (
             <motion.div key={n} variants={surface} {...hoverLift}
-              className={'rounded-xl p-3 bg-white dark:bg-[#1D2016] border text-center cursor-default ' + (isNew ? 'border-gold/60 ring-1 ring-champagne' : 'border-zinc-200')}>
+              className={'rounded-xl p-3 bg-white dark:bg-zinc-50 border text-center cursor-default ' + (isNew ? 'border-gold/60 ring-1 ring-champagne' : 'border-zinc-200')}>
               <div className={'text-[13px] font-display font-extrabold tracking-tight ' + (isNew ? 'text-gold-deep' : 'text-brand')}>{n}</div>
               <div className="text-[10.5px] text-zinc-500 mt-1 leading-snug">{d}</div>
               {isNew && <div className="text-[9px] font-bold text-gold-deep mt-1 tracking-wide">NUEVO</div>}
@@ -78,7 +78,7 @@ function TreeView() {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {LAYERS.map(([n, d, tag]) => (
             <motion.div key={n} variants={surface} {...hoverLift}
-              className="rounded-xl p-4 bg-white dark:bg-[#1D2016] border border-zinc-200">
+              className="rounded-xl p-4 bg-white dark:bg-zinc-50 border border-zinc-200">
               <div className="text-[13px] font-display font-extrabold tracking-tight text-brand">{n}</div>
               <div className="text-[11px] text-zinc-500 mt-1">{d}</div>
               <div className="text-[9px] font-bold text-zinc-400 mt-2 uppercase tracking-wide">{tag}</div>

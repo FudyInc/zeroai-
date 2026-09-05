@@ -218,7 +218,7 @@ export function NoClient() {
       <motion.div className="text-left space-y-3 mb-7" variants={stagger()}>
         {steps.map(([t, d], i) => (
           <motion.div key={i} className="flex gap-3" variants={fade}>
-            <span className="w-6 h-6 shrink-0 rounded-full bg-brand text-white text-xs font-bold grid place-items-center">{i + 1}</span>
+            <span className="w-6 h-6 shrink-0 rounded-full bg-brand-surface text-white text-xs font-bold grid place-items-center">{i + 1}</span>
             <div>
               <div className="text-sm font-semibold">{t}</div>
               <div className="text-xs text-zinc-500">{d}</div>
