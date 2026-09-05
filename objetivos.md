@@ -10,4 +10,3 @@
 # Borra lo que ya se logró. Un objetivo cumplido que se queda acá hace que el
 # planificador siga proponiendo trabajo sobre algo terminado.
 
-Que OUTREACH y CONCIERGE usen el rubro real del lead (campo activity) en sus plantillas, en vez del ICP del cliente
