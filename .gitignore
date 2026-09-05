@@ -37,3 +37,7 @@ node_modules/
 
 # informe de la auditoría diaria (se regenera; no es fuente de verdad)
 auditoria.json
+# su hermano de criterio: lo escribe AUDIT a mano desde otra rama y el planificador lo
+# consume. Tampoco es fuente de verdad —el historial de salud vive en audit/diaria— y
+# versionarlo haría que cada corrida dejara el repo sucio. El patrón cubre las variantes.
+auditoria-criterio*.json

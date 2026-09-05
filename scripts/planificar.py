@@ -30,8 +30,10 @@ import os
 import re
 import subprocess
 import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -40,6 +42,37 @@ from zero._env import load_env      # noqa: E402
 
 REPO = Path(__file__).resolve().parent.parent
 MODELO = os.environ.get("PLAN_MODELO") or "haiku"
+
+# --- La señal de criterio: entrada EXTERNA, no la produce este repo -------------
+# `auditoria-criterio.json` lo escribe AUDIT a mano desde otra rama (ver `fuente`
+# dentro del propio archivo). Es el hermano de auditoria.json y comparte su forma,
+# pero con dos diferencias que mandan sobre cómo se lee:
+#
+#   · NO se regenera solo. auditar.py sobrescribe el suyo en cada corrida; este se
+#     queda ahí hasta que una persona lo cambie. Un hallazgo viejo seguiría entrando
+#     todos los días para siempre.
+#   · Lo escribe otro proceso, a mano. Puede no existir, estar a medio escribir o
+#     traer JSON inválido. Ninguno de esos casos puede tumbar al planificador: se
+#     descarta la señal y el día sigue.
+#
+# La ruta se puede apuntar a otro archivo para probar sin tocar el real.
+CRITERIO_PATH = Path(os.environ.get("AUDIT_CRITERIO_PATH")
+                     or (REPO / "auditoria-criterio.json"))
+
+# Cuántos días vale un hallazgo con arreglo determinado. Pasado ese plazo se ignora.
+#
+# Por qué existe: el arreglo "determinado" de hace unos días puede estar hecho hoy, y
+# no hay forma de saberlo sin correr su evidencia — que este script no corre a
+# propósito (no debe tardar diez minutos ni decidir cuándo se audita). Sin este tope,
+# el primer efecto de leer el archivo sería encolar una tarea YA HECHA, que es
+# exactamente la enfermedad que el dedup de 0c81b19 vino a cortar. El único hallazgo
+# de hoy lo demuestra: pide agregar `industry` a crm._FIELDS, y ese campo ya no
+# existe — lo cerró el rename a `activity`.
+#
+# Por qué acá y no en zero/config.py: config.py es la política del PRODUCTO (tiers,
+# gate, cadencia, forecast). Esto es política de la maquinaria autónoma, y meterlo
+# ahí obligaría al núcleo a saber de scripts/.
+CRITERIO_VIGENCIA_DIAS = 2
 
 # Qué workspace es dueño de qué. Los workspaces son ramas del MISMO repo: la separación
 # es por zona de trabajo, no por código distinto. Sin este mapa el planificador manda
@@ -113,7 +146,77 @@ def modulos_sin_test() -> List[str]:
     return faltantes[:15]
 
 
-def hallazgos_de_la_auditoria() -> List[str]:
+# Lo mínimo que necesita un hallazgo para poder convertirse en tarea. Sin `evidencia`
+# no hay criterio de terminado, y sin `check`/`detalle` no hay qué arreglar.
+CAMPOS_DEL_HALLAZGO = ("check", "detalle", "evidencia", "gravedad")
+
+
+def _leer_informe(ruta: Path) -> Tuple[Optional[Dict[str, Any]], str]:
+    """(informe, problema). Nunca lanza: un archivo roto es una señal menos, no una
+    corrida perdida."""
+    try:
+        datos = json.loads(ruta.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None, ""                      # no existe todavía: no hay señal, y punto
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
+        return None, f"{ruta.name} ilegible ({e})"
+    if not isinstance(datos, dict):
+        return None, f"{ruta.name}: se esperaba un objeto JSON, llegó {type(datos).__name__}"
+    return datos, ""
+
+
+def _hallazgos_altos(informe: Dict[str, Any], *, origen: str,
+                     vigencia_dias: Optional[float] = None
+                     ) -> Tuple[List[str], List[str], List[int]]:
+    """(señales, descartadas, índices consumibles) de un informe ya leído.
+
+    Solo gravedad alta: lo medio se reporta para que una persona lo mire, no para
+    gastarle una corrida de agente automáticamente. Lo que se descarta se devuelve
+    escrito, no en silencio — en el simulacro Diego lo ve y decide.
+    """
+    senales: List[str] = []
+    descartadas: List[str] = []
+    consumibles: List[int] = []
+    ahora = time.time()
+    cuando_informe = informe.get("cuando")
+
+    for i, h in enumerate(informe.get("hallazgos") or []):
+        if not isinstance(h, dict):
+            descartadas.append(f"{origen}: hallazgo #{i} no es un objeto")
+            continue
+        faltan = [c for c in CAMPOS_DEL_HALLAZGO if not str(h.get(c) or "").strip()]
+        if faltan:
+            descartadas.append(f"{origen}: hallazgo #{i} sin {', '.join(faltan)}")
+            continue
+        if h.get("gravedad") != "alta":
+            continue                          # gravedad media: se informa, no se encola
+        if h.get("consumido_en"):
+            descartadas.append(f"{origen}: [{h['check']}] ya consumido el {h['consumido_en']}")
+            continue
+        if vigencia_dias is not None:
+            cuando = h.get("cuando") or cuando_informe
+            try:
+                dias = (ahora - float(cuando)) / 86400.0
+            except (TypeError, ValueError):
+                descartadas.append(f"{origen}: [{h['check']}] sin fecha legible")
+                continue
+            if dias > vigencia_dias:
+                descartadas.append(
+                    f"{origen}: [{h['check']}] vencido ({dias:.1f} días; el tope son "
+                    f"{vigencia_dias}) — puede estar arreglado; corre su evidencia")
+                continue
+        linea = f"[{h['check']}] {h['detalle']} — reproducir: {h['evidencia']}"
+        extra = h.get("extra") if isinstance(h.get("extra"), dict) else {}
+        if extra.get("workspace"):
+            linea += f" — workspace sugerido: {extra['workspace']}"
+        if extra.get("archivos"):
+            linea += f" — archivos: {', '.join(str(a) for a in extra['archivos'])}"
+        senales.append(linea)
+        consumibles.append(i)
+    return senales[:10], descartadas, consumibles[:10]
+
+
+def hallazgos_de_la_auditoria() -> Tuple[List[str], List[str]]:
     """Lo que `scripts/auditar.py` probó que está roto HOY.
 
     Es la señal de mayor calidad que tiene el planificador, porque cada línea viene con
@@ -123,16 +226,57 @@ def hallazgos_de_la_auditoria() -> List[str]:
 
     Se lee del informe en disco y no se corre la auditoría acá: el planificador no debe
     tardar diez minutos ni decidir cuándo se audita. Si el informe no existe todavía, no
-    hay señal, y punto.
+    hay señal, y punto. Sin tope de antigüedad: auditar.py lo reescribe entero en cada
+    corrida y dia.sh lo corre antes que esto, así que siempre es de hoy.
     """
+    informe, problema = _leer_informe(REPO / "auditoria.json")
+    if informe is None:
+        return [], ([problema] if problema else [])
+    senales, descartadas, _ = _hallazgos_altos(informe, origen="auditoría")
+    return senales, descartadas
+
+
+def hallazgos_con_arreglo_determinado() -> Tuple[List[str], List[str], List[int]]:
+    """Los hallazgos que AUDIT dejó listos para encolar en `auditoria-criterio.json`.
+
+    Misma forma que el informe de auditar.py y misma lectura, con dos guardas propias
+    de ser una entrada externa que no se regenera sola: vigencia (ver
+    CRITERIO_VIGENCIA_DIAS) y marca de consumo. Devuelve además los índices de lo que
+    se envió, para poder marcarlo cuando la corrida encola de verdad.
+    """
+    informe, problema = _leer_informe(CRITERIO_PATH)
+    if informe is None:
+        return [], ([problema] if problema else []), []
+    return _hallazgos_altos(informe, origen="criterio",
+                            vigencia_dias=CRITERIO_VIGENCIA_DIAS)
+
+
+def marcar_consumidos(indices: List[int]) -> str:
+    """Anota `consumido_en` en los hallazgos que ya se mandaron al planificador.
+
+    El archivo NO se borra ni se mueve: lo escribe AUDIT a mano desde otra rama, y
+    borrárselo bajo los pies es la clase de sorpresa que nadie quiere depurar. Se
+    reescribe entero (escritura atómica) conservando todo lo demás tal cual.
+    """
+    if not indices:
+        return ""
+    informe, problema = _leer_informe(CRITERIO_PATH)
+    if informe is None:
+        return problema or "no se pudo releer el archivo de criterio"
+    hallazgos = informe.get("hallazgos") or []
+    sello = datetime.now(timezone.utc).isoformat()
+    marcados = 0
+    for i in indices:
+        if 0 <= i < len(hallazgos) and isinstance(hallazgos[i], dict):
+            hallazgos[i]["consumido_en"] = sello
+            marcados += 1
     try:
-        informe = json.loads((REPO / "auditoria.json").read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return []
-    # Solo gravedad alta: lo medio se reporta para que una persona lo mire, no para
-    # gastarle una corrida de agente automáticamente.
-    return [f"[{h['check']}] {h['detalle']} — reproducir: {h['evidencia']}"
-            for h in informe.get("hallazgos", []) if h.get("gravedad") == "alta"][:10]
+        tmp = CRITERIO_PATH.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(informe, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(CRITERIO_PATH)
+    except OSError as e:
+        return f"no se pudo marcar el consumo en {CRITERIO_PATH.name} ({e})"
+    return f"{marcados} hallazgo(s) de criterio marcados como consumidos"
 
 
 def tareas_atascadas() -> List[str]:
@@ -142,13 +286,22 @@ def tareas_atascadas() -> List[str]:
             for t in tasks.listar(estado=tasks.ATASCADA)][:10]
 
 
-def recolectar_senales() -> Dict[str, List[str]]:
+def recolectar_senales() -> Dict[str, Any]:
+    """Las señales del día, más lo que se descartó al leerlas y los índices del
+    archivo de criterio que se enviaron (para marcarlos si la corrida encola)."""
+    auditoria, descartes_auditoria = hallazgos_de_la_auditoria()
+    criterio, descartes_criterio, consumibles = hallazgos_con_arreglo_determinado()
     return {
-        "hallazgos_de_la_auditoria": hallazgos_de_la_auditoria(),
-        "pendientes_del_roadmap": pendientes_del_roadmap(),
-        "marcas_en_el_codigo": marcas_en_el_codigo(),
-        "modulos_sin_test_propio": modulos_sin_test(),
-        "tareas_atascadas": tareas_atascadas(),
+        "senales": {
+            "hallazgos_de_la_auditoria": auditoria,
+            "hallazgos_con_arreglo_determinado": criterio,
+            "pendientes_del_roadmap": pendientes_del_roadmap(),
+            "marcas_en_el_codigo": marcas_en_el_codigo(),
+            "modulos_sin_test_propio": modulos_sin_test(),
+            "tareas_atascadas": tareas_atascadas(),
+        },
+        "descartadas": [*descartes_auditoria, *descartes_criterio],
+        "criterio_consumible": consumibles,
     }
 
 
@@ -263,7 +416,9 @@ def main() -> int:
 
     load_env()
     objetivos = leer_objetivos(args.objetivo)
-    senales = recolectar_senales()
+    recogido = recolectar_senales()
+    senales = recogido["senales"]
+    consumibles = recogido["criterio_consumible"]
 
     print(f"objetivos: {len(objetivos)}")
     for o in objetivos:
@@ -271,6 +426,11 @@ def main() -> int:
     print("señales:")
     for k, v in senales.items():
         print(f"  {k}: {len(v)}")
+    # Lo que se descartó al leer las señales se muestra siempre: en el simulacro es lo
+    # que deja ver que un hallazgo existe pero venció, o que el archivo está roto. Un
+    # descarte en silencio se lee igual que "no había nada".
+    for d in recogido["descartadas"]:
+        print(f"  (descartada) {d}")
     print()
 
     if not objetivos and not any(senales.values()):
@@ -328,6 +488,15 @@ def main() -> int:
 
     for d in plan.get("descartadas") or []:
         print(f"  (descartada) {d}")
+
+    # Marcar el consumo solo en corrida real: un simulacro no puede gastar la señal.
+    # Se marca lo que se ENVIÓ al planificador, haya propuesto tarea por ello o no —
+    # si se dejara sin marcar, mañana volvería a entrar igual y la única defensa sería
+    # el dedup de la cola, que es la red de abajo, no la de arriba.
+    if args.encolar and consumibles:
+        aviso = marcar_consumidos(consumibles)
+        if aviso:
+            print(f"  {aviso}")
 
     print()
     print(f"{encoladas} encoladas" if args.encolar
