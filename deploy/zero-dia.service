@@ -1,0 +1,13 @@
+[Unit]
+Description=ZeroAI — día autónomo: audita, planifica y ejecuta una tanda
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/diego/zeroai
+ExecStart=/usr/bin/env bash /home/diego/zeroai/scripts/dia.sh
+# La tanda entera puede tardar: la suite son ~20s por tarea, el modelo mucho más.
+TimeoutStartSec=7200
+# El día autónomo no falla: si no hay tareas, o si el juez rechaza todo, igual cumplió.
+# Un fallo del timer solo debe significar que el script ni siquiera pudo correr.
+SuccessExitStatus=0 1
