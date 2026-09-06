@@ -11,6 +11,8 @@ import { Card, Button, Badge, Skeleton, SectionTitle } from '../components/ui'
 import { STAGES } from '../lib/util'
 import { useApp } from '../App'
 import AgentTester from '../components/AgentTester'
+import KnowledgeHistory from '../components/KnowledgeHistory'
+import CasesLab from '../components/CasesLab'
 import PricingCard from '../components/PricingCard'
 import ConversationThread from '../components/ConversationThread'
 import { rise, fade, surface } from '../lib/motion'
@@ -121,6 +123,14 @@ export default function Whatsapp() {
         </motion.div>
       </div>
 
+      {/* A ancho completo y no en una columna: la comparación pone la respuesta esperada,
+          la de antes y la de ahora una al lado de la otra, y eso no entra en media
+          pantalla. Va después del chat de prueba porque es su versión sistemática: el
+          chat sirve para tantear, esto para no romper lo que ya funcionaba. */}
+      <motion.div variants={surface}>
+        <CasesLab client={client} vendorId={currentId} />
+      </motion.div>
+
       {connected && (
         <motion.div variants={surface}>
           <ActivityCard leadsQ={leadsQ} client={client} />
@@ -201,6 +211,7 @@ function KnowledgeCard({ client, knowledgeQ }) {
           </Button>
         </div>
       )}
+      {!knowledgeQ.isError && <KnowledgeHistory client={client} />}
     </Card>
   )
 }

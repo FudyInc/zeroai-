@@ -119,6 +119,20 @@ export const api = {
   setPricing: (c, pricing) =>
     req('/api/pricing?client=' + q(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pricing }) }),
   knowledge: (c) => req('/api/knowledge?client=' + q(c)),
+  /* Banco de casos: el set de preguntas con el que se vuelve a probar al agente
+     después de cada cambio de ficha. POST reemplaza el banco completo (mismo patrón
+     que pricing), no agrega. */
+  cases: (c) => req('/api/cases?client=' + q(c)).then((d) => d.cases || []),
+  setCases: (c, cases) =>
+    req('/api/cases?client=' + q(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cases }) }),
+
+  /* Historial de la ficha. La lista no trae los textos enteros —son miles de
+     caracteres cada uno—, así que el texto completo se pide por versión. */
+  knowledgeVersions: (c) => req('/api/knowledge/versions?client=' + q(c)),
+  knowledgeVersion: (c, version) => req('/api/knowledge/versions?client=' + q(c) + '&version=' + q(version)),
+  rollbackKnowledge: (c, version) =>
+    req('/api/knowledge/rollback?client=' + q(c) + '&version=' + q(version), { method: 'POST' }),
+
   setKnowledge: (c, knowledge) =>
     req('/api/knowledge?client=' + q(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ knowledge }) }),
   conversation: (c, lead, limit = 50) =>
