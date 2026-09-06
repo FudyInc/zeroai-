@@ -77,6 +77,15 @@
 
 :root { --brand: #2C3529; --brand-accent: #C9A45C; }
 
+/* Le dice al navegador de qué color es la página, y no es un detalle cosmético: los
+   controles NATIVOS (el desplegable de un <select>, la barra de scroll, el calendario de
+   un input date) los dibuja él, no nuestro CSS. Sin esto los pintaba siempre con el tema
+   claro del sistema — y en oscuro el desplegable del selector de cliente salía con fondo
+   blanco y las opciones en texto claro encima: invisibles. Ninguna clase de Tailwind
+   arregla eso, porque ese popup vive fuera del documento. */
+:root { color-scheme: light; }
+.dark { color-scheme: dark; }
+
 html { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background-color: var(--color-offwhite); }
 body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
 

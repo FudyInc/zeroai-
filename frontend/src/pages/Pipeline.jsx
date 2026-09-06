@@ -92,7 +92,7 @@ export default function Pipeline() {
                         <div className="text-xs text-zinc-500 mt-2">{r.role || '—'}</div>
                         <div className="text-xs text-zinc-400">{r.email || r.phone || '—'}</div>
                         <select value={r.stage} onClick={(e) => e.stopPropagation()} onChange={(e) => move(r.key, e.target.value)}
-                          className="mt-3 w-full text-xs border border-zinc-200 dark:border-zinc-700/50 rounded-lg px-2.5 py-1.5 bg-white dark:bg-zinc-900/20 text-zinc-700 dark:text-zinc-300 outline-none focus:ring-2 focus:ring-champagne/40 transition">
+                          className="mt-3 w-full text-xs border border-zinc-200 dark:border-zinc-700/50 rounded-lg px-2.5 py-1.5 bg-white dark:bg-zinc-50 text-zinc-700 dark:text-zinc-300 outline-none focus:ring-2 focus:ring-champagne/40 transition">
                           {ORDER.map((st) => <option key={st} value={st}>{STAGES[st].l}</option>)}
                         </select>
                       </>
