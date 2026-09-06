@@ -41,3 +41,6 @@ auditoria.json
 # consume. Tampoco es fuente de verdad —el historial de salud vive en audit/diaria— y
 # versionarlo haría que cada corrida dejara el repo sucio. El patrón cubre las variantes.
 auditoria-criterio*.json
+
+# Foto del estado, la reescribe scripts/estado.sh en cada corrida.
+ESTADO.md
