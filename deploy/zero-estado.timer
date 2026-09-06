@@ -1,0 +1,13 @@
+[Unit]
+Description=Refresca la foto del estado cada 5 minutos
+
+[Timer]
+# Va aparte del sync a propósito: si el sync falla (sin red, un fetch colgado), la
+# foto tiene que seguir escribiéndose — es justo cuando más se necesita saber en qué
+# estado quedó todo. Desfasado 2 min para no pelear por el mismo `git fetch`.
+OnBootSec=4min
+OnUnitActiveSec=5min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

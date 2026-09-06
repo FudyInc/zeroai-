@@ -1,13 +1,19 @@
 [Unit]
-Description=Sincroniza los workspaces cada mañana
+Description=Sincroniza los workspaces y refresca la foto del estado
 
 [Timer]
-# 07:30 hora local. Antes de que empieces a trabajar, para que nunca abras
-# Cursor sobre una rama de hace un mes.
-OnCalendar=*-*-* 07:30:00
-# Si el PC estaba apagado a esa hora, corre al encender — un workspace
-# desactualizado es exactamente el problema que esto evita.
-Persistent=true
+# Cada 5 minutos. Antes era una vez al día (07:30) y las brechas se acumulaban:
+# el 2026-09-05 los workspaces llegaron a estar 11 commits detrás de main en una
+# tarde de trabajo, y una sección que arranca sobre una rama vieja reimplementa lo
+# que ya existe — el error más caro de este repo.
+#
+# Cuesta ~6 s por corrida y no gasta modelo: son comandos de git. Lo que sí había
+# que arreglar antes de subir la frecuencia era el aviso, que se disparaba por
+# ramas sanas; con la ventana de antirrebote en 30 min habrían sido 48 mensajes al
+# día. Ver el comentario en scripts/sincronizar-workspaces.sh.
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
 
 [Install]
 WantedBy=timers.target
