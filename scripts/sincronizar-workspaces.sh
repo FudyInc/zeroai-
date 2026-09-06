@@ -19,7 +19,8 @@ cd "$REPO" || { echo "no existe $REPO"; exit 1; }
 git fetch -q origin || { echo "fetch falló (¿sin red?)"; exit 1; }
 OBJETIVO=$(git rev-parse --short origin/main)
 
-saltados=()
+saltados=()      # no se tocaron: informativo
+en_riesgo=()     # además, tienen trabajo que no existe en ningún remoto: eso sí se avisa
 for s in "${SECCIONES[@]}"; do
   d="$(dirname "$REPO")/zero-$s"
   [ -d "$d" ] || { echo "· $s: no existe, se omite"; continue; }
@@ -27,34 +28,44 @@ for s in "${SECCIONES[@]}"; do
   sucios=$(git -C "$d" status --porcelain | wc -l)
   if [ "$sucios" -gt 0 ]; then
     echo "! $s: $sucios archivos sin commitear — NO se toca"
-    saltados+=("$s")
+    saltados+=("$s"); en_riesgo+=("$s (sin commitear)")
     continue
   fi
 
+  # Adelante de origin/main = rama con trabajo propio. NO se resetea, pero eso solo
+  # significa que existe: es el estado normal de una rama de sección entre merges.
   adelante=$(git -C "$d" rev-list --count origin/main..HEAD)
   if [ "$adelante" -gt 0 ]; then
-    echo "! $s: $adelante commits propios sin subir — NO se toca"
+    # Lo que sí es riesgo: commits que no están en NINGÚN remoto. Un `git push` los
+    # respalda y el workspace sigue adelante de main igual — son preguntas distintas.
+    # Medirlo con `origin/main..HEAD` daba un aviso permanente y falso: `prompts` llevaba
+    # 5 commits sobre main, los 5 en origin/prompts, y el mensaje decía "sin subir".
+    sin_respaldo=$(git -C "$d" rev-list --count HEAD --not --remotes)
+    echo "! $s: $adelante commits propios — NO se toca$([ "$sin_respaldo" -gt 0 ] && echo ", $sin_respaldo SIN RESPALDO")"
     saltados+=("$s")
+    [ "$sin_respaldo" -gt 0 ] && en_riesgo+=("$s ($sin_respaldo sin respaldo)")
     continue
   fi
 
   git -C "$d" reset --hard -q origin/main && echo "· $s → $OBJETIVO"
 done
 
-if [ ${#saltados[@]} -gt 0 ]; then
-  echo
-  echo "revisa a mano: ${saltados[*]}"
-  # El journal de systemd no lo lee nadie. Un workspace saltado significa trabajo
-  # tuyo sin subir, envejeciendo mientras main avanza — exactamente la situación que
-  # este script existe para evitar, y la única que no puede resolver solo. Va por el
-  # mismo canal que los avisos de salud (WhatsApp, con respaldo a correo).
+[ ${#saltados[@]} -gt 0 ] && { echo; echo "no se tocaron: ${saltados[*]}"; }
+
+if [ ${#en_riesgo[@]} -gt 0 ]; then
+  echo "revisa a mano: ${en_riesgo[*]}"
+  # El journal de systemd no lo lee nadie. Se avisa SOLO por trabajo que puede perderse
+  # —sin commitear, o commiteado y en ningún remoto—, no por el mero hecho de que una
+  # rama esté adelante de main: eso es lo normal y avisarlo entrena a ignorar el canal,
+  # que es justo lo que este aviso existe para evitar. Con el sync cada 5 minutos, la
+  # diferencia es entre callar y mandar 48 mensajes al día por una rama sana.
   python3 -c "
 import sys
 sys.path.insert(0, '$REPO')
 from zero._env import load_env
 from zero.alerts import notify_owner
 load_env()
-res = notify_owner('ZERO: workspaces sin sincronizar (trabajo propio sin subir): ${saltados[*]}',
+res = notify_owner('ZERO: trabajo en riesgo de perderse en workspaces: ${en_riesgo[*]}',
                    kind='sync-workspaces')
 print('aviso →', res['status'], res.get('via') or res.get('reason') or '')
 " || echo "(el aviso no salió; el resultado igual queda en el journal)"
