@@ -450,9 +450,12 @@ def main() -> int:
         # ventana de antirrebote con ningún otro aviso.
         if args.encolar:
             from zero.alerts import notify_owner
-            notify_owner(f"ZERO — el planificador no pudo correr: {plan['error']}\n"
-                         "Hoy no se encoló ninguna tarea nueva.",
-                         kind="planificador-caido")
+            _res = notify_owner(
+                f"ZERO — el planificador no pudo correr: {plan['error']}\n"
+                "Hoy no se encoló ninguna tarea nueva.",
+                kind="planificador-caido")
+            print("  aviso →", _res["status"],
+                  f"({_res['reason']})" if _res.get("reason") else "")
         return 1
 
     if not propuestas:

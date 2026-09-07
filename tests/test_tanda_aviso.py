@@ -74,6 +74,40 @@ class AvisoAlAbortar(unittest.TestCase):
         avisar.assert_not_called()
         sincronizar.assert_not_called()
 
+    def test_el_journal_dice_si_el_aviso_salio_o_no(self):
+        """Mandar el aviso no basta: hay que dejar escrito qué pasó con él.
+
+        El 2026-09-07 la tanda abortó, `notify_owner` corrió y el mensaje salió de
+        verdad — pero el journal solo decía "TANDA ABORTADA". Desde el registro era
+        imposible distinguir "avisé" de "creí avisar": el resultado se descartaba.
+
+        Es la lección de agosto una vez más, ahora dentro del arreglo de agosto. El
+        antirrebote de `zero.alerts` puede frenar un aviso legítimo y sin esta línea
+        el silencio se vería idéntico a un envío exitoso.
+        """
+        import contextlib
+        import io
+
+        for resultado, esperado in (
+                ({"status": "sent", "reason": "", "via": "whatsapp+email"}, "sent"),
+                ({"status": "throttled", "reason": "ya se avisó hace 6 min"}, "throttled"),
+                ({"status": "skipped", "reason": "sin canal configurado"}, "skipped")):
+            with self.subTest(status=resultado["status"]):
+                salida = io.StringIO()
+                with mock.patch.object(tanda, "revisar_aislamiento",
+                                       return_value=["core/crm.json"]), \
+                     mock.patch.object(tanda, "load_env"), \
+                     mock.patch("zero.alerts.notify_owner", return_value=resultado), \
+                     mock.patch("sys.argv", ["tanda.py", "--ejecutar"]), \
+                     contextlib.redirect_stdout(salida):
+                    tanda.main()
+                impreso = salida.getvalue()
+                self.assertIn("aviso →", impreso)
+                self.assertIn(esperado, impreso)
+                if resultado["reason"]:
+                    self.assertIn(resultado["reason"], impreso,
+                                  "un aviso frenado tiene que decir por qué")
+
     def test_sin_intrusos_el_camino_normal_no_cambia(self):
         """Sin cola y sin intrusos: sale 0, no avisa por aborto, y no se inventa nada."""
         codigo, avisar, _ = self._correr([], [])

@@ -413,12 +413,17 @@ def main() -> int:
         # que la máquina está muerta.
         if args.ejecutar:
             from zero.alerts import notify_owner
-            notify_owner(
+            _res = notify_owner(
                 "ZERO — TANDA ABORTADA: hay credenciales o datos de producción en un "
                 "workspace, así que hoy no se ejecutó ninguna tarea.\n· "
                 + "\n· ".join(intrusos)
                 + "\nSaca esos archivos del workspace y la tanda vuelve sola.",
                 kind="tanda-abortada")
+            # Se imprime el resultado, no solo se manda: un aviso que se cree enviado y
+            # no salió es el modo de fallo que costó ocho días. El journal tiene que
+            # decir si el mensaje llegó, se frenó por antirrebote o no había canal.
+            print("  aviso →", _res["status"],
+                  f"({_res['reason']})" if _res.get("reason") else "")
         return 2
 
     # Tareas zombi: si un proceso murió a mitad (se apagó el PC, se colgó el agente),
@@ -456,8 +461,10 @@ def main() -> int:
     if args.avisar and args.ejecutar:
         from zero.alerts import notify_owner
         lineas = [f"{h['resultado']}: {h['tarea']}" for h in hechas]
-        notify_owner("ZERO — tanda automática:\n· " + "\n· ".join(lineas),
-                     kind="tanda")
+        _res = notify_owner("ZERO — tanda automática:\n· " + "\n· ".join(lineas),
+                            kind="tanda")
+        print("  aviso →", _res["status"],
+              f"({_res['reason']})" if _res.get("reason") else "")
     return 0
 
 
