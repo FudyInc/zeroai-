@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import threading
 import time
 import urllib.parse
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
@@ -36,7 +38,7 @@ from zero.channels import make_outbox, whatsapp_provider
 from zero.icp import normalize_icp
 from zero.orchestrator import Zero
 from zero.quotes import compute_quote, format_quote, normalize_pricing
-from zero import runs
+from zero import runs, tasks, telemetry
 from zero.store import make_crm, make_memory
 from zero.vendors import clients_count_for
 from zero._supabase import SupabaseError
@@ -1214,6 +1216,160 @@ def pipeline_runs(limit: int = 10):
     """Las corridas que el proceso todavía recuerda — para reenganchar la pantalla
     después de un F5 sin tener que guardar el id en el navegador."""
     return {"runs": runs.ultimas(limit)}
+
+
+# --- El ciclo autónomo, visible ------------------------------------------------
+# El ciclo estuvo OCHO DÍAS sin ejecutar una tarea (2026-08-29 a 09-05) y nadie se
+# enteró: abortaba, la cola crecía sola y la única forma de saberlo era `journalctl`,
+# que —como admite scripts/sincronizar-workspaces.sh— no lo lee nadie. El aviso por
+# WhatsApp (904b787) es un empujón puntual; esto responde la otra pregunta, la que un
+# aviso no contesta: "¿qué hizo el ciclo esta semana?".
+#
+# Solo LEE. tareas.json es dato local y vivo: acá no hay POST, ni cancelar ni reencolar.
+#
+# Sin entrada en _ROLE_ALLOWED a propósito: una ruta que no aparece ahí ya es admin-only
+# por el fail-closed del auth_guard, igual que /api/conductor/*. Esto NO es /api/public/*.
+
+# El historial vive en la rama `audit/diaria`, no en main. Se lee con plumbing de solo
+# lectura (ls-tree + show): jamás un checkout, porque dia.sh corre tandas sobre este
+# mismo working tree y cambiarle la rama es exactamente lo que commitear-auditoria.sh
+# explica que no se debe hacer. La rama es configurable SOLO para poder probar el caso
+# "no existe" sin tocar la real.
+CICLO_RAMA_SALUD = os.environ.get("CICLO_RAMA_SALUD") or "audit/diaria"
+CICLO_DIR_INFORMES = "docs/auditoria"
+CICLO_MAX_DIAS = 90          # tope duro: nunca se barre la rama entera
+CICLO_GIT_TIMEOUT = 10.0     # una request no se puede quedar colgada esperando a git
+
+# Un informe de un día pasado ya no cambia: se cachea por el sha del blob, así que si
+# alguien lo reescribe, el sha cambia y la caché no miente.
+_informes_cache: dict = {}
+
+
+def _git_lectura(*args: str):
+    """(salida, error). Nunca lanza: si git falla, el endpoint degrada a lista vacía
+    con un motivo legible en vez de tirar un 500."""
+    try:
+        r = subprocess.run(["git", *args],
+                           cwd=os.path.dirname(os.path.abspath(__file__)),
+                           capture_output=True, text=True, timeout=CICLO_GIT_TIMEOUT)
+    except (OSError, subprocess.SubprocessError) as e:
+        return "", f"no se pudo consultar git ({e})"
+    if r.returncode != 0:
+        primera = (r.stderr or "").strip().splitlines()
+        return "", primera[0] if primera else "git falló sin decir por qué"
+    return r.stdout, ""
+
+
+def _informes_de_salud(dias: int):
+    """(informes, motivo). Los últimos `dias` informes archivados, del más nuevo al más
+    viejo. `motivo` no vacío significa que no se pudo leer el historial."""
+    salida, error = _git_lectura("ls-tree", CICLO_RAMA_SALUD, f"{CICLO_DIR_INFORMES}/")
+    if error:
+        return [], f"no se pudo leer la rama {CICLO_RAMA_SALUD}: {error}"
+    filas = []
+    for linea in salida.splitlines():
+        try:
+            meta, ruta = linea.split("\t", 1)
+            sha = meta.split()[2]
+        except (ValueError, IndexError):
+            continue
+        if not ruta.endswith(".json"):
+            continue
+        filas.append((os.path.basename(ruta)[:-len(".json")], sha, ruta))
+    if not filas:
+        return [], f"la rama {CICLO_RAMA_SALUD} todavía no tiene informes"
+
+    filas.sort(reverse=True)                      # el más nuevo primero
+    informes = []
+    for fecha, sha, ruta in filas[:dias]:
+        if sha in _informes_cache:
+            informes.append(_informes_cache[sha])
+            continue
+        crudo, error = _git_lectura("show", f"{CICLO_RAMA_SALUD}:{ruta}")
+        if error:
+            continue
+        try:
+            d = json.loads(crudo)
+        except json.JSONDecodeError:
+            continue                              # un informe corrupto no tumba al resto
+        hallazgos = d.get("hallazgos") or []
+        altos = [h for h in hallazgos if h.get("gravedad") == "alta"]
+        fila = {
+            "fecha": fecha,
+            "cuando": d.get("cuando"),
+            "hallazgos": len(hallazgos),
+            "altos": len(altos),
+            "checks": [{"check": c.get("check"), "hallazgos": c.get("hallazgos")}
+                       for c in (d.get("checks") or []) if isinstance(c, dict)],
+            "altos_detalle": [{"check": h.get("check"), "detalle": h.get("detalle"),
+                               "evidencia": h.get("evidencia")} for h in altos],
+        }
+        _informes_cache[sha] = fila
+        informes.append(fila)
+    return informes, ""
+
+
+def _auditoria_de_hoy():
+    """El informe mecánico del día en curso (auditoria.json, gitignorado), resumido: la
+    respuesta del ciclo no es lugar para volcar el informe entero."""
+    try:
+        d = json.loads(Path("auditoria.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(d, dict):
+        return None
+    hallazgos = d.get("hallazgos") or []
+    return {
+        "cuando": d.get("cuando"),
+        "hallazgos": len(hallazgos),
+        "altos": sum(1 for h in hallazgos if h.get("gravedad") == "alta"),
+        "checks": [{"check": c.get("check"), "hallazgos": c.get("hallazgos")}
+                   for c in (d.get("checks") or []) if isinstance(c, dict)],
+    }
+
+
+@app.get("/api/ciclo/estado")
+def ciclo_estado(tareas: int = 40, eventos: int = 20):
+    """Qué hay en la cola, en qué quedó cada tarea y qué agentes corrieron.
+
+    Es lo que el dashboard refresca solo. El historial de cada tarea viaja completo
+    ({ts, estado, detalle}): es lo que permite ver que una tarea se intentó dos veces y
+    por qué la bajó el juez, sin abrir tareas.json a mano.
+    """
+    limite_tareas = max(1, min(int(tareas), 200))
+    limite_eventos = max(0, min(int(eventos), 200))
+    return {
+        "generado": time.time(),
+        "cola": tasks.resumen(),
+        "tareas": tasks.listar()[:limite_tareas],
+        "telemetria": {
+            "resumen": telemetry.resumen(),
+            "eventos": telemetry.eventos(limit=limite_eventos),
+        },
+        "auditoria_hoy": _auditoria_de_hoy(),
+    }
+
+
+@app.get("/api/ciclo/salud")
+def ciclo_salud(dias: int = 14):
+    """El historial de salud: un informe por día, leído de la rama `audit/diaria`.
+
+    Separado de /estado porque cambia una vez al día — releer git en cada refresco de la
+    cola sería pagar un sub-proceso por segundo para datos que no se mueven.
+
+    Si la rama no existe o git falla, responde 200 con lista vacía y el motivo: un
+    historial ausente no es un error del servidor, y un 500 acá dejaría al dashboard sin
+    poder mostrar el resto de la pantalla.
+    """
+    pedidos = max(1, min(int(dias), CICLO_MAX_DIAS))
+    informes, motivo = _informes_de_salud(pedidos)
+    return {
+        "rama": CICLO_RAMA_SALUD,
+        "dias": pedidos,
+        "disponible": not motivo,
+        "motivo": motivo,
+        "informes": informes,
+    }
 
 
 class FollowupsRun(BaseModel):
