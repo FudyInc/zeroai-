@@ -70,6 +70,12 @@ def _git(cwd: Path, *args: str) -> str:
 
 
 # --- Puerta 1: aislamiento ----------------------------------------------------------
+# Credenciales y datos del negocio. Una sola tupla porque la usan las DOS mitades: la
+# puerta que rechaza el workspace si los encuentra, y la limpieza que los saca cuando el
+# agente los deja. Separadas, se desincronizan y vuelve el bloqueo.
+DATOS_QUE_BLOQUEAN = (".env", "crm.json", "users.json")
+
+
 def revisar_aislamiento() -> List[str]:
     """Workspaces que tienen credenciales. Cualquiera aborta la tanda entera."""
     con_credenciales = []
@@ -77,10 +83,37 @@ def revisar_aislamiento() -> List[str]:
         d = ruta_workspace(ws)
         if not d.exists():
             continue
-        for archivo in (".env", "crm.json", "users.json"):
+        for archivo in DATOS_QUE_BLOQUEAN:
             if (d / archivo).exists():
                 con_credenciales.append(f"{ws}/{archivo}")
     return con_credenciales
+
+
+def limpiar_datos_locales(ws: str) -> List[str]:
+    """Saca del workspace los datos locales que el agente haya generado. Devuelve qué borró.
+
+    Existe por un fallo medido, dos veces. El pipeline en mock escribe `crm.json` en el
+    directorio actual (`main.py`: `--crm` tiene default relativo), así que cualquier
+    agente que corra `python3 main.py` o la suite para verse funcionar deja el archivo
+    puesto — y la corrida SIGUIENTE aborta contra la puerta de aislamiento. Pasó el
+    2026-08-29 en `core` (ocho días de parálisis) y otra vez el 2026-09-05 en
+    `motor-whatsapp`, con el agente de CONCIERGE.
+
+    `git clean -fdx` sería lo obvio y es una trampa: `-x` borra TODO lo ignorado,
+    incluido `frontend/node_modules/` en el workspace del dashboard — lo que además deja
+    mudo el check del build en auditar.py, que se salta en silencio si no lo encuentra.
+    Por eso la lista es explícita y corta.
+
+    No toca nada versionado: son datos locales, gitignorados y regenerables.
+    """
+    d = ruta_workspace(ws)
+    borrados = []
+    for archivo in DATOS_QUE_BLOQUEAN:
+        f = d / archivo
+        if f.is_file():
+            f.unlink()
+            borrados.append(archivo)
+    return borrados
 
 
 def workspace_limpio(ws: str) -> Tuple[bool, str]:
@@ -308,6 +341,25 @@ def descartar(ws: str) -> None:
 # --- La tanda ------------------------------------------------------------------------
 def procesar(tarea: Dict[str, Any], *, ejecutar: bool, modelo: str,
              modelo_juez: str) -> Dict[str, Any]:
+    """Envoltorio: pase lo que pase, el workspace queda sin datos locales generados.
+
+    La limpieza va en `finally` y no en cada salida porque `_procesar` tiene siete
+    `return` distintos —agente caído, fuera de alcance, sin cambios, tests rojos,
+    rechazada, aprobada, saltada— y el que se olvide es el que deja el bloqueo. Además
+    tiene que correr DESPUÉS de los tests: la suite también levanta el pipeline, así que
+    limpiar antes no serviría de nada.
+    """
+    ws = tarea["workspace"]
+    try:
+        return _procesar(tarea, ejecutar=ejecutar, modelo=modelo, modelo_juez=modelo_juez)
+    finally:
+        borrados = limpiar_datos_locales(ws)
+        if borrados:
+            print(f"  ⌫ datos locales generados, borrados de {ws}: {', '.join(borrados)}")
+
+
+def _procesar(tarea: Dict[str, Any], *, ejecutar: bool, modelo: str,
+              modelo_juez: str) -> Dict[str, Any]:
     ws = tarea["workspace"]
     print(f"\n▶ [{ws}] {tarea['titulo']}  (intento {tarea['intentos']}, {tarea['origen']})")
 
