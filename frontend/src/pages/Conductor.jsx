@@ -7,13 +7,21 @@ import { api } from '../lib/api'
 import { Card, Skeleton, pageState, SectionTitle, Eyebrow } from '../components/ui'
 import RoleCard from '../components/conductor/RoleCard'
 import SessionChat from '../components/conductor/SessionChat'
+import CicloPanel from '../components/conductor/CicloPanel'
 import { rise, fade, surface, stagger } from '../lib/motion'
 
 /* Panel exclusivo del admin: lanza y monitorea las terminales de Claude Code
    del proyecto (mismos 6 roles que hoy usan los *-terminal.sh — ver
    zero/conductor.py) desde el dashboard en vez de una pestaña de Ptyxis
-   aparte. Local-only: /api/conductor/status gatea la página entera si el
-   CLI `claude` no está disponible en este servidor (ej. Render). */
+   aparte, y qué hizo el ciclo autónomo por su cuenta.
+
+   Las dos mitades tienen disponibilidad distinta y por eso se gatean distinto.
+   Lanzar terminales necesita el CLI `claude` en ESTE servidor, así que esa parte
+   se apaga si /api/conductor/status dice que no está (ej. Render). La vista del
+   ciclo NO: sus datos salen de tareas.json y de git, que están siempre, y
+   esconderla tras ese gate la apagaría justo cuando más sirve — el 2026-08-30 el
+   planificador murió por OAuth caducado, que es exactamente el día en que uno
+   quiere poder mirar qué pasó. */
 export default function Conductor() {
   const qc = useQueryClient()
   const [openSessionId, setOpenSessionId] = useState(null)
@@ -42,8 +50,8 @@ export default function Conductor() {
 
   if (!statusQ.data?.available) {
     return (
-      <motion.div className="max-w-xl" initial="hidden" animate="show" variants={rise}>
-        <motion.div className="flex items-center gap-2 mb-4" variants={fade}>
+      <motion.div className="max-w-3xl space-y-6" initial="hidden" animate="show" variants={rise}>
+        <motion.div className="flex items-center gap-2" variants={fade}>
           <SquareTerminal size={18} className="text-gold-deep" />
           <SectionTitle>Conductor</SectionTitle>
         </motion.div>
@@ -51,13 +59,15 @@ export default function Conductor() {
           <Card className="p-6 flex items-start gap-3">
             <AlertTriangle size={17} className="text-amber-700 shrink-0 mt-0.5" />
             <div className="text-sm text-zinc-600">
-              <p className="font-medium text-zinc-800">Esta función solo corre local.</p>
+              <p className="font-medium text-zinc-800">Lanzar terminales solo corre local.</p>
               <p className="mt-1">
                 {statusQ.data?.reason || 'El CLI de Claude Code no está disponible en este servidor.'}
               </p>
             </div>
           </Card>
         </motion.div>
+        {/* El ciclo se ve igual: sus datos no dependen del CLI. */}
+        <CicloPanel />
       </motion.div>
     )
   }
@@ -132,6 +142,10 @@ export default function Conductor() {
             />
           </motion.div>
         ))}
+      </motion.div>
+
+      <motion.div variants={fade} className="pt-2 border-t border-zinc-200/70">
+        <CicloPanel />
       </motion.div>
 
       {openSessionId && (

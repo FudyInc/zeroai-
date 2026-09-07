@@ -197,4 +197,10 @@ export const api = {
   // El WebSocket nativo del navegador no permite headers custom en el
   // handshake — el token va por query param (ver api.py::conductor_stream).
   conductorStreamUrl: (id) => `${wsBase()}/api/conductor/sessions/${q(id)}/stream?token=${q(getToken() || '')}`,
+
+  // El ciclo autónomo. Dos llamadas y no una porque cambian a ritmos muy distintos:
+  // la cola se mueve durante una tanda, el historial de salud una vez al día. Juntarlas
+  // haría que cada refresco de la cola pague un `git show` por informe.
+  cicloEstado: () => req('/api/ciclo/estado'),
+  cicloSalud: (dias = 14) => req('/api/ciclo/salud?dias=' + dias),
 }
