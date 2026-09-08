@@ -1302,6 +1302,8 @@ def run_pipeline(req: RunRequest):
 
 # --- la misma corrida, pero mirándola mientras pasa ---------------------------
 
+# Ruta explícita: un backend antiguo devuelve 404 en vez de ignorar provider.
+@app.post("/api/pipeline/start-selected")
 @app.post("/api/pipeline/start")
 def start_pipeline(req: RunRequest, tareas: BackgroundTasks):
     """Arranca el pipeline en segundo plano y devuelve el id para seguirlo.
