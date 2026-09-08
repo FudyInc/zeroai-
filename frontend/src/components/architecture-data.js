@@ -1,0 +1,45 @@
+import { Search, ShieldCheck, Send, Repeat2, ChartNoAxesCombined, MessagesSquare, BrainCircuit, Database, Cpu, Monitor, Network } from 'lucide-react'
+
+export const AGENTS = [
+  { name: 'PROSPECTOR', label: 'Prospector', role: 'Descubre y enriquece leads', icon: Search, x: 19, y: 23 },
+  { name: 'QUALIFIER', label: 'Qualifier', role: 'Evalúa el encaje con tu ICP', icon: ShieldCheck, x: 50, y: 12 },
+  { name: 'OUTREACH', label: 'Outreach', role: 'Prepara el primer contacto', icon: Send, x: 81, y: 23 },
+  { name: 'TRACKER', label: 'Tracker', role: 'Da seguimiento a cada oportunidad', icon: Repeat2, x: 19, y: 76 },
+  { name: 'ANALYST', label: 'Analyst', role: 'Analiza y proyecta resultados', icon: ChartNoAxesCombined, x: 50, y: 88 },
+  { name: 'CONCIERGE', label: 'Concierge', role: 'Responde y agenda reuniones', icon: MessagesSquare, x: 81, y: 76 },
+]
+
+export const PIPELINE = [
+  ['Descubrir', 'PROSPECTOR', 'Encuentra oportunidades'],
+  ['Calificar', 'QUALIFIER', 'Prioriza por encaje'],
+  ['Validar', null, 'ZERO revisa antes de enviar'],
+  ['Contactar', 'OUTREACH', 'Prepara el mensaje'],
+  ['Dar seguimiento', 'TRACKER', 'Retoma la conversación'],
+  ['Responder', 'CONCIERGE', 'Resuelve y agenda'],
+  ['Proyectar', 'ANALYST', 'Estima resultados'],
+]
+
+// Capabilities confirmed in the repository, not health checks for deployed services.
+export const TECHNOLOGIES = [
+  { title: 'Orquestación', icon: Cpu, tags: ['Python', 'FastAPI', 'JSON'], text: 'ZERO asigna tareas, valida respuestas y coordina el trabajo de los agentes.', note: 'Lógica de control · no es un LLM' },
+  { title: 'Inferencia', icon: BrainCircuit, tags: ['Ollama', 'Anthropic', 'Mock'], text: 'Backends intercambiables para ejecutar los mismos agentes con Ollama o vLLM, Anthropic o una simulación.', note: 'El historial muestra el motor reportado' },
+  { title: 'Memoria y datos', icon: Database, tags: ['Supabase', 'CRM', 'ICP'], text: 'Conserva leads, contexto y criterios de calificación. También admite persistencia local.', note: 'La persistencia depende de la configuración' },
+  { title: 'Comunicación', icon: MessagesSquare, tags: ['WhatsApp', 'SMTP', 'Twilio'], text: 'Los agentes preparan las respuestas y la capa de canales gestiona su envío.', note: 'Envíos reales sujetos a configuración' },
+  { title: 'Interfaz', icon: Monitor, tags: ['React', 'Vite', 'Framer Motion'], text: 'Una vista interactiva para explorar agentes, seguir resultados y recorrer el pipeline.', note: 'Adaptable a móvil · movimiento reducido' },
+  { title: 'Observabilidad', icon: Network, tags: ['TanStack Query', 'Telemetría'], text: 'Consulta ejecuciones finalizadas, tiempos, estados y volumen de entrada y salida.', note: 'Actualización cada 5 s mientras la vista está activa' },
+]
+
+export const duration = ms => ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms || 0)} ms`
+export const statusLabel = value => ({ done: 'Completado', error: 'Error', partial: 'Parcial' }[value] || value || 'Sin registro')
+export const engineLabel = engine => engine === 'mock' ? 'Mock · simulación' : engine === 'AnthropicBackend' ? 'Anthropic' : engine || 'Sin motor registrado'
+export function timeAgo(ts, now) {
+  const seconds = Math.max(0, Math.floor(now / 1000 - ts))
+  return seconds < 60 ? `hace ${seconds} s` : seconds < 3600 ? `hace ${Math.floor(seconds / 60)} min` : seconds < 86400 ? `hace ${Math.floor(seconds / 3600)} h` : `hace ${Math.floor(seconds / 86400)} d`
+}
+
+export const BRAND_MARKS = {
+  Python: ['python', '#3776AB'], FastAPI: ['fastapi', '#009688'], JSON: ['json', '#555555'],
+  Ollama: ['ollama', '#222222'], Anthropic: ['anthropic', '#191919'], Supabase: ['supabase', '#3ECF8E'],
+  WhatsApp: ['whatsapp', '#25D366'], Twilio: ['twilio', '#F22F46'], React: ['react', '#61DAFB'],
+  Vite: ['vite', '#646CFF'], 'Framer Motion': ['framer', '#0055FF'], 'TanStack Query': ['reactquery', '#FF4154'],
+}
