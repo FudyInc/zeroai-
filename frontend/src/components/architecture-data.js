@@ -22,7 +22,7 @@ export const PIPELINE = [
 // Capabilities confirmed in the repository, not health checks for deployed services.
 export const TECHNOLOGIES = [
   { title: 'Orquestación', icon: Cpu, tags: ['Python', 'FastAPI', 'JSON'], text: 'ZERO asigna tareas, valida respuestas y coordina el trabajo de los agentes.', note: 'Lógica de control · no es un LLM' },
-  { title: 'Inferencia', icon: BrainCircuit, tags: ['Ollama', 'Anthropic', 'Mock'], text: 'Backends intercambiables para ejecutar los mismos agentes con Ollama o vLLM, Anthropic o una simulación.', note: 'El historial muestra el motor reportado' },
+  { title: 'Inferencia', icon: BrainCircuit, tags: ['Ollama · qwen2.5', 'Anthropic', 'OpenAI'], text: 'Backends intercambiables para ejecutar los mismos agentes. Hoy corre en local con qwen2.5:14b; Anthropic y OpenAI se activan con su API key.', note: 'Sin motor real el backend responde 503 — ya no simula' },
   { title: 'Memoria y datos', icon: Database, tags: ['Supabase', 'CRM', 'ICP'], text: 'Conserva leads, contexto y criterios de calificación. También admite persistencia local.', note: 'La persistencia depende de la configuración' },
   { title: 'Comunicación', icon: MessagesSquare, tags: ['WhatsApp', 'SMTP', 'Twilio'], text: 'Los agentes preparan las respuestas y la capa de canales gestiona su envío.', note: 'Envíos reales sujetos a configuración' },
   { title: 'Interfaz', icon: Monitor, tags: ['React', 'Vite', 'Framer Motion'], text: 'Una vista interactiva para explorar agentes, seguir resultados y recorrer el pipeline.', note: 'Adaptable a móvil · movimiento reducido' },
@@ -31,7 +31,10 @@ export const TECHNOLOGIES = [
 
 export const duration = ms => ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms || 0)} ms`
 export const statusLabel = value => ({ done: 'Completado', error: 'Error', partial: 'Parcial' }[value] || value || 'Sin registro')
-export const engineLabel = engine => engine === 'mock' ? 'Mock · simulación' : engine === 'AnthropicBackend' ? 'Anthropic' : engine || 'Sin motor registrado'
+// `mock` sigue traducido a propósito: el historial guarda corridas viejas, de cuando el
+// mock era un motor legítimo (hasta el 2026-09-08). Que se vea marcado como simulación es
+// justamente el punto — no se borra el pasado, se etiqueta.
+export const engineLabel = engine => engine === 'mock' ? 'Mock · simulación' : engine === 'AnthropicBackend' ? 'Anthropic' : engine === 'OpenAIBackend' ? 'OpenAI' : engine === 'LocalBackend' ? 'Local · Ollama' : engine || 'Sin motor registrado'
 export function timeAgo(ts, now) {
   const seconds = Math.max(0, Math.floor(now / 1000 - ts))
   return seconds < 60 ? `hace ${seconds} s` : seconds < 3600 ? `hace ${Math.floor(seconds / 60)} min` : seconds < 86400 ? `hace ${Math.floor(seconds / 3600)} h` : `hace ${Math.floor(seconds / 86400)} d`
