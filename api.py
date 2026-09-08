@@ -877,11 +877,42 @@ def send_outreach(key: str, client: str, body: SendOutreach):
 
 
 # --- WhatsApp conversational agent (CONCIERGE) -------------------------------
+def _mock_permitido() -> bool:
+    """¿Puede este proceso caer al mock? En producción, NO.
+
+    ZERO dejó de ser mock-first el 2026-09-08 (ver CLAUDE.md). El mock construyó el
+    producto y ya no lo opera: si el motor real no está, eso es una falla que hay que
+    ver y arreglar al tiro, no algo que se disimula con una respuesta de plantilla.
+    El costo de disimularlo está medido — ocho días de ciclo muerto que nadie notó
+    porque todo respondía igual (ver `[[zero-instrumentation-lesson]]`).
+
+    Única puerta, y es para la suite: los tests de HTTP levantan uvicorn sin motor
+    porque prueban plomería (auth, rutas, formas de respuesta), no calidad de agente.
+    Solo el valor exacto "1" abre — un env declarado pero vacío NO, que es el modo de
+    fallo que ya mordió antes en `_agents_best`.
+
+    NO va en .env, ni en start.sh, ni en las units de systemd. Si aparece ahí,
+    `revisar-salud.py` lo detecta y avisa: es justamente lo que ese bot vigila.
+    """
+    return (os.environ.get("ZERO_PIPELINE_MOCK_OK") or "").strip() == "1"
+
+
+def _sin_motor(que: str):
+    """El error que reemplazó a la caída silenciosa al mock."""
+    return HTTPException(status_code=503, detail=(
+        f"{que} necesita un motor de IA y no hay ninguno disponible. "
+        "Configura LOCAL_MODEL (Ollama, gratis) o ANTHROPIC_API_KEY. "
+        "Antes esto respondía con una plantilla que se veía igual que una respuesta "
+        "real; ya no."))
+
+
 def _agents_best(source=None):
-    """El mejor cerebro disponible: Anthropic (pago) → modelo local (gratis, Ollama) →
-    mock. El local se activa con LOCAL_MODEL en el entorno (sin costo por token).
+    """El mejor cerebro disponible: Anthropic (pago) → modelo local (gratis, Ollama).
+    El local se activa con LOCAL_MODEL en el entorno (sin costo por token).
     Ignora valores vacíos/espacios (un env declarado pero sin valor NO activa 'live').
-    `source` (discovery real) se pasa a los agentes en cualquiera de los tres modos."""
+    `source` (discovery real) se pasa a los agentes en cualquiera de los dos modos.
+
+    Sin ninguno de los dos, levanta 503. Ya no cae al mock — ver `_mock_permitido`."""
     key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
     if key:
         try:
@@ -898,7 +929,9 @@ def _agents_best(source=None):
                                 source=source), "live"
         except Exception:
             pass
-    return build_agents(mock=True, source=source), "mock"
+    if _mock_permitido():
+        return build_agents(mock=True, source=source), "mock"
+    raise _sin_motor("Esta operación")
 
 
 def _agents_whatsapp(source=None):
@@ -992,8 +1025,37 @@ def _nonempty(r) -> bool:
 def _agent_op(fn, memory=None, crm=None):
     """Corre una operación de agente con el mejor cerebro; si el modelo 'live' falla
     en runtime (key inválida, modelo no disponible, Ollama inalcanzable) O devuelve
-    vacío, reintenta en mock para que el agente SIEMPRE responda.
-    fn(zero) -> result. Devuelve (result, mode)."""
+    vacío, reintenta en mock. fn(zero) -> result. Devuelve (result, mode).
+
+    ## Por qué esto degrada a mock y `_exigir_motor_real` no
+
+    Decía "para que el agente SIEMPRE responda", y eso contradecía de frente lo que
+    `986daca` adoptó en el resto del sistema: *una cifra falsa bien maquetada se lee
+    como real; es peor que una pantalla vacía que dice por qué está vacía.* La
+    contradicción era real y quedaba por omisión. La decisión, escrita:
+
+    **La regla no es "nunca degradar a mock". Es "nunca presentar como real algo que
+    no lo es".**
+
+    Lo que `_exigir_motor_real` corta son afirmaciones sobre el mundo que entran al
+    sistema de registro: costos que no se gastaron, CPL que nadie midió, leads con
+    nombre y empresa que no existen y quedan guardados en el CRM indistinguibles de
+    los reales. Un mock ahí miente y la mentira persiste.
+
+    Lo que pasa por acá no afirma nada sobre el mundo. Son borradores y juicios: un
+    pitch, una respuesta de CONCIERGE, tasas de conversión. El caso que parece la
+    excepción —el forecast, que son números— confirma la regla al mirarlo: `inputs`
+    son métricas reales del CRM, la aritmética es `project_funnel()` (determinista), y
+    el mock de ANALYST **no inventa tasas**: devuelve las de `FORECAST_RATES` en
+    config.py y lo dice ("Tasas base sin ajuste"). El forecast en mock es la
+    proyección base, que es una respuesta honesta y no una inventada.
+
+    La condición que hace válida esta asimetría es una sola: **`mode` tiene que llegar
+    visible hasta la pantalla.** Los cuatro consumidores lo declaran hoy — Campanas,
+    Vender, AgentTester y Forecast (este último desde `36a775b`, y era el que faltaba).
+    El día que uno deje de hacerlo, esto vuelve a ser el defecto que dice no ser; hay
+    un test estructural en `frontend/src/lib/modo-visible.test.js` que lo ata.
+    """
     mem = memory if memory is not None else make_memory(STATE_PATH)
     agents, mode = _agents_best()
     try:
@@ -1002,8 +1064,12 @@ def _agent_op(fn, memory=None, crm=None):
             raise RuntimeError("el modelo live devolvió vacío")
         return res, mode
     except Exception:
-        if mode == "mock":
-            raise   # ya era mock: el fallo es real, que lo vea quien llama
+        if mode == "mock" or not _mock_permitido():
+            # Antes acá se reintentaba en mock "para que el agente SIEMPRE responda".
+            # Se quitó el 2026-09-08: un borrador de plantilla presentado tras un fallo
+            # del motor real es una falla disimulada, y disimularla es lo que hizo que
+            # ocho días de ciclo muerto pasaran inadvertidos. Que el fallo se vea.
+            raise
         return fn(Zero(build_agents(mock=True), memory=mem, crm=crm)), "mock"
 
 
@@ -1343,7 +1409,8 @@ def _informes_de_salud(dias: int):
             "cuando": d.get("cuando"),
             "hallazgos": len(hallazgos),
             "altos": len(altos),
-            "checks": [{"check": c.get("check"), "hallazgos": c.get("hallazgos")}
+            "checks": [{"check": c.get("check"), "hallazgos": c.get("hallazgos"),
+                        "estado": c.get("estado"), "motivo": c.get("motivo")}
                        for c in (d.get("checks") or []) if isinstance(c, dict)],
             "altos_detalle": [{"check": h.get("check"), "detalle": h.get("detalle"),
                                "evidencia": h.get("evidencia")} for h in altos],
@@ -1821,7 +1888,9 @@ def _agents_autonomous(source=None):
                                 source=source), "live"
         except Exception:
             pass
-    return build_agents(mock=True, source=source), "mock"
+    if _mock_permitido():
+        return build_agents(mock=True, source=source), "mock"
+    raise _sin_motor("Esta operación")
 
 
 def _zero_for_actions(crm, memory):

@@ -1,8 +1,12 @@
 """La suite no puede tocar el anillo de telemetría de la máquina.
 
-Esto no es un test de una función: es el candado de `tests/__init__.py`. Si alguien lo
-quita, el panel de Arquitectura vuelve a llenarse de corridas de test presentadas como
-producción — que fue exactamente el bug del 2026-09-08.
+Esto no es un test de una función: es el candado de `tests/__init__.py`, que no tenía
+ninguno. Si alguien quita ese aislamiento, el panel de Arquitectura vuelve a llenarse de
+corridas de test presentadas como producción, y `revisar-salud.py` vuelve a gritar por
+trabajo que nadie hizo — que fue exactamente el bug del 2026-09-08.
+
+Se comprueba el EFECTO (el archivo no cambia), no la forma de la escotilla: si mañana el
+aislamiento se hace con otro mecanismo, este test tiene que seguir valiendo.
 """
 import json
 import os
@@ -14,8 +18,8 @@ from zero import telemetry
 
 class TelemetriaAisladaTest(unittest.TestCase):
     def test_la_ruta_no_apunta_al_anillo_del_repo(self):
-        self.assertEqual(os.environ.get("AGENT_TELEMETRY_PATH"), os.devnull)
-        self.assertNotEqual(telemetry._ruta().name, "agent_activity.json")
+        self.assertNotEqual(telemetry._ruta().name, "agent_activity.json",
+                            "la telemetría de la suite apunta al anillo de producción")
 
     def test_registrar_no_escribe_el_anillo_del_repo(self):
         """La prueba de fuego: anotar un evento y comprobar que el archivo real

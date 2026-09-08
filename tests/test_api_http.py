@@ -161,6 +161,12 @@ class ApiHttpTest(unittest.TestCase):
         # heredarlo — apunta a un archivo que a propósito no existe, así
         # auth_enabled() da False sin importar qué haya en el repo real.
         env["AUTH_USERS_PATH"] = os.path.join(tempfile.mkdtemp(), "users.json")
+        # Escotilla de la suite, no de producción. Estos tests levantan uvicorn sin
+        # ANTHROPIC_API_KEY ni LOCAL_MODEL porque prueban PLOMERÍA —auth, rutas, formas
+        # de respuesta—, no calidad de agente. Desde que ZERO dejó de ser mock-first
+        # (2026-09-08) el backend responde 503 sin motor real, así que sin esto la
+        # plomería no se puede probar. Ver api.py::_mock_permitido.
+        env["ZERO_PIPELINE_MOCK_OK"] = "1"
         # Mismo gotcha otra vez, ahora para el tercer mecanismo de auth_enabled():
         # en el Ubuntu de producción SUPABASE_JWT_SECRET SÍ está configurado de
         # verdad — sin vaciarlo acá, este subproceso "sin auth" deja de estarlo.
@@ -379,6 +385,7 @@ class ApiAuthHttpTest(unittest.TestCase):
                 os.environ["AUTH_USERS_PATH"] = prev
         env = dict(os.environ)
         env["AUTH_USERS_PATH"] = cls.users_path
+        env["ZERO_PIPELINE_MOCK_OK"] = "1"
         # Vacío, no ausente: si falta del todo, zero/_env.py::load_env() (usa
         # os.environ.setdefault) lo vuelve a levantar del .env real del repo
         # — mismo gotcha ya documentado arriba para AUTH_PASSWORD/LOCAL_MODEL.
@@ -554,6 +561,7 @@ class ApiSupabaseAuthHttpTest(unittest.TestCase):
         env = dict(os.environ)
         env["SUPABASE_JWT_SECRET"] = cls.JWT_SECRET
         env["AUTH_USERS_PATH"] = os.path.join(tempfile.mkdtemp(), "users.json")
+        env["ZERO_PIPELINE_MOCK_OK"] = "1"
         # Vacío, no ausente: si falta del todo, zero/_env.py::load_env() (usa
         # os.environ.setdefault) lo vuelve a levantar del .env real del repo
         # — mismo gotcha ya documentado arriba para AUTH_PASSWORD/LOCAL_MODEL.
@@ -750,6 +758,7 @@ class ProgrammedFunctionsHttpTest(unittest.TestCase):
         env = dict(os.environ)
         env["SUPABASE_JWT_SECRET"] = cls.JWT_SECRET
         env["AUTH_USERS_PATH"] = os.path.join(tempfile.mkdtemp(), "users.json")
+        env["ZERO_PIPELINE_MOCK_OK"] = "1"
         env["STATE_PATH"] = os.path.join(cls._tmpdir, "state.json")
         env["CRM_PATH"] = os.path.join(cls._tmpdir, "crm.json")
         # Mismos gotchas ya documentados arriba (ApiSupabaseAuthHttpTest): sin
@@ -983,6 +992,7 @@ class TwilioWebhookHttpTest(unittest.TestCase):
         # repo no re-activa nada — ni auth, ni motor live, ni Supabase (un
         # handle_inbound real contra Supabase escribiría en la NUBE), ni envíos.
         env["AUTH_USERS_PATH"] = os.path.join(cls._tmpdir, "users.json")
+        env["ZERO_PIPELINE_MOCK_OK"] = "1"
         env["SUPABASE_URL"] = ""
         env["SUPABASE_KEY"] = ""
         env["LOCAL_MODEL"] = ""
@@ -1111,6 +1121,7 @@ class ConductorHttpTest(unittest.TestCase):
         env = dict(os.environ)
         env["SUPABASE_JWT_SECRET"] = cls.JWT_SECRET
         env["AUTH_USERS_PATH"] = os.path.join(tempfile.mkdtemp(), "users.json")
+        env["ZERO_PIPELINE_MOCK_OK"] = "1"
         # Mismos gotchas ya documentados arriba: sin vaciarlos, el subproceso
         # hereda Supabase/Ollama/Anthropic reales del .env del repo.
         env["SUPABASE_URL"] = ""
@@ -1229,6 +1240,7 @@ class _WaitlistApiBase(unittest.TestCase):
                 os.environ["AUTH_USERS_PATH"] = prev
         env = dict(os.environ)
         env["AUTH_USERS_PATH"] = users_path
+        env["ZERO_PIPELINE_MOCK_OK"] = "1"
         env["CRM_PATH"] = cls.crm_path
         env["STATE_PATH"] = os.path.join(cls._tmpdir, "state.json")
         # Vacío, no ausente (mismo gotcha de load_env ya documentado arriba): sin
@@ -1451,6 +1463,7 @@ class FichaYCasosHttpTest(unittest.TestCase):
         env = dict(os.environ)
         env["SUPABASE_JWT_SECRET"] = cls.JWT_SECRET
         env["AUTH_USERS_PATH"] = os.path.join(cls._tmpdir, "users.json")
+        env["ZERO_PIPELINE_MOCK_OK"] = "1"
         env["STATE_PATH"] = os.path.join(cls._tmpdir, "state.json")
         env["CRM_PATH"] = os.path.join(cls._tmpdir, "crm.json")
         # Vacío, no ausente (gotcha de load_env ya documentado arriba): si no, el
@@ -1601,6 +1614,7 @@ class PipelineEnVivoHttpTest(unittest.TestCase):
         env = dict(os.environ)
         env["SUPABASE_JWT_SECRET"] = cls.JWT_SECRET
         env["AUTH_USERS_PATH"] = os.path.join(cls._tmpdir, "users.json")
+        env["ZERO_PIPELINE_MOCK_OK"] = "1"
         env["STATE_PATH"] = os.path.join(cls._tmpdir, "state.json")
         env["CRM_PATH"] = os.path.join(cls._tmpdir, "crm.json")
         env["DISCOVER"] = "none"          # sin DuckDuckGo real

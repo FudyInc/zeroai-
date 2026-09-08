@@ -4,9 +4,12 @@ Cada test de acá corresponde a un camino que ANTES devolvía o guardaba datos
 falsos indistinguibles de los reales. No son tests de una función: son el
 contrato de "el dashboard no miente".
 
-El mock sigue existiendo y sigue siendo legítimo (principio 1 de la casa): lo
-que se prohíbe es que un mock llegue al CRM o a la pantalla haciéndose pasar
-por dato real.
+Al escribirse, la regla era "el mock es legítimo, lo que se prohíbe es que se haga
+pasar por real". El 2026-09-08 Diego cambió esa regla: ZERO dejó de ser mock-first
+y opera con motor real. El mock ya no corre en producción — sin motor, 503.
+
+Lo de abajo sigue valiendo entero: son las puertas por las que un dato falso podía
+llegar al CRM o a la pantalla. Lo nuevo está en `SinMotorNoHayRespuestaTest`.
 """
 import os
 import unittest
@@ -93,6 +96,104 @@ class FinanzasSinArchivoTest(unittest.TestCase):
         self.assertEqual(s["costs_clp"], 0)
         self.assertEqual(s["source"], "sin_datos")
         self.assertNotEqual(s["source"], "mock")
+
+
+class SinMotorNoHayRespuestaTest(unittest.TestCase):
+    """Sin motor real no hay respuesta de plantilla: hay 503.
+
+    Antes, `_agents_best` y `_agents_autonomous` terminaban cayendo al mock, y
+    `_agent_op` reintentaba en mock cuando el modelo real fallaba o devolvía vacío —
+    "para que el agente SIEMPRE responda". Eso convertía una falla del motor en una
+    respuesta que se veía igual que una buena, y ese disimulo es exactamente lo que
+    hizo que ocho días de ciclo muerto pasaran inadvertidos.
+    """
+
+    def _sin_motor(self):
+        """Ni Anthropic, ni Ollama, ni escotilla. El estado de una máquina rota."""
+        return mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "", "LOCAL_MODEL": "",
+                                            "ZERO_PIPELINE_MOCK_OK": ""}, clear=False)
+
+    def test_agents_best_levanta_503_en_vez_de_devolver_mock(self):
+        with self._sin_motor():
+            with self.assertRaises(HTTPException) as ctx:
+                api._agents_best()
+        self.assertEqual(ctx.exception.status_code, 503)
+
+    def test_agents_autonomous_tambien(self):
+        """El camino autónomo es el que corre de noche sin nadie mirando: es donde
+        más caro sale que una falla se disfrace de respuesta."""
+        with self._sin_motor():
+            with self.assertRaises(HTTPException):
+                api._agents_autonomous()
+
+    def test_agent_op_no_reintenta_en_mock(self):
+        """Si el motor real falla en runtime, el error sale. No se tapa."""
+        with self._sin_motor(), \
+             mock.patch.object(api, "_agents_best", return_value=(object(), "live")):
+            with self.assertRaises(RuntimeError):
+                api._agent_op(lambda z: (_ for _ in ()).throw(RuntimeError("Ollama caído")))
+
+    def test_la_escotilla_es_solo_de_la_suite(self):
+        """Existe para probar plomería HTTP sin motor. Solo el valor exacto "1" abre —
+        un env declarado pero vacío NO, que es el modo de fallo que ya mordió antes."""
+        with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "", "LOCAL_MODEL": "",
+                                          "ZERO_PIPELINE_MOCK_OK": "1"}, clear=False):
+            _, modo = api._agents_best()
+            self.assertEqual(modo, "mock")
+        for valor in ("", " ", "true", "0"):
+            with self.subTest(valor=valor):
+                with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "", "LOCAL_MODEL": "",
+                                                  "ZERO_PIPELINE_MOCK_OK": valor}, clear=False):
+                    with self.assertRaises(HTTPException):
+                        api._agents_best()
+
+    def test_el_error_dice_como_arreglarlo(self):
+        """Un 503 que no dice qué configurar deja al operador adivinando."""
+        with self._sin_motor():
+            with self.assertRaises(HTTPException) as ctx:
+                api._agents_best()
+        detalle = ctx.exception.detail
+        self.assertIn("LOCAL_MODEL", detalle)
+        self.assertIn("ANTHROPIC_API_KEY", detalle)
+
+
+class UnAgenteRealNoSeVuelveMockSolo(unittest.TestCase):
+    """La puerta más profunda, y la que era el comportamiento POR DEFECTO.
+
+    `BaseAgent.__init__` hacía `self.mock = mock or backend is None`, así que pedir
+    explícitamente un agente real sin backend devolvía un mock igual, sin decir nada:
+
+        build_agents(mock=False)["PROSPECTOR"].mock  → True
+
+    Nadie la alcanzaba en producción —todas las llamadas pasan backend o piden mock a
+    propósito—, pero es la que se cuela sola el día que alguien agregue un sitio y
+    olvide el backend. Se cerró el 2026-09-08 junto con las de api.py.
+    """
+
+    def test_pedir_real_sin_backend_es_un_error(self):
+        from zero.agents import build_agents
+        with self.assertRaises(ValueError) as ctx:
+            build_agents(mock=False)
+        self.assertIn("backend", str(ctx.exception))
+
+    def test_el_error_dice_las_dos_salidas(self):
+        """Un error que no dice qué hacer manda a la gente a poner mock=True a ciegas."""
+        from zero.agents import build_agents
+        with self.assertRaises(ValueError) as ctx:
+            build_agents()
+        msg = str(ctx.exception)
+        self.assertIn("Pasa un backend", msg)
+        self.assertIn("mock=True", msg)
+
+    def test_pedir_mock_a_proposito_sigue_funcionando(self):
+        """El mock explícito es legítimo: lo usa la suite entera."""
+        from zero.agents import build_agents
+        self.assertTrue(build_agents(mock=True)["PROSPECTOR"].mock)
+
+    def test_con_backend_no_es_mock(self):
+        from zero.agents import build_agents
+        agentes = build_agents(backend=object(), mock=False)
+        self.assertFalse(agentes["PROSPECTOR"].mock)
 
 
 if __name__ == "__main__":

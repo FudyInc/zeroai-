@@ -1,22 +1,25 @@
-"""La suite no escribe en la telemetría de la máquina.
+"""La suite no escribe en los datos de producción.
 
-`telemetry.registrar()` persiste en `agent_activity.json` relativo al directorio de
-trabajo, y la suite se corre desde la raíz del repo — o sea, sobre el mismo archivo que
-alimenta el panel de Arquitectura. El resultado, comprobado el 2026-09-08: de los 200
-registros del anillo, 193 eran de una corrida de tests (motores `ScriptedBackend`,
-`BoomBackend` y hasta el repr de un `unittest.mock.Mock`; clientes `veloz`,
-`vocabulario`, `listable`), y el panel mostraba a CONCIERGE como "Mock · simulación"
-cuando el concierge real corre sobre qwen2.5:14b. La instrumentación mentía sobre el
-sistema que instrumenta.
+`unittest discover` importa este paquete antes que cualquier test, así que es el único
+punto donde se puede aislar a TODA la suite de una vez — sin depender de que cada archivo
+se acuerde.
 
-`AGENT_TELEMETRY_PATH` ya existía como escotilla y `test_telemetry.py` la usaba para sus
-propios casos; lo que faltaba era el default para TODA la suite. Va acá y no en
-`telemetry.py` porque el módulo no tiene por qué saber que existen los tests: el que
-tiene que aislarse es quien corre.
+Motivo medido (2026-09-08): al construir el detector de mocks de `revisar-salud.py`
+apareció que la suite escribe en `agent_activity.json`, el MISMO archivo de telemetría
+que usa producción. En una ventana de 45 minutos había 197 eventos en mock, y los 197
+eran de la suite y de la auditoría — con `client_id` inventados por los propios tests
+(`listable`, `vocabulario`, `veloz`). Un detector que mira ahí grita todos los días por
+trabajo que nadie hizo, y un aviso que suena siempre se ignora justo el día que importa.
 
-`setdefault` y no asignación directa: si alguien exporta la variable para inspeccionar
-una corrida, su valor manda.
+Solo se redirige la telemetría. `crm.json`, `state.json` y compañía ya los aíslan los
+tests que los usan, cada uno con su temporal.
 """
 import os
+import tempfile
 
-os.environ.setdefault("AGENT_TELEMETRY_PATH", os.devnull)
+# Un archivo por corrida de la suite, en el temporal del sistema. No se borra al terminar
+# a propósito: si un test falla por lo que registró, el rastro queda para poder mirarlo.
+os.environ.setdefault(
+    "AGENT_TELEMETRY_PATH",
+    os.path.join(tempfile.gettempdir(), f"zero-telemetria-tests-{os.getpid()}.json"),
+)
