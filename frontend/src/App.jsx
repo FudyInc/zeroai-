@@ -346,6 +346,16 @@ function RunModal({ open, onClose, onStarted }) {
                   <label key={value} className={`rounded-xl border p-3 text-center cursor-pointer ${form.provider === value ? 'border-gold bg-gold/10' : 'border-zinc-200'}`}>
                     <input type="radio" name="pipeline-provider" value={value} checked={form.provider === value}
                       onChange={() => { setForm(f => ({ ...f, provider: value })); setRunError('') }} className="accent-gold" />
+                    <span className="flex items-center justify-center h-10 mt-2" aria-hidden="true">
+                      <span className="block h-8 w-8" style={{
+                        backgroundColor: value === 'qwen' ? '#615CED' : 'currentColor',
+                        maskImage: `url(/technology/${value}.svg)`,
+                        WebkitMaskImage: `url(/technology/${value}.svg)`,
+                        maskSize: 'contain', WebkitMaskSize: 'contain',
+                        maskRepeat: 'no-repeat', WebkitMaskRepeat: 'no-repeat',
+                        maskPosition: 'center', WebkitMaskPosition: 'center',
+                      }} />
+                    </span>
                     <span className="block text-sm font-semibold mt-1">{label}</span>
                     <span className="block text-[11px] text-zinc-500 mt-1">{detail}</span>
                   </label>

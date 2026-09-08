@@ -12,3 +12,9 @@ ZEROAI's existing logo.png and logo-mark.png are used without modification.
 - Phone iOS: https://commons.wikimedia.org/wiki/File:Phone_iOS.svg (Apple phone app icon, Wikimedia vector reproduction).
 - WhatsApp: the existing Simple Icons mark, rendered in WhatsApp green.
 These third-party assets are not covered by Simple Icons' CC0 license unless stated by their source.
+
+## Model selector (2026-09-08)
+
+- OpenAI and Qwen: SVG marks from Lobe Icons, https://github.com/lobehub/lobe-icons/tree/master/packages/static-svg/icons (MIT, see LOBE-ICONS-LICENSE.txt).
+- Anthropic: existing Simple Icons mark.
+Marks are rendered as local SVG masks; names remain visible and accessible.
