@@ -1608,6 +1608,10 @@ class PipelineEnVivoHttpTest(unittest.TestCase):
         env["SUPABASE_KEY"] = ""
         env["LOCAL_MODEL"] = ""
         env["ANTHROPIC_API_KEY"] = ""
+        # Sin esto la API se niega a correr el pipeline en mock (guardia
+        # `_exigir_motor_real`, para que el dashboard no invente leads). Acá el
+        # mock ES el punto: se prueba el contrato de progreso, no el cerebro.
+        env["ZERO_PIPELINE_MOCK_OK"] = "1"
         cls.proc = _start_and_wait(
             [sys.executable, "-m", "uvicorn", "api:app", "--port", str(cls.port),
              "--log-level", "warning"],

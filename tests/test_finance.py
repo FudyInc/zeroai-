@@ -49,15 +49,21 @@ class TestNormalizeCosts(unittest.TestCase):
 
 
 class TestSummaryMock(unittest.TestCase):
-    """Sin finance.json (data=None): cifras de ejemplo, mismo contrato."""
+    """Sin finance.json (data=None): mes VACÍO, mismo contrato.
 
-    def test_mock_shape_and_math(self):
+    Antes devolvía tres costos de ejemplo con source="mock". Una cifra falsa bien
+    maquetada se lee como real: el margen que mostraba el dashboard era ficción.
+    Ahora los costos son [] y el margen es el MRR completo, que es lo cierto —
+    no hay costos registrados."""
+
+    def test_sin_archivo_no_inventa_costos(self):
         s = summary(None, mrr_clp=250_000)
-        self.assertEqual(s["source"], "mock")
+        self.assertEqual(s["source"], "sin_datos")
+        self.assertEqual(s["costs"], [])                 # nada inventado
+        self.assertEqual(s["costs_clp"], 0)
         self.assertEqual(s["month"], current_month())
         self.assertEqual(s["mrr_clp"], 250_000)          # el MRR es real igual
-        self.assertEqual(s["costs_clp"], sum(c["amount_clp"] for c in s["costs"]))
-        self.assertEqual(s["margin_clp"], 250_000 - s["costs_clp"])
+        self.assertEqual(s["margin_clp"], 250_000)
         self.assertEqual(s["history"], [])
 
     def test_mock_past_month_has_no_mrr(self):

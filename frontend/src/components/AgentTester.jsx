@@ -12,7 +12,7 @@ import QuoteCard from './QuoteCard'
 export default function AgentTester({
   title = 'Probar el agente de respuestas',
   hint = 'Escribe como si fueras un lead y mira qué contesta. Nada de esto le llega a un lead real.',
-  defaultClient = 'demo',
+  defaultClient = '',
   fixedClient = null,
   vendorId = null,
   vendorName = null,
@@ -26,10 +26,12 @@ export default function AgentTester({
   // Cambiar de personalidad o de cliente arranca una conversación nueva.
   useEffect(() => { setChat([]); setMockMode(false) }, [vendorId, fixedClient])
 
-  const theClient = (fixedClient ?? client).trim() || 'demo'
+  // Sin cliente por defecto: ese cliente de prueba ya no existe en el CRM, y usarlo
+  // como default probaría el agente contra un cliente que no debería resucitar.
+  const theClient = (fixedClient ?? client).trim()
   const send = async () => {
     const text = msg.trim()
-    if (!text || busy) return
+    if (!text || busy || !theClient) return
     const history = chat
       .filter((m) => m.mode !== 'error')
       .map((m) => ({ role: m.who === 'lead' ? 'lead' : 'agent', text: m.text }))
@@ -65,7 +67,7 @@ export default function AgentTester({
       {!fixedClient && (
         <div className="flex items-center gap-2 mb-3">
           <span className="text-xs text-zinc-500">Cliente:</span>
-          <Input value={client} onChange={(e) => { setClient(e.target.value); setChat([]) }} className="w-40" placeholder="demo" />
+          <Input value={client} onChange={(e) => { setClient(e.target.value); setChat([]) }} className="w-40" placeholder="nombre del cliente" />
         </div>
       )}
       {mockMode && (
@@ -92,7 +94,7 @@ export default function AgentTester({
         <Input value={msg} onChange={(e) => setMsg(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && send()}
           placeholder="¿cuánto cuesta? / ¿qué hacen? / ¿eres un bot?" />
-        <Button variant="accent" onClick={send} disabled={busy}>{busy ? '…' : 'Enviar'}</Button>
+        <Button variant="accent" onClick={send} disabled={busy || !theClient}>{busy ? '…' : 'Enviar'}</Button>
       </div>
     </Card>
   )

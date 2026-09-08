@@ -27,12 +27,14 @@ import { rise, fade, surface } from '../lib/motion'
 
 export default function Whatsapp() {
   const { client: ctxClient } = useApp()
-  const client = ctxClient || 'demo'
+  // Sin cliente por defecto: ese cliente de prueba ya se borró del CRM, y volver a
+  // usarlo como fallback lo resucitaría en la base real con solo abrir la página.
+  const client = ctxClient || ''
   const cfgQ = useQuery({ queryKey: ['config'], queryFn: api.config })
 
   const vendorsQ = useQuery({ queryKey: ['vendors'], queryFn: api.vendors })
-  const assignedQ = useQuery({ queryKey: ['vendor', client], queryFn: () => api.vendorFor(client) })
-  const knowledgeQ = useQuery({ queryKey: ['knowledge', client], queryFn: () => api.knowledge(client) })
+  const assignedQ = useQuery({ queryKey: ['vendor', client], queryFn: () => api.vendorFor(client), enabled: !!client })
+  const knowledgeQ = useQuery({ queryKey: ['knowledge', client], queryFn: () => api.knowledge(client), enabled: !!client })
   const leadsQ = useQuery({
     queryKey: ['leads', client, 'whatsapp-activity'],
     queryFn: () => api.leads(client, { group: 'todos', limit: 50 }),
@@ -61,6 +63,16 @@ export default function Whatsapp() {
   const cfg = cfgQ.data
   const provider = cfg?.whatsapp_provider === 'twilio' ? 'twilio' : 'meta'
   const connected = provider === 'twilio' ? !!cfg?.twilio : !!cfg?.whatsapp
+
+  // Toda la página depende de un cliente elegido; sin uno no hay a quién
+  // configurarle el agente, y consultar con cliente vacío pegaría contra la API mal.
+  if (!client) {
+    return (
+      <Card className="p-8 text-center text-sm text-zinc-400">
+        Elige un cliente en el encabezado.
+      </Card>
+    )
+  }
 
   return (
     <motion.div className="space-y-6" initial="hidden" animate="show" variants={rise}>

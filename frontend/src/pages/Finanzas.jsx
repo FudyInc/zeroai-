@@ -69,7 +69,7 @@ export default function Finanzas() {
             <ChevronRight size={15} />
           </button>
         </div>
-        {data.source === 'mock' && <Badge color="#8C929B">cifras de ejemplo — sin finance.json</Badge>}
+        {data.source === 'sin_datos' && <Badge color="#8C929B">sin costos registrados — falta finance.json</Badge>}
       </motion.div>
 
       <motion.div className="grid grid-cols-1 sm:grid-cols-3 gap-4" variants={stagger()} initial="hidden" animate="show">

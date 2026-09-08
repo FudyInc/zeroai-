@@ -556,7 +556,7 @@ def finance(month: Optional[str] = None):
     """Finanzas de la agencia: entra (MRR) / sale (costos) / margen del mes, más
     historial para tendencia. Siempre detrás de login (jamás en _OPEN_PATHS):
     expone el MRR real. Costos desde finance.json local (gitignorado); sin
-    archivo responde cifras de ejemplo con source="mock"."""
+    archivo responde el mes vacío con source="sin_datos" — nunca cifras de ejemplo."""
     from zero.finance import finance_summary, valid_month
     if month is not None and not valid_month(month):
         raise HTTPException(status_code=400, detail=f"mes inválido: {month!r} (formato AAAA-MM)")
@@ -704,14 +704,20 @@ def _client_meta_cfg(client: str) -> dict:
 
 
 def _safe_campaigns(client: str, cfg: dict):
-    """Trae campañas; si la API real de Meta falla, degrada a mock con el error —
-    así la pestaña NUNCA se rompe por un token/cuenta inválidos."""
-    from zero.metaads import MockMetaAds, make_metaads
+    """Trae campañas reales; si no hay cuenta conectada, o la API de Meta falla,
+    devuelve VACÍO con el motivo — nunca campañas inventadas.
+
+    Antes degradaba al mock y la pestaña mostraba gasto y CPL de mentira con un
+    badge chico. Una cifra falsa bien maquetada se lee como real: es peor que una
+    pantalla vacía que dice por qué está vacía. La pestaña sigue sin romperse."""
+    from zero.metaads import make_metaads
     src = make_metaads(cfg)
+    if not getattr(src, "live", False):
+        return [], "sin_datos", None
     try:
-        return src.campaigns(client, cfg), ("live" if getattr(src, "live", False) else "mock"), None
+        return src.campaigns(client, cfg), "live", None
     except Exception as e:   # token inválido, cuenta sin acceso, red, etc.
-        return MockMetaAds().campaigns(client, cfg), "mock", str(e)[:300]
+        return [], "sin_datos", str(e)[:300]
 
 
 @app.get("/api/campaigns")
@@ -737,10 +743,23 @@ def campaigns(client: str):
 
 @app.post("/api/campaigns/sync-leads")
 def sync_ad_leads(client: str):
-    """Trae los leads de Meta Lead Ads y los mete al CRM (el 'producto único')."""
+    """Trae los leads de Meta Lead Ads y los mete al CRM (el 'producto único').
+
+    Se niega si Meta no está conectado. Sin token ni cuenta, `make_metaads` devuelve
+    el mock, y sus leads salen etiquetados `source: "meta_ads"` — una vez guardados
+    son indistinguibles de gente real. Importarlos ensuciaría el sistema de registro
+    con contactos que no existen. Es la misma regla que ya aplica el camino autónomo
+    en `function_actions.run_job`: en mock no se escribe al CRM.
+    """
     from zero.metaads import make_metaads
     cfg = _client_meta_cfg(client)
-    leads = make_metaads(cfg).lead_ads(client, cfg)
+    src = make_metaads(cfg)
+    if not getattr(src, "live", False):
+        raise HTTPException(status_code=400, detail=(
+            "Meta Ads no está conectado: falta el token de la agencia o la cuenta "
+            "publicitaria del cliente. Conéctalo en Configuración — hasta entonces no "
+            "se importa nada, para no meter leads inventados al CRM."))
+    leads = src.lead_ads(client, cfg)
     crm = make_crm(CRM_PATH)
     memory = make_memory(STATE_PATH)
     zero = Zero(build_agents(mock=True), memory=memory, crm=crm)
@@ -1128,6 +1147,27 @@ class RunRequest(BaseModel):
     auto_send: bool = False
 
 
+def _exigir_motor_real(mode: str) -> None:
+    """Corta la corrida si el único cerebro disponible es el mock.
+
+    PROSPECTOR en mock devuelve la fixture `_COMPANIES` (Andesoft, LogiSur, ...) y
+    el pipeline la escribe al CRM como leads. El dashboard no distingue esos de los
+    reales. `function_actions.run_job` ya se negaba a correr así en el camino
+    autónomo; los botones del dashboard no, y esa era la puerta abierta."""
+    if mode != "mock":
+        return
+    # Única puerta: la suite necesita ejercitar el pipeline completo sin red (el
+    # principio mock-first de la casa). NO va en .env ni en start.sh ni en las
+    # units de systemd — si algún día aparece ahí, el dashboard vuelve a poder
+    # inventar leads, y ese es justamente el agujero que esto cierra.
+    if (os.environ.get("ZERO_PIPELINE_MOCK_OK") or "").strip() == "1":
+        return
+    raise HTTPException(status_code=503, detail=(
+        "No hay motor de IA disponible (ni modelo local ni ANTHROPIC_API_KEY). "
+        "Correr así llenaría el CRM con empresas inventadas, así que no se corre. "
+        "Revisa que Ollama esté arriba o configura una key."))
+
+
 @app.post("/api/pipeline")
 def run_pipeline(req: RunRequest):
     crm = make_crm(CRM_PATH)
@@ -1137,6 +1177,7 @@ def run_pipeline(req: RunRequest):
     # mock: una entrega con leads inventados sería mentirle al cliente — si el
     # motor real falla a mitad de pipeline, el resultado lo dice ({"error": etapa}).
     agents, mode = _agents_best(source=_discovery_source())
+    _exigir_motor_real(mode)
     zero = Zero(agents, memory=memory, crm=crm, outbox=make_outbox())
     try:
         out = zero.run_pipeline(req.client, req.tier, req.query, count=req.count, icp=req.icp,
@@ -1162,6 +1203,9 @@ def start_pipeline(req: RunRequest, tareas: BackgroundTasks):
     No reemplaza al otro a propósito: el endpoint síncrono ya lo usa el frontend
     actual y romperlo para agregar una animación sería cambiar algo que funciona.
     """
+    # La guardia va ANTES de crear la corrida: si no hay motor real, el usuario ve
+    # el error al apretar el botón, no una corrida fantasma que falla en segundo plano.
+    _exigir_motor_real(_agents_best(source=_discovery_source())[1])
     run_id = runs.crear(req.client, req.query, req.tier)
 
     def correr():

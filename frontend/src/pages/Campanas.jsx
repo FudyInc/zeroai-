@@ -133,7 +133,7 @@ export default function Campanas() {
             CPL objetivo Chile ≤ {clp(summary.good_cpl_clp)}
           </Badge>
           <Badge color={summary.source === 'live' ? '#16a34a' : '#94a3b8'}>
-            {summary.source === 'live' ? 'Meta conectado' : 'datos mock'}
+            {summary.source === 'live' ? 'Meta conectado' : 'Meta sin conectar'}
           </Badge>
           <Button variant="soft" onClick={() => setShowCfg((v) => !v)}><Settings2 size={15} /> Config del cliente</Button>
           <Button variant="soft" onClick={syncLeads} disabled={syncBusy}>
@@ -224,8 +224,17 @@ export default function Campanas() {
         <motion.div variants={surface}>
           <Card className="py-16 text-center">
           <img src="/logo-mark.png" alt="" className="w-12 h-12 mx-auto mb-4 grayscale opacity-25" />
-          <div className="font-semibold text-zinc-500">No hay campañas activas</div>
-            <p className="text-sm text-zinc-400 mt-1">Conecta Meta Ads o crea una campaña para ver su rendimiento aquí.</p>
+          {summary.source === 'sin_datos' ? (
+            <>
+              <div className="font-semibold text-zinc-500">Sin cuenta de Meta conectada</div>
+              <p className="text-sm text-zinc-400 mt-1">Conéctala en Configuración para ver campañas reales.</p>
+            </>
+          ) : (
+            <>
+              <div className="font-semibold text-zinc-500">No hay campañas activas</div>
+              <p className="text-sm text-zinc-400 mt-1">Conecta Meta Ads o crea una campaña para ver su rendimiento aquí.</p>
+            </>
+          )}
           </Card>
         </motion.div>
       ) : (

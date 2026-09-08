@@ -35,13 +35,11 @@ from .persistence import load_json
 
 _MONTH_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 
-# Cifras de EJEMPLO para el modo mock — misma forma que las reales, valores
-# deliberadamente redondos para que se noten de lejos.
-_MOCK_COSTS = [
-    {"category": "vapi", "amount_clp": 40_000, "note": "cifra de ejemplo"},
-    {"category": "elevenlabs", "amount_clp": 10_000, "note": "cifra de ejemplo"},
-    {"category": "dominio", "amount_clp": 2_000, "note": "cifra de ejemplo"},
-]
+# Antes vivía aquí `_MOCK_COSTS`: tres costos de ejemplo (vapi 40k, elevenlabs 10k,
+# dominio 2k) que se servían cuando no existía finance.json. El margen resultante era
+# ficción presentada con el mismo formato que el real, distinguible sólo por un badge.
+# Sin archivo ahora se responde el mes VACÍO con source="sin_datos": los costos son 0
+# y el margen es el MRR completo, que es lo cierto — no hay costos registrados.
 
 
 def valid_month(month: str) -> bool:
@@ -95,9 +93,9 @@ def summary(data: Optional[Dict[str, Any]], mrr_clp: int,
             month: Optional[str] = None) -> Dict[str, Any]:
     """Resumen del mes pedido (default: el actual) + historial para tendencia.
 
-    `data` es el contenido de finance.json (None = no existe → mock). El MRR del
-    mes en curso es siempre el vivo; para meses cerrados manda la foto anotada
-    en el archivo, si la hay.
+    `data` es el contenido de finance.json (None = no existe → mes vacío, sin
+    cifras inventadas). El MRR del mes en curso es siempre el vivo; para meses
+    cerrados manda la foto anotada en el archivo, si la hay.
     """
     today = current_month()
     month = month or today
@@ -105,8 +103,8 @@ def summary(data: Optional[Dict[str, Any]], mrr_clp: int,
     months = months if isinstance(months, dict) else {}
 
     if data is None:
-        summ = _month_summary(month, list(_MOCK_COSTS),
-                              mrr_clp if month == today else None, "mock")
+        summ = _month_summary(month, [],
+                              mrr_clp if month == today else None, "sin_datos")
         return {**summ, "history": []}
 
     def _mrr_for(m: str) -> Optional[int]:

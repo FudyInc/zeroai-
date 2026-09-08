@@ -245,13 +245,21 @@ function NoRoleScreen({ username, onLogout }) {
 }
 
 function RunModal({ open, onClose, onStarted }) {
-  const { setClient } = useApp()
+  const { setClient, client: ctxClient } = useApp()
   const nav = useNavigate()
   const qc = useQueryClient()
   const EMPTY_ICP = { sells: '', industry: '', roles: '', companySize: '', regions: '', mustHave: '', exclude: '', context: '' }
-  const [form, setForm] = useState({ client: 'demo', tier: 'GROWTH', query: '', count: 8, autoSend: false, ...EMPTY_ICP })
+  // Sin cliente por defecto: con acme, demo, heladerias y zeroai ya borrados del CRM, ese
+  // default resucitaba un cliente de prueba en la base real con solo abrir el modal.
+  const [form, setForm] = useState({ client: '', tier: 'GROWTH', query: '', count: 8, autoSend: false, ...EMPTY_ICP })
   const [showIcp, setShowIcp] = useState(false)
   const [icpLoaded, setIcpLoaded] = useState(false)
+
+  // Precarga el cliente activo del encabezado si el campo sigue vacío — no pisa
+  // lo que el usuario ya haya escrito a mano.
+  useEffect(() => {
+    if (ctxClient && !form.client) setForm((f) => (f.client ? f : { ...f, client: ctxClient }))
+  }, [ctxClient]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Map a saved (normalized) ICP back into the form so it's editable, not write-only.
   const fillFromIcp = (icp) => setForm((f) => ({
@@ -263,7 +271,9 @@ function RunModal({ open, onClose, onStarted }) {
   }))
 
   const loadSavedIcp = () => {
-    api.icp(form.client.trim() || 'demo').then(fillFromIcp).catch(() => {}).finally(() => setIcpLoaded(true))
+    const c = form.client.trim()
+    if (!c) { setIcpLoaded(true); return }
+    api.icp(c).then(fillFromIcp).catch(() => {}).finally(() => setIcpLoaded(true))
   }
 
   // When the ICP panel opens, pull the client's saved profile so they see/edit it.
@@ -288,7 +298,8 @@ function RunModal({ open, onClose, onStarted }) {
     if (form.mustHave.trim()) icp.must_have = form.mustHave.trim()
     if (form.exclude.trim()) icp.exclude = form.exclude.trim()
     if (form.context.trim()) icp.context = form.context.trim()
-    const targetClient = form.client.trim() || 'demo'
+    const targetClient = form.client.trim()
+    if (!targetClient) { toast.error('Elige un cliente antes de buscar leads.'); return }
 
     /* Antes esto llamaba a /api/pipeline, que deja la request abierta los minutos que
        tarda la corrida real y solo devuelve algo al final: el único rastro era un toast.
@@ -324,7 +335,7 @@ function RunModal({ open, onClose, onStarted }) {
             <div className="text-lg font-bold">Buscar leads</div>
             <div className="grid grid-cols-2 gap-3">
               <div><label className="block text-xs text-zinc-500 mb-1">Cliente</label>
-                <Input value={form.client} onChange={(e) => { setForm({ ...form, client: e.target.value }); setIcpLoaded(false) }} placeholder="acme" /></div>
+                <Input value={form.client} onChange={(e) => { setForm({ ...form, client: e.target.value }); setIcpLoaded(false) }} placeholder="nombre del cliente" /></div>
               <div><label className="block text-xs text-zinc-500 mb-1">Plan</label>
                 <Select className="w-full" value={form.tier} onChange={(e) => setForm({ ...form, tier: e.target.value })}>
                   {['STARTER', 'GROWTH', 'SCALE', 'ENTERPRISE'].map((t) => <option key={t}>{t}</option>)}
