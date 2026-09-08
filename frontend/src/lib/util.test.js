@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { leadRoute } from './util.js'
+import { LANE, leadRoute } from './util.js'
 
 const event = (detail, ts = '2026-09-01T12:00:00Z') => ({ event: 'stage', detail, ts })
 
@@ -49,4 +49,55 @@ test('datos ausentes o etapa desconocida mantienen el carril apagado', () => {
     assert.equal(route.exit, null)
     assert.ok(route.steps.every(s => !s.done))
   }
+})
+
+/* --- El carril no puede crecer a espaldas de nadie --------------------------------
+ * Si alguien mete `disqualified` o `lost` en LANE, la pantalla vuelve a afirmar que
+ * descartar es avanzar. Es el error que este trabajo existe para no cometer, así que
+ * queda clavado acá y no en un comentario. */
+test('el carril son 7 pasos y las salidas no están entre ellos', () => {
+  assert.deepEqual(LANE,
+    ['new', 'qualified', 'contacted', 'nurturing', 'replied', 'meeting', 'won'])
+  assert.ok(!LANE.includes('disqualified'))
+  assert.ok(!LANE.includes('lost'))
+})
+
+test('un detail sin destino legible no acredita fecha ni revienta', () => {
+  for (const detail of ['contacted', 'qualified → ', '', null, 42]) {
+    const route = leadRoute({ stage: 'contacted', history: [event(detail)] })
+    assert.equal(route.reached, 2)          // la manda `lead.stage`, no el historial
+    assert.ok(route.steps.every((s) => !s.at), `acreditó fecha con detail ${detail}`)
+  }
+})
+
+test('un detail sin origen pero con destino sí acredita su fecha', () => {
+  /* "→ contacted" está mal formado, pero el destino se lee y basta: el lead llegó
+     a esa etapa. Descartar el evento entero sería perder un dato que sí está. */
+  const route = leadRoute({ stage: 'contacted', history: [event('→ contacted')] })
+  assert.ok(route.steps[2].at)
+})
+
+test('`pct` se queda siempre dentro del riel', () => {
+  const casos = [null, {}, { stage: 'new' }, { stage: 'won' }, { stage: 'desconocida' },
+    { stage: 'lost', history: [event('meeting → won'), event('won → lost')] }]
+  for (const lead of casos) {
+    const { pct } = leadRoute(lead)
+    assert.ok(Number.isFinite(pct) && pct >= 0 && pct <= 100, `pct fuera de rango: ${pct}`)
+  }
+})
+
+test('una fecha futura no produce una antigüedad negativa', () => {
+  const route = leadRoute({ stage: 'qualified', history: [event('new → qualified', '2099-01-01T00:00:00Z')] })
+  assert.equal(route.days, null)
+})
+
+test('la antigüedad sale de la ÚLTIMA entrada a la etapa actual', () => {
+  /* El recorrido no es monótono: si el lead volvió a `contacted`, lo que se muestra
+     es cuánto lleva en esta pasada, no en la primera. */
+  const route = leadRoute({ stage: 'contacted', history: [
+    event('new → contacted', '2020-01-01T00:00:00Z'),
+    event('contacted → replied', '2020-02-01T00:00:00Z'),
+    event('replied → contacted', new Date(Date.now() - 3 * 86400000).toISOString()),
+  ] })
+  assert.equal(route.days, 3)
 })
