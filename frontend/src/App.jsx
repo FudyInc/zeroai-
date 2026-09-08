@@ -347,14 +347,8 @@ function RunModal({ open, onClose, onStarted }) {
                     <input type="radio" name="pipeline-provider" value={value} checked={form.provider === value}
                       onChange={() => { setForm(f => ({ ...f, provider: value })); setRunError('') }} className="accent-gold" />
                     <span className="flex items-center justify-center h-10 mt-2" aria-hidden="true">
-                      <span className="block h-8 w-8" style={{
-                        backgroundColor: value === 'qwen' ? '#615CED' : 'currentColor',
-                        maskImage: `url(/technology/${value}.svg)`,
-                        WebkitMaskImage: `url(/technology/${value}.svg)`,
-                        maskSize: 'contain', WebkitMaskSize: 'contain',
-                        maskRepeat: 'no-repeat', WebkitMaskRepeat: 'no-repeat',
-                        maskPosition: 'center', WebkitMaskPosition: 'center',
-                      }} />
+                      <img src={`/technology/${value}.svg`} alt="" width={32} height={32}
+                        style={{ display: 'block', width: 32, height: 32, objectFit: 'contain' }} />
                     </span>
                     <span className="block text-sm font-semibold mt-1">{label}</span>
                     <span className="block text-[11px] text-zinc-500 mt-1">{detail}</span>
