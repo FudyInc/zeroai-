@@ -19,6 +19,7 @@ import argparse
 import json
 import os
 import subprocess
+import time
 import sys
 import urllib.error
 import urllib.request
@@ -69,6 +70,52 @@ def _ollama_responde() -> bool:
         return False
 
 
+# Cuánto atrás se mira para decidir si algo corrió en mock. El timer es de 30 min:
+# una ventana un poco mayor evita que un evento caiga justo entre dos revisiones.
+VENTANA_MOCK_MIN = 45
+
+# El cliente demo. `scripts/auditar.py` corre el pipeline en mock contra él en cada
+# auditoría (`main.py --client acme`, el comando canónico de CLAUDE.md) y la suite hace
+# lo mismo. Sin excluirlo el detector gritaría todos los días por su propio trabajo —
+# medido: 184 eventos en mock en 45 minutos, los 184 de `acme`. Un aviso que suena
+# siempre se ignora, y el día que importe nadie lo va a mirar.
+CLIENTE_DEMO = "acme"
+
+
+def _corrio_en_mock() -> list:
+    """Agentes que corrieron con motor mock en la última ventana.
+
+    Este es el detector, y la razón por la que existe: ZERO dejó de ser mock-first el
+    2026-09-08 y ya no debería haber un solo agente respondiendo con plantillas. Pero
+    apagar el mock en `api.py` cierra las puertas que conozco — no prueba que no quede
+    otra. Esto mira el resultado en vez de la intención: si algo respondió en mock, se
+    ve acá, venga de donde venga.
+
+    Es distinto de comprobar que Ollama responde. Ollama puede estar arriba y un agente
+    igual haber caído a mock por otro camino: una ruta que se saltó `_agents_best`, un
+    proceso viejo levantado antes del cambio, o `ZERO_PIPELINE_MOCK_OK` filtrado a un
+    .env. Los tres son silenciosos y los tres se ven en la telemetría.
+    """
+    try:
+        from zero import telemetry
+        eventos = telemetry.eventos(limit=200)
+    except Exception as e:                       # noqa: BLE001
+        # Un detector que se cae en silencio es peor que no tenerlo: se diría igual
+        # que "todo bien". Que su propia falla sea una falla reportada.
+        return [f"no se pudo leer la telemetría para detectar mocks: {e}"]
+
+    corte = time.time() - VENTANA_MOCK_MIN * 60
+    culpables = sorted({e.get("agent") or "?" for e in eventos
+                        if (e.get("engine") or "") == "mock"
+                        and (e.get("ts") or 0) >= corte
+                        and (e.get("client_id") or "") != CLIENTE_DEMO})
+    if not culpables:
+        return []
+    return [f"corrieron en MOCK en los últimos {VENTANA_MOCK_MIN} min: "
+            + ", ".join(culpables)
+            + " — el motor real falló o algo se saltó la puerta de api.py"]
+
+
 def revisar() -> list:
     fallas = []
     for s in ("zero-backend", "zero-tunnel", "ollama"):
@@ -83,6 +130,7 @@ def revisar() -> list:
         fallas.append("el túnel público no responde (WhatsApp entrante caído)")
     if not _ollama_responde():
         fallas.append("el motor local no contesta (WhatsApp caería a la API paga)")
+    fallas.extend(_corrio_en_mock())
     return fallas
 
 
