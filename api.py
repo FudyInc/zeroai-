@@ -992,8 +992,37 @@ def _nonempty(r) -> bool:
 def _agent_op(fn, memory=None, crm=None):
     """Corre una operación de agente con el mejor cerebro; si el modelo 'live' falla
     en runtime (key inválida, modelo no disponible, Ollama inalcanzable) O devuelve
-    vacío, reintenta en mock para que el agente SIEMPRE responda.
-    fn(zero) -> result. Devuelve (result, mode)."""
+    vacío, reintenta en mock. fn(zero) -> result. Devuelve (result, mode).
+
+    ## Por qué esto degrada a mock y `_exigir_motor_real` no
+
+    Decía "para que el agente SIEMPRE responda", y eso contradecía de frente lo que
+    `986daca` adoptó en el resto del sistema: *una cifra falsa bien maquetada se lee
+    como real; es peor que una pantalla vacía que dice por qué está vacía.* La
+    contradicción era real y quedaba por omisión. La decisión, escrita:
+
+    **La regla no es "nunca degradar a mock". Es "nunca presentar como real algo que
+    no lo es".**
+
+    Lo que `_exigir_motor_real` corta son afirmaciones sobre el mundo que entran al
+    sistema de registro: costos que no se gastaron, CPL que nadie midió, leads con
+    nombre y empresa que no existen y quedan guardados en el CRM indistinguibles de
+    los reales. Un mock ahí miente y la mentira persiste.
+
+    Lo que pasa por acá no afirma nada sobre el mundo. Son borradores y juicios: un
+    pitch, una respuesta de CONCIERGE, tasas de conversión. El caso que parece la
+    excepción —el forecast, que son números— confirma la regla al mirarlo: `inputs`
+    son métricas reales del CRM, la aritmética es `project_funnel()` (determinista), y
+    el mock de ANALYST **no inventa tasas**: devuelve las de `FORECAST_RATES` en
+    config.py y lo dice ("Tasas base sin ajuste"). El forecast en mock es la
+    proyección base, que es una respuesta honesta y no una inventada.
+
+    La condición que hace válida esta asimetría es una sola: **`mode` tiene que llegar
+    visible hasta la pantalla.** Los cuatro consumidores lo declaran hoy — Campanas,
+    Vender, AgentTester y Forecast (este último desde `36a775b`, y era el que faltaba).
+    El día que uno deje de hacerlo, esto vuelve a ser el defecto que dice no ser; hay
+    un test estructural en `frontend/src/lib/modo-visible.test.js` que lo ata.
+    """
     mem = memory if memory is not None else make_memory(STATE_PATH)
     agents, mode = _agents_best()
     try:
@@ -1343,7 +1372,8 @@ def _informes_de_salud(dias: int):
             "cuando": d.get("cuando"),
             "hallazgos": len(hallazgos),
             "altos": len(altos),
-            "checks": [{"check": c.get("check"), "hallazgos": c.get("hallazgos")}
+            "checks": [{"check": c.get("check"), "hallazgos": c.get("hallazgos"),
+                        "estado": c.get("estado"), "motivo": c.get("motivo")}
                        for c in (d.get("checks") or []) if isinstance(c, dict)],
             "altos_detalle": [{"check": h.get("check"), "detalle": h.get("detalle"),
                                "evidencia": h.get("evidencia")} for h in altos],
