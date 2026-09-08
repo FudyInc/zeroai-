@@ -94,8 +94,14 @@ export const api = {
      los minutos que tarde el pipeline real: sirve para un script, pero deja al dashboard
      sin nada que mostrar mientras tanto. Estos tres devuelven al instante y el avance se
      lee por separado. El endpoint síncrono sigue existiendo a propósito. */
-  startPipeline: (body) =>
-    req('/api/pipeline/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  startPipeline: async (body) => {
+    try {
+      return await req(body.provider ? '/api/pipeline/start-selected' : '/api/pipeline/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    } catch (error) {
+      if (body.provider && error.status === 404) throw new Error('El servidor necesita actualizarse o reiniciarse para permitir elegir motor. No se inició la búsqueda.')
+      throw error
+    }
+  },
 
   /* 404 cuando la corrida no existe o el anillo de 20 ya la olvidó. Para la UI son el
      mismo caso —no hay nada que mostrar—, así que se deja pasar el error tal cual y lo
