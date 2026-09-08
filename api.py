@@ -18,7 +18,7 @@ import time
 import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -1215,7 +1215,36 @@ def whatsapp_simulate(body: Simulate):
             "quote": res.get("quote")}
 
 
+def _pipeline_agents(provider=None, source=None):
+    """Fija el motor de esta búsqueda sin alterar la selección de otras operaciones."""
+    if provider is None:
+        return _agents_best(source=source)  # clientes anteriores de la API
+    from zero.backends import AnthropicBackend, LocalBackend, OpenAIBackend
+
+    required = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY",
+                "qwen": "LOCAL_MODEL"}
+    setting = required[provider]
+    value = (os.environ.get(setting) or "").strip()
+    if not value:
+        raise HTTPException(status_code=503, detail=f"Configura {setting} para usar {provider} en esta búsqueda.")
+    try:
+        if provider == "openai":
+            backend = OpenAIBackend(api_key=value, model=(os.environ.get("OPENAI_MODEL") or "").strip() or "gpt-4o-mini")
+        elif provider == "anthropic":
+            backend = AnthropicBackend(api_key=value)
+        else:
+            if not value.lower().startswith("qwen"):
+                raise HTTPException(status_code=503, detail="El modelo local configurado no es Qwen. Configura LOCAL_MODEL con un modelo Qwen.")
+            backend = LocalBackend(model=value, base_url=os.environ.get("LOCAL_MODEL_URL") or "http://localhost:11434/v1")
+        return build_agents(backend=backend, mock=False, source=source), "live"
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=503, detail=f"No se pudo inicializar {provider}. Revisa su configuración en el servidor.") from None
+
+
 class RunRequest(BaseModel):
+    provider: Optional[Literal["openai", "anthropic", "qwen"]] = None
     client: str
     query: str
     tier: str = "GROWTH"
@@ -1252,14 +1281,14 @@ def _exigir_motor_real(mode: str) -> None:
 
 @app.post("/api/pipeline")
 def run_pipeline(req: RunRequest):
+    agents, mode = _pipeline_agents(req.provider, source=_discovery_source())
+    _exigir_motor_real(mode)
     crm = make_crm(CRM_PATH)
     memory = make_memory(STATE_PATH)
     memory.register_client(req.client, req.tier)
     # El mejor cerebro disponible + discovery web real. Sin fallback silencioso a
     # mock: una entrega con leads inventados sería mentirle al cliente — si el
     # motor real falla a mitad de pipeline, el resultado lo dice ({"error": etapa}).
-    agents, mode = _agents_best(source=_discovery_source())
-    _exigir_motor_real(mode)
     zero = Zero(agents, memory=memory, crm=crm, outbox=make_outbox())
     try:
         out = zero.run_pipeline(req.client, req.tier, req.query, count=req.count, icp=req.icp,
@@ -1267,6 +1296,7 @@ def run_pipeline(req: RunRequest):
     except ValueError as e:   # e.g. unknown tier
         raise HTTPException(status_code=400, detail=str(e))
     out["mode"] = mode
+    out["provider"] = req.provider
     return out
 
 
@@ -1287,14 +1317,14 @@ def start_pipeline(req: RunRequest, tareas: BackgroundTasks):
     """
     # La guardia va ANTES de crear la corrida: si no hay motor real, el usuario ve
     # el error al apretar el botón, no una corrida fantasma que falla en segundo plano.
-    _exigir_motor_real(_agents_best(source=_discovery_source())[1])
+    agents, mode = _pipeline_agents(req.provider, source=_discovery_source())
+    _exigir_motor_real(mode)
     run_id = runs.crear(req.client, req.query, req.tier)
 
     def correr():
         crm = make_crm(CRM_PATH)
         memory = make_memory(STATE_PATH)
         memory.register_client(req.client, req.tier)
-        agents, mode = _agents_best(source=_discovery_source())
         zero = Zero(agents, memory=memory, crm=crm, outbox=make_outbox())
 
         def avisar(**datos):
@@ -1318,7 +1348,7 @@ def start_pipeline(req: RunRequest, tareas: BackgroundTasks):
             runs.terminar(run_id, error=str(e))
 
     tareas.add_task(correr)
-    return {"run": run_id, "cliente": req.client, "consulta": req.query}
+    return {"run": run_id, "cliente": req.client, "consulta": req.query, "provider": req.provider}
 
 
 @app.get("/api/pipeline/progress")
