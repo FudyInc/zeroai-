@@ -72,7 +72,7 @@ export default function ArchitectureBrain() {
                 return <g key={a.name} className={`${selected === a.name ? 'is-selected' : ''} ${active.has(a.name) ? 'is-active' : ''}`}><path d={path} className="brain-wire" /><path d={path} className="brain-signal" /></g>
               })}
             </svg>
-            <div className={`brain-core ${fresh.length ? 'is-active' : ''}`}><div className="brain-orbit" /><div className="brain-orbit second" /><img src="/logo.png" width="78" height="78" alt="ZEROAI" /><strong>ZERO<span>AI</span></strong><span>ORQUESTADOR</span><small>Python · coordina y valida</small></div>
+            <div className={`brain-core ${fresh.length ? 'is-active' : ''}`}><div className="brain-orbit" /><div className="brain-orbit second" /><strong>ZERO</strong><span>ORQUESTADOR</span></div>
             {AGENTS.map(({ name, label, role, icon: Icon, x, y }) => {
               const entry = latestByAgent.get(name)
               return <button key={name} className={`brain-node ${selected === name ? 'is-selected' : ''} ${active.has(name) ? 'is-active' : ''}`} style={{ '--x': `${x}%`, '--y': `${y}%` }} onClick={() => select(name)} aria-pressed={selected === name} aria-label={`${label}: ${role}`}>
