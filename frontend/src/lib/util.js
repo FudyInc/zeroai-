@@ -36,3 +36,112 @@ export function repliedRecently(leads, channel) {
     return ev?.ts && new Date(ev.ts).getTime() >= cutoff
   }).length
 }
+
+/* --- El recorrido de un lead ------------------------------------------------------
+ *
+ * EL CARRIL SON 7 PASOS, NO LAS 9 ETAPAS DE `STAGES`.
+ *
+ * `disqualified` y `lost` no son pasos más adelante en el camino: son SALIDAS. La razón
+ * vive en el núcleo, no acá — zero/crm.py::_ORDER le da a `disqualified` el mismo rango
+ * que a `qualified`, y a `lost` el mismo que a `won`:
+ *
+ *     "new": 0, "qualified": 1, "disqualified": 1, "contacted": 2, ...
+ *
+ * O sea: un lead descartado NO está más avanzado que uno calificado. Dibujar las nueve
+ * en fila haría que la pantalla afirmara un progreso que el CRM nunca dijo. `ORDER`
+ * (arriba) sigue teniendo las nueve porque el Kanban necesita una columna por etapa,
+ * incluidas las salidas; son dos preguntas distintas y por eso son dos listas distintas.
+ */
+export const LANE = ['new', 'qualified', 'contacted', 'nurturing', 'replied', 'meeting', 'won']
+
+/* De qué paso cuelga cada salida — espejo de los rangos de _ORDER, no política nueva. */
+export const EXITS = { disqualified: 'qualified', lost: 'won' }
+
+/* Los dos extremos de un evento de etapa. `detail` tiene la forma "qualified →
+   contacted", y set_stage puede agregarle un motivo entre paréntesis (zero/crm.py:119).
+   Interesan AMBOS lados: el destino dice a dónde llegó, y el origen prueba dónde estuvo
+   — un lead cuyo único evento es "contacted → disqualified" alcanzó "contactado", y
+   leyendo solo destinos ese paso se perdía. */
+function stageEdge(detail) {
+  const [from, to] = String(detail || '').split('→')
+  const limpio = (x) => (x ? x.replace(/\s*\(.*$/, '').trim() || null : null)
+  return { from: limpio(from), to: to === undefined ? null : limpio(to) }
+}
+
+const shortDate = (ts) => {
+  if (!ts) return null
+  const d = new Date(ts)
+  return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString('es-CL', { day: 'numeric', month: 'short' })
+}
+
+/* Deriva el recorrido de un lead para dibujarlo. DERIVA, no decide: no hay ninguna
+   regla de negocio nueva acá, solo lectura del registro que ya manda el CRM. */
+export function leadRoute(lead) {
+  const stage = lead?.stage
+  /* `Array.isArray` y no `|| []`: si `history` viniera con otra forma, un `.filter`
+     sobre algo que no es lista tira una excepción y deja el tablero entero en blanco. */
+  const hist = Array.isArray(lead?.history) ? lead.history : []
+  const events = hist.filter((h) => h && h.event === 'stage')
+
+  /* Última vez que entró a esa etapa, no la primera: el recorrido no es monótono
+     (set_stage es incondicional, así que arrastrar una tarjeta hacia atrás en el
+     Kanban hace retroceder al lead de verdad). */
+  const arrivedAt = (st) => {
+    for (let i = events.length - 1; i >= 0; i--) {
+      if (stageEdge(events[i].detail).to === st) return events[i].ts || null
+    }
+    return null
+  }
+
+  const exitStage = EXITS[stage] ? stage : null
+
+  /* La posición la manda `lead.stage`, siempre — nunca se deduce del historial.
+     Si el lead salió del camino, el carril llega hasta el paso más lejano que sí
+     alcanzó: el ancla de su salida, o algo más adelante si el historial lo demuestra
+     (un lead contactado y después descartado llegó hasta "contactado"). */
+  let reached
+  if (exitStage) {
+    reached = LANE.indexOf(EXITS[exitStage])
+    for (const ev of events) {
+      const { from, to } = stageEdge(ev.detail)
+      for (const st of [from, to]) {
+        const i = LANE.indexOf(st)
+        if (i > reached) reached = i
+      }
+    }
+  } else {
+    reached = LANE.indexOf(stage)      // -1 si la etapa es desconocida: carril apagado
+  }
+
+  const steps = LANE.map((st, i) => ({
+    stage: st,
+    label: STAGES[st].l,
+    color: STAGES[st].c,
+    done: i <= reached,
+    current: !exitStage && i === reached,
+    /* Un paso cumplido puede no tener evento: `new` nunca se registra (upsert crea
+       el lead ya en esa etapa, zero/crm.py:84) y `advance` puede saltarse pasos.
+       Se muestra cumplido y SIN fecha — interpolarla sería inventar el dato. */
+    at: i <= reached ? shortDate(arrivedAt(st)) : null,
+  }))
+
+  const currentTs = arrivedAt(stage)
+  const days = currentTs ? Math.floor((Date.now() - new Date(currentTs).getTime()) / DAY_MS) : null
+
+  return {
+    steps,
+    reached,
+    pct: reached > 0 ? (reached * 100) / (LANE.length - 1) : 0,
+    color: (exitStage ? STAGES[exitStage] : STAGES[stage])?.c || '#94a3b8',
+    exit: exitStage
+      ? { label: STAGES[exitStage].l, color: STAGES[exitStage].c, at: shortDate(arrivedAt(exitStage)) }
+      : null,
+    /* El borrador esperando visto bueno es un SUB-ESTADO, no una etapa: vive entre
+       "calificado" y "contactado" y no se agrega a STAGES/ORDER. Definición canónica
+       en zero/crm.py::pending_outreach_count. */
+    pendingApproval: lead?.outreach?.status === 'draft',
+    /* Antigüedad en el punto actual. Sin evento que lleve a la etapa actual no se
+       muestra: no hay de dónde sacarla. */
+    days: days != null && days >= 0 ? days : null,
+  }
+}

@@ -8,6 +8,7 @@ import { useDismiss } from '../hooks/useDismiss'
 import { STAGES, scoreColor } from '../lib/util'
 import { Badge, Skeleton, Button, Input } from './ui'
 import ConversationThread from './ConversationThread'
+import LeadRoute from './LeadRoute'
 
 // Stages where the lead has been contacted but hasn't replied yet → offer to log a reply.
 const REPLYABLE = new Set(['contacted', 'nurturing'])
@@ -80,6 +81,8 @@ function LeadBody({ r, client, onClose }) {
       </div>
 
       <div className="text-sm text-zinc-600 mt-3">{r.email || r.phone || '—'} · canal {r.channel || '—'}</div>
+
+      <LeadRoute lead={r} />
 
       {r.icp_reasons?.length > 0 && (
         <div className="mt-4">

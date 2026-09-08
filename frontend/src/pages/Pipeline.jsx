@@ -9,6 +9,7 @@ import { Segmented } from '../components/Segmented'
 import { useApp } from '../App'
 import { NoClient } from './Dashboard'
 import { rise, fade, surface, stagger, staggerDense } from '../lib/motion'
+import LeadRoute from '../components/LeadRoute'
 
 const DENSITY = [{ value: 'comodo', label: 'Cómodo' }, { value: 'compacto', label: 'Compacto' }]
 
@@ -47,7 +48,7 @@ export default function Pipeline() {
   return (
     <motion.div initial="hidden" animate="show" variants={rise}>
       <motion.div className="flex items-center justify-between gap-3 mb-4" variants={fade}>
-        <div className="text-xs text-zinc-400">Arrastrá una tarjeta entre columnas para cambiar su etapa — o usá el menú. Tocala para ver el detalle.</div>
+        <div className="text-xs text-zinc-400">Arrastra una tarjeta entre columnas para cambiar su etapa — o usa el menú. Tócala para ver el detalle.</div>
         <Segmented options={DENSITY} value={dense} onChange={setDense} />
       </motion.div>
       <motion.div className="flex gap-4 overflow-x-auto pb-2" variants={stagger()} initial="hidden" animate="show">
@@ -87,6 +88,9 @@ export default function Pipeline() {
                       <div className={'font-semibold ' + (compact ? 'text-sm' : '')}>{r.company}</div>
                       <span className="font-extrabold tabular-nums" style={{ color: scoreColor(r.score) }}>{r.score ?? '—'}</span>
                     </div>
+                    {/* Va en ambas densidades: son 4px y en compacto es lo único que
+                        queda del recorrido, que es justo cuando más se agradece. */}
+                    <LeadRoute lead={r} compact />
                     {!compact && (
                       <>
                         <div className="text-xs text-zinc-500 mt-2">{r.role || '—'}</div>
@@ -101,7 +105,7 @@ export default function Pipeline() {
                 ))}
                 {leads.length === 0 && (
                   <div className="text-[12px] text-zinc-300 text-center py-6 border border-dashed border-zinc-200 rounded-xl">
-                    soltá aquí
+                    suelta aquí
                   </div>
                 )}
               </motion.div>
