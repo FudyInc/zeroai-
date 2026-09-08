@@ -224,3 +224,23 @@
 @media (prefers-reduced-motion: reduce) {
   .architecture-brain *, .architecture-brain *::before, .architecture-brain *::after { animation: none !important; transition: none !important; }
 }
+
+/* Historical execution and current configuration are different facts. */
+.brain-node-history-label { font-size: 8px; color: var(--brain-muted); margin-top: 3px; }
+.brain-route-label { font-size: 9px; color: var(--brain-muted); margin-top: 20px; }
+.brain-route-label + .brain-route { margin-top: 10px; }
+.brain-engine-context { margin: 20px 0; padding: 12px; border: 1px solid var(--brain-line); border-radius: 8px; background: var(--brain-surface); }
+.brain-engine-context > div + div { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--brain-line); }
+.brain-engine-context span, .brain-engine-context strong { display: block; font-size: 10px; line-height: 1.6; overflow-wrap: anywhere; }
+.brain-engine-context span { color: var(--brain-muted); }
+.brain-engine-context strong { font-weight: 500; }
+.brain-engine-context p { margin-top: 12px; font-size: 9px; }
+@container (max-width: 860px) {
+  .brain-route-label { grid-column: 1; }
+  .brain-engine-context { grid-column: 2; grid-row: 1 / 5; align-self: start; }
+  .brain-detail dl { grid-column: 1; grid-row: auto; }
+  .brain-detail-note { grid-column: 2; }
+}
+@container (max-width: 340px) {
+  .brain-map { height: 530px; }
+}
