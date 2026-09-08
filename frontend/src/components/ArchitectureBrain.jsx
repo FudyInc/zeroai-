@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { motion, useReducedMotion } from 'framer-motion'
 import { Activity, BrainCircuit, Cpu, Radio, Pause, Play, ArrowUpRight, ArrowRight, ShieldCheck, RefreshCw } from 'lucide-react'
 import { api } from '../lib/api'
+import { architectureActivity } from '../lib/architecture-activity'
 import { AGENTS, PIPELINE, TECHNOLOGIES, BRAND_MARKS, duration, statusLabel, engineLabel, timeAgo } from './architecture-data'
 import './architecture-brain.css'
 
@@ -24,21 +25,21 @@ export default function ArchitectureBrain() {
   const [filter, setFilter] = useState('all')
   const [expanded, setExpanded] = useState(false)
   const reduced = useReducedMotion()
-  const q = useQuery({ queryKey: ['agents-telemetry'], queryFn: () => api.agentsTelemetry(40), refetchInterval: 5000, refetchIntervalInBackground: false })
+  const q = useQuery({ queryKey: ['agents-telemetry', 'operational'], queryFn: () => api.agentsTelemetry(200), refetchInterval: 5000, refetchIntervalInBackground: false })
   useEffect(() => {
     const timer = setInterval(() => { if (!document.hidden) setNow(Date.now()) }, 1000)
     return () => clearInterval(timer)
   }, [])
-  const { agentes = [], recientes = [], eventos = 0, max_eventos = 200 } = q.data || {}
+  const { agentes, recientes, eventos, max_eventos } = useMemo(() => architectureActivity(q.data), [q.data])
   const { statsByAgent, latestByAgent, engines } = useMemo(() => {
     const statsByAgent = new Map(), latestByAgent = new Map(), engines = new Set()
-    for (const entry of q.data?.agentes || []) {
+    for (const entry of agentes) {
       statsByAgent.set(entry.agent, entry)
       for (const engine of entry.engines || []) engines.add(engine)
     }
-    for (const entry of q.data?.recientes || []) if (!latestByAgent.has(entry.agent)) latestByAgent.set(entry.agent, entry)
+    for (const entry of recientes) if (!latestByAgent.has(entry.agent)) latestByAgent.set(entry.agent, entry)
     return { statsByAgent, latestByAgent, engines: [...engines] }
-  }, [q.data])
+  }, [agentes, recientes])
   const fresh = recientes.filter(e => now / 1000 - e.ts >= 0 && now / 1000 - e.ts < 12 && !q.isError)
   const active = new Set(fresh.map(e => e.agent))
   const agent = AGENTS.find(a => a.name === selected)
@@ -56,7 +57,7 @@ export default function ArchitectureBrain() {
         <div className="brain-header-actions"><div className={`brain-connection ${q.isError ? 'is-error' : ''}`} role="status"><Radio size={14} />{q.isLoading ? 'Conectando' : q.isError ? 'Sin conexión' : 'Telemetría conectada'}</div><button className="brain-control" onClick={() => setAnimated(v => !v)} aria-pressed={!animated} disabled={!!reduced}>{animated && !reduced ? <Pause size={13} /> : <Play size={13} />}{reduced ? 'Movimiento reducido' : animated ? 'Pausar animación' : 'Activar animación'}</button></div>
       </header>
       <div className="brain-metrics">
-        <div><span>Ejecuciones registradas</span><strong>{q.data ? eventos : '—'}</strong><small>Ventana de {max_eventos} registros</small></div>
+        <div><span>Ejecuciones operativas</span><strong>{q.data ? eventos : '—'}</strong><small>Dentro de los últimos {max_eventos} registros</small></div>
         <div><span>Agentes del mapa con actividad</span><strong>{q.data ? observed : '—'}<small> / 6</small></strong><small>Especialistas coordinados por ZERO</small></div>
         <div><span>Motores reportados</span><strong>{q.data ? engines.length : '—'}</strong><small>{engines.length ? engines.map(engineLabel).join(' · ') : 'Aparecen con la primera ejecución'}</small></div>
         <div><span>Estado de la actividad</span><strong className="brain-metric-state"><span className={`brain-dot ${fresh.length ? 'is-active' : ''}`} />{q.isError ? 'Desconectado' : fresh.length ? 'Actividad reciente' : q.isLoading ? 'Conectando…' : 'En espera'}</strong><small>{q.dataUpdatedAt ? `Datos actualizados ${timeAgo(q.dataUpdatedAt / 1000, now)}` : 'Consulta automática cada 5 segundos'}</small></div>
@@ -87,7 +88,7 @@ export default function ArchitectureBrain() {
           <motion.div key={selected} initial={{ opacity: 0, y: reduced ? 0 : 5 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .18 }}>
             <div className="brain-detail-title"><agent.icon size={23} /><h3>{agent.label}</h3></div><p>{agent.role}</p>
             <div className="brain-route-label">Ruta de referencia</div><div className="brain-route"><span><Cpu size={14} /> ZERO asigna la tarea</span><b>↓</b><span>{agent.label} procesa</span><b>↕</b><span><BrainCircuit size={14} /> Motor según la tarea</span></div>
-            <div className="brain-engine-context"><div><span>Motor de la última ejecución</span><strong>{latest ? engineLabel(latest.engine) : 'Sin registro reciente'}</strong></div><div><span>Motor configurado actualmente</span><strong>No informado por la telemetría</strong></div><p>Un registro simulado no indica que el agente esté configurado en mock hoy.</p></div>
+            <div className="brain-engine-context"><div><span>Motor de la última ejecución</span><strong>{latest ? engineLabel(latest.engine) : 'Sin registro reciente'}</strong></div><div><span>Motor configurado actualmente</span><strong>No informado por la telemetría</strong></div><p>La última ejecución describe un resultado anterior, no la configuración actual.</p></div>
             <dl><div><dt>Ejecuciones</dt><dd>{q.isLoading ? '—' : stats?.corridas ?? 0}</dd></div><div><dt>Duración típica</dt><dd>{stats ? duration(stats.ms_mediana) : '—'}</dd></div><div><dt>Errores</dt><dd>{q.isLoading ? '—' : stats?.errores ?? 0}</dd></div><div><dt>Último resultado</dt><dd className={latest?.status === 'error' ? 'brain-text-error' : ''}>{statusLabel(latest?.status)}</dd></div></dl>
             <div className="brain-detail-note">{latest ? <>{timeAgo(latest.ts, now)} · {duration(latest.ms)}<div className="brain-io"><span><b>{(latest.in_chars ?? 0).toLocaleString('es-CL')}</b> caracteres de entrada</span><ArrowRight size={13} /><span><b>{(latest.out_chars ?? 0).toLocaleString('es-CL')}</b> caracteres de salida</span></div></> : 'Sin ejecuciones de este agente en los últimos registros disponibles.'}</div>
           </motion.div>
@@ -111,12 +112,12 @@ export default function ArchitectureBrain() {
         <SectionHeading number="04" title="Pulso de la operación" detail="Resultados reales, sin contenido de conversaciones." />
         <div className="brain-activity-layout"><aside className="brain-distribution"><h4>Trabajo por agente</h4><p>Distribución de las últimas {eventos} ejecuciones</p>{agentes.length ? agentes.map(a => <div className="brain-distribution-row" key={a.agent}><div><span>{a.agent}</span><b>{a.corridas}</b></div><div className="brain-bar"><span style={{ width: `${a.corridas / maxRuns * 100}%` }} /></div></div>) : <p>{q.isLoading ? 'Cargando métricas…' : 'Sin registros disponibles'}</p>}</aside>
           <div className="brain-feed"><div className="brain-feed-heading"><label htmlFor="brain-event-filter">Ejecuciones <span>({filtered.length})</span></label><select id="brain-event-filter" value={filter} onChange={e => { setFilter(e.target.value); setExpanded(false) }}><option value="all">Todos los agentes</option><option value="selected">Solo {agent.label}</option><option value="errors">Solo errores</option></select><button className="brain-control brain-refresh" onClick={() => q.refetch()} disabled={q.isFetching} aria-label="Actualizar actividad"><RefreshCw size={14} /></button></div>
-            {q.isLoading ? <p className="brain-empty">Cargando actividad…</p> : !filtered.length ? <div className="brain-empty"><Activity size={24} /><p>{q.isError ? 'La actividad no está disponible. Reintenta la conexión.' : recientes.length ? 'No hay ejecuciones que coincidan con este filtro.' : 'Esperando la primera ejecución. El mapa se iluminará al recibir resultados.'}</p></div> : <div className="brain-event-list">{filtered.slice(0, expanded ? 40 : 6).map((e, i) => <button className="brain-event" key={`${e.task_id}-${e.ts}-${i}`} onClick={() => { if (AGENTS.some(a => a.name === e.agent)) setSelected(e.agent) }}><span className={`brain-event-status ${e.status}`}>{statusLabel(e.status)}</span><span className="brain-event-identity"><strong>{e.agent}</strong><span title={e.engine}>{engineLabel(e.engine)}</span></span><span className="brain-event-timing">{duration(e.ms)}<time dateTime={new Date(e.ts * 1000).toISOString()}>{timeAgo(e.ts, now)}</time></span></button>)}</div>}
+            {q.isLoading ? <p className="brain-empty">Cargando actividad…</p> : !filtered.length ? <div className="brain-empty"><Activity size={24} /><p>{q.isError ? 'La actividad no está disponible. Reintenta la conexión.' : recientes.length ? 'No hay ejecuciones que coincidan con este filtro.' : 'Esperando la primera ejecución. El mapa se iluminará al recibir resultados.'}</p></div> : <div className="brain-event-list">{filtered.slice(0, expanded ? 200 : 6).map((e, i) => <button className="brain-event" key={`${e.task_id}-${e.ts}-${i}`} onClick={() => { if (AGENTS.some(a => a.name === e.agent)) setSelected(e.agent) }}><span className={`brain-event-status ${e.status}`}>{statusLabel(e.status)}</span><span className="brain-event-identity"><strong>{e.agent}</strong><span title={e.engine}>{engineLabel(e.engine)}</span></span><span className="brain-event-timing">{duration(e.ms)}<time dateTime={new Date(e.ts * 1000).toISOString()}>{timeAgo(e.ts, now)}</time></span></button>)}</div>}
             {filtered.length > 6 && <button className="brain-show-more" onClick={() => setExpanded(v => !v)}>{expanded ? 'Ver menos' : `Ver las ${filtered.length} ejecuciones`} <ArrowUpRight size={13} /></button>}
           </div>
         </div>
       </div>
-      <footer className="brain-footer"><img src="/logo-mark.png" width="22" height="22" alt="" /><p>Los pulsos representan ejecuciones finalizadas, no llamadas en curso. Los motores son los reportados por el backend; el registro no distingue todos los cambios a un motor de respaldo. Mock indica una simulación.</p><span>ZEROAI / ARQUITECTURA</span></footer>
+      <footer className="brain-footer"><img src="/logo-mark.png" width="22" height="22" alt="" /><p>Los pulsos representan ejecuciones finalizadas, no llamadas en curso. Los motores son los reportados por el backend; el registro no distingue todos los cambios a un motor de respaldo.</p><span>ZEROAI / ARQUITECTURA</span></footer>
     </section>
   )
 }
