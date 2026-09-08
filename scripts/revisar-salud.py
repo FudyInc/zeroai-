@@ -74,12 +74,18 @@ def _ollama_responde() -> bool:
 # una ventana un poco mayor evita que un evento caiga justo entre dos revisiones.
 VENTANA_MOCK_MIN = 45
 
-# El cliente demo. `scripts/auditar.py` corre el pipeline en mock contra él en cada
-# auditoría (`main.py --client acme`, el comando canónico de CLAUDE.md) y la suite hace
-# lo mismo. Sin excluirlo el detector gritaría todos los días por su propio trabajo —
-# medido: 184 eventos en mock en 45 minutos, los 184 de `acme`. Un aviso que suena
-# siempre se ignora, y el día que importe nadie lo va a mirar.
-CLIENTE_DEMO = "acme"
+# Clientes que NO son producción. Sin excluirlos el detector gritaría por el trabajo
+# de la propia casa, y un aviso que suena siempre se ignora justo el día que importa.
+#
+#   auditoria → scripts/auditar.py:99 corre el pipeline en mock contra este cliente en
+#               CADA auditoría, o sea al menos una vez al día.
+#   acme      → el cliente del comando canónico de CLAUDE.md, el que se teclea a mano
+#               para probar algo.
+#
+# La suite ya no aparece acá: desde tests/__init__.py escribe su telemetría en un
+# temporal, no en la de producción. Antes inventaba client_id propios (`listable`,
+# `vocabulario`, `veloz`) y no había forma de excluirlos por nombre.
+CLIENTES_NO_PRODUCCION = ("auditoria", "acme")
 
 
 def _corrio_en_mock() -> list:
@@ -108,7 +114,7 @@ def _corrio_en_mock() -> list:
     culpables = sorted({e.get("agent") or "?" for e in eventos
                         if (e.get("engine") or "") == "mock"
                         and (e.get("ts") or 0) >= corte
-                        and (e.get("client_id") or "") != CLIENTE_DEMO})
+                        and (e.get("client_id") or "") not in CLIENTES_NO_PRODUCCION})
     if not culpables:
         return []
     return [f"corrieron en MOCK en los últimos {VENTANA_MOCK_MIN} min: "
