@@ -907,8 +907,15 @@ def _sin_motor(que: str):
 
 
 def _agents_best(source=None):
-    """El mejor cerebro disponible: Anthropic (pago) → modelo local (gratis, Ollama).
+    """El mejor cerebro disponible: Anthropic → OpenAI → modelo local (Ollama).
     El local se activa con LOCAL_MODEL en el entorno (sin costo por token).
+
+    OJO CON EL ORDEN, que es anterior a este cambio y contradice
+    `[[zero-cost-policy]]`: los dos pagados se intentan ANTES que el local, que es
+    gratis. Hoy da lo mismo porque no hay ninguna key configurada, pero el día que se
+    ponga una, ZERO empieza a cobrar sin que nadie lo pida. `zero/alerts.py` avisa de
+    ese evento en el canal de WhatsApp; en el resto del sistema, no. Decisión pendiente
+    de Diego: no la cambio de mi cuenta porque invertirla altera qué motor corre.
     Ignora valores vacíos/espacios (un env declarado pero sin valor NO activa 'live').
     `source` (discovery real) se pasa a los agentes en cualquiera de los dos modos.
 
@@ -918,6 +925,15 @@ def _agents_best(source=None):
         try:
             from zero.backends import AnthropicBackend
             return build_agents(backend=AnthropicBackend(api_key=key), mock=False, source=source), "live"
+        except Exception:
+            pass
+    openai_key = (os.environ.get("OPENAI_API_KEY") or "").strip()
+    if openai_key:
+        try:
+            from zero.backends import OpenAIBackend
+            modelo = (os.environ.get("OPENAI_MODEL") or "").strip() or "gpt-4o-mini"
+            return build_agents(backend=OpenAIBackend(model=modelo, api_key=openai_key),
+                                mock=False, source=source), "live"
         except Exception:
             pass
     local = (os.environ.get("LOCAL_MODEL") or "").strip()
