@@ -157,5 +157,44 @@ class SinMotorNoHayRespuestaTest(unittest.TestCase):
         self.assertIn("ANTHROPIC_API_KEY", detalle)
 
 
+class UnAgenteRealNoSeVuelveMockSolo(unittest.TestCase):
+    """La puerta más profunda, y la que era el comportamiento POR DEFECTO.
+
+    `BaseAgent.__init__` hacía `self.mock = mock or backend is None`, así que pedir
+    explícitamente un agente real sin backend devolvía un mock igual, sin decir nada:
+
+        build_agents(mock=False)["PROSPECTOR"].mock  → True
+
+    Nadie la alcanzaba en producción —todas las llamadas pasan backend o piden mock a
+    propósito—, pero es la que se cuela sola el día que alguien agregue un sitio y
+    olvide el backend. Se cerró el 2026-09-08 junto con las de api.py.
+    """
+
+    def test_pedir_real_sin_backend_es_un_error(self):
+        from zero.agents import build_agents
+        with self.assertRaises(ValueError) as ctx:
+            build_agents(mock=False)
+        self.assertIn("backend", str(ctx.exception))
+
+    def test_el_error_dice_las_dos_salidas(self):
+        """Un error que no dice qué hacer manda a la gente a poner mock=True a ciegas."""
+        from zero.agents import build_agents
+        with self.assertRaises(ValueError) as ctx:
+            build_agents()
+        msg = str(ctx.exception)
+        self.assertIn("Pasa un backend", msg)
+        self.assertIn("mock=True", msg)
+
+    def test_pedir_mock_a_proposito_sigue_funcionando(self):
+        """El mock explícito es legítimo: lo usa la suite entera."""
+        from zero.agents import build_agents
+        self.assertTrue(build_agents(mock=True)["PROSPECTOR"].mock)
+
+    def test_con_backend_no_es_mock(self):
+        from zero.agents import build_agents
+        agentes = build_agents(backend=object(), mock=False)
+        self.assertFalse(agentes["PROSPECTOR"].mock)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -23,8 +23,26 @@ class BaseAgent:
 
     def __init__(self, backend: Any = None, mock: bool = False, source: Any = None):
         self.backend = backend
-        # No backend means we cannot do a live call — fall back to mock.
-        self.mock = mock or backend is None
+        # Antes acá decía: "No backend means we cannot do a live call — fall back to
+        # mock", y `self.mock = mock or backend is None`. O sea que pedir `mock=False`
+        # sin backend devolvía un mock lo mismo, en silencio:
+        #
+        #     build_agents(mock=False)["PROSPECTOR"].mock  → True
+        #
+        # Es la misma puerta que se cerró en api.py el 2026-09-08, una capa más abajo y
+        # como comportamiento POR DEFECTO de todo agente. Hoy nadie la alcanza —todas
+        # las llamadas de producción pasan backend o piden `mock=True` a propósito— pero
+        # es la que se cuela sola el día que alguien agregue un sitio y olvide el
+        # backend, y se colaría sin ruido.
+        #
+        # Ahora pedir un agente real sin con qué serlo es un error, no un mock.
+        if backend is None and not mock:
+            raise ValueError(
+                f"{type(self).name if hasattr(type(self), 'name') else 'agente'}: se pidió "
+                "un agente real (mock=False) sin backend. Pasa un backend o pide mock=True "
+                "explícitamente — ZERO no cae a mock en silencio (ver CLAUDE.md, principio 1)."
+            )
+        self.mock = mock
         # Optional discovery source; only PROSPECTOR uses it.
         self.source = source
 
