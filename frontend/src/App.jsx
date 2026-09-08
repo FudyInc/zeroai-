@@ -251,7 +251,9 @@ function RunModal({ open, onClose, onStarted }) {
   const EMPTY_ICP = { sells: '', industry: '', roles: '', companySize: '', regions: '', mustHave: '', exclude: '', context: '' }
   // Sin cliente por defecto: con acme, demo, heladerias y zeroai ya borrados del CRM, ese
   // default resucitaba un cliente de prueba en la base real con solo abrir el modal.
-  const [form, setForm] = useState({ client: '', tier: 'GROWTH', query: '', count: 8, autoSend: false, ...EMPTY_ICP })
+  const [form, setForm] = useState({ client: '', tier: 'GROWTH', query: '', count: 8, autoSend: false, provider: '', ...EMPTY_ICP })
+  const [starting, setStarting] = useState(false)
+  const [runError, setRunError] = useState('')
   const [showIcp, setShowIcp] = useState(false)
   const [icpLoaded, setIcpLoaded] = useState(false)
 
@@ -289,6 +291,8 @@ function RunModal({ open, onClose, onStarted }) {
   // (toast.promise) que vive independiente del modal/componente — aunque
   // Diego navegue a otra página, el toast lo sigue avisando cuando termine.
   const run = () => {
+    if (starting || !form.provider) return
+    setRunError('')
     const icp = {}
     if (form.sells.trim()) icp.sells = form.sells.trim()
     if (form.industry.trim()) icp.industry = form.industry.trim()
@@ -305,7 +309,9 @@ function RunModal({ open, onClose, onStarted }) {
        tarda la corrida real y solo devuelve algo al final: el único rastro era un toast.
        Ahora arranca y responde al instante, y el avance se ve empresa por empresa en la
        pantalla de Leads, que es donde uno quiere estar mirando mientras corre. */
+    setStarting(true)
     api.startPipeline({
+      provider: form.provider,
       client: targetClient,
       tier: form.tier,
       query: form.query.trim() || 'leads B2B',
@@ -314,25 +320,40 @@ function RunModal({ open, onClose, onStarted }) {
       ...(Object.keys(icp).length ? { icp } : {}),
     })
       .then((d) => {
+        setClient(targetClient)
+        onClose()
         onStarted?.(d.run)
         nav('/leads')
       })
-      .catch((e) => toast.error(`No se pudo arrancar la búsqueda para "${targetClient}": ${e.message}`))
-
-    setClient(targetClient)
-    onClose()
+      .catch((e) => setRunError(`No se pudo iniciar la búsqueda: ${e.message}`))
+      .finally(() => setStarting(false))
   }
 
   return (
     <AnimatePresence>
       {open && (
         <motion.div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
-          <motion.div className="bg-white dark:bg-zinc-50 rounded-2xl max-w-md w-full p-6 space-y-4"
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { if (!starting) onClose() }}>
+          <motion.div className="bg-white dark:bg-zinc-50 rounded-2xl max-w-md w-full p-6 space-y-4 max-h-[90dvh] overflow-y-auto"
             initial={{ opacity: 0, scale: 0.96, y: 12 }} animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: 12 }} transition={{ type: 'spring', stiffness: 320, damping: 28 }}
             onClick={(e) => e.stopPropagation()}>
             <div className="text-lg font-bold">Buscar leads</div>
+            <fieldset disabled={starting}>
+              <legend className="text-sm font-medium mb-2">¿Qué motor quieres usar?</legend>
+              <div className="grid grid-cols-3 gap-2">
+                {[['openai', 'OpenAI', 'API de pago'], ['anthropic', 'Anthropic', 'API de pago'], ['qwen', 'Qwen', 'Modelo local']].map(([value, label, detail]) => (
+                  <label key={value} className={`rounded-xl border p-3 text-center cursor-pointer ${form.provider === value ? 'border-gold bg-gold/10' : 'border-zinc-200'}`}>
+                    <input type="radio" name="pipeline-provider" value={value} checked={form.provider === value}
+                      onChange={() => { setForm(f => ({ ...f, provider: value })); setRunError('') }} className="accent-gold" />
+                    <span className="block text-sm font-semibold mt-1">{label}</span>
+                    <span className="block text-[11px] text-zinc-500 mt-1">{detail}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-zinc-500 mt-2">Se usará solo en esta búsqueda. Si no está disponible, te avisaremos.</p>
+            </fieldset>
+            {runError && <p role="alert" className="text-sm text-rose-600">{runError}</p>}
             <div className="grid grid-cols-2 gap-3">
               <div><label className="block text-xs text-zinc-500 mb-1">Cliente</label>
                 <Input value={form.client} onChange={(e) => { setForm({ ...form, client: e.target.value }); setIcpLoaded(false) }} placeholder="nombre del cliente" /></div>
@@ -394,8 +415,8 @@ function RunModal({ open, onClose, onStarted }) {
             </div>
 
             <div className="flex justify-end gap-2 pt-1">
-              <Button variant="ghost" onClick={onClose}>Cancelar</Button>
-              <Button variant="accent" onClick={run}>Correr</Button>
+              <Button variant="ghost" onClick={onClose} disabled={starting}>Cancelar</Button>
+              <Button variant="accent" onClick={run} disabled={starting || !form.provider}>{starting ? 'Iniciando…' : 'Iniciar búsqueda'}</Button>
             </div>
           </motion.div>
         </motion.div>
