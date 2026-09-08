@@ -118,13 +118,27 @@ ACEPTACIÓN — todo verificable corriendo
   2. cd frontend && npm run build                  → verde, sin warnings nuevos
   3. git diff --stat frontend/package.json frontend/package-lock.json  → VACÍO
   4. grep -rnE "Arrastrá|usá |Tocala|soltá" frontend/src  → 0 resultados
-  5. Abre el dashboard (./start.sh) y comprueba los cuatro casos, con captura o descripción:
+  5. Los cuatro casos del carril. OJO CON LOS DATOS (corregido el 2026-09-07):
+     Tras 986daca el CRM real quedó con UN solo cliente, `Petlabs`, y 5 leads: 4 en
+     `qualified` y 1 en `disqualified`. No hay ninguno en `new`, ninguno en `won` y ninguno
+     con borrador pendiente, así que tres de los cuatro casos NO se pueden ver contra la
+     base real.
+
+     NO muevas leads de Petlabs por las etapas para probar: son datos de un cliente real y,
+     con Supabase configurado, cada movimiento se escribe en la nube — `make_crm`
+     (zero/store.py:23) ignora `CRM_PATH` y usa SupabaseCRM en cuanto hay SUPABASE_URL y
+     SUPABASE_KEY.
+
+     Levanta el backend contra un CRM local desechable, apagando Supabase en esa corrida:
+       SUPABASE_URL= SUPABASE_KEY= CRM_PATH=/tmp/crm-carril.json python3 -m uvicorn api:app
+     y siembra ahí los leads que necesites. Con eso comprueba, con captura o descripción:
      a. Lead en `new`          → primer punto encendido, resto apagado, sin fecha.
      b. Lead con outreach.status === 'draft' → la marca de "esperando tu visto bueno" aparece entre
         calificado y contactado, y lleva a /aprobar al hacer clic.
      c. Lead en `won`          → carril completo, relleno hasta el final.
      d. Lead en `disqualified` → el carril llega hasta donde llegó y muestra la salida, NO un punto
         al final de la fila. Este es el caso que separa un buen trabajo de uno que miente.
+        Este SÍ es comprobable contra la base real: Petlabs tiene uno.
   6. Kanban: la mini-barra se ve en cómodo y en compacto, y arrastrar una tarjeta entre columnas
      sigue funcionando.
   7. Con "reducir movimiento" activo: el carril aparece sin desplazamiento y el relleno salta al
