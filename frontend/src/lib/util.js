@@ -54,8 +54,8 @@ export function repliedRecently(leads, channel) {
  */
 export const LANE = ['new', 'qualified', 'contacted', 'nurturing', 'replied', 'meeting', 'won']
 
-/* De qué paso cuelga cada salida — espejo de los rangos de _ORDER, no política nueva. */
-export const EXITS = { disqualified: 'qualified', lost: 'won' }
+/* Los rangos del CRM impiden retrocesos automáticos; no prueban pasos recorridos. */
+const EXITS = new Set(['disqualified', 'lost'])
 
 /* Los dos extremos de un evento de etapa. `detail` tiene la forma "qualified →
    contacted", y set_stage puede agregarle un motivo entre paréntesis (zero/crm.py:119).
@@ -93,15 +93,15 @@ export function leadRoute(lead) {
     return null
   }
 
-  const exitStage = EXITS[stage] ? stage : null
+  const exitStage = EXITS.has(stage) ? stage : null
 
   /* La posición la manda `lead.stage`, siempre — nunca se deduce del historial.
      Si el lead salió del camino, el carril llega hasta el paso más lejano que sí
-     alcanzó: el ancla de su salida, o algo más adelante si el historial lo demuestra
+     alcanzó según el historial
      (un lead contactado y después descartado llegó hasta "contactado"). */
   let reached
   if (exitStage) {
-    reached = LANE.indexOf(EXITS[exitStage])
+    reached = -1
     for (const ev of events) {
       const { from, to } = stageEdge(ev.detail)
       for (const st of [from, to]) {
