@@ -125,12 +125,15 @@ ACEPTACIÓN — todo verificable corriendo
      base real.
 
      NO muevas leads de Petlabs por las etapas para probar: son datos de un cliente real y,
-     con Supabase configurado, cada movimiento se escribe en la nube — `make_crm`
+     con Supabase configurado, cada movimiento se escribe en la nube. `make_crm`
      (zero/store.py:23) ignora `CRM_PATH` y usa SupabaseCRM en cuanto hay SUPABASE_URL y
-     SUPABASE_KEY.
+     SUPABASE_KEY — apuntar el path NO basta, hay que apagar Supabase en esa corrida.
+     Y `make_memory` (zero/store.py:29) hace exactamente lo mismo con `STATE_PATH`: si lo
+     dejas apuntando a la nube, sembrar un cliente de prueba te escribe en el `app_state`
+     real, que es justo lo que se acaba de limpiar. Van los DOS paths o ninguno.
 
-     Levanta el backend contra un CRM local desechable, apagando Supabase en esa corrida:
-       SUPABASE_URL= SUPABASE_KEY= CRM_PATH=/tmp/crm-carril.json python3 -m uvicorn api:app
+     Levanta el backend contra almacenamiento local desechable:
+       SUPABASE_URL= SUPABASE_KEY= CRM_PATH=/tmp/crm-carril.json STATE_PATH=/tmp/state-carril.json python3 -m uvicorn api:app
      y siembra ahí los leads que necesites. Con eso comprueba, con captura o descripción:
      a. Lead en `new`          → primer punto encendido, resto apagado, sin fecha.
      b. Lead con outreach.status === 'draft' → la marca de "esperando tu visto bueno" aparece entre
