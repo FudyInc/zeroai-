@@ -21,8 +21,15 @@ from .crm import CRM
 load_env()
 
 # columns that map 1:1 between record and row (lead_key/key handled separately)
+#
+# Tiene que cubrir `crm._FIELDS` entero. Faltaban `activity`, `activity_category`,
+# `source` y `segment`, así que todo lead que llegaba a la nube perdía en silencio su
+# rubro, su origen y su segmento — el mismo defecto que se cerró entre contracts.Lead y
+# crm._FIELDS el 2026-09-05, una capa más afuera y esta vez contra producción.
+# `tests/test_contracts.py` ancla las tres listas juntas para que no vuelva a pasar.
 _PLAIN = ("client_id", "company", "name", "role", "email", "phone", "domain",
-          "score", "channel", "stage", "created", "updated")
+          "score", "channel", "stage", "created", "updated",
+          "activity", "activity_category", "source", "segment")
 _JSONB = ("icp_reasons", "outreach", "tags", "history")
 
 
