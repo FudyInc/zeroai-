@@ -52,22 +52,19 @@
 .brain-signal { opacity: 0; stroke: var(--brain-gold); stroke-width: 2.5; stroke-dasharray: 4 40; stroke-linecap: round; }
 .is-active .brain-signal { opacity: 1; animation: brain-flow 2.4s linear infinite; }
 .brain-core { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 170px; height: 170px; border-radius: 50%; border: 1px solid color-mix(in srgb, var(--brain-gold) 60%, transparent); background: var(--brain-surface); box-shadow: 0 0 55px color-mix(in srgb, var(--brain-gold) 12%, transparent), inset 0 0 30px color-mix(in srgb, var(--color-champagne) 10%, transparent); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
-.brain-core img { width: 70px; height: 70px; object-fit: contain; }
-.brain-core strong { font-family: var(--font-display); font-size: 20px; letter-spacing: -.05em; font-weight: 800; line-height: 1.1; }
-.brain-core strong span { color: var(--brain-accent); }
-.brain-core > span { font-size: 8px; color: var(--brain-accent); letter-spacing: .16em; }
-.brain-core small { font-size: 8px; color: var(--brain-muted); }
+.brain-core strong { font-family: var(--font-display); font-size: 34px; letter-spacing: -.05em; font-weight: 800; line-height: 1; }
+.brain-core > span { font-size: 9px; color: var(--brain-accent); letter-spacing: .18em; }
 .brain-orbit { position: absolute; inset: -12px; border: 1px solid color-mix(in srgb, var(--brain-gold) 25%, transparent); border-radius: 50%; pointer-events: none; }
 .brain-orbit.second { inset: -25px; border-style: dashed; opacity: .6; }
 .brain-core.is-active .brain-orbit { animation: brain-pulse 2.4s ease-out infinite; }
-.brain-node { position: absolute; left: var(--x); top: var(--y); transform: translate(-50%, -50%); width: 142px; padding: 12px 13px 10px; border: 1px solid var(--brain-line); border-radius: 13px; background: var(--brain-surface); display: flex; flex-direction: column; gap: 5px; text-align: left; box-shadow: 0 3px 12px color-mix(in srgb, var(--color-brand-surface) 4%, transparent); transition: background .2s, border-color .2s, box-shadow .2s; }
+.brain-node { position: absolute; left: var(--x); top: var(--y); transform: translate(-50%, -50%); width: 142px; min-height: 104px; padding: 12px 13px 10px; border: 1px solid var(--brain-line); border-radius: 13px; background: var(--brain-surface); display: flex; flex-direction: column; gap: 5px; text-align: left; box-shadow: 0 3px 12px color-mix(in srgb, var(--color-brand-surface) 4%, transparent); transition: background .2s, border-color .2s, box-shadow .2s; }
 .brain-node:hover, .brain-node.is-selected { border-color: var(--brain-gold); background: color-mix(in srgb, var(--brain-surface) 95%, var(--brain-gold)); box-shadow: 0 4px 22px color-mix(in srgb, var(--brain-gold) 13%, transparent); }
 .brain-node-top { display: flex; align-items: center; justify-content: space-between; width: 100%; margin-bottom: 3px; }
 .brain-node-icon { color: var(--brain-accent); }
 .brain-node-count { display: flex; align-items: center; gap: 4px; font-size: 9px; color: var(--brain-muted); font-variant-numeric: tabular-nums; }
 .brain-node strong { font-family: var(--font-display); font-size: 11px; font-weight: 700; letter-spacing: -.025em; }
 .brain-node-engine { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; color: var(--brain-muted); }
-.brain-node small { font-size: 8px; color: var(--brain-muted); padding-top: 5px; border-top: 1px solid var(--brain-line); margin-top: 3px; width: 100%; }
+.brain-node small { font-size: 8px; color: var(--brain-muted); padding-top: 5px; border-top: 1px solid var(--brain-line); margin-top: auto; width: 100%; }
 .brain-node.is-active small, .brain-node.is-selected small { color: var(--brain-accent); }
 .brain-node.is-active { border-color: var(--brain-gold); }
 .brain-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 16px; padding: 8px 12px 22px; color: var(--brain-muted); font-size: 9px; }
@@ -186,14 +183,12 @@
   .brain-metrics .brain-metric-state { font-size: 13px; }
   .brain-map { height: 475px; }
   .brain-map-label { padding-inline: 14px; font-size: 8px; }
-  .brain-node { width: 100px; padding: 10px 8px 8px; }
+  .brain-node { width: 100px; min-height: 96px; padding: 10px 8px 8px; }
   .brain-node strong { font-size: 10px; }
   .brain-node-engine { font-size: 8px; }
   .brain-node small { font-size: 7px; }
   .brain-core { width: 130px; height: 130px; gap: 4px; }
-  .brain-core img { width: 53px; height: 53px; }
-  .brain-core strong { font-size: 16px; }
-  .brain-core small { font-size: 7px; }
+  .brain-core strong { font-size: 26px; }
   .brain-orbit { inset: -9px; }
   .brain-orbit.second { inset: -18px; }
   .brain-legend { gap: 9px; font-size: 8px; }
@@ -223,4 +218,24 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .architecture-brain *, .architecture-brain *::before, .architecture-brain *::after { animation: none !important; transition: none !important; }
+}
+
+/* Historical execution and current configuration are different facts. */
+.brain-node-history-label { font-size: 8px; color: var(--brain-muted); margin-top: 3px; }
+.brain-route-label { font-size: 9px; color: var(--brain-muted); margin-top: 20px; }
+.brain-route-label + .brain-route { margin-top: 10px; }
+.brain-engine-context { margin: 20px 0; padding: 12px; border: 1px solid var(--brain-line); border-radius: 8px; background: var(--brain-surface); }
+.brain-engine-context > div + div { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--brain-line); }
+.brain-engine-context span, .brain-engine-context strong { display: block; font-size: 10px; line-height: 1.6; overflow-wrap: anywhere; }
+.brain-engine-context span { color: var(--brain-muted); }
+.brain-engine-context strong { font-weight: 500; }
+.brain-engine-context p { margin-top: 12px; font-size: 9px; }
+@container (max-width: 860px) {
+  .brain-route-label { grid-column: 1; }
+  .brain-engine-context { grid-column: 2; grid-row: 1 / 5; align-self: start; }
+  .brain-detail dl { grid-column: 1; grid-row: auto; }
+  .brain-detail-note { grid-column: 2; }
+}
+@container (max-width: 340px) {
+  .brain-map { height: 530px; }
 }
