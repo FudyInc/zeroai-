@@ -70,6 +70,7 @@ export default function App() {
   const nav = useNavigate()
   const [title, sub] = TITLES[pathname] || ['ZeroAI', '']
   const [authed, setAuthed] = useState(null)   // null=checking · false=login · true=in
+  const [authError, setAuthError] = useState(null)
   const [username, setUsername] = useState(null)
   const [fullName, setFullName] = useState(null) // nombre real (Google), si el backend lo manda — hoy puede no venir
   const [role, setRole] = useState(null)         // "admin" | "cro" | "cto" | null
@@ -91,11 +92,12 @@ export default function App() {
 
   const refreshAuth = () => api.authStatus()
     .then((s) => {
+      setAuthError(null)
       setAuthed(s.authenticated); setUsername(s.username || null)
       setFullName(s.full_name || null)
       setRole(s.role || null); setAuthEnabled(!!s.enabled)
     })
-    .catch(() => setAuthed(true))
+    .catch((error) => setAuthError(error))
 
   useEffect(() => {
     refreshAuth()
@@ -118,11 +120,20 @@ export default function App() {
     return () => sub.subscription.unsubscribe()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { data: clients = [] } = useQuery({ queryKey: ['clients'], queryFn: api.clients, enabled: authed === true })
+  const { data: clients = [], error: clientsError, refetch: retryClients } = useQuery({ queryKey: ['clients'], queryFn: api.clients, enabled: authed === true })
   useEffect(() => {
     if (!client && clients.length) setClient(clients[0])
   }, [clients, client])
 
+  if (authError || (authed === true && clientsError)) return (
+    <div className="min-h-screen grid place-items-center p-6">
+      <div className="text-center max-w-md" role="alert">
+        <p className="font-semibold">No se pudo conectar con tus datos.</p>
+        <p className="text-sm text-zinc-500 mt-2">No pudimos cargar la cuenta. Reintenta la conexión para ver tus clientes y leads.</p>
+        <Button className="mt-4" onClick={() => authError ? refreshAuth() : retryClients()}>Reintentar conexión</Button>
+      </div>
+    </div>
+  )
   if (authed === null) return <div className="min-h-screen grid place-items-center text-zinc-400">Cargando…</div>
   if (authed === false) return <Login onSuccess={refreshAuth} />
   // Login válido (Google u otro) pero sin app_metadata.role asignado todavía
