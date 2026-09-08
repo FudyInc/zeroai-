@@ -17,4 +17,4 @@ These third-party assets are not covered by Simple Icons' CC0 license unless sta
 
 - OpenAI and Qwen: SVG marks from Lobe Icons, https://github.com/lobehub/lobe-icons/tree/master/packages/static-svg/icons (MIT, see LOBE-ICONS-LICENSE.txt).
 - Anthropic: existing Simple Icons mark.
-Marks are rendered as local SVG masks; names remain visible and accessible.
+Marks are rendered as local SVG images; names remain visible and accessible.
