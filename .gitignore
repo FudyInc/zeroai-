@@ -44,3 +44,8 @@ auditoria-criterio*.json
 
 # Foto del estado, la reescribe scripts/estado.sh en cada corrida.
 ESTADO.md
+.vercel
+.env*
+
+# Ventana de antirrebote de los avisos (zero/alerts.py). Dato local y regenerable.
+alertas.json
