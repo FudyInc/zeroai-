@@ -178,6 +178,10 @@ class ApiHttpTest(unittest.TestCase):
         # "live" en producción) en vez de un mock determinista y predecible.
         env["LOCAL_MODEL"] = ""
         env["ANTHROPIC_API_KEY"] = ""
+        # También OpenAI: desde el 2026-09-08 hay una OPENAI_API_KEY real en el
+        # .env del repo, y `_agents_best` la lee. Sin apagarla acá, estos tests
+        # heredan un motor de verdad y dejan de probar el caso "sin motor".
+        env["OPENAI_API_KEY"] = ""
         cls.proc = _start_and_wait(
             [sys.executable, "-m", "uvicorn", "api:app", "--port", str(cls.port),
              "--log-level", "warning"],
@@ -399,6 +403,10 @@ class ApiAuthHttpTest(unittest.TestCase):
         env["SUPABASE_KEY"] = ""
         env["LOCAL_MODEL"] = ""
         env["ANTHROPIC_API_KEY"] = ""
+        # También OpenAI: desde el 2026-09-08 hay una OPENAI_API_KEY real en el
+        # .env del repo, y `_agents_best` la lee. Sin apagarla acá, estos tests
+        # heredan un motor de verdad y dejan de probar el caso "sin motor".
+        env["OPENAI_API_KEY"] = ""
         # Mismo gotcha para Twilio: si el .env real trae un token, el webhook
         # validaría firmas de verdad y el test de exención de auth dejaría de
         # ser determinista.
@@ -575,6 +583,10 @@ class ApiSupabaseAuthHttpTest(unittest.TestCase):
         env["SUPABASE_KEY"] = ""
         env["LOCAL_MODEL"] = ""
         env["ANTHROPIC_API_KEY"] = ""
+        # También OpenAI: desde el 2026-09-08 hay una OPENAI_API_KEY real en el
+        # .env del repo, y `_agents_best` la lee. Sin apagarla acá, estos tests
+        # heredan un motor de verdad y dejan de probar el caso "sin motor".
+        env["OPENAI_API_KEY"] = ""
         cls.proc = _start_and_wait(
             [sys.executable, "-m", "uvicorn", "api:app", "--port", str(cls.port),
              "--log-level", "warning"],
@@ -768,6 +780,10 @@ class ProgrammedFunctionsHttpTest(unittest.TestCase):
         env["SUPABASE_KEY"] = ""
         env["LOCAL_MODEL"] = ""
         env["ANTHROPIC_API_KEY"] = ""
+        # También OpenAI: desde el 2026-09-08 hay una OPENAI_API_KEY real en el
+        # .env del repo, y `_agents_best` la lee. Sin apagarla acá, estos tests
+        # heredan un motor de verdad y dejan de probar el caso "sin motor".
+        env["OPENAI_API_KEY"] = ""
         cls.proc = _start_and_wait(
             [sys.executable, "-m", "uvicorn", "api:app", "--port", str(cls.port),
              "--log-level", "warning"],
@@ -997,6 +1013,10 @@ class TwilioWebhookHttpTest(unittest.TestCase):
         env["SUPABASE_KEY"] = ""
         env["LOCAL_MODEL"] = ""
         env["ANTHROPIC_API_KEY"] = ""
+        # También OpenAI: desde el 2026-09-08 hay una OPENAI_API_KEY real en el
+        # .env del repo, y `_agents_best` la lee. Sin apagarla acá, estos tests
+        # heredan un motor de verdad y dejan de probar el caso "sin motor".
+        env["OPENAI_API_KEY"] = ""
         env["OUTBOX_LIVE"] = ""
         env["TWILIO_WEBHOOK_URL"] = ""   # que firme sobre str(req.url), como el cliente
         cls.proc = _start_and_wait(
@@ -1128,6 +1148,10 @@ class ConductorHttpTest(unittest.TestCase):
         env["SUPABASE_KEY"] = ""
         env["LOCAL_MODEL"] = ""
         env["ANTHROPIC_API_KEY"] = ""
+        # También OpenAI: desde el 2026-09-08 hay una OPENAI_API_KEY real en el
+        # .env del repo, y `_agents_best` la lee. Sin apagarla acá, estos tests
+        # heredan un motor de verdad y dejan de probar el caso "sin motor".
+        env["OPENAI_API_KEY"] = ""
         cls.proc = _start_and_wait(
             [sys.executable, "-m", "uvicorn", "api:app", "--port", str(cls.port),
              "--log-level", "warning"],
@@ -1250,6 +1274,10 @@ class _WaitlistApiBase(unittest.TestCase):
         env["SUPABASE_KEY"] = ""
         env["LOCAL_MODEL"] = ""
         env["ANTHROPIC_API_KEY"] = ""
+        # También OpenAI: desde el 2026-09-08 hay una OPENAI_API_KEY real en el
+        # .env del repo, y `_agents_best` la lee. Sin apagarla acá, estos tests
+        # heredan un motor de verdad y dejan de probar el caso "sin motor".
+        env["OPENAI_API_KEY"] = ""
         cls.proc = _start_and_wait(
             [sys.executable, "-m", "uvicorn", "api:app", "--port", str(cls.port),
              "--log-level", "warning"],
@@ -1473,6 +1501,10 @@ class FichaYCasosHttpTest(unittest.TestCase):
         env["SUPABASE_KEY"] = ""
         env["LOCAL_MODEL"] = ""
         env["ANTHROPIC_API_KEY"] = ""
+        # También OpenAI: desde el 2026-09-08 hay una OPENAI_API_KEY real en el
+        # .env del repo, y `_agents_best` la lee. Sin apagarla acá, estos tests
+        # heredan un motor de verdad y dejan de probar el caso "sin motor".
+        env["OPENAI_API_KEY"] = ""
         cls.proc = _start_and_wait(
             [sys.executable, "-m", "uvicorn", "api:app", "--port", str(cls.port),
              "--log-level", "warning"],
@@ -1622,6 +1654,10 @@ class PipelineEnVivoHttpTest(unittest.TestCase):
         env["SUPABASE_KEY"] = ""
         env["LOCAL_MODEL"] = ""
         env["ANTHROPIC_API_KEY"] = ""
+        # También OpenAI: desde el 2026-09-08 hay una OPENAI_API_KEY real en el
+        # .env del repo, y `_agents_best` la lee. Sin apagarla acá, estos tests
+        # heredan un motor de verdad y dejan de probar el caso "sin motor".
+        env["OPENAI_API_KEY"] = ""
         # Sin esto la API se niega a correr el pipeline en mock (guardia
         # `_exigir_motor_real`, para que el dashboard no invente leads). Acá el
         # mock ES el punto: se prueba el contrato de progreso, no el cerebro.
