@@ -152,7 +152,12 @@ class Lead:
     icp_reasons: List[str] = field(default_factory=list)
     activity: Optional[str] = None
     segment: Optional[str] = None       # a qué segmento pertenece el negocio (pyme, startup…)
-    industry: Optional[str] = None      # rubro/industria detectado (ej: fintech, retail, SaaS)
+    # Categoría normalizada, derivada de `activity` (ej: fintech, retail, saas). NO se
+    # llama `industry` a propósito: en ZERO ese nombre ya es el segmento que BUSCA el
+    # cliente (`icp["industry"]`, ver zero/icp.py). Son cosas opuestas —a quién se le
+    # vende contra a qué se dedica el prospecto— y confundirlas ya produjo un bug en
+    # vivo el 2026-08-21, documentado en prompts/concierge.md:50.
+    activity_category: Optional[str] = None
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "Lead":
@@ -169,7 +174,7 @@ class Lead:
             icp_reasons=list(d.get("icp_reasons") or []),
             activity=d.get("activity"),
             segment=d.get("segment"),
-            industry=d.get("industry"),
+            activity_category=d.get("activity_category"),
         )
 
     def to_dict(self) -> Dict[str, Any]:

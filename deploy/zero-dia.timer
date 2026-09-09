@@ -1,0 +1,18 @@
+[Unit]
+Description=Día autónomo de ZERO (auditoría, planificación y una tanda)
+
+[Timer]
+# 08:00, una vez al día. La razón original era esperar a zero-sync-workspaces, que
+# corría a las 07:30; desde el 2026-09-05 ese sync va cada 5 minutos, así que la
+# garantía es más fuerte: los workspaces nunca están a más de 5 minutos de
+# origin/main cuando esto arranca. La hora se mantiene porque lo que importa de una
+# tanda no es que corra pronto, sino que corra cuando alguien pueda mirar el
+# resultado — el ciclo estuvo ocho días abortando de madrugada sin que nadie lo viera.
+OnCalendar=*-*-* 08:00:00
+# Si el PC estuvo apagado, corre al encender: el valor de esto es la constancia.
+Persistent=true
+# Un margen para no competir con el arranque de los otros servicios.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

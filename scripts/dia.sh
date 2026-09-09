@@ -31,7 +31,23 @@ python3 scripts/planificar.py --cupo "$CUPO" --encolar || true
 
 echo; echo "--- 3/4 tanda ---"
 # Sin tareas en la cola la tanda no hace nada y sale bien; no hay que comprobarlo antes.
-python3 scripts/tanda.py --ejecutar --max "$MAX" || true
+#
+# `--avisar` NO es opcional acá: cada paso de este script termina en `|| true` para que
+# un fallo no corte el día, así que nadie lee el código de salida y el WhatsApp al dueño
+# es el ÚNICO monitoreo que existe. Sin este flag el resumen no salía nunca — la tanda
+# estuvo ocho días abortando en silencio (el aborto ya avisa por su cuenta, sin flag).
+# El código de salida se captura en el `||` mismo: un `|| true` seguido de `$?` da
+# siempre 0, porque el `true` ya reemplazó el código de la tanda.
+RC_TANDA=0
+python3 scripts/tanda.py --ejecutar --max "$MAX" --avisar || RC_TANDA=$?
+# Queda escrito en el journal para que `journalctl --user -u zero-dia.service` sirva de
+# registro aunque el aviso no haya salido (sin SMTP/WhatsApp configurado, notify_owner
+# reporta el error y sigue, que es lo correcto pero deja el día sin rastro).
+if [ "$RC_TANDA" -eq 2 ]; then
+  echo "  ⚠ la tanda ABORTÓ (código 2): hay credenciales o datos de producción en un workspace"
+elif [ "$RC_TANDA" -ne 0 ]; then
+  echo "  ⚠ la tanda terminó con código $RC_TANDA"
+fi
 
 echo; echo "--- 4/4 informe de auditoría al historial ---"
 # Guarda el informe del día fechado en la rama audit/diaria. Va al final a propósito:

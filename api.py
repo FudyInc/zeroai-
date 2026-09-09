@@ -12,11 +12,13 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import threading
 import time
 import urllib.parse
 from datetime import datetime, timezone
-from typing import Optional
+from pathlib import Path
+from typing import Literal, Optional
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,6 +38,7 @@ from zero.channels import make_outbox, whatsapp_provider
 from zero.icp import normalize_icp
 from zero.orchestrator import Zero
 from zero.quotes import compute_quote, format_quote, normalize_pricing
+from zero import runs, tasks, telemetry
 from zero.store import make_crm, make_memory
 from zero.vendors import clients_count_for
 from zero._supabase import SupabaseError
@@ -106,6 +109,7 @@ _ROLE_ALLOWED: dict = {
         ("GET", "/api/kpis"),             # Dashboard.jsx home (compartido con cto)
         ("GET", "/api/icp"),              # modal global "Buscar leads"
         ("POST", "/api/pipeline"),        # modal global "Buscar leads"
+        ("GET", "/api/pipeline"),         # /pipeline/progress — avance en vivo
         ("POST", "/api/followups"),       # correr seguimientos (TRACKER)
         # Finanzas — EXCLUSIVO de cro, "cto" no lo tiene. La ruta todavía no
         # existe en este archivo (GET /api/finance está en revisión, ver
@@ -122,6 +126,7 @@ _ROLE_ALLOWED: dict = {
         ("GET", "/api/kpis"),             # Dashboard.jsx (overview de leads/pipeline)
         ("GET", "/api/icp"),              # modal global "Buscar leads"
         ("POST", "/api/pipeline"),        # modal global "Buscar leads" (operar el pipeline)
+        ("GET", "/api/pipeline"),         # /pipeline/progress — avance en vivo
         ("POST", "/api/followups"),       # correr seguimientos (TRACKER)
     ),
     # CCO — contenido y comunicaciones (Maureen, 2026-07-20): dueña de todo lo
@@ -551,7 +556,7 @@ def finance(month: Optional[str] = None):
     """Finanzas de la agencia: entra (MRR) / sale (costos) / margen del mes, más
     historial para tendencia. Siempre detrás de login (jamás en _OPEN_PATHS):
     expone el MRR real. Costos desde finance.json local (gitignorado); sin
-    archivo responde cifras de ejemplo con source="mock"."""
+    archivo responde el mes vacío con source="sin_datos" — nunca cifras de ejemplo."""
     from zero.finance import finance_summary, valid_month
     if month is not None and not valid_month(month):
         raise HTTPException(status_code=400, detail=f"mes inválido: {month!r} (formato AAAA-MM)")
@@ -699,14 +704,20 @@ def _client_meta_cfg(client: str) -> dict:
 
 
 def _safe_campaigns(client: str, cfg: dict):
-    """Trae campañas; si la API real de Meta falla, degrada a mock con el error —
-    así la pestaña NUNCA se rompe por un token/cuenta inválidos."""
-    from zero.metaads import MockMetaAds, make_metaads
+    """Trae campañas reales; si no hay cuenta conectada, o la API de Meta falla,
+    devuelve VACÍO con el motivo — nunca campañas inventadas.
+
+    Antes degradaba al mock y la pestaña mostraba gasto y CPL de mentira con un
+    badge chico. Una cifra falsa bien maquetada se lee como real: es peor que una
+    pantalla vacía que dice por qué está vacía. La pestaña sigue sin romperse."""
+    from zero.metaads import make_metaads
     src = make_metaads(cfg)
+    if not getattr(src, "live", False):
+        return [], "sin_datos", None
     try:
-        return src.campaigns(client, cfg), ("live" if getattr(src, "live", False) else "mock"), None
+        return src.campaigns(client, cfg), "live", None
     except Exception as e:   # token inválido, cuenta sin acceso, red, etc.
-        return MockMetaAds().campaigns(client, cfg), "mock", str(e)[:300]
+        return [], "sin_datos", str(e)[:300]
 
 
 @app.get("/api/campaigns")
@@ -732,10 +743,23 @@ def campaigns(client: str):
 
 @app.post("/api/campaigns/sync-leads")
 def sync_ad_leads(client: str):
-    """Trae los leads de Meta Lead Ads y los mete al CRM (el 'producto único')."""
+    """Trae los leads de Meta Lead Ads y los mete al CRM (el 'producto único').
+
+    Se niega si Meta no está conectado. Sin token ni cuenta, `make_metaads` devuelve
+    el mock, y sus leads salen etiquetados `source: "meta_ads"` — una vez guardados
+    son indistinguibles de gente real. Importarlos ensuciaría el sistema de registro
+    con contactos que no existen. Es la misma regla que ya aplica el camino autónomo
+    en `function_actions.run_job`: en mock no se escribe al CRM.
+    """
     from zero.metaads import make_metaads
     cfg = _client_meta_cfg(client)
-    leads = make_metaads(cfg).lead_ads(client, cfg)
+    src = make_metaads(cfg)
+    if not getattr(src, "live", False):
+        raise HTTPException(status_code=400, detail=(
+            "Meta Ads no está conectado: falta el token de la agencia o la cuenta "
+            "publicitaria del cliente. Conéctalo en Configuración — hasta entonces no "
+            "se importa nada, para no meter leads inventados al CRM."))
+    leads = src.lead_ads(client, cfg)
     crm = make_crm(CRM_PATH)
     memory = make_memory(STATE_PATH)
     zero = Zero(build_agents(mock=True), memory=memory, crm=crm)
@@ -853,16 +877,63 @@ def send_outreach(key: str, client: str, body: SendOutreach):
 
 
 # --- WhatsApp conversational agent (CONCIERGE) -------------------------------
+def _mock_permitido() -> bool:
+    """¿Puede este proceso caer al mock? En producción, NO.
+
+    ZERO dejó de ser mock-first el 2026-09-08 (ver CLAUDE.md). El mock construyó el
+    producto y ya no lo opera: si el motor real no está, eso es una falla que hay que
+    ver y arreglar al tiro, no algo que se disimula con una respuesta de plantilla.
+    El costo de disimularlo está medido — ocho días de ciclo muerto que nadie notó
+    porque todo respondía igual (ver `[[zero-instrumentation-lesson]]`).
+
+    Única puerta, y es para la suite: los tests de HTTP levantan uvicorn sin motor
+    porque prueban plomería (auth, rutas, formas de respuesta), no calidad de agente.
+    Solo el valor exacto "1" abre — un env declarado pero vacío NO, que es el modo de
+    fallo que ya mordió antes en `_agents_best`.
+
+    NO va en .env, ni en start.sh, ni en las units de systemd. Si aparece ahí,
+    `revisar-salud.py` lo detecta y avisa: es justamente lo que ese bot vigila.
+    """
+    return (os.environ.get("ZERO_PIPELINE_MOCK_OK") or "").strip() == "1"
+
+
+def _sin_motor(que: str):
+    """El error que reemplazó a la caída silenciosa al mock."""
+    return HTTPException(status_code=503, detail=(
+        f"{que} necesita un motor de IA y no hay ninguno disponible. "
+        "Configura LOCAL_MODEL (Ollama, gratis) o ANTHROPIC_API_KEY. "
+        "Antes esto respondía con una plantilla que se veía igual que una respuesta "
+        "real; ya no."))
+
+
 def _agents_best(source=None):
-    """El mejor cerebro disponible: Anthropic (pago) → modelo local (gratis, Ollama) →
-    mock. El local se activa con LOCAL_MODEL en el entorno (sin costo por token).
+    """El mejor cerebro disponible: Anthropic → OpenAI → modelo local (Ollama).
+    El local se activa con LOCAL_MODEL en el entorno (sin costo por token).
+
+    OJO CON EL ORDEN, que es anterior a este cambio y contradice
+    `[[zero-cost-policy]]`: los dos pagados se intentan ANTES que el local, que es
+    gratis. Hoy da lo mismo porque no hay ninguna key configurada, pero el día que se
+    ponga una, ZERO empieza a cobrar sin que nadie lo pida. `zero/alerts.py` avisa de
+    ese evento en el canal de WhatsApp; en el resto del sistema, no. Decisión pendiente
+    de Diego: no la cambio de mi cuenta porque invertirla altera qué motor corre.
     Ignora valores vacíos/espacios (un env declarado pero sin valor NO activa 'live').
-    `source` (discovery real) se pasa a los agentes en cualquiera de los tres modos."""
+    `source` (discovery real) se pasa a los agentes en cualquiera de los dos modos.
+
+    Sin ninguno de los dos, levanta 503. Ya no cae al mock — ver `_mock_permitido`."""
     key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
     if key:
         try:
             from zero.backends import AnthropicBackend
             return build_agents(backend=AnthropicBackend(api_key=key), mock=False, source=source), "live"
+        except Exception:
+            pass
+    openai_key = (os.environ.get("OPENAI_API_KEY") or "").strip()
+    if openai_key:
+        try:
+            from zero.backends import OpenAIBackend
+            modelo = (os.environ.get("OPENAI_MODEL") or "").strip() or "gpt-4o-mini"
+            return build_agents(backend=OpenAIBackend(model=modelo, api_key=openai_key),
+                                mock=False, source=source), "live"
         except Exception:
             pass
     local = (os.environ.get("LOCAL_MODEL") or "").strip()
@@ -874,7 +945,9 @@ def _agents_best(source=None):
                                 source=source), "live"
         except Exception:
             pass
-    return build_agents(mock=True, source=source), "mock"
+    if _mock_permitido():
+        return build_agents(mock=True, source=source), "mock"
+    raise _sin_motor("Esta operación")
 
 
 def _agents_whatsapp(source=None):
@@ -968,8 +1041,37 @@ def _nonempty(r) -> bool:
 def _agent_op(fn, memory=None, crm=None):
     """Corre una operación de agente con el mejor cerebro; si el modelo 'live' falla
     en runtime (key inválida, modelo no disponible, Ollama inalcanzable) O devuelve
-    vacío, reintenta en mock para que el agente SIEMPRE responda.
-    fn(zero) -> result. Devuelve (result, mode)."""
+    vacío, reintenta en mock. fn(zero) -> result. Devuelve (result, mode).
+
+    ## Por qué esto degrada a mock y `_exigir_motor_real` no
+
+    Decía "para que el agente SIEMPRE responda", y eso contradecía de frente lo que
+    `986daca` adoptó en el resto del sistema: *una cifra falsa bien maquetada se lee
+    como real; es peor que una pantalla vacía que dice por qué está vacía.* La
+    contradicción era real y quedaba por omisión. La decisión, escrita:
+
+    **La regla no es "nunca degradar a mock". Es "nunca presentar como real algo que
+    no lo es".**
+
+    Lo que `_exigir_motor_real` corta son afirmaciones sobre el mundo que entran al
+    sistema de registro: costos que no se gastaron, CPL que nadie midió, leads con
+    nombre y empresa que no existen y quedan guardados en el CRM indistinguibles de
+    los reales. Un mock ahí miente y la mentira persiste.
+
+    Lo que pasa por acá no afirma nada sobre el mundo. Son borradores y juicios: un
+    pitch, una respuesta de CONCIERGE, tasas de conversión. El caso que parece la
+    excepción —el forecast, que son números— confirma la regla al mirarlo: `inputs`
+    son métricas reales del CRM, la aritmética es `project_funnel()` (determinista), y
+    el mock de ANALYST **no inventa tasas**: devuelve las de `FORECAST_RATES` en
+    config.py y lo dice ("Tasas base sin ajuste"). El forecast en mock es la
+    proyección base, que es una respuesta honesta y no una inventada.
+
+    La condición que hace válida esta asimetría es una sola: **`mode` tiene que llegar
+    visible hasta la pantalla.** Los cuatro consumidores lo declaran hoy — Campanas,
+    Vender, AgentTester y Forecast (este último desde `36a775b`, y era el que faltaba).
+    El día que uno deje de hacerlo, esto vuelve a ser el defecto que dice no ser; hay
+    un test estructural en `frontend/src/lib/modo-visible.test.js` que lo ata.
+    """
     mem = memory if memory is not None else make_memory(STATE_PATH)
     agents, mode = _agents_best()
     try:
@@ -978,8 +1080,12 @@ def _agent_op(fn, memory=None, crm=None):
             raise RuntimeError("el modelo live devolvió vacío")
         return res, mode
     except Exception:
-        if mode == "mock":
-            raise   # ya era mock: el fallo es real, que lo vea quien llama
+        if mode == "mock" or not _mock_permitido():
+            # Antes acá se reintentaba en mock "para que el agente SIEMPRE responda".
+            # Se quitó el 2026-09-08: un borrador de plantilla presentado tras un fallo
+            # del motor real es una falla disimulada, y disimularla es lo que hizo que
+            # ocho días de ciclo muerto pasaran inadvertidos. Que el fallo se vea.
+            raise
         return fn(Zero(build_agents(mock=True), memory=mem, crm=crm)), "mock"
 
 
@@ -1109,7 +1215,36 @@ def whatsapp_simulate(body: Simulate):
             "quote": res.get("quote")}
 
 
+def _pipeline_agents(provider=None, source=None):
+    """Fija el motor de esta búsqueda sin alterar la selección de otras operaciones."""
+    if provider is None:
+        return _agents_best(source=source)  # clientes anteriores de la API
+    from zero.backends import AnthropicBackend, LocalBackend, OpenAIBackend
+
+    required = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY",
+                "qwen": "LOCAL_MODEL"}
+    setting = required[provider]
+    value = (os.environ.get(setting) or "").strip()
+    if not value:
+        raise HTTPException(status_code=503, detail=f"Configura {setting} para usar {provider} en esta búsqueda.")
+    try:
+        if provider == "openai":
+            backend = OpenAIBackend(api_key=value, model=(os.environ.get("OPENAI_MODEL") or "").strip() or "gpt-4o-mini")
+        elif provider == "anthropic":
+            backend = AnthropicBackend(api_key=value)
+        else:
+            if not value.lower().startswith("qwen"):
+                raise HTTPException(status_code=503, detail="El modelo local configurado no es Qwen. Configura LOCAL_MODEL con un modelo Qwen.")
+            backend = LocalBackend(model=value, base_url=os.environ.get("LOCAL_MODEL_URL") or "http://localhost:11434/v1")
+        return build_agents(backend=backend, mock=False, source=source), "live"
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=503, detail=f"No se pudo inicializar {provider}. Revisa su configuración en el servidor.") from None
+
+
 class RunRequest(BaseModel):
+    provider: Optional[Literal["openai", "anthropic", "qwen"]] = None
     client: str
     query: str
     tier: str = "GROWTH"
@@ -1123,15 +1258,37 @@ class RunRequest(BaseModel):
     auto_send: bool = False
 
 
+def _exigir_motor_real(mode: str) -> None:
+    """Corta la corrida si el único cerebro disponible es el mock.
+
+    PROSPECTOR en mock devuelve la fixture `_COMPANIES` (Andesoft, LogiSur, ...) y
+    el pipeline la escribe al CRM como leads. El dashboard no distingue esos de los
+    reales. `function_actions.run_job` ya se negaba a correr así en el camino
+    autónomo; los botones del dashboard no, y esa era la puerta abierta."""
+    if mode != "mock":
+        return
+    # Única puerta: la suite necesita ejercitar el pipeline completo sin red (el
+    # principio mock-first de la casa). NO va en .env ni en start.sh ni en las
+    # units de systemd — si algún día aparece ahí, el dashboard vuelve a poder
+    # inventar leads, y ese es justamente el agujero que esto cierra.
+    if (os.environ.get("ZERO_PIPELINE_MOCK_OK") or "").strip() == "1":
+        return
+    raise HTTPException(status_code=503, detail=(
+        "No hay motor de IA disponible (ni modelo local ni ANTHROPIC_API_KEY). "
+        "Correr así llenaría el CRM con empresas inventadas, así que no se corre. "
+        "Revisa que Ollama esté arriba o configura una key."))
+
+
 @app.post("/api/pipeline")
 def run_pipeline(req: RunRequest):
+    agents, mode = _pipeline_agents(req.provider, source=_discovery_source())
+    _exigir_motor_real(mode)
     crm = make_crm(CRM_PATH)
     memory = make_memory(STATE_PATH)
     memory.register_client(req.client, req.tier)
     # El mejor cerebro disponible + discovery web real. Sin fallback silencioso a
     # mock: una entrega con leads inventados sería mentirle al cliente — si el
     # motor real falla a mitad de pipeline, el resultado lo dice ({"error": etapa}).
-    agents, mode = _agents_best(source=_discovery_source())
     zero = Zero(agents, memory=memory, crm=crm, outbox=make_outbox())
     try:
         out = zero.run_pipeline(req.client, req.tier, req.query, count=req.count, icp=req.icp,
@@ -1139,7 +1296,239 @@ def run_pipeline(req: RunRequest):
     except ValueError as e:   # e.g. unknown tier
         raise HTTPException(status_code=400, detail=str(e))
     out["mode"] = mode
+    out["provider"] = req.provider
     return out
+
+
+# --- la misma corrida, pero mirándola mientras pasa ---------------------------
+
+# Ruta explícita: un backend antiguo devuelve 404 en vez de ignorar provider.
+@app.post("/api/pipeline/start-selected")
+@app.post("/api/pipeline/start")
+def start_pipeline(req: RunRequest, tareas: BackgroundTasks):
+    """Arranca el pipeline en segundo plano y devuelve el id para seguirlo.
+
+    `POST /api/pipeline` (el de arriba) sigue igual: abre la request, corre todo y
+    responde al final. Sirve para un script, pero deja al dashboard con una pantalla
+    quieta durante los minutos que de verdad tarda una corrida — no hay nada que
+    consultar mientras tanto. Este devuelve al instante y el avance se lee por
+    `GET /api/pipeline/progress`.
+
+    No reemplaza al otro a propósito: el endpoint síncrono ya lo usa el frontend
+    actual y romperlo para agregar una animación sería cambiar algo que funciona.
+    """
+    # La guardia va ANTES de crear la corrida: si no hay motor real, el usuario ve
+    # el error al apretar el botón, no una corrida fantasma que falla en segundo plano.
+    agents, mode = _pipeline_agents(req.provider, source=_discovery_source())
+    _exigir_motor_real(mode)
+    run_id = runs.crear(req.client, req.query, req.tier)
+
+    def correr():
+        crm = make_crm(CRM_PATH)
+        memory = make_memory(STATE_PATH)
+        memory.register_client(req.client, req.tier)
+        zero = Zero(agents, memory=memory, crm=crm, outbox=make_outbox())
+
+        def avisar(**datos):
+            if "fase" in datos:
+                runs.fase(run_id, datos["fase"])
+                return
+            empresa = datos.pop("empresa", None)
+            etapa = datos.pop("etapa", None)
+            if empresa and etapa:
+                runs.anotar(run_id, empresa, etapa, **datos)
+
+        try:
+            out = zero.run_pipeline(req.client, req.tier, req.query, count=req.count,
+                                    icp=req.icp, auto_send=req.auto_send,
+                                    on_progress=avisar)
+            out["mode"] = mode
+            runs.terminar(run_id, resumen=out.get("summary"))
+        except Exception as e:   # noqa: BLE001 — corre sin nadie mirando la excepción
+            # Sin esto, un pipeline que revienta deja la corrida "corriendo" para
+            # siempre y el dashboard girando un spinner que no termina nunca.
+            runs.terminar(run_id, error=str(e))
+
+    tareas.add_task(correr)
+    return {"run": run_id, "cliente": req.client, "consulta": req.query, "provider": req.provider}
+
+
+@app.get("/api/pipeline/progress")
+def pipeline_progress(run: str):
+    """Qué empresa va en qué etapa, ahora mismo.
+
+    Pensado para consultarse cada segundo mientras `estado == "corriendo"`. Trae
+    `etapas` (el orden del vocabulario) para que el dashboard pinte la barra sin
+    hardcodear los nombres que usa el backend.
+    """
+    datos = runs.progreso(run)
+    if datos is None:
+        # También cae acá una corrida vieja que el anillo ya olvidó: para el
+        # dashboard es lo mismo, no hay nada que mostrar.
+        raise HTTPException(status_code=404, detail="esa corrida no existe o ya se olvidó")
+    return datos
+
+
+@app.get("/api/pipeline/runs")
+def pipeline_runs(limit: int = 10):
+    """Las corridas que el proceso todavía recuerda — para reenganchar la pantalla
+    después de un F5 sin tener que guardar el id en el navegador."""
+    return {"runs": runs.ultimas(limit)}
+
+
+# --- El ciclo autónomo, visible ------------------------------------------------
+# El ciclo estuvo OCHO DÍAS sin ejecutar una tarea (2026-08-29 a 09-05) y nadie se
+# enteró: abortaba, la cola crecía sola y la única forma de saberlo era `journalctl`,
+# que —como admite scripts/sincronizar-workspaces.sh— no lo lee nadie. El aviso por
+# WhatsApp (904b787) es un empujón puntual; esto responde la otra pregunta, la que un
+# aviso no contesta: "¿qué hizo el ciclo esta semana?".
+#
+# Solo LEE. tareas.json es dato local y vivo: acá no hay POST, ni cancelar ni reencolar.
+#
+# Sin entrada en _ROLE_ALLOWED a propósito: una ruta que no aparece ahí ya es admin-only
+# por el fail-closed del auth_guard, igual que /api/conductor/*. Esto NO es /api/public/*.
+
+# El historial vive en la rama `audit/diaria`, no en main. Se lee con plumbing de solo
+# lectura (ls-tree + show): jamás un checkout, porque dia.sh corre tandas sobre este
+# mismo working tree y cambiarle la rama es exactamente lo que commitear-auditoria.sh
+# explica que no se debe hacer. La rama es configurable SOLO para poder probar el caso
+# "no existe" sin tocar la real.
+CICLO_RAMA_SALUD = os.environ.get("CICLO_RAMA_SALUD") or "audit/diaria"
+CICLO_DIR_INFORMES = "docs/auditoria"
+CICLO_MAX_DIAS = 90          # tope duro: nunca se barre la rama entera
+CICLO_GIT_TIMEOUT = 10.0     # una request no se puede quedar colgada esperando a git
+
+# Un informe de un día pasado ya no cambia: se cachea por el sha del blob, así que si
+# alguien lo reescribe, el sha cambia y la caché no miente.
+_informes_cache: dict = {}
+
+
+def _git_lectura(*args: str):
+    """(salida, error). Nunca lanza: si git falla, el endpoint degrada a lista vacía
+    con un motivo legible en vez de tirar un 500."""
+    try:
+        r = subprocess.run(["git", *args],
+                           cwd=os.path.dirname(os.path.abspath(__file__)),
+                           capture_output=True, text=True, timeout=CICLO_GIT_TIMEOUT)
+    except (OSError, subprocess.SubprocessError) as e:
+        return "", f"no se pudo consultar git ({e})"
+    if r.returncode != 0:
+        primera = (r.stderr or "").strip().splitlines()
+        return "", primera[0] if primera else "git falló sin decir por qué"
+    return r.stdout, ""
+
+
+def _informes_de_salud(dias: int):
+    """(informes, motivo). Los últimos `dias` informes archivados, del más nuevo al más
+    viejo. `motivo` no vacío significa que no se pudo leer el historial."""
+    salida, error = _git_lectura("ls-tree", CICLO_RAMA_SALUD, f"{CICLO_DIR_INFORMES}/")
+    if error:
+        return [], f"no se pudo leer la rama {CICLO_RAMA_SALUD}: {error}"
+    filas = []
+    for linea in salida.splitlines():
+        try:
+            meta, ruta = linea.split("\t", 1)
+            sha = meta.split()[2]
+        except (ValueError, IndexError):
+            continue
+        if not ruta.endswith(".json"):
+            continue
+        filas.append((os.path.basename(ruta)[:-len(".json")], sha, ruta))
+    if not filas:
+        return [], f"la rama {CICLO_RAMA_SALUD} todavía no tiene informes"
+
+    filas.sort(reverse=True)                      # el más nuevo primero
+    informes = []
+    for fecha, sha, ruta in filas[:dias]:
+        if sha in _informes_cache:
+            informes.append(_informes_cache[sha])
+            continue
+        crudo, error = _git_lectura("show", f"{CICLO_RAMA_SALUD}:{ruta}")
+        if error:
+            continue
+        try:
+            d = json.loads(crudo)
+        except json.JSONDecodeError:
+            continue                              # un informe corrupto no tumba al resto
+        hallazgos = d.get("hallazgos") or []
+        altos = [h for h in hallazgos if h.get("gravedad") == "alta"]
+        fila = {
+            "fecha": fecha,
+            "cuando": d.get("cuando"),
+            "hallazgos": len(hallazgos),
+            "altos": len(altos),
+            "checks": [{"check": c.get("check"), "hallazgos": c.get("hallazgos"),
+                        "estado": c.get("estado"), "motivo": c.get("motivo")}
+                       for c in (d.get("checks") or []) if isinstance(c, dict)],
+            "altos_detalle": [{"check": h.get("check"), "detalle": h.get("detalle"),
+                               "evidencia": h.get("evidencia")} for h in altos],
+        }
+        _informes_cache[sha] = fila
+        informes.append(fila)
+    return informes, ""
+
+
+def _auditoria_de_hoy():
+    """El informe mecánico del día en curso (auditoria.json, gitignorado), resumido: la
+    respuesta del ciclo no es lugar para volcar el informe entero."""
+    try:
+        d = json.loads(Path("auditoria.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(d, dict):
+        return None
+    hallazgos = d.get("hallazgos") or []
+    return {
+        "cuando": d.get("cuando"),
+        "hallazgos": len(hallazgos),
+        "altos": sum(1 for h in hallazgos if h.get("gravedad") == "alta"),
+        "checks": [{"check": c.get("check"), "hallazgos": c.get("hallazgos")}
+                   for c in (d.get("checks") or []) if isinstance(c, dict)],
+    }
+
+
+@app.get("/api/ciclo/estado")
+def ciclo_estado(tareas: int = 40, eventos: int = 20):
+    """Qué hay en la cola, en qué quedó cada tarea y qué agentes corrieron.
+
+    Es lo que el dashboard refresca solo. El historial de cada tarea viaja completo
+    ({ts, estado, detalle}): es lo que permite ver que una tarea se intentó dos veces y
+    por qué la bajó el juez, sin abrir tareas.json a mano.
+    """
+    limite_tareas = max(1, min(int(tareas), 200))
+    limite_eventos = max(0, min(int(eventos), 200))
+    return {
+        "generado": time.time(),
+        "cola": tasks.resumen(),
+        "tareas": tasks.listar()[:limite_tareas],
+        "telemetria": {
+            "resumen": telemetry.resumen(),
+            "eventos": telemetry.eventos(limit=limite_eventos),
+        },
+        "auditoria_hoy": _auditoria_de_hoy(),
+    }
+
+
+@app.get("/api/ciclo/salud")
+def ciclo_salud(dias: int = 14):
+    """El historial de salud: un informe por día, leído de la rama `audit/diaria`.
+
+    Separado de /estado porque cambia una vez al día — releer git en cada refresco de la
+    cola sería pagar un sub-proceso por segundo para datos que no se mueven.
+
+    Si la rama no existe o git falla, responde 200 con lista vacía y el motivo: un
+    historial ausente no es un error del servidor, y un 500 acá dejaría al dashboard sin
+    poder mostrar el resto de la pantalla.
+    """
+    pedidos = max(1, min(int(dias), CICLO_MAX_DIAS))
+    informes, motivo = _informes_de_salud(pedidos)
+    return {
+        "rama": CICLO_RAMA_SALUD,
+        "dias": pedidos,
+        "disponible": not motivo,
+        "motivo": motivo,
+        "informes": informes,
+    }
 
 
 class FollowupsRun(BaseModel):
@@ -1547,7 +1936,9 @@ def _agents_autonomous(source=None):
                                 source=source), "live"
         except Exception:
             pass
-    return build_agents(mock=True, source=source), "mock"
+    if _mock_permitido():
+        return build_agents(mock=True, source=source), "mock"
+    raise _sin_motor("Esta operación")
 
 
 def _zero_for_actions(crm, memory):

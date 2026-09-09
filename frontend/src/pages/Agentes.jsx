@@ -1,9 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Mail, Phone, MessageCircle, Instagram, Linkedin, Clock } from 'lucide-react'
+import { Instagram, Linkedin, Clock } from 'lucide-react'
 import { api } from '../lib/api'
 import { repliedRecently } from '../lib/util'
+import ChannelIcon from '../components/ChannelIcon'
 import { Card } from '../components/ui'
 import { useApp } from '../App'
 import { rise, fade, surface, stagger } from '../lib/motion'
@@ -42,21 +43,21 @@ export default function Agentes() {
 
   const agents = [
     {
-      key: 'email', name: 'Email', icon: Mail, chip: 'bg-brand/8 text-brand',
+      key: 'email', name: 'Email', branded: true, chip: 'bg-white border border-zinc-200',
       desc: 'Envía un pitch con demo a un prospecto y los seguimientos por correo.',
       status: cfg?.email ? { t: 'Conectado', tone: 'ok' } : { t: 'Configurar', tone: 'warn' },
       onClick: () => nav(cfg?.email ? '/vender' : '/config'),
       activity: activityLine(emailReplied),
     },
     {
-      key: 'call', name: 'Llamadas', icon: Phone, chip: 'bg-champagne/35 text-gold-deep',
+      key: 'call', name: 'Llamadas', branded: true, chip: '',
       desc: 'Llama con un agente de voz (Fernanda) por teléfono.',
       status: cfg?.vapi ? { t: 'Activo', tone: 'ok' } : { t: 'Configurar', tone: 'warn' },
       onClick: () => nav('/llamadas'),
       activity: null,
     },
     {
-      key: 'wa', name: 'WhatsApp', icon: MessageCircle, chip: 'bg-gold/15 text-gold-deep',
+      key: 'wa', name: 'WhatsApp', branded: true, chip: 'bg-white border border-zinc-200',
       desc: 'Configura la ficha, quién atiende y prueba el agente que responde dudas y agenda (ventana de 24h).',
       status: cfg?.whatsapp ? { t: 'Activo', tone: 'ok' } : { t: 'Configurar / probar', tone: 'warn' },
       onClick: () => nav('/whatsapp'),
@@ -100,7 +101,7 @@ export default function Agentes() {
             >
               <div className="flex items-start justify-between">
                 <div className={'w-11 h-11 rounded-xl grid place-items-center ' + a.chip}>
-                  <a.icon size={20} />
+                  {a.branded ? <ChannelIcon channel={a.key} /> : <a.icon size={20} />}
                 </div>
                 <span className={'text-xs font-medium px-2 py-1 rounded-full ' + TONES[a.status.tone]}>{a.status.t}</span>
               </div>

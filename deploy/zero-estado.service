@@ -1,0 +1,7 @@
+[Unit]
+Description=ZeroAI — refresca ESTADO.md, la foto que leen las terminales
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/diego/zeroai
+ExecStart=/usr/bin/env bash /home/diego/zeroai/scripts/estado.sh --quiet

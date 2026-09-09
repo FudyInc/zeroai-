@@ -11,6 +11,8 @@ import { Card, Button, Badge, Skeleton, SectionTitle } from '../components/ui'
 import { STAGES } from '../lib/util'
 import { useApp } from '../App'
 import AgentTester from '../components/AgentTester'
+import KnowledgeHistory from '../components/KnowledgeHistory'
+import CasesLab from '../components/CasesLab'
 import PricingCard from '../components/PricingCard'
 import ConversationThread from '../components/ConversationThread'
 import { rise, fade, surface } from '../lib/motion'
@@ -25,12 +27,14 @@ import { rise, fade, surface } from '../lib/motion'
 
 export default function Whatsapp() {
   const { client: ctxClient } = useApp()
-  const client = ctxClient || 'demo'
+  // Sin cliente por defecto: ese cliente de prueba ya se borró del CRM, y volver a
+  // usarlo como fallback lo resucitaría en la base real con solo abrir la página.
+  const client = ctxClient || ''
   const cfgQ = useQuery({ queryKey: ['config'], queryFn: api.config })
 
   const vendorsQ = useQuery({ queryKey: ['vendors'], queryFn: api.vendors })
-  const assignedQ = useQuery({ queryKey: ['vendor', client], queryFn: () => api.vendorFor(client) })
-  const knowledgeQ = useQuery({ queryKey: ['knowledge', client], queryFn: () => api.knowledge(client) })
+  const assignedQ = useQuery({ queryKey: ['vendor', client], queryFn: () => api.vendorFor(client), enabled: !!client })
+  const knowledgeQ = useQuery({ queryKey: ['knowledge', client], queryFn: () => api.knowledge(client), enabled: !!client })
   const leadsQ = useQuery({
     queryKey: ['leads', client, 'whatsapp-activity'],
     queryFn: () => api.leads(client, { group: 'todos', limit: 50 }),
@@ -59,6 +63,16 @@ export default function Whatsapp() {
   const cfg = cfgQ.data
   const provider = cfg?.whatsapp_provider === 'twilio' ? 'twilio' : 'meta'
   const connected = provider === 'twilio' ? !!cfg?.twilio : !!cfg?.whatsapp
+
+  // Toda la página depende de un cliente elegido; sin uno no hay a quién
+  // configurarle el agente, y consultar con cliente vacío pegaría contra la API mal.
+  if (!client) {
+    return (
+      <Card className="p-8 text-center text-sm text-zinc-400">
+        Elige un cliente en el encabezado.
+      </Card>
+    )
+  }
 
   return (
     <motion.div className="space-y-6" initial="hidden" animate="show" variants={rise}>
@@ -120,6 +134,14 @@ export default function Whatsapp() {
           )}
         </motion.div>
       </div>
+
+      {/* A ancho completo y no en una columna: la comparación pone la respuesta esperada,
+          la de antes y la de ahora una al lado de la otra, y eso no entra en media
+          pantalla. Va después del chat de prueba porque es su versión sistemática: el
+          chat sirve para tantear, esto para no romper lo que ya funcionaba. */}
+      <motion.div variants={surface}>
+        <CasesLab client={client} vendorId={currentId} />
+      </motion.div>
 
       {connected && (
         <motion.div variants={surface}>
@@ -201,6 +223,7 @@ function KnowledgeCard({ client, knowledgeQ }) {
           </Button>
         </div>
       )}
+      {!knowledgeQ.isError && <KnowledgeHistory client={client} />}
     </Card>
   )
 }
@@ -427,7 +450,7 @@ function StatusCard({ cfg, provider, webhookUrl }) {
             : 'Webhook (configúralo en Meta for Developers → WhatsApp → Configuración)'}
         </div>
         <div className="flex items-center gap-2">
-          <code className="flex-1 text-xs bg-white dark:bg-[#1D2016] border border-zinc-200 rounded-lg px-2 py-1.5 break-all">{webhookUrl}</code>
+          <code className="flex-1 text-xs bg-white dark:bg-zinc-50 border border-zinc-200 rounded-lg px-2 py-1.5 break-all">{webhookUrl}</code>
           <Button variant="soft" onClick={copy} className="shrink-0">
             {copied ? <Check size={14} /> : <Copy size={14} />} {copied ? 'Copiado' : 'Copiar'}
           </Button>

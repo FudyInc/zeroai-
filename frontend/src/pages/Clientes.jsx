@@ -55,7 +55,7 @@ export default function Clientes() {
   return (
     <motion.div className="space-y-5" initial="hidden" animate="show" variants={rise}>
       <motion.div className="flex items-start justify-between gap-4 flex-wrap" variants={surface}>
-        <Card className="p-5 inline-flex items-center gap-4 bg-brand text-white">
+        <Card className="p-5 inline-flex items-center gap-4 bg-brand-surface text-white">
           <div className="w-11 h-11 rounded-xl grid place-items-center bg-white/10"><Wallet size={20} /></div>
           <div>
             <div className="text-[11px] font-semibold uppercase tracking-[0.13em] text-champagne/80">Ingreso mensual</div>
@@ -142,7 +142,7 @@ function NewClientModal({ plans, onClose, onCreated }) {
         onClick={onClose}
       >
         <motion.div
-          className="bg-white dark:bg-[#1D2016] rounded-2xl max-w-sm w-full p-6"
+          className="bg-white dark:bg-zinc-50 rounded-2xl max-w-sm w-full p-6"
           {...dialog}
           onClick={(e) => e.stopPropagation()}
         >

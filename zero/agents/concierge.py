@@ -71,8 +71,16 @@ class Concierge(BaseAgent):
         name = lead.get("name") or ""
         hi = f"Hola {name}".strip() if name else "Hola"
         sells = icp.get("sells")
-        offer = f"ayudamos a empresas como la tuya con {sells}" if sells else \
-            "te entregamos leads B2B ya calificados, listos para contactar"
+        activity = lead.get("activity")
+
+        if activity and sells:
+            offer = f"ayudamos a {activity} con {sells}"
+        elif activity:
+            offer = f"trabajamos con {activity} para calificar y entregarles leads B2B listos"
+        elif sells:
+            offer = f"ayudamos con {sells}"
+        else:
+            offer = "te entregamos leads B2B ya calificados, listos para contactar"
 
         company = lead.get("company") or "tu empresa"
 

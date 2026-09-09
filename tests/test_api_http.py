@@ -161,6 +161,12 @@ class ApiHttpTest(unittest.TestCase):
         # heredarlo — apunta a un archivo que a propósito no existe, así
         # auth_enabled() da False sin importar qué haya en el repo real.
         env["AUTH_USERS_PATH"] = os.path.join(tempfile.mkdtemp(), "users.json")
+        # Escotilla de la suite, no de producción. Estos tests levantan uvicorn sin
+        # ANTHROPIC_API_KEY ni LOCAL_MODEL porque prueban PLOMERÍA —auth, rutas, formas
+        # de respuesta—, no calidad de agente. Desde que ZERO dejó de ser mock-first
+        # (2026-09-08) el backend responde 503 sin motor real, así que sin esto la
+        # plomería no se puede probar. Ver api.py::_mock_permitido.
+        env["ZERO_PIPELINE_MOCK_OK"] = "1"
         # Mismo gotcha otra vez, ahora para el tercer mecanismo de auth_enabled():
         # en el Ubuntu de producción SUPABASE_JWT_SECRET SÍ está configurado de
         # verdad — sin vaciarlo acá, este subproceso "sin auth" deja de estarlo.
@@ -379,6 +385,7 @@ class ApiAuthHttpTest(unittest.TestCase):
                 os.environ["AUTH_USERS_PATH"] = prev
         env = dict(os.environ)
         env["AUTH_USERS_PATH"] = cls.users_path
+        env["ZERO_PIPELINE_MOCK_OK"] = "1"
         # Vacío, no ausente: si falta del todo, zero/_env.py::load_env() (usa
         # os.environ.setdefault) lo vuelve a levantar del .env real del repo
         # — mismo gotcha ya documentado arriba para AUTH_PASSWORD/LOCAL_MODEL.
@@ -554,6 +561,7 @@ class ApiSupabaseAuthHttpTest(unittest.TestCase):
         env = dict(os.environ)
         env["SUPABASE_JWT_SECRET"] = cls.JWT_SECRET
         env["AUTH_USERS_PATH"] = os.path.join(tempfile.mkdtemp(), "users.json")
+        env["ZERO_PIPELINE_MOCK_OK"] = "1"
         # Vacío, no ausente: si falta del todo, zero/_env.py::load_env() (usa
         # os.environ.setdefault) lo vuelve a levantar del .env real del repo
         # — mismo gotcha ya documentado arriba para AUTH_PASSWORD/LOCAL_MODEL.
@@ -750,6 +758,7 @@ class ProgrammedFunctionsHttpTest(unittest.TestCase):
         env = dict(os.environ)
         env["SUPABASE_JWT_SECRET"] = cls.JWT_SECRET
         env["AUTH_USERS_PATH"] = os.path.join(tempfile.mkdtemp(), "users.json")
+        env["ZERO_PIPELINE_MOCK_OK"] = "1"
         env["STATE_PATH"] = os.path.join(cls._tmpdir, "state.json")
         env["CRM_PATH"] = os.path.join(cls._tmpdir, "crm.json")
         # Mismos gotchas ya documentados arriba (ApiSupabaseAuthHttpTest): sin
@@ -983,6 +992,7 @@ class TwilioWebhookHttpTest(unittest.TestCase):
         # repo no re-activa nada — ni auth, ni motor live, ni Supabase (un
         # handle_inbound real contra Supabase escribiría en la NUBE), ni envíos.
         env["AUTH_USERS_PATH"] = os.path.join(cls._tmpdir, "users.json")
+        env["ZERO_PIPELINE_MOCK_OK"] = "1"
         env["SUPABASE_URL"] = ""
         env["SUPABASE_KEY"] = ""
         env["LOCAL_MODEL"] = ""
@@ -1111,6 +1121,7 @@ class ConductorHttpTest(unittest.TestCase):
         env = dict(os.environ)
         env["SUPABASE_JWT_SECRET"] = cls.JWT_SECRET
         env["AUTH_USERS_PATH"] = os.path.join(tempfile.mkdtemp(), "users.json")
+        env["ZERO_PIPELINE_MOCK_OK"] = "1"
         # Mismos gotchas ya documentados arriba: sin vaciarlos, el subproceso
         # hereda Supabase/Ollama/Anthropic reales del .env del repo.
         env["SUPABASE_URL"] = ""
@@ -1229,6 +1240,7 @@ class _WaitlistApiBase(unittest.TestCase):
                 os.environ["AUTH_USERS_PATH"] = prev
         env = dict(os.environ)
         env["AUTH_USERS_PATH"] = users_path
+        env["ZERO_PIPELINE_MOCK_OK"] = "1"
         env["CRM_PATH"] = cls.crm_path
         env["STATE_PATH"] = os.path.join(cls._tmpdir, "state.json")
         # Vacío, no ausente (mismo gotcha de load_env ya documentado arriba): sin
@@ -1451,6 +1463,7 @@ class FichaYCasosHttpTest(unittest.TestCase):
         env = dict(os.environ)
         env["SUPABASE_JWT_SECRET"] = cls.JWT_SECRET
         env["AUTH_USERS_PATH"] = os.path.join(cls._tmpdir, "users.json")
+        env["ZERO_PIPELINE_MOCK_OK"] = "1"
         env["STATE_PATH"] = os.path.join(cls._tmpdir, "state.json")
         env["CRM_PATH"] = os.path.join(cls._tmpdir, "crm.json")
         # Vacío, no ausente (gotcha de load_env ya documentado arriba): si no, el
@@ -1575,6 +1588,140 @@ class FichaYCasosHttpTest(unittest.TestCase):
             with self.assertRaises(urllib.error.HTTPError) as ctx:
                 self._get(path, token=cto)
             self.assertEqual(ctx.exception.code, 403, path)
+
+
+@unittest.skipUnless(_UVICORN_AVAILABLE, "uvicorn no instalado — este test es opcional, no núcleo")
+class PipelineEnVivoHttpTest(unittest.TestCase):
+    """Arrancar una corrida y mirarla mientras pasa, sobre HTTP real.
+
+    Es el contrato que consume el dashboard para la celda por empresa: sin esto solo
+    podía mostrar el resultado final, porque POST /api/pipeline no responde hasta que
+    todo terminó.
+
+    Subproceso propio, TODO en mock y sin red: DISCOVER=none evita DuckDuckGo real y
+    las claves vacías dejan a _agents_best en el camino mock. STATE_PATH/CRM_PATH en
+    un tempdir: esto corre un pipeline de verdad y escribe leads.
+    """
+
+    JWT_SECRET = "jwt-secret-para-el-pipeline"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.port = _free_port()
+        cls.base = f"http://127.0.0.1:{cls.port}"
+        repo_root = Path(__file__).resolve().parent.parent
+        cls._tmpdir = tempfile.mkdtemp()
+        env = dict(os.environ)
+        env["SUPABASE_JWT_SECRET"] = cls.JWT_SECRET
+        env["AUTH_USERS_PATH"] = os.path.join(cls._tmpdir, "users.json")
+        env["ZERO_PIPELINE_MOCK_OK"] = "1"
+        env["STATE_PATH"] = os.path.join(cls._tmpdir, "state.json")
+        env["CRM_PATH"] = os.path.join(cls._tmpdir, "crm.json")
+        env["DISCOVER"] = "none"          # sin DuckDuckGo real
+        env["SUPABASE_URL"] = ""
+        env["SUPABASE_KEY"] = ""
+        env["LOCAL_MODEL"] = ""
+        env["ANTHROPIC_API_KEY"] = ""
+        # Sin esto la API se niega a correr el pipeline en mock (guardia
+        # `_exigir_motor_real`, para que el dashboard no invente leads). Acá el
+        # mock ES el punto: se prueba el contrato de progreso, no el cerebro.
+        env["ZERO_PIPELINE_MOCK_OK"] = "1"
+        cls.proc = _start_and_wait(
+            [sys.executable, "-m", "uvicorn", "api:app", "--port", str(cls.port),
+             "--log-level", "warning"],
+            str(repo_root), env, cls.base,
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        proc = getattr(cls, "proc", None)
+        if proc is not None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+        shutil.rmtree(getattr(cls, "_tmpdir", "") or "", ignore_errors=True)
+
+    def _jwt(self, **kw) -> str:
+        return _make_supabase_jwt(self.JWT_SECRET, **kw)
+
+    def _get(self, path: str, token: str | None = None):
+        headers = {"Authorization": f"Bearer {token or self._jwt(role='admin')}"}
+        req = urllib.request.Request(f"{self.base}{path}", headers=headers)
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return r.status, json.loads(r.read().decode("utf-8"))
+
+    def _post(self, path: str, body: dict, token: str | None = None):
+        headers = {"Authorization": f"Bearer {token or self._jwt(role='admin')}",
+                   "Content-Type": "application/json"}
+        req = urllib.request.Request(f"{self.base}{path}", data=json.dumps(body).encode("utf-8"),
+                                     headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return r.status, json.loads(r.read().decode("utf-8"))
+
+    def _correr_hasta_el_final(self, cliente: str, timeout: float = 30.0) -> dict:
+        _, arranque = self._post("/api/pipeline/start",
+                                 {"client": cliente, "tier": "GROWTH",
+                                  "query": "piscinas en Santiago", "count": 5,
+                                  "auto_send": False})
+        self.assertTrue(arranque["run"].startswith("r_"))
+        limite = time.time() + timeout
+        ultimo = None
+        while time.time() < limite:
+            _, ultimo = self._get(f"/api/pipeline/progress?run={arranque['run']}")
+            if ultimo["estado"] != "corriendo":
+                return ultimo
+            time.sleep(0.2)
+        self.fail(f"la corrida no terminó en {timeout}s: {ultimo}")
+
+    def test_arrancar_devuelve_el_id_sin_esperar_a_que_termine(self):
+        """El punto entero: responde al instante y el trabajo sigue atrás."""
+        t0 = time.time()
+        status, arranque = self._post("/api/pipeline/start",
+                                      {"client": "veloz", "tier": "GROWTH",
+                                       "query": "piscinas", "count": 5, "auto_send": False})
+        self.assertEqual(status, 200)
+        self.assertLess(time.time() - t0, 5.0, "start no debería esperar al pipeline")
+        _, p = self._get(f"/api/pipeline/progress?run={arranque['run']}")
+        self.assertIn(p["estado"], ("corriendo", "terminada"))
+
+    def test_el_progreso_trae_las_empresas_con_su_etapa(self):
+        final = self._correr_hasta_el_final("acme")
+        self.assertEqual(final["estado"], "terminada")
+        self.assertEqual(final["fase"], "listo")
+        self.assertTrue(final["leads"], "la corrida no reportó ninguna empresa")
+        for fila in final["leads"]:
+            self.assertTrue(fila["empresa"])
+            self.assertIn(fila["etapa"], final["etapas"])
+            self.assertIn("desde", fila)          # con esto el dashboard anima
+        self.assertEqual(final["encontradas"], len(final["leads"]))
+        self.assertIsNotNone(final["resumen"])
+
+    def test_el_vocabulario_de_etapas_viaja_en_la_respuesta(self):
+        """Para que el dashboard pinte la barra sin hardcodear los nombres del backend."""
+        final = self._correr_hasta_el_final("vocabulario")
+        self.assertEqual(final["etapas"],
+                         ["descubierta", "calificada", "aprobada", "descartada", "lista"])
+
+    def test_una_corrida_desconocida_es_404(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/api/pipeline/progress?run=r_no-existe")
+        self.assertEqual(ctx.exception.code, 404)
+
+    def test_las_corridas_recientes_se_pueden_listar(self):
+        """Para reenganchar la pantalla tras un F5 sin guardar el id en el navegador."""
+        self._correr_hasta_el_final("listable")
+        _, body = self._get("/api/pipeline/runs?limit=5")
+        self.assertTrue(any(r["cliente"] == "listable" for r in body["runs"]))
+
+    def test_quien_opera_el_pipeline_puede_ver_su_avance(self):
+        """cto opera el pipeline; sería absurdo que no pudiera mirarlo correr."""
+        self.assertEqual(self._get("/api/pipeline/runs", token=self._jwt(role="cto"))[0], 200)
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/api/pipeline/runs", token=self._jwt(role="cco"))
+        self.assertEqual(ctx.exception.code, 403)
 
 
 if __name__ == "__main__":

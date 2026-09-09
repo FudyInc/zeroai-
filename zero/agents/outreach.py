@@ -26,6 +26,21 @@ def _join(*parts: str) -> str:
     return " ".join(p for p in parts if p)
 
 
+def _tier_touch(tier: str, activity: Optional[str] = None) -> str:
+    """Build tier-appropriate touch, personalizing with activity for GROWTH+."""
+    if tier == "STARTER":
+        return ""
+    elif tier == "GROWTH":
+        if activity:
+            return f"Trabajamos con empresas de {activity}."
+        return "Trabajamos con PyMEs de tu rubro."
+    elif tier == "SCALE":
+        return "Medianas como la tuya suelen sumar 15-20 reuniones al mes con esto."
+    elif tier == "ENTERPRISE":
+        return "Para equipos de tu tamaño armamos un piloto a medida por vertical."
+    return ""
+
+
 class Outreach(BaseAgent):
     name = "OUTREACH"
     prompt_file = "outreach.md"
@@ -34,7 +49,6 @@ class Outreach(BaseAgent):
         leads: List[Dict[str, Any]] = list(task.data.get("leads") or [])
         allowed = task.constraints.channels or ["email"]
         tier = task.client_tier or "STARTER"
-        touch = _TIER_TOUCH.get(tier, "")
         # Firma con el vendedor asignado (Fernanda/Stéfano/...) si viene — mismo
         # contrato que el prompt real (prompts/outreach.md): nunca se inventa un
         # nombre, y sin vendor no hay firma de persona (nunca el nombre interno
@@ -47,6 +61,8 @@ class Outreach(BaseAgent):
             channel = ld.get("channel") if ld.get("channel") in allowed else allowed[0]
             company = ld.get("company", "tu empresa")
             role = ld.get("role", "tu equipo")
+            activity = ld.get("activity")
+            touch = _tier_touch(tier, activity)
             # "por verificar" (PROSPECTOR, discovery web) es un placeholder honesto de
             # "no sabemos quién decide todavía" — nunca un rol real. Tratarlo como tal
             # evita mensajes que suenan rotos (ej. "vi que lideras como por verificar").

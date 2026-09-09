@@ -117,6 +117,45 @@ class LocalBackend:
             raise RuntimeError(f"unexpected response from local backend: {payload!r}") from e
 
 
+class OpenAIBackend(LocalBackend):
+    """GPT vía la API de OpenAI. Es `LocalBackend` con otra puerta.
+
+    No hay código nuevo de transporte a propósito: `LocalBackend` ya habla el
+    protocolo de OpenAI —`/chat/completions`, `Authorization: Bearer`, la misma forma
+    de payload y de respuesta—, porque Ollama y vLLM lo implementan. Cambiar de un
+    modelo local a GPT es cambiar `base_url`, `api_key` y `model`, nada más. Heredar
+    en vez de copiar mantiene una sola ruta de red que mantener y probar.
+
+    OJO CON EL COSTO. Esto **cobra por token**, a diferencia del local. Y una
+    suscripción de ChatGPT NO sirve acá: la app y la API son productos y
+    facturaciones separadas — hace falta una key de platform.openai.com. Ver
+    `[[zero-cost-policy]]`: lo de pago se pospone mientras lo gratis alcance.
+
+    Timeout mucho más corto que el del local: allá se esperan minutos porque un
+    modelo razonador en CPU puede tardarlos, y no cuesta nada. Acá cada segundo de
+    espera es una petición pagada que sigue viva.
+    """
+
+    def __init__(
+        self,
+        model: str = "gpt-4o-mini",
+        base_url: str = "https://api.openai.com/v1",
+        api_key: str = "",
+        timeout: float = 90.0,
+        **kw,
+    ):
+        if not (api_key or "").strip():
+            # Sin key esto no puede funcionar, y fallar acá es mucho más barato que
+            # fallar dentro de una corrida: el error dice qué falta, en vez de un 401
+            # a mitad del pipeline.
+            raise ValueError(
+                "OpenAIBackend necesita una api_key de platform.openai.com. "
+                "Una suscripción de ChatGPT no da acceso a la API: son cosas distintas."
+            )
+        super().__init__(model=model, base_url=base_url, api_key=api_key,
+                         timeout=timeout, **kw)
+
+
 class FallbackBackend:
     """Un cerebro principal con suplente: si el principal falla, contesta el otro.
 

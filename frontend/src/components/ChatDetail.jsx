@@ -62,7 +62,7 @@ export default function ChatDetailModal({ client, leadKey, onClose }) {
           onClick={onClose}
         >
           <motion.div
-            className="bg-white dark:bg-[#1D2016] rounded-2xl max-w-lg w-full max-h-[85vh] flex flex-col overflow-hidden"
+            className="bg-white dark:bg-zinc-50 rounded-2xl max-w-lg w-full max-h-[85vh] flex flex-col overflow-hidden"
             initial={{ opacity: 0, scale: 0.96, y: 12 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: 12 }}

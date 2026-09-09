@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { api } from '../lib/api'
-import { Card, CountUp, Skeleton, pageState, Eyebrow, SectionTitle } from '../components/ui'
+import { Card, CountUp, Skeleton, pageState, Eyebrow, SectionTitle, Badge } from '../components/ui'
 import { Segmented } from '../components/Segmented'
 import { useApp } from '../App'
 import { NoClient } from './Dashboard'
@@ -46,9 +46,20 @@ export default function Forecast() {
     <motion.div className="space-y-5" initial="hidden" animate="show" variants={rise}>
       <motion.div className="flex items-center justify-between gap-3 flex-wrap" variants={fade}>
         <Segmented options={SCENARIOS} value={scen} onChange={setScen} />
-        <span className="text-xs text-zinc-400">
-          {scen === 'base' ? 'Tasas estimadas por el ANALYST' : `Escenario what-if: ×${k} sobre la base`}
-        </span>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* De dónde salieron estas tasas. `_agent_op` cae al mock cuando el motor real
+              falla o devuelve vacío, y manda el modo justo para que se pueda decir; esta
+              página lo recibía y lo ignoraba, así que un forecast simulado se veía igual
+              que uno real. Mismo patrón que Campanas.jsx y Vender.jsx. */}
+          {data.mode && (
+            <Badge color={data.mode === 'live' ? '#16a34a' : '#94a3b8'}>
+              {data.mode === 'live' ? 'modelo real' : 'mock · cifras simuladas'}
+            </Badge>
+          )}
+          <span className="text-xs text-zinc-400">
+            {scen === 'base' ? 'Tasas estimadas por el ANALYST' : `Escenario what-if: ×${k} sobre la base`}
+          </span>
+        </div>
       </motion.div>
       <motion.div className="grid grid-cols-2 lg:grid-cols-4 gap-4" variants={stagger()} initial="hidden" animate="show">
         {stats.map((s) => (

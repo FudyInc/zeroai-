@@ -61,8 +61,8 @@ _BAD_EMAIL_HINTS = ("example.", "sentry", "wixpress", "@2x", "@3x", ".png", ".jp
                     "@dominio.", "@tudominio", "@tuempresa.", "yourname@", "yourmail")
 
 # Industry detection keywords: map industries to phrases found on web pages.
-# Used to enrich leads with industry/rubro information.
-_INDUSTRY_KEYWORDS = {
+# Used to derive a normalized category from a lead's activity.
+_ACTIVITY_CATEGORIES = {
     "fintech": ["banco", "pago", "cripto", "tarjeta", "financiero", "préstamo",
                 "inversión", "wallet", "transacción", "fintech", "transferencia",
                 "criptomoneda", "mercado de valores", "bróker"],
@@ -236,7 +236,7 @@ class DuckDuckGoSource(DiscoverySource):
                 except Exception:
                     name, role = (None, None)
             activity = self._activity(page, title)
-            industry = self._detect_industry(page, activity or "", title, domain)
+            categoria = self._detect_activity_category(page, activity or "", title, domain)
             leads.append({
                 "company": company,
                 "domain": domain,
@@ -248,7 +248,7 @@ class DuckDuckGoSource(DiscoverySource):
                 "source": "duckduckgo",
                 "url": url,
                 "activity": activity,
-                "industry": industry,
+                "activity_category": categoria,
             })
 
         from .validators import ValidatorRules  # local import: avoid cycle with validators.py
@@ -451,14 +451,18 @@ class DuckDuckGoSource(DiscoverySource):
         return None
 
     @staticmethod
-    def _detect_industry(page: str, activity: str, title: str, domain: str) -> Optional[str]:
-        """Detect industry/rubro from page content, activity, title, and domain.
-        Returns the matched industry name or None."""
+    def _detect_activity_category(page: str, activity: str, title: str,
+                                  domain: str) -> Optional[str]:
+        """Normalized category for what the lead does, from page, activity, title and
+        domain. Returns the matched category name or None.
+
+        Deliberately NOT called `industry`: that word already means the segment the
+        CLIENT is looking for (`icp["industry"]`) — the opposite end of the pipeline."""
         text = (activity + " " + title + " " + domain).lower()
-        for industry, keywords in _INDUSTRY_KEYWORDS.items():
+        for categoria, keywords in _ACTIVITY_CATEGORIES.items():
             for keyword in keywords:
                 if keyword.lower() in text:
-                    return industry
+                    return categoria
         return None
 
     def _company_name(self, page: str, title: str, domain: str) -> str:

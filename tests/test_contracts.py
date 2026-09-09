@@ -172,6 +172,27 @@ class LeadYCrmHablanDelMismoLeadTest(unittest.TestCase):
         for campo, valor in d.items():
             self.assertEqual(vuelta[campo], valor, campo)
 
+    def test_el_crm_de_la_nube_guarda_todo_lo_que_guarda_el_local(self):
+        """El tercer participante, que este anclaje no miraba y por eso se le escapó.
+
+        `crm._FIELDS` decía qué persiste el CRM, pero con Supabase activo quien persiste
+        de verdad es `crm_supabase`, y su mapeo de columnas es otra lista. Tenía 12 y le
+        faltaban cuatro —activity, activity_category, source, segment—, así que todo lead
+        que llegaba a la nube perdía en silencio su rubro, su origen y su segmento.
+
+        Encontrado el 2026-09-08 mirando datos reales: los 12 leads de producción tenían
+        `source: None`, no porque nadie lo hubiera puesto sino porque la columna no
+        existía. Los dos tests de arriba estaban verdes todo ese tiempo: comparaban Lead
+        con _FIELDS y ahí no había nada roto.
+
+        La cadena es Lead → crm._FIELDS → crm_leads, y una cadena se ancla entera.
+        """
+        from zero.crm import _FIELDS
+        from zero.crm_supabase import _JSONB, _PLAIN
+        en_la_nube = set(_PLAIN) | set(_JSONB)
+        self.assertEqual(sorted(set(_FIELDS) - en_la_nube), [],
+                         "campos que el CRM local guarda y el de la nube tira")
+
 
 if __name__ == "__main__":
     unittest.main()

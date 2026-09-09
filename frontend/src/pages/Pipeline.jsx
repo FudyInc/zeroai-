@@ -9,6 +9,7 @@ import { Segmented } from '../components/Segmented'
 import { useApp } from '../App'
 import { NoClient } from './Dashboard'
 import { rise, fade, surface, stagger, staggerDense } from '../lib/motion'
+import LeadRoute from '../components/LeadRoute'
 
 const DENSITY = [{ value: 'comodo', label: 'Cómodo' }, { value: 'compacto', label: 'Compacto' }]
 
@@ -47,7 +48,7 @@ export default function Pipeline() {
   return (
     <motion.div initial="hidden" animate="show" variants={rise}>
       <motion.div className="flex items-center justify-between gap-3 mb-4" variants={fade}>
-        <div className="text-xs text-zinc-400">Arrastrá una tarjeta entre columnas para cambiar su etapa — o usá el menú. Tocala para ver el detalle.</div>
+        <div className="text-xs text-zinc-400">Arrastra una tarjeta entre columnas para cambiar su etapa — o usa el menú. Tócala para ver el detalle.</div>
         <Segmented options={DENSITY} value={dense} onChange={setDense} />
       </motion.div>
       <motion.div className="flex gap-4 overflow-x-auto pb-2" variants={stagger()} initial="hidden" animate="show">
@@ -81,18 +82,21 @@ export default function Pipeline() {
                     onDragStart={() => { drag.current = { key: r.key, from: stage } }}
                     onDragEnd={() => { drag.current = null; setOver(null) }}
                     onClick={() => openLead(r.key)}
-                    className={'cursor-grab active:cursor-grabbing bg-white dark:bg-[#1D2016] border border-champagne/50 dark:border-zinc-700/40 rounded-xl shadow-[0_1px_2px_rgba(44,53,41,0.04)] hover:shadow-[0_14px_34px_-18px_rgba(44,53,41,0.20)] hover:-translate-y-0.5 dark:hover:border-zinc-600/60 transition-all ' + (compact ? 'p-3' : 'p-4')}
+                    className={'cursor-grab active:cursor-grabbing bg-white dark:bg-zinc-50 border border-champagne/50 dark:border-zinc-700/40 rounded-xl shadow-[0_1px_2px_rgba(44,53,41,0.04)] hover:shadow-[0_14px_34px_-18px_rgba(44,53,41,0.20)] hover:-translate-y-0.5 dark:hover:border-zinc-600/60 transition-all ' + (compact ? 'p-3' : 'p-4')}
                   >
                     <div className="flex justify-between items-start gap-2">
                       <div className={'font-semibold ' + (compact ? 'text-sm' : '')}>{r.company}</div>
                       <span className="font-extrabold tabular-nums" style={{ color: scoreColor(r.score) }}>{r.score ?? '—'}</span>
                     </div>
+                    {/* Va en ambas densidades: son 4px y en compacto es lo único que
+                        queda del recorrido, que es justo cuando más se agradece. */}
+                    <LeadRoute lead={r} compact />
                     {!compact && (
                       <>
                         <div className="text-xs text-zinc-500 mt-2">{r.role || '—'}</div>
                         <div className="text-xs text-zinc-400">{r.email || r.phone || '—'}</div>
                         <select value={r.stage} onClick={(e) => e.stopPropagation()} onChange={(e) => move(r.key, e.target.value)}
-                          className="mt-3 w-full text-xs border border-zinc-200 dark:border-zinc-700/50 rounded-lg px-2.5 py-1.5 bg-white dark:bg-zinc-900/20 text-zinc-700 dark:text-zinc-300 outline-none focus:ring-2 focus:ring-champagne/40 transition">
+                          className="mt-3 w-full text-xs border border-zinc-200 dark:border-zinc-700/50 rounded-lg px-2.5 py-1.5 bg-white dark:bg-zinc-50 text-zinc-700 dark:text-zinc-300 outline-none focus:ring-2 focus:ring-champagne/40 transition">
                           {ORDER.map((st) => <option key={st} value={st}>{STAGES[st].l}</option>)}
                         </select>
                       </>
@@ -101,7 +105,7 @@ export default function Pipeline() {
                 ))}
                 {leads.length === 0 && (
                   <div className="text-[12px] text-zinc-300 text-center py-6 border border-dashed border-zinc-200 rounded-xl">
-                    soltá aquí
+                    suelta aquí
                   </div>
                 )}
               </motion.div>

@@ -9,6 +9,7 @@ import { Card, Skeleton, Button, Input } from '../components/ui'
 import { Segmented } from '../components/Segmented'
 import { useApp } from '../App'
 import { NoClient } from './Dashboard'
+import PipelineRun from '../components/PipelineRun'
 import { rise, fade, surface, staggerDense } from '../lib/motion'
 
 const GROUPS = [
@@ -21,10 +22,15 @@ const PAGE = 50
 const viewKey = (client) => `zero_leads_view_${client}`
 
 export default function Leads() {
-  const { client, openLead } = useApp()
+  const { client, openLead, runId, setRunId } = useApp()
   const qc = useQueryClient()
   const [q, setQ] = useState('')
   const [group, setGroup] = useState('todos')
+  /* Las empresas que el panel en vivo está mostrando. Mientras la corrida avanza, esas
+     filas se esconden de la tabla del CRM: el pipeline va escribiendo los leads a medida
+     que los califica, así que sin esto la misma empresa aparecería arriba como celda y
+     abajo como fila. */
+  const [enVivo, setEnVivo] = useState([])
   // Recuerda la última búsqueda/filtro por cliente (localStorage) — útil para
   // el equipo: retomar donde quedaste al volver a un cliente, sin re-filtrar.
   const [loadedFor, setLoadedFor] = useState(null)
@@ -42,6 +48,21 @@ export default function Leads() {
     if (!client || loadedFor !== client) return
     localStorage.setItem(viewKey(client), JSON.stringify({ group, q }))
   }, [client, loadedFor, group, q])
+
+  /* Reengancha con una corrida que siga viva después de un F5. El backend recuerda las
+     últimas 20, así que no hace falta guardar el id en el navegador: se pregunta una vez
+     al entrar y solo si no venimos de disparar una recién. */
+  useEffect(() => {
+    if (runId || !client) return
+    let vivo = true
+    api.pipelineRuns(10)
+      .then((rs) => {
+        const activa = rs.find((r) => r.estado === 'corriendo' && r.cliente === client)
+        if (vivo && activa) setRunId?.(activa.run)
+      })
+      .catch(() => { /* sin corridas que recordar: no hay nada que reenganchar */ })
+    return () => { vivo = false }
+  }, [client])   // eslint-disable-line react-hooks/exhaustive-deps
 
   const {
     data, isLoading, error, refetch, fetchNextPage, hasNextPage, isFetchingNextPage,
@@ -65,12 +86,32 @@ export default function Leads() {
   const leads = data?.pages.flatMap((p) => p.leads) ?? []
   const total = data?.pages[0]?.total ?? 0
   const needle = q.trim().toLowerCase()
-  const rows = needle
+  const filtrados = needle
     ? leads.filter((r) => [r.company, r.role, r.email, r.phone].some((x) => (x || '').toLowerCase().includes(needle)))
     : leads
+  /* Se comparan normalizados porque el nombre viaja por dos caminos distintos (la
+     corrida y el CRM) y basta una mayúscula o un espacio de más para que el mismo lead
+     se cuele dos veces. */
+  const ocupadas = new Set(enVivo.map((e) => (e || '').trim().toLowerCase()))
+  const rows = ocupadas.size
+    ? filtrados.filter((r) => !ocupadas.has((r.company || '').trim().toLowerCase()))
+    : filtrados
 
   return (
     <motion.div className="space-y-5" initial="hidden" animate="show" variants={rise}>
+      {runId && (
+        <PipelineRun
+          runId={runId}
+          onEmpresas={setEnVivo}
+          onFin={() => {
+            /* El pipeline ya escribió estos leads en el CRM; recargar la tabla es lo que
+               permite soltar las celdas en vivo sin que nada desaparezca de la pantalla. */
+            qc.invalidateQueries({ queryKey: ['leads'] })
+            setEnVivo([])
+          }}
+        />
+      )}
+
       <motion.div className="flex flex-wrap items-center gap-2" variants={fade}>
         <div className="relative flex-1 min-w-[220px]">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />

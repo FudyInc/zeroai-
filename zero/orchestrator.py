@@ -353,11 +353,28 @@ class Zero:
             return float("inf")
 
     # --- pipeline steps (helpers for run_pipeline) ---------------------------
+    @staticmethod
+    def _avisar(on_progress, **datos) -> None:
+        """Reporta avance a quien esté mirando, sin poder romper la corrida.
+
+        Avisar es secundario frente a entregar leads: si el observador falla —o es
+        una función mal escrita del lado del dashboard— se pierde una animación, no
+        el trabajo. Mismo criterio que zero/telemetry.py.
+        """
+        if on_progress is None:
+            return
+        try:
+            on_progress(**datos)
+        except Exception:   # noqa: BLE001 — nunca rompe lo que mide
+            pass
+
     def _validate_and_record(
-        self, client_id: str, scored: List[Lead], exclusions: List[str], tier: Optional[str] = None
+        self, client_id: str, scored: List[Lead], exclusions: List[str], tier: Optional[str] = None,
+        on_progress=None,
     ) -> Tuple[List[Lead], List[Dict[str, Any]]]:
         """Run the qualified-lead gate over scored leads, updating CRM + memory log."""
         self.memory.set_stage(client_id, "validate")
+        self._avisar(on_progress, fase="validando")
         qualified: List[Lead] = []
         rejected: List[Dict[str, Any]] = []
         for lead in scored:
@@ -366,6 +383,10 @@ class Zero:
                 qualified.append(lead)
             else:
                 rejected.append({"company": lead.company, "score": lead.score, "reasons": fails})
+            # Acá el avance es real lead por lead (el gate itera), no por lote.
+            self._avisar(on_progress, empresa=lead.company,
+                         etapa="aprobada" if ok else "descartada",
+                         motivo=None if ok else ", ".join(fails))
             if self.crm:
                 rec = self.crm.upsert(client_id, {**lead.to_dict(), "key": lead.key()},
                                       stage="qualified" if ok else "disqualified")
@@ -496,8 +517,18 @@ class Zero:
         exclusions: Optional[List[str]] = None,
         write_outreach: bool = True,
         auto_send: bool = True,
+        on_progress=None,
     ) -> Dict[str, Any]:
-        """discover → enrich → qualify → (validate) → outreach → report."""
+        """discover → enrich → qualify → (validate) → outreach → report.
+
+        `on_progress(**datos)` recibe el avance mientras corre: `fase=` para la
+        corrida entera y `empresa=`/`etapa=` para cada empresa. Es opcional y nadie
+        que no lo pase nota diferencia; lo usa la API para que el dashboard pueda
+        mostrar qué está pasando en vez de una pantalla quieta durante minutos.
+        Ojo con la granularidad real: discover y qualify son UNA llamada al modelo
+        cada una, así que sus empresas aparecen en tanda; validate y outreach sí
+        avanzan de a una.
+        """
         cfg = tier_config(tier)
         channels = cfg["channels"]
         exclusions = exclusions or []
@@ -524,6 +555,7 @@ class Zero:
 
         # 1) DISCOVER + ENRICH ------------------------------------------------
         self.memory.set_stage(client_id, "discover")
+        self._avisar(on_progress, fase="descubriendo")
         disc = self.dispatch("PROSPECTOR", TaskPayload(
             agent="PROSPECTOR", client_id=client_id, client_tier=tier,
             instructions=f"Descubre y enriquece leads B2B para: {query}",
@@ -533,9 +565,12 @@ class Zero:
         if disc.status == "error":
             return self._fail(client_id, "discover", disc)
         raw_leads = [Lead.from_dict(d) for d in disc.result.get("leads", [])]
+        for lead in raw_leads:
+            self._avisar(on_progress, empresa=lead.company, etapa="descubierta")
 
         # 2) QUALIFY ----------------------------------------------------------
         self.memory.set_stage(client_id, "qualify")
+        self._avisar(on_progress, fase="calificando")
         qual = self.dispatch("QUALIFIER", TaskPayload(
             agent="QUALIFIER", client_id=client_id, client_tier=tier,
             instructions="Califica e identifica fit ICP (0-100) para estos leads.",
@@ -549,14 +584,19 @@ class Zero:
         if qual.status == "error":
             return self._fail(client_id, "qualify", qual)
         scored = _merge_qualifier_scores(raw_leads, qual.result.get("leads", []))
+        for lead in scored:
+            self._avisar(on_progress, empresa=lead.company, etapa="calificada",
+                         score=lead.score)
 
         # 3) VALIDATE against the qualified-lead definition -------------------
-        qualified, rejected = self._validate_and_record(client_id, scored, exclusions, tier=tier)
+        qualified, rejected = self._validate_and_record(client_id, scored, exclusions, tier=tier,
+                                                        on_progress=on_progress)
 
         # 4) OUTREACH (first touch) ------------------------------------------
         messages: List[Dict[str, Any]] = []
         if write_outreach and qualified:
             self.memory.set_stage(client_id, "outreach")
+            self._avisar(on_progress, fase="escribiendo")
             # Persona del vendedor asignado (Fernanda/Stéfano/...): mismo patrón que
             # converse_result (CONCIERGE) — solo name/tone, nunca el token/phone_id.
             # Sin esto, OUTREACH no tiene con qué firmar y puede inventar un remitente
@@ -573,6 +613,9 @@ class Zero:
             ))
             if out.status != "error":
                 messages = out.result.get("messages", [])
+                for m in messages:
+                    self._avisar(on_progress, empresa=m.get("company"), etapa="lista",
+                                 canal=m.get("channel"))
 
         # 4b) SEND first touch + OPEN FOLLOW-UP SEQUENCES ---------------------
         # (o, si auto_send=False, deja los mensajes en borrador para revisar y
@@ -586,6 +629,7 @@ class Zero:
 
         # 5) REPORT -----------------------------------------------------------
         self.memory.set_stage(client_id, "delivered")
+        self._avisar(on_progress, fase="listo")
         deliverable = {
             "client_id": client_id,
             "tier": tier,

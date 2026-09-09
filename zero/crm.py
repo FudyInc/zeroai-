@@ -21,7 +21,7 @@ from .persistence import load_json, save_json
 # decir de qué vive ni cómo llegó. `segment` lo trae el formulario público de la
 # landing, que es hoy el único que pregunta.
 _FIELDS = ("company", "name", "role", "email", "phone", "domain", "score", "channel",
-           "icp_reasons", "activity", "source", "segment", "industry")
+           "icp_reasons", "activity", "source", "segment", "activity_category")
 
 # Opt-out permanente — reusa el campo `tags` que ya existe (mismo campo que usa
 # import_ad_leads para "Meta Ads"), en vez de inventar uno paralelo. `tags` NO

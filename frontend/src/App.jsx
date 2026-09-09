@@ -61,6 +61,11 @@ export default function App() {
   const [client, setClient] = useState(null)
   const [leadKey, setLeadKey] = useState(null)
   const [runOpen, setRunOpen] = useState(false)
+  /* La corrida recién disparada. Vive acá y no en Leads porque quien la dispara es el
+     modal global —desde cualquier página— y quien la muestra es Leads: es el único
+     punto que los dos ven. Tras un F5 se pierde, y ahí Leads lo reengancha solo
+     preguntando por /api/pipeline/runs. */
+  const [runId, setRunId] = useState(null)
   const { pathname } = useLocation()
   const nav = useNavigate()
   const [title, sub] = TITLES[pathname] || ['ZeroAI', '']
@@ -126,11 +131,11 @@ export default function App() {
   if (authEnabled && !role) return <NoRoleScreen username={username} onLogout={() => api.logout()} />
 
   return (
-    <AppCtx.Provider value={{ client, setClient, clients, openLead: setLeadKey, openRun: () => setRunOpen(true) }}>
-      <div className="min-h-screen flex text-zinc-900 bg-[radial-gradient(120%_120%_at_100%_0%,#f2f1ec_0%,#f4f4f4_45%,#f6f5f2_100%)] dark:bg-[radial-gradient(120%_120%_at_100%_0%,#1a1d13_0%,#16180f_45%,#141610_100%)]">
+    <AppCtx.Provider value={{ client, setClient, clients, openLead: setLeadKey, openRun: () => setRunOpen(true), runId, setRunId }}>
+      <div className="min-h-screen flex text-zinc-900 bg-[radial-gradient(120%_120%_at_100%_0%,#f2f1ec_0%,#f4f4f4_45%,#f6f5f2_100%)] dark:bg-[radial-gradient(120%_120%_at_100%_0%,#121214_0%,#0B0B0C_45%,#08080A_100%)]">
         <Sidebar mobileOpen={navOpen} onClose={() => setNavOpen(false)} username={username} fullName={fullName} role={role} authEnabled={authEnabled} />
         <div className="flex-1 min-w-0">
-          <header className="h-[68px] sticky top-0 z-20 bg-white/80 dark:bg-[#1D2016]/80 backdrop-blur border-b border-zinc-200 flex items-center px-4 md:px-8 gap-3">
+          <header className="h-[68px] sticky top-0 z-20 bg-white/80 dark:bg-zinc-50/80 backdrop-blur border-b border-zinc-200 flex items-center px-4 md:px-8 gap-3">
             <button onClick={() => setNavOpen(true)} aria-label="Abrir menú"
               className="md:hidden p-2 -ml-1 rounded-lg text-zinc-600 hover:bg-zinc-100">
               <Menu size={20} />
@@ -204,7 +209,7 @@ export default function App() {
         </div>
 
         <LeadModal client={client} leadKey={leadKey} onClose={() => setLeadKey(null)} />
-        <RunModal open={runOpen} onClose={() => setRunOpen(false)} />
+        <RunModal open={runOpen} onClose={() => setRunOpen(false)} onStarted={setRunId} />
         <CommandPalette
           open={paletteOpen}
           onClose={() => setPaletteOpen(false)}
@@ -225,7 +230,7 @@ export default function App() {
 
 function NoRoleScreen({ username, onLogout }) {
   return (
-    <div className="min-h-screen grid place-items-center bg-[radial-gradient(120%_120%_at_100%_0%,#f2f1ec_0%,#f4f4f4_45%,#f6f5f2_100%)] dark:bg-[radial-gradient(120%_120%_at_100%_0%,#1a1d13_0%,#16180f_45%,#141610_100%)] p-4">
+    <div className="min-h-screen grid place-items-center bg-[radial-gradient(120%_120%_at_100%_0%,#f2f1ec_0%,#f4f4f4_45%,#f6f5f2_100%)] dark:bg-[radial-gradient(120%_120%_at_100%_0%,#121214_0%,#0B0B0C_45%,#08080A_100%)] p-4">
       <Card className="p-8 w-full max-w-sm text-center">
         <div className="font-display font-bold text-lg tracking-tight text-brand mb-2">Cuenta reconocida, sin rol asignado</div>
         <div className="text-sm text-zinc-500 mb-1">
@@ -239,13 +244,24 @@ function NoRoleScreen({ username, onLogout }) {
   )
 }
 
-function RunModal({ open, onClose }) {
-  const { setClient } = useApp()
+function RunModal({ open, onClose, onStarted }) {
+  const { setClient, client: ctxClient } = useApp()
+  const nav = useNavigate()
   const qc = useQueryClient()
   const EMPTY_ICP = { sells: '', industry: '', roles: '', companySize: '', regions: '', mustHave: '', exclude: '', context: '' }
-  const [form, setForm] = useState({ client: 'demo', tier: 'GROWTH', query: '', count: 8, autoSend: false, ...EMPTY_ICP })
+  // Sin cliente por defecto: con acme, demo, heladerias y zeroai ya borrados del CRM, ese
+  // default resucitaba un cliente de prueba en la base real con solo abrir el modal.
+  const [form, setForm] = useState({ client: '', tier: 'GROWTH', query: '', count: 8, autoSend: false, provider: '', ...EMPTY_ICP })
+  const [starting, setStarting] = useState(false)
+  const [runError, setRunError] = useState('')
   const [showIcp, setShowIcp] = useState(false)
   const [icpLoaded, setIcpLoaded] = useState(false)
+
+  // Precarga el cliente activo del encabezado si el campo sigue vacío — no pisa
+  // lo que el usuario ya haya escrito a mano.
+  useEffect(() => {
+    if (ctxClient && !form.client) setForm((f) => (f.client ? f : { ...f, client: ctxClient }))
+  }, [ctxClient]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Map a saved (normalized) ICP back into the form so it's editable, not write-only.
   const fillFromIcp = (icp) => setForm((f) => ({
@@ -257,7 +273,9 @@ function RunModal({ open, onClose }) {
   }))
 
   const loadSavedIcp = () => {
-    api.icp(form.client.trim() || 'demo').then(fillFromIcp).catch(() => {}).finally(() => setIcpLoaded(true))
+    const c = form.client.trim()
+    if (!c) { setIcpLoaded(true); return }
+    api.icp(c).then(fillFromIcp).catch(() => {}).finally(() => setIcpLoaded(true))
   }
 
   // When the ICP panel opens, pull the client's saved profile so they see/edit it.
@@ -273,6 +291,8 @@ function RunModal({ open, onClose }) {
   // (toast.promise) que vive independiente del modal/componente — aunque
   // Diego navegue a otra página, el toast lo sigue avisando cuando termine.
   const run = () => {
+    if (starting || !form.provider) return
+    setRunError('')
     const icp = {}
     if (form.sells.trim()) icp.sells = form.sells.trim()
     if (form.industry.trim()) icp.industry = form.industry.trim()
@@ -282,44 +302,65 @@ function RunModal({ open, onClose }) {
     if (form.mustHave.trim()) icp.must_have = form.mustHave.trim()
     if (form.exclude.trim()) icp.exclude = form.exclude.trim()
     if (form.context.trim()) icp.context = form.context.trim()
-    const targetClient = form.client.trim() || 'demo'
+    const targetClient = form.client.trim()
+    if (!targetClient) { toast.error('Elige un cliente antes de buscar leads.'); return }
 
-    toast.promise(
-      api.runPipeline({
-        client: targetClient,
-        tier: form.tier,
-        query: form.query.trim() || 'leads B2B',
-        count: Number(form.count) || 8,
-        auto_send: form.autoSend,
-        ...(Object.keys(icp).length ? { icp } : {}),
-      }).then((d) => { qc.invalidateQueries(); return d }),
-      {
-        loading: `Buscando leads para "${targetClient}"… con el motor real esto puede tardar varios minutos, puedes seguir usando el dashboard mientras tanto.`,
-        success: (d) => {
-          const s = d?.summary || {}
-          const rest = s.drafted ? `${s.drafted} en borrador para revisar` : `${s.sent || 0} enviados`
-          return `Listo "${targetClient}": ${s.qualified ?? 0} calificados de ${s.discovered ?? 0} encontrados · ${rest}`
-        },
-        error: (e) => `No se pudo completar la búsqueda para "${targetClient}": ${e.message}`,
-      },
-    )
-    setClient(targetClient)
-    onClose()
+    /* Antes esto llamaba a /api/pipeline, que deja la request abierta los minutos que
+       tarda la corrida real y solo devuelve algo al final: el único rastro era un toast.
+       Ahora arranca y responde al instante, y el avance se ve empresa por empresa en la
+       pantalla de Leads, que es donde uno quiere estar mirando mientras corre. */
+    setStarting(true)
+    api.startPipeline({
+      provider: form.provider,
+      client: targetClient,
+      tier: form.tier,
+      query: form.query.trim() || 'leads B2B',
+      count: Number(form.count) || 8,
+      auto_send: form.autoSend,
+      ...(Object.keys(icp).length ? { icp } : {}),
+    })
+      .then((d) => {
+        setClient(targetClient)
+        onClose()
+        onStarted?.(d.run)
+        nav('/leads')
+      })
+      .catch((e) => setRunError(`No se pudo iniciar la búsqueda: ${e.message}`))
+      .finally(() => setStarting(false))
   }
 
   return (
     <AnimatePresence>
       {open && (
         <motion.div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
-          <motion.div className="bg-white dark:bg-[#1D2016] rounded-2xl max-w-md w-full p-6 space-y-4"
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { if (!starting) onClose() }}>
+          <motion.div className="bg-white dark:bg-zinc-50 rounded-2xl max-w-md w-full p-6 space-y-4 max-h-[90dvh] overflow-y-auto"
             initial={{ opacity: 0, scale: 0.96, y: 12 }} animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: 12 }} transition={{ type: 'spring', stiffness: 320, damping: 28 }}
             onClick={(e) => e.stopPropagation()}>
             <div className="text-lg font-bold">Buscar leads</div>
+            <fieldset disabled={starting}>
+              <legend className="text-sm font-medium mb-2">¿Qué motor quieres usar?</legend>
+              <div className="grid grid-cols-3 gap-2">
+                {[['openai', 'OpenAI', 'API de pago'], ['anthropic', 'Anthropic', 'API de pago'], ['qwen', 'Qwen', 'Modelo local']].map(([value, label, detail]) => (
+                  <label key={value} className={`rounded-xl border p-3 text-center cursor-pointer ${form.provider === value ? 'border-gold bg-gold/10' : 'border-zinc-200'}`}>
+                    <input type="radio" name="pipeline-provider" value={value} checked={form.provider === value}
+                      onChange={() => { setForm(f => ({ ...f, provider: value })); setRunError('') }} className="accent-gold" />
+                    <span className="flex items-center justify-center h-10 mt-2" aria-hidden="true">
+                      <img src={`/technology/${value}.svg`} alt="" width={32} height={32}
+                        style={{ display: 'block', width: 32, height: 32, objectFit: 'contain' }} />
+                    </span>
+                    <span className="block text-sm font-semibold mt-1">{label}</span>
+                    <span className="block text-[11px] text-zinc-500 mt-1">{detail}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-zinc-500 mt-2">Se usará solo en esta búsqueda. Si no está disponible, te avisaremos.</p>
+            </fieldset>
+            {runError && <p role="alert" className="text-sm text-rose-600">{runError}</p>}
             <div className="grid grid-cols-2 gap-3">
               <div><label className="block text-xs text-zinc-500 mb-1">Cliente</label>
-                <Input value={form.client} onChange={(e) => { setForm({ ...form, client: e.target.value }); setIcpLoaded(false) }} placeholder="acme" /></div>
+                <Input value={form.client} onChange={(e) => { setForm({ ...form, client: e.target.value }); setIcpLoaded(false) }} placeholder="nombre del cliente" /></div>
               <div><label className="block text-xs text-zinc-500 mb-1">Plan</label>
                 <Select className="w-full" value={form.tier} onChange={(e) => setForm({ ...form, tier: e.target.value })}>
                   {['STARTER', 'GROWTH', 'SCALE', 'ENTERPRISE'].map((t) => <option key={t}>{t}</option>)}
@@ -378,8 +419,8 @@ function RunModal({ open, onClose }) {
             </div>
 
             <div className="flex justify-end gap-2 pt-1">
-              <Button variant="ghost" onClick={onClose}>Cancelar</Button>
-              <Button variant="accent" onClick={run}>Correr</Button>
+              <Button variant="ghost" onClick={onClose} disabled={starting}>Cancelar</Button>
+              <Button variant="accent" onClick={run} disabled={starting || !form.provider}>{starting ? 'Iniciando…' : 'Iniciar búsqueda'}</Button>
             </div>
           </motion.div>
         </motion.div>

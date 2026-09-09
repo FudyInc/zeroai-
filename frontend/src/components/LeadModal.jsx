@@ -8,6 +8,7 @@ import { useDismiss } from '../hooks/useDismiss'
 import { STAGES, scoreColor } from '../lib/util'
 import { Badge, Skeleton, Button, Input } from './ui'
 import ConversationThread from './ConversationThread'
+import LeadRoute from './LeadRoute'
 
 // Stages where the lead has been contacted but hasn't replied yet → offer to log a reply.
 const REPLYABLE = new Set(['contacted', 'nurturing'])
@@ -30,7 +31,7 @@ export default function LeadModal({ client, leadKey, onClose }) {
           onClick={onClose}
         >
           <motion.div
-            className="bg-white dark:bg-[#1D2016] rounded-2xl max-w-lg w-full max-h-[85vh] overflow-auto p-6"
+            className="bg-white dark:bg-zinc-50 rounded-2xl max-w-lg w-full max-h-[85vh] overflow-auto p-6"
             initial={{ opacity: 0, scale: 0.96, y: 12 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: 12 }}
@@ -80,6 +81,8 @@ function LeadBody({ r, client, onClose }) {
       </div>
 
       <div className="text-sm text-zinc-600 mt-3">{r.email || r.phone || '—'} · canal {r.channel || '—'}</div>
+
+      <LeadRoute lead={r} />
 
       {r.icp_reasons?.length > 0 && (
         <div className="mt-4">

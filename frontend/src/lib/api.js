@@ -89,6 +89,28 @@ export const api = {
   finance: (month) => req('/api/finance' + (month ? '?month=' + q(month) : '')),
   runPipeline: (body) =>
     req('/api/pipeline', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+
+  /* La corrida en dos tiempos. `runPipeline` (arriba) abre la request y la deja abierta
+     los minutos que tarde el pipeline real: sirve para un script, pero deja al dashboard
+     sin nada que mostrar mientras tanto. Estos tres devuelven al instante y el avance se
+     lee por separado. El endpoint síncrono sigue existiendo a propósito. */
+  startPipeline: async (body) => {
+    try {
+      return await req(body.provider ? '/api/pipeline/start-selected' : '/api/pipeline/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    } catch (error) {
+      if (body.provider && error.status === 404) throw new Error('El servidor necesita actualizarse o reiniciarse para permitir elegir motor. No se inició la búsqueda.')
+      throw error
+    }
+  },
+
+  /* 404 cuando la corrida no existe o el anillo de 20 ya la olvidó. Para la UI son el
+     mismo caso —no hay nada que mostrar—, así que se deja pasar el error tal cual y lo
+     resuelve quien consulta. */
+  pipelineProgress: (run) => req('/api/pipeline/progress?run=' + q(run)),
+
+  /* Las corridas que el proceso todavía recuerda: con esto la pantalla se reengancha
+     sola después de un F5, sin guardar el id en el navegador. */
+  pipelineRuns: (limit = 10) => req('/api/pipeline/runs?limit=' + q(limit)).then((d) => d.runs || []),
   testEmail: (to) =>
     req('/api/test-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to }) }),
   simulateAgent: (body) =>
@@ -103,6 +125,20 @@ export const api = {
   setPricing: (c, pricing) =>
     req('/api/pricing?client=' + q(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pricing }) }),
   knowledge: (c) => req('/api/knowledge?client=' + q(c)),
+  /* Banco de casos: el set de preguntas con el que se vuelve a probar al agente
+     después de cada cambio de ficha. POST reemplaza el banco completo (mismo patrón
+     que pricing), no agrega. */
+  cases: (c) => req('/api/cases?client=' + q(c)).then((d) => d.cases || []),
+  setCases: (c, cases) =>
+    req('/api/cases?client=' + q(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cases }) }),
+
+  /* Historial de la ficha. La lista no trae los textos enteros —son miles de
+     caracteres cada uno—, así que el texto completo se pide por versión. */
+  knowledgeVersions: (c) => req('/api/knowledge/versions?client=' + q(c)),
+  knowledgeVersion: (c, version) => req('/api/knowledge/versions?client=' + q(c) + '&version=' + q(version)),
+  rollbackKnowledge: (c, version) =>
+    req('/api/knowledge/rollback?client=' + q(c) + '&version=' + q(version), { method: 'POST' }),
+
   setKnowledge: (c, knowledge) =>
     req('/api/knowledge?client=' + q(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ knowledge }) }),
   conversation: (c, lead, limit = 50) =>
@@ -167,4 +203,10 @@ export const api = {
   // El WebSocket nativo del navegador no permite headers custom en el
   // handshake — el token va por query param (ver api.py::conductor_stream).
   conductorStreamUrl: (id) => `${wsBase()}/api/conductor/sessions/${q(id)}/stream?token=${q(getToken() || '')}`,
+
+  // El ciclo autónomo. Dos llamadas y no una porque cambian a ritmos muy distintos:
+  // la cola se mueve durante una tanda, el historial de salud una vez al día. Juntarlas
+  // haría que cada refresco de la cola pague un `git show` por informe.
+  cicloEstado: () => req('/api/ciclo/estado'),
+  cicloSalud: (dias = 14) => req('/api/ciclo/salud?dias=' + dias),
 }

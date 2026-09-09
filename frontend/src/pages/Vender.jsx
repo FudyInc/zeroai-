@@ -77,7 +77,7 @@ export default function Vender() {
             <label className="block text-xs text-zinc-500 mb-1">Contexto / ángulo (opcional) — qué sabes del prospecto, qué tono</label>
             <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3}
               placeholder="Ej: agencia de marketing en Providencia, vi su web nueva; tono cercano y directo."
-              className="w-full rounded-xl border border-zinc-200 bg-white dark:bg-[#1D2016] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold/40" />
+              className="w-full rounded-xl border border-zinc-200 bg-white dark:bg-zinc-50 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold/40" />
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -101,7 +101,7 @@ export default function Vender() {
           <label className="block text-xs text-zinc-500 mb-1">Mensaje</label>
           <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={14}
             placeholder="Pulsa 'Generar pitch' o escribe aquí…"
-            className="w-full rounded-xl border border-zinc-200 bg-white dark:bg-[#1D2016] px-3 py-2 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-gold/40" />
+            className="w-full rounded-xl border border-zinc-200 bg-white dark:bg-zinc-50 px-3 py-2 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-gold/40" />
         </div>
         <div className="flex justify-end">
           <Glow>
