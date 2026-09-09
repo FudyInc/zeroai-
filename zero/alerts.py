@@ -16,15 +16,58 @@ prestar atención.
 
 from __future__ import annotations
 
+import json
 import os
 import time
+from pathlib import Path
 from typing import Any, Dict, Optional
 
-# Último aviso enviado, por tipo. En memoria a propósito: el backend es un proceso
-# largo (systemd, Restart=always), así que la ventana sobrevive lo que tiene que
-# sobrevivir. Un reinicio permite un aviso extra, que es el lado correcto en el que
-# equivocarse — mejor un aviso de más que perder el primero de una caída nueva.
+# Último aviso enviado, por tipo. Vive en memoria Y en disco, y el disco es el que
+# manda de verdad.
+#
+# Antes era solo memoria, con este razonamiento: "el backend es un proceso largo
+# (systemd, Restart=always), así que la ventana sobrevive lo que tiene que sobrevivir".
+# Es cierto para el backend — y falso para los otros SEIS que llaman acá. tanda.py,
+# planificar.py, probar-agente.py, revisar-salud.py, dia.sh y sincronizar-workspaces.sh
+# son procesos que nacen, avisan y mueren: arrancan con `_last_sent` vacío, así que el
+# antirrebote NUNCA se les aplicaba.
+#
+# Lo que costó: `sincronizar-workspaces.sh` corre cada 5 minutos por timer y avisa
+# cuando un workspace tiene trabajo sin subir. Con los workspaces sucios —que es lo
+# normal mientras alguien trabaja— mandó **69 correos y 69 WhatsApp en 24 horas** a
+# Diego, uno cada 5,6 minutos. La ventana de 30 minutos existía y no se aplicó ni una vez.
 _last_sent: Dict[str, float] = {}
+
+# Anclado al repo, NO al directorio actual. Es la misma trampa que `main.py --crm`, que
+# escribía crm.json en el cwd y dejó la tanda bloqueada ocho días: los seis llamadores
+# corren desde directorios distintos, y una ruta relativa les daría un archivo por cwd —
+# o sea, ningún antirrebote compartido, que es el bug que esto viene a cerrar.
+_ARCHIVO = Path(__file__).resolve().parent.parent / "alertas.json"
+
+
+def _ruta_estado() -> Path:
+    return Path(os.environ.get("ALERTAS_PATH") or _ARCHIVO)
+
+
+def _leer_estado() -> Dict[str, float]:
+    """Lo último enviado por tipo, según el disco. Nunca lanza: un antirrebote que no
+    se puede leer debe dejar pasar el aviso, no tumbar al que avisa."""
+    try:
+        d = json.loads(_ruta_estado().read_text(encoding="utf-8"))
+        return {k: float(v) for k, v in d.items() if isinstance(v, (int, float))}
+    except Exception:      # noqa: BLE001 — archivo ausente, corrupto o sin permisos
+        return {}
+
+
+def _grabar_estado(kind: str, stamp: float) -> None:
+    """Marca el envío en disco. Tampoco lanza: si no se puede escribir, lo peor que
+    pasa es que el próximo aviso salga antes de tiempo."""
+    try:
+        estado = _leer_estado()
+        estado[kind] = stamp
+        _ruta_estado().write_text(json.dumps(estado), encoding="utf-8")
+    except Exception:      # noqa: BLE001
+        pass
 
 
 def _result(status: str, *, to: Optional[str] = None, reason: str = "",
@@ -46,8 +89,12 @@ def _owner_email() -> str:
 
 
 def reset_throttle() -> None:
-    """Limpia la ventana de antirrebote. Para los tests; en producción no se usa."""
+    """Limpia la ventana de antirrebote, en memoria y en disco. Para los tests."""
     _last_sent.clear()
+    try:
+        _ruta_estado().unlink()
+    except Exception:      # noqa: BLE001 — no existe, o no se puede borrar
+        pass
 
 
 def notify_owner(text: str, *, kind: str = "generic",
@@ -65,7 +112,10 @@ def notify_owner(text: str, *, kind: str = "generic",
     window = (ALERT_THROTTLE_MINUTES if throttle_minutes is None else throttle_minutes) * 60.0
     stamp = time.time() if now is None else now
 
+    # El disco primero: es lo único que ve un proceso que acaba de nacer.
     last = _last_sent.get(kind)
+    if last is None:
+        last = _leer_estado().get(kind)
     if last is not None and window > 0 and (stamp - last) < window:
         return _result("throttled", reason=f"ya se avisó hace {int(stamp - last)}s", text=text)
 
@@ -113,6 +163,7 @@ def notify_owner(text: str, *, kind: str = "generic",
         # La ventana se marca solo cuando algo salió. Si todo falla, el próximo evento
         # debe poder reintentar en vez de quedar callado 30 minutos.
         _last_sent[kind] = stamp
+        _grabar_estado(kind, stamp)
         return _result("sent", to=destino_ok, text=text, via="+".join(via_ok),
                        reason=" | ".join(intentos))
 
