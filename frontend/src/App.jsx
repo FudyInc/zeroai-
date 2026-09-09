@@ -29,7 +29,7 @@ import Config from './pages/Config'
 import Finanzas from './pages/Finanzas'
 import Equipo from './pages/Equipo'
 import Funciones from './pages/Funciones'
-import Conductor from './pages/Conductor'
+import Ciclo from './pages/Ciclo'
 import Aprobar from './pages/Aprobar'
 import Preferencias from './pages/Preferencias'
 
@@ -52,7 +52,7 @@ const TITLES = {
   '/config': ['Configuración', 'Ajustes y conexiones'],
   '/equipo': ['Equipo', 'Quién tiene cuenta, qué rol y quién está conectado'],
   '/funciones': ['Funciones', 'Código a medida corriendo aislado contra leads reales'],
-  '/conductor': ['Conductor', 'Lanza y monitorea las terminales de Claude Code del proyecto'],
+  '/ciclo': ['Ciclo autónomo', 'Qué hizo ZERO por su cuenta: cola, agentes y auditoría diaria'],
   '/aprobar': ['Por aprobar', 'Lo que los agentes redactaron y espera tu visto bueno'],
   '/preferencias': ['Preferencias', 'Cómo ves tu propio dashboard — por dispositivo'],
 }
@@ -211,7 +211,7 @@ export default function App() {
                 <Route path="/config" element={<Config />} />
                 <Route path="/equipo" element={<Equipo />} />
                 <Route path="/funciones" element={<Funciones />} />
-                <Route path="/conductor" element={<Conductor />} />
+                <Route path="/ciclo" element={<Ciclo />} />
                 <Route path="/aprobar" element={<Aprobar />} />
                 <Route path="/preferencias" element={<Preferencias />} />
               </Routes>

@@ -8,8 +8,10 @@ export default defineConfig({
     port: 5173,
     // The React dev server talks to the FastAPI backend through this proxy,
     // so the frontend just calls /api/* (same-origin, no CORS headaches).
-    // `ws: true` also proxies the Conductor WebSocket (/api/conductor/.../stream) —
-    // without it the dev proxy only forwards plain HTTP, not the upgrade request.
+    // `ws: true` proxies WebSocket upgrades too. Hoy no hay ninguno: el único era
+    // el streaming de Conductor, que se sacó el 2026-09-09. Se deja puesto porque
+    // no cuesta nada y evita el bug de un solo síntoma —"funciona todo menos el
+    // tiempo real"— el día que aparezca otro.
     // VITE_PROXY_TARGET permite apuntar a un backend distinto del de siempre
     // (:8800 corre como servicio systemd y es el de producción de esta
     // máquina) — sirve para probar cambios del backend sin reiniciar el

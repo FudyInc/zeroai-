@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, Optional
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from pydantic import BaseModel
@@ -1386,7 +1386,7 @@ def pipeline_runs(limit: int = 10):
 # Solo LEE. tareas.json es dato local y vivo: acá no hay POST, ni cancelar ni reencolar.
 #
 # Sin entrada en _ROLE_ALLOWED a propósito: una ruta que no aparece ahí ya es admin-only
-# por el fail-closed del auth_guard, igual que /api/conductor/*. Esto NO es /api/public/*.
+# por el fail-closed del auth_guard, igual que /api/funciones/*. Esto NO es /api/public/*.
 
 # El historial vive en la rama `audit/diaria`, no en main. Se lee con plumbing de solo
 # lectura (ls-tree + show): jamás un checkout, porque dia.sh corre tandas sobre este
@@ -2140,13 +2140,6 @@ def _start_functions_scheduler():
 @app.on_event("shutdown")
 def _stop_functions_scheduler():
     _scheduler_stop.set()
-    # Suelta los WebSockets de Conductor y mata sus procesos `claude`; sin
-    # esto el apagado se cuelga esperando conexiones que nunca cierran solas.
-    try:
-        from zero import conductor
-        conductor.shutdown()
-    except Exception:   # noqa: BLE001 — apagando: nada acá puede impedir el cierre
-        pass
 
 
 # --- config (secrets stored in .env, set once from the dashboard) -------------
@@ -2329,149 +2322,3 @@ def call(body: CallBody):
         return place_call(body.number.strip(), body.name, body.assistant_id, body.phone_number_id)
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
-
-
-# --- conductor (sesiones de Claude Code, tipo Conductor.build) --------------
-# Lanza/monitorea procesos reales del CLI `claude` desde el dashboard — la
-# versión integrada de lo que hoy se hace a mano con zero-terminals.sh. Toda
-# la lógica vive en zero/conductor.py; acá solo la capa HTTP/WS. Admin-only
-# por diseño: no tiene entrada en _ROLE_ALLOWED (fail-closed, mismo criterio
-# que Equipo/Funciones) — ejecuta procesos y shell, superficie sensible. Y
-# local-only en la práctica: conductor.is_available() da False en Render (sin
-# `claude` en PATH / sin git worktrees reales), así que /status gatea la UI
-# antes de que se ofrezca la función ahí.
-
-@app.get("/api/conductor/status")
-def conductor_status():
-    from zero import conductor
-    available, reason = conductor.is_available()
-    return {"available": available, "reason": reason}
-
-
-@app.get("/api/conductor/roles")
-def conductor_roles():
-    from zero import conductor
-    return {"roles": conductor.roles_catalog(), "models": conductor.models_catalog()}
-
-
-@app.get("/api/conductor/sessions")
-def conductor_sessions():
-    from zero import conductor
-    return {"sessions": conductor.list_sessions()}
-
-
-class ConductorStartBody(BaseModel):
-    role_id: str
-    model: Optional[str] = None   # None -> el sugerido del rol (ver conductor.MODELS)
-
-
-@app.post("/api/conductor/sessions")
-async def conductor_start_session(body: ConductorStartBody, request: Request):
-    from zero import conductor
-    identity = getattr(request.state, "auth", None)
-    started_by = {"username": identity.get("username"), "email": identity.get("email")} if identity else None
-    try:
-        session = await conductor.start_session(body.role_id, started_by=started_by,
-                                                model=body.model)
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"rol desconocido: {body.role_id}")
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except conductor.SessionAlreadyRunning as e:
-        return JSONResponse(
-            {"detail": "ya hay una sesión de este rol corriendo",
-             "existing_session_id": e.existing_session_id},
-            status_code=409,
-        )
-    except RuntimeError as e:
-        # Motor local pedido pero Ollama no responde — 503, no 500: el servidor
-        # está bien, el modelo no está disponible ahora mismo.
-        raise HTTPException(status_code=503, detail=str(e))
-    return JSONResponse(session.summary(), status_code=201)
-
-
-@app.get("/api/conductor/sessions/{session_id}")
-def conductor_get_session(session_id: str):
-    from zero import conductor
-    session = conductor.get_session(session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="sesión no encontrada")
-    return {"session": session.summary(), "messages": list(session.messages)}
-
-
-class ConductorTurnBody(BaseModel):
-    text: str
-
-
-@app.post("/api/conductor/sessions/{session_id}/turns")
-async def conductor_send_turn(session_id: str, body: ConductorTurnBody):
-    from zero import conductor
-    try:
-        await conductor.send_turn(session_id, body.text)
-    except KeyError:
-        raise HTTPException(status_code=404, detail="sesión no encontrada")
-    except RuntimeError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    return JSONResponse({"accepted": True}, status_code=202)
-
-
-@app.post("/api/conductor/sessions/{session_id}/stop")
-async def conductor_stop_session(session_id: str):
-    from zero import conductor
-    try:
-        session = await conductor.stop_session(session_id)
-    except KeyError:
-        raise HTTPException(status_code=404, detail="sesión no encontrada")
-    return {"session": session.summary()}
-
-
-@app.delete("/api/conductor/sessions/{session_id}")
-def conductor_delete_session(session_id: str):
-    from zero import conductor
-    try:
-        ok = conductor.delete_session(session_id)
-    except RuntimeError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    if not ok:
-        raise HTTPException(status_code=404, detail="sesión no encontrada")
-    return {"ok": True}
-
-
-@app.websocket("/api/conductor/sessions/{session_id}/stream")
-async def conductor_stream(ws: WebSocket, session_id: str):
-    """El auth_guard HTTP (@app.middleware("http")) no corre sobre el scope
-    'websocket' — Starlette solo lo aplica a 'http'. Se autentica acá a mano,
-    antes de accept(), mismo criterio que el resto del dashboard: sin auth
-    configurado, abierto (dev); con auth, exige token de admin. El token va
-    por query param porque el WebSocket nativo del navegador no permite
-    headers custom en el handshake."""
-    from zero import conductor
-    from zero.auth import auth_enabled, token_identity
-    if auth_enabled():
-        identity = token_identity(ws.query_params.get("token", ""))
-        if identity is None or identity.get("role") != "admin":
-            await ws.close(code=4401)
-            return
-    session = conductor.get_session(session_id)
-    if session is None:
-        await ws.close(code=4404)
-        return
-    await ws.accept()
-    for event in list(session.messages):
-        await ws.send_json(event)
-    queue = conductor.subscribe(session_id)
-    try:
-        while True:
-            event = await queue.get()
-            # Sentinela de apagado: sin esto el handler espera para siempre y
-            # uvicorn no completa su shutdown elegante — una sola pestaña
-            # abierta dejaba `systemctl restart` colgado ~90s hasta el SIGKILL
-            # de systemd, con el backend caído todo ese rato (encontrado en
-            # producción, 2026-08-04). Ver zero/conductor.py::shutdown.
-            if event is conductor.SHUTDOWN:
-                break
-            await ws.send_json(event)
-    except WebSocketDisconnect:
-        pass
-    finally:
-        conductor.unsubscribe(session_id, queue)

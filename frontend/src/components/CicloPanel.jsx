@@ -1,9 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { AlertTriangle, CircleSlash } from 'lucide-react'
-import { api } from '../../lib/api'
-import { Card, Badge, Eyebrow, Skeleton } from '../ui'
-import { fade, surface, staggerDense } from '../../lib/motion'
+import { api } from '../lib/api'
+import { Card, Badge, Eyebrow, Skeleton } from './ui'
+import { fade, surface, staggerDense } from '../lib/motion'
 
 /* Qué hizo el ciclo autónomo: la última tanda, la salud por día y la cola.
 

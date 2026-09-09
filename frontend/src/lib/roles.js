@@ -17,9 +17,10 @@
 //   - Funciones (2026-07-22): SOLO admin — corre código Python arbitrario
 //     (sandboxed en Docker) contra leads reales de un cliente. Mismo
 //     fail-closed que el resto de las páginas admin-only.
-//   - Conductor (2026-08-04): SOLO admin — lanza procesos reales del CLI
-//     `claude` (shell/filesystem del servidor). Mismo fail-closed; el backend
-//     ya lo exige (sin entrada en _ROLE_ALLOWED de api.py).
+//   - Ciclo (2026-09-09): SOLO admin — muestra la cola de trabajo autónomo, la
+//     telemetría de los agentes y la auditoría diaria. Es interna de la agencia,
+//     no del cliente. Antes esta ruta era /conductor y además lanzaba sesiones
+//     del CLI `claude`; esa mitad se sacó por no usarse (ver pages/Ciclo.jsx).
 //   - Por aprobar (2026-08-04): admin + cro/cto/cco. Es la bandeja de
 //     borradores que dejaron las corridas automáticas; revisar y enviar
 //     outreach ya es trabajo de esos tres roles (mismo criterio que el
@@ -42,7 +43,7 @@ export const PAGE_ROLES = {
   '/config': [],
   '/equipo': [],
   '/funciones': [],
-  '/conductor': [],
+  '/ciclo': [],
   '/aprobar': ['cro', 'cto', 'cco'],
   '/preferencias': ['cro', 'cto', 'cco'],
 }
