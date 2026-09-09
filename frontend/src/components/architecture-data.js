@@ -1,12 +1,37 @@
-import { Search, ShieldCheck, Send, Repeat2, ChartNoAxesCombined, MessagesSquare, BrainCircuit, Database, Cpu, Monitor, Network } from 'lucide-react'
+import { Search, ShieldCheck, Send, Repeat2, ChartNoAxesCombined, MessagesSquare, BrainCircuit, Database, Cpu, Monitor, Network, Megaphone, Globe, Mail, MessageCircle, PhoneCall, Linkedin, Instagram, Facebook, FileSpreadsheet } from 'lucide-react'
+
+// `channels` refleja SOLO integraciones reales del código (nunca decorativo):
+// Prospector -> discovery.py (DuckDuckGo); Outreach/Tracker -> config.py
+// TIERS[].channels + zero/channels.py (email/whatsapp reales, cold_call vía
+// Vapi, linkedin redactado y entregado a mano); Concierge -> su propio
+// docstring (solo atiende email/whatsapp); Analyst -> sheets.py (sync real a
+// Google Sheets); MediaBuyer -> Meta Ads (Instagram/Facebook). Qualifier no
+// tiene canal: es scoring interno, sin integración externa.
+const OUTREACH_CHANNELS = [
+  { icon: Mail, color: '#EA4335', label: 'Email (SMTP)' },
+  { icon: MessageCircle, color: '#25D366', label: 'WhatsApp' },
+  { icon: PhoneCall, color: 'var(--color-gold-deep)', label: 'Llamada en frío (Vapi)' },
+  { icon: Linkedin, color: '#0A66C2', label: 'LinkedIn (redactado, entrega manual)' },
+]
 
 export const AGENTS = [
-  { name: 'PROSPECTOR', label: 'Prospector', role: 'Descubre y enriquece leads', icon: Search, x: 19, y: 23 },
-  { name: 'QUALIFIER', label: 'Qualifier', role: 'Evalúa el encaje con tu ICP', icon: ShieldCheck, x: 50, y: 12 },
-  { name: 'OUTREACH', label: 'Outreach', role: 'Prepara el primer contacto', icon: Send, x: 81, y: 23 },
-  { name: 'TRACKER', label: 'Tracker', role: 'Da seguimiento a cada oportunidad', icon: Repeat2, x: 19, y: 76 },
-  { name: 'ANALYST', label: 'Analyst', role: 'Analiza y proyecta resultados', icon: ChartNoAxesCombined, x: 50, y: 88 },
-  { name: 'CONCIERGE', label: 'Concierge', role: 'Responde y agenda reuniones', icon: MessagesSquare, x: 81, y: 76 },
+  { name: 'PROSPECTOR', label: 'Prospector', role: 'Descubre y enriquece leads', icon: Search, x: 50, y: 11.4,
+    channels: [{ icon: Globe, color: '#DE5833', label: 'Búsqueda web (DuckDuckGo)' }] },
+  { name: 'QUALIFIER', label: 'Qualifier', role: 'Evalúa el encaje con tu ICP', icon: ShieldCheck, x: 80.6, y: 26 },
+  { name: 'OUTREACH', label: 'Outreach', role: 'Prepara el primer contacto', icon: Send, x: 88.2, y: 58.6, channels: OUTREACH_CHANNELS },
+  { name: 'TRACKER', label: 'Tracker', role: 'Da seguimiento a cada oportunidad', icon: Repeat2, x: 67, y: 84.8, channels: OUTREACH_CHANNELS },
+  { name: 'CONCIERGE', label: 'Concierge', role: 'Responde y agenda reuniones', icon: MessagesSquare, x: 33, y: 84.8,
+    channels: [
+      { icon: Mail, color: '#EA4335', label: 'Email (SMTP)' },
+      { icon: MessageCircle, color: '#25D366', label: 'WhatsApp' },
+    ] },
+  { name: 'ANALYST', label: 'Analyst', role: 'Analiza y proyecta resultados', icon: ChartNoAxesCombined, x: 11.8, y: 58.6,
+    channels: [{ icon: FileSpreadsheet, color: '#0F9D58', label: 'Google Sheets (sync)' }] },
+  { name: 'MEDIABUYER', label: 'MediaBuyer', role: 'Optimiza campañas de Meta Ads', icon: Megaphone, x: 19.4, y: 26,
+    channels: [
+      { icon: Instagram, color: '#C13584', label: 'Instagram Ads (Meta)' },
+      { icon: Facebook, color: '#1877F2', label: 'Facebook Ads (Meta)' },
+    ] },
 ]
 
 export const PIPELINE = [

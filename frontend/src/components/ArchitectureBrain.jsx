@@ -57,7 +57,7 @@ export default function ArchitectureBrain() {
       </header>
       <div className="brain-metrics">
         <div><span>Ejecuciones registradas</span><strong>{q.data ? eventos : '—'}</strong><small>Ventana de {max_eventos} registros</small></div>
-        <div><span>Agentes del mapa con actividad</span><strong>{q.data ? observed : '—'}<small> / 6</small></strong><small>Especialistas coordinados por ZERO</small></div>
+        <div><span>Agentes del mapa con actividad</span><strong>{q.data ? observed : '—'}<small> / {AGENTS.length}</small></strong><small>Especialistas coordinados por ZERO</small></div>
         <div><span>Motores reportados</span><strong>{q.data ? engines.length : '—'}</strong><small>{engines.length ? engines.map(engineLabel).join(' · ') : 'Aparecen con la primera ejecución'}</small></div>
         <div><span>Estado de la actividad</span><strong className="brain-metric-state"><span className={`brain-dot ${fresh.length ? 'is-active' : ''}`} />{q.isError ? 'Desconectado' : fresh.length ? 'Actividad reciente' : q.isLoading ? 'Conectando…' : 'En espera'}</strong><small>{q.dataUpdatedAt ? `Datos actualizados ${timeAgo(q.dataUpdatedAt / 1000, now)}` : 'Consulta automática cada 5 segundos'}</small></div>
       </div>
@@ -72,11 +72,11 @@ export default function ArchitectureBrain() {
                 return <g key={a.name} className={`${selected === a.name ? 'is-selected' : ''} ${active.has(a.name) ? 'is-active' : ''}`}><path d={path} className="brain-wire" /><path d={path} className="brain-signal" /></g>
               })}
             </svg>
-            <div className={`brain-core ${fresh.length ? 'is-active' : ''}`}><div className="brain-orbit" /><div className="brain-orbit second" /><strong>ZERO</strong><span>ORQUESTADOR</span></div>
-            {AGENTS.map(({ name, label, role, icon: Icon, x, y }) => {
+            <div className={`brain-core ${fresh.length ? 'is-active' : ''}`}><div className="brain-orbit" /><div className="brain-orbit second" /><img className="brain-core-logo" src="/logo.png" alt="ZEROAI, orquestador" /></div>
+            {AGENTS.map(({ name, label, role, icon: Icon, x, y, channels }) => {
               const entry = latestByAgent.get(name)
               return <button key={name} className={`brain-node ${selected === name ? 'is-selected' : ''} ${active.has(name) ? 'is-active' : ''}`} style={{ '--x': `${x}%`, '--y': `${y}%` }} onClick={() => select(name)} aria-pressed={selected === name} aria-label={`${label}: ${role}`}>
-                <span className="brain-node-top"><span className="brain-node-icon"><Icon size={17} /></span><span className="brain-node-count">{statsByAgent.get(name)?.corridas ?? 0} <Activity size={10} /></span></span><strong>{label}</strong><span className="brain-node-history-label">Última ejecución</span><span className="brain-node-engine" title={entry ? `Motor de la última ejecución: ${engineLabel(entry.engine)} · ${timeAgo(entry.ts, now)}` : 'Sin ejecución en el historial consultado'}>{entry ? engineLabel(entry.engine) : 'Sin registro reciente'}</span><small>{active.has(name) ? '● Ejecución recibida' : entry ? timeAgo(entry.ts, now) : 'Explorar agente ↗'}</small>
+                <span className="brain-node-top"><span className="brain-node-icon"><Icon size={17} /></span><span className="brain-node-count">{statsByAgent.get(name)?.corridas ?? 0} <Activity size={10} /></span></span><strong>{label}</strong><span className="brain-node-history-label">Última ejecución</span><span className="brain-node-engine" title={entry ? `Motor de la última ejecución: ${engineLabel(entry.engine)} · ${timeAgo(entry.ts, now)}` : 'Sin ejecución en el historial consultado'}>{entry ? engineLabel(entry.engine) : 'Sin registro reciente'}</span>{channels?.length > 0 && <span className="brain-node-channels">{channels.map(({ icon: ChanIcon, color, label: chanLabel }) => <span key={chanLabel} className="brain-chan" style={{ '--chan-color': color }} title={chanLabel}><ChanIcon size={10} /></span>)}</span>}<small>{active.has(name) ? '● Ejecución recibida' : entry ? timeAgo(entry.ts, now) : 'Explorar agente ↗'}</small>
               </button>
             })}
           </div>
