@@ -214,7 +214,7 @@ class Zero:
         if not phone_id:
             return {}
         for v in self.memory.list_vendors():
-            if v.get("whatsapp_phone_id") == phone_id:
+            if v.get("whatsapp_phone_id") == phone_id and phone_id not in ("000000000000001", "000000000000002"):
                 return v
         return {}
 

@@ -47,7 +47,7 @@ export default function Llamadas() {
   }
 
   const agents = agentsQ.data || []
-  const numbers = numbersQ.data || []
+  const numbers = (numbersQ.data || []).filter((n) => String(n.number || '').replace(/\D/g, '') === '56964537891')
   // Sin esto, el botón queda clickeable con las listas vacías y dispara una
   // llamada al backend que ya sabemos que va a fallar (assistant_id/phone_id
   // undefined) — mejor no dejar iniciar la acción si falta configurar algo en Vapi.
@@ -87,7 +87,7 @@ export default function Llamadas() {
           <Select className="w-full" value={num} onChange={(e) => setNum(e.target.value)}>
             {numbers.map((n) => <option key={n.id} value={n.id}>{n.number}</option>)}
           </Select>
-        ) : <div className="text-sm text-rose-600">No tienes números en Vapi (Phone Numbers).</div>}
+        ) : <div className="text-sm text-rose-600">El +56 9 6453 7891 aún no está habilitado como origen en Vapi. La SIM y Meta solo habilitan WhatsApp; para llamar, Vapi debe tener este número importado desde un proveedor de telefonía compatible.</div>}
       </div>
 
       <div>

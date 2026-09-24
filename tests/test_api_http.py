@@ -407,10 +407,6 @@ class ApiAuthHttpTest(unittest.TestCase):
         # .env del repo, y `_agents_best` la lee. Sin apagarla acá, estos tests
         # heredan un motor de verdad y dejan de probar el caso "sin motor".
         env["OPENAI_API_KEY"] = ""
-        # Mismo gotcha para Twilio: si el .env real trae un token, el webhook
-        # validaría firmas de verdad y el test de exención de auth dejaría de
-        # ser determinista.
-        env["TWILIO_AUTH_TOKEN"] = ""
         cls.proc = _start_and_wait(
             [sys.executable, "-m", "uvicorn", "api:app", "--port", str(cls.port),
              "--log-level", "warning"],
@@ -512,20 +508,6 @@ class ApiAuthHttpTest(unittest.TestCase):
         for path in ("/api/health", "/api/auth/status", "/api/public/plans"):
             status, _ = self._get(path)
             self.assertEqual(status, 200, path)
-
-    def test_twilio_webhook_is_exempt_from_login_auth(self):
-        """El prefijo /api/webhooks/ del middleware cubre también el webhook
-        nuevo de Twilio: sin Bearer token responde el gate de FIRMA (403 de
-        verify_twilio_signature), nunca el de login (401) — Twilio no tiene
-        cómo mandar nuestro token; se autentica con su firma."""
-        req = urllib.request.Request(
-            f"{self.base}/api/webhooks/twilio-whatsapp",
-            data=b"From=whatsapp%3A%2B56911112222&Body=hola", method="POST",
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-        )
-        with self.assertRaises(urllib.error.HTTPError) as ctx:
-            urllib.request.urlopen(req, timeout=5)
-        self.assertEqual(ctx.exception.code, 403)
 
     def test_public_plans_accessible_without_token_and_shape(self):
         """La landing pública consume esto sin login — tiene que responder
@@ -977,147 +959,6 @@ class ProgrammedFunctionsHttpTest(unittest.TestCase):
         self.assertIn(client_id, ids)
         acc = next(a for a in accounts_body["accounts"] if a["client"] == client_id)
         self.assertEqual(acc["tier"], "GROWTH")
-
-
-@unittest.skipUnless(_UVICORN_AVAILABLE, "uvicorn no instalado — este test es opcional, no núcleo")
-class TwilioWebhookHttpTest(unittest.TestCase):
-    """El webhook de Twilio de punta a punta, sobre HTTP real: firma inválida →
-    403 y CERO efectos; firma válida → parseo + handle_inbound (la cantidad
-    procesada viaja en el header X-Zero-Received, porque el body es TwiML para
-    Twilio, no JSON para nosotros).
-
-    Corre con cwd en un tmpdir (y PYTHONPATH al repo para que uvicorn encuentre
-    api:app): CRM_PATH/STATE_PATH son rutas relativas, así que un handle_inbound
-    real escribiría crm.json/state.json DEL REPO si corriera desde la raíz — el
-    test de Meta lo esquiva con un payload sin mensajes, este manda uno de verdad."""
-
-    TWILIO_AUTH_TOKEN = "twilio-token-de-prueba"
-
-    @classmethod
-    def setUpClass(cls):
-        cls.port = _free_port()
-        cls.base = f"http://127.0.0.1:{cls.port}"
-        repo_root = Path(__file__).resolve().parent.parent
-        cls._tmpdir = tempfile.mkdtemp()
-        env = dict(os.environ)
-        env["PYTHONPATH"] = str(repo_root) + os.pathsep + env.get("PYTHONPATH", "")
-        env["TWILIO_AUTH_TOKEN"] = cls.TWILIO_AUTH_TOKEN
-        env["WHATSAPP_PROVIDER"] = "twilio"
-        # Aislamiento y determinismo (mismas razones documentadas en ApiHttpTest):
-        # vacío = presente para el setdefault de load_env, así el .env real del
-        # repo no re-activa nada — ni auth, ni motor live, ni Supabase (un
-        # handle_inbound real contra Supabase escribiría en la NUBE), ni envíos.
-        env["AUTH_USERS_PATH"] = os.path.join(cls._tmpdir, "users.json")
-        env["ZERO_PIPELINE_MOCK_OK"] = "1"
-        env["SUPABASE_URL"] = ""
-        env["SUPABASE_KEY"] = ""
-        env["LOCAL_MODEL"] = ""
-        env["ANTHROPIC_API_KEY"] = ""
-        # También OpenAI: desde el 2026-09-08 hay una OPENAI_API_KEY real en el
-        # .env del repo, y `_agents_best` la lee. Sin apagarla acá, estos tests
-        # heredan un motor de verdad y dejan de probar el caso "sin motor".
-        env["OPENAI_API_KEY"] = ""
-        env["OUTBOX_LIVE"] = ""
-        env["TWILIO_WEBHOOK_URL"] = ""   # que firme sobre str(req.url), como el cliente
-        cls.proc = _start_and_wait(
-            [sys.executable, "-m", "uvicorn", "api:app", "--port", str(cls.port),
-             "--log-level", "warning"],
-            cls._tmpdir, env, cls.base,
-        )
-
-    @classmethod
-    def tearDownClass(cls):
-        proc = getattr(cls, "proc", None)
-        if proc is not None:
-            proc.terminate()
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait(timeout=5)
-        shutil.rmtree(getattr(cls, "_tmpdir", "") or "", ignore_errors=True)
-
-    def _webhook_url(self) -> str:
-        return f"{self.base}/api/webhooks/twilio-whatsapp"
-
-    def _sign(self, url: str, params: dict) -> str:
-        """La firma exacta que Twilio manda en X-Twilio-Signature:
-        base64(HMAC-SHA1(auth_token, url + params ordenados clave+valor))."""
-        import base64
-        import hashlib
-        import hmac
-        signed = url + "".join(k + v for k, v in sorted(params.items()))
-        return base64.b64encode(
-            hmac.new(self.TWILIO_AUTH_TOKEN.encode(), signed.encode(), hashlib.sha1).digest()
-        ).decode()
-
-    def _post(self, params: dict, signature: str | None):
-        headers = {"Content-Type": "application/x-www-form-urlencoded"}
-        if signature is not None:
-            headers["X-Twilio-Signature"] = signature
-        req = urllib.request.Request(
-            self._webhook_url(), data=urllib.parse.urlencode(params).encode("utf-8"),
-            method="POST", headers=headers,
-        )
-        with urllib.request.urlopen(req, timeout=5) as r:
-            # r.headers (email.message.Message) es case-insensitive — uvicorn
-            # emite los nombres en minúsculas (x-zero-received), un dict no matchearía
-            return r.status, r.read().decode("utf-8"), r.headers
-
-    PARAMS = {"From": "whatsapp:+56900000000", "To": "whatsapp:+14155238886",
-              "Body": "hola, me interesa", "MessageSid": "SM-http-test"}
-
-    def test_unsigned_request_is_403(self):
-        with self.assertRaises(urllib.error.HTTPError) as ctx:
-            self._post(self.PARAMS, signature=None)
-        self.assertEqual(ctx.exception.code, 403)
-
-    def test_bad_signature_is_403(self):
-        with self.assertRaises(urllib.error.HTTPError) as ctx:
-            self._post(self.PARAMS, signature="firma-que-no-cuadra")
-        self.assertEqual(ctx.exception.code, 403)
-
-    def test_valid_signature_reaches_handle_inbound(self):
-        """Con la firma correcta, la respuesta llega al toque: X-Zero-Received:
-        1 confirma que pasó firma → parseo, ANTES de que el procesamiento real
-        (handle_inbound, en background — ver _process_inbound_messages en
-        api.py) siquiera empiece. Que el trabajo se complete de verdad lo
-        prueba test_processing_happens_in_background_after_response."""
-        sig = self._sign(self._webhook_url(), self.PARAMS)
-        status, body, headers = self._post(self.PARAMS, signature=sig)
-        self.assertEqual(status, 200)
-        self.assertEqual(headers.get("X-Zero-Received"), "1")
-        self.assertEqual(body, "<Response></Response>")   # TwiML vacío para Twilio
-
-    def test_processing_happens_in_background_after_response(self):
-        """La respuesta HTTP no espera a que termine handle_inbound — se
-        agenda con BackgroundTasks y corre después de responder (ver
-        _process_inbound_messages en api.py). Esto es justo lo que evita el
-        error 11200 de Twilio ('HTTP retrieval failure') cuando el motor real
-        tarda 15-20s+ en generar la respuesta: Twilio ya no espera esa espera.
-
-        Prueba que el trabajo se COMPLETA igual (no que se pierda al no
-        esperarlo): el remitente es nuevo (sin lead previo) y esta clase corre
-        con el catch-all por defecto activo (config.DEFAULT_INBOUND_CLIENT_ID
-        — ver zero/config.py), así que debe aparecer auto-registrado en
-        crm.json (mismo cwd que STATE_PATH/CRM_PATH relativos del subproceso,
-        ver setUpClass) poco después de que la respuesta ya volvió."""
-        params = {"From": "whatsapp:+56900000123", "To": "whatsapp:+14155238886",
-                  "Body": "hola, prueba background", "MessageSid": "SM-bg-test"}
-        sig = self._sign(self._webhook_url(), params)
-        status, _, headers = self._post(params, signature=sig)
-        self.assertEqual(status, 200)
-        self.assertEqual(headers.get("X-Zero-Received"), "1")
-
-        crm_path = os.path.join(self._tmpdir, "crm.json")
-        deadline = time.time() + 5
-        found = False
-        while time.time() < deadline:
-            if os.path.exists(crm_path) and "56900000123" in Path(crm_path).read_text("utf-8"):
-                found = True
-                break
-            time.sleep(0.2)
-        self.assertTrue(found, "el mensaje se recibió pero el registro en background nunca se completó")
 
 
 @unittest.skipUnless(_UVICORN_AVAILABLE, "uvicorn no instalado — este test es opcional, no núcleo")

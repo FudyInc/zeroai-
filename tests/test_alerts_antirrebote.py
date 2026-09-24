@@ -36,7 +36,7 @@ from zero import alerts
 
 
 class _OutboxQueRegistra:
-    """Outbox de prueba: cuenta envíos sin tocar Twilio ni SMTP."""
+    """Outbox de prueba: cuenta envíos sin tocar Meta ni SMTP."""
 
     def __init__(self):
         self.sent = []

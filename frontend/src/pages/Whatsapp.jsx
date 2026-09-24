@@ -61,8 +61,7 @@ export default function Whatsapp() {
 
   const knowledgeSaved = (knowledgeQ.data?.knowledge || '').trim().length > 0
   const cfg = cfgQ.data
-  const provider = cfg?.whatsapp_provider === 'twilio' ? 'twilio' : 'meta'
-  const connected = provider === 'twilio' ? !!cfg?.twilio : !!cfg?.whatsapp
+  const connected = !!cfg?.whatsapp
 
   // Toda la página depende de un cliente elegido; sin uno no hay a quién
   // configurarle el agente, y consultar con cliente vacío pegaría contra la API mal.
@@ -127,8 +126,7 @@ export default function Whatsapp() {
             <motion.div variants={surface}>
               <StatusCard
                 cfg={cfg}
-                provider={provider}
-                webhookUrl={`${BASE || window.location.origin}/api/webhooks/${provider === 'twilio' ? 'twilio-whatsapp' : 'whatsapp'}`}
+                webhookUrl={`${BASE || window.location.origin}/api/webhooks/whatsapp`}
               />
             </motion.div>
           )}
@@ -375,13 +373,8 @@ function VendorAvatar({ vendor }) {
   )
 }
 
-/* Estado real de la conexión con el proveedor de WhatsApp activo (Meta o
-   Twilio, plan B) — solo tiene sentido una vez conectado, por eso se muestra
-   únicamente si connected. "Probar conexión" llama a la Graph API de Meta;
-   no hay endpoint equivalente para Twilio, así que ahí solo se muestra el
-   estado configurado/no configurado. */
-function StatusCard({ cfg, provider, webhookUrl }) {
-  const isTwilio = provider === 'twilio'
+/* Estado de la conexión con Meta WhatsApp Cloud API. */
+function StatusCard({ cfg, webhookUrl }) {
   const [copied, setCopied] = useState(false)
   const [probe, setProbe] = useState(null) // null | { ok: true, data } | { ok: false, error }
   const [busy, setBusy] = useState(false)
@@ -405,49 +398,47 @@ function StatusCard({ cfg, provider, webhookUrl }) {
     <Card className="p-6">
       <div className="flex items-center justify-between">
         <SectionTitle className="flex items-center gap-2">
-          <MessageCircle size={18} className="text-[#16a34a]" /> Conexión con {isTwilio ? 'Twilio (plan B)' : 'Meta'}
+          <MessageCircle size={18} className="text-[#16a34a]" /> Conexión con Meta
         </SectionTitle>
-        <Badge color="#16a34a" className="inline-flex items-center gap-1">
-          <CheckCircle2 size={12} /> Activo
+        <Badge color={probe?.ok && cfg?.outbox_live && cfg?.whatsapp_verify_token_set && cfg?.whatsapp_app_secret_set ? '#16a34a' : '#b45309'} className="inline-flex items-center gap-1">
+          <CheckCircle2 size={12} /> {probe?.ok && cfg?.outbox_live && cfg?.whatsapp_verify_token_set && cfg?.whatsapp_app_secret_set ? 'Listo para probar mensajes' : 'Configuración pendiente'}
         </Badge>
       </div>
       <div className="text-xs text-zinc-400 mt-0.5 mb-3">
-        {isTwilio
-          ? 'Cuenta, auth token y remitente de Twilio conectados. El agente responde dudas y agenda dentro de la ventana de 24h de WhatsApp Business.'
-          : 'Token y phone number ID conectados. El agente responde dudas y agenda dentro de la ventana de 24h de WhatsApp Business.'}
+        Token y Phone Number ID guardados. Prueba la conexión y completa el webhook para recibir mensajes.
       </div>
 
-      {isTwilio ? (
-        <div className="flex items-center gap-2 mb-3 text-xs text-zinc-500">
-          <CheckCircle2 size={13} className="text-[#16a34a] shrink-0" /> Las 3 keys de Twilio están configuradas.
-        </div>
-      ) : (
-        <div className="flex items-center gap-2 mb-3">
-          <Button variant="soft" onClick={testConnection} disabled={busy}>
-            {busy ? 'Probando…' : 'Probar conexión'}
-          </Button>
-          {probe?.ok && (
-            <span className="text-xs text-zinc-500 flex items-center gap-1.5 min-w-0">
-              <CheckCircle2 size={13} className="text-[#16a34a] shrink-0" />
-              <span className="truncate">
-                {probe.data?.display_phone_number}
-                {probe.data?.verified_name ? ` · ${probe.data.verified_name}` : ''}
-              </span>
+      <div className="flex items-center gap-2 mb-3">
+        <Button variant="soft" onClick={testConnection} disabled={busy}>
+          {busy ? 'Probando…' : 'Probar conexión'}
+        </Button>
+        {probe?.ok && (
+          <span className="text-xs text-zinc-500 flex items-center gap-1.5 min-w-0">
+            <CheckCircle2 size={13} className="text-[#16a34a] shrink-0" />
+            <span className="truncate">
+              {probe.data?.display_phone_number}
+              {probe.data?.verified_name ? ` · ${probe.data.verified_name}` : ''}
             </span>
-          )}
-        </div>
-      )}
-      {!isTwilio && probe?.ok === false && (
+          </span>
+        )}
+      </div>
+      {probe?.ok === false && (
         <div className="text-xs text-rose-600 mb-3 flex items-start gap-1.5 break-words">
           <AlertCircle size={13} className="mt-0.5 shrink-0" /> {probe.error}
+        </div>
+      )}
+      {(!cfg?.whatsapp_verify_token_set || !cfg?.whatsapp_app_secret_set) && (
+        <div className="text-xs text-amber-800 bg-amber-50 rounded-xl px-3 py-2 mb-3">
+          Faltan en Configuración: {[
+            !cfg?.whatsapp_verify_token_set && 'Verify token',
+            !cfg?.whatsapp_app_secret_set && 'App Secret',
+          ].filter(Boolean).join(' y ')}. Sin ellos Meta no puede validar el webhook ni entregar mensajes al agente.
         </div>
       )}
 
       <div className="rounded-xl bg-zinc-50 p-3 mb-3">
         <div className="text-xs font-medium text-zinc-600 mb-1">
-          {isTwilio
-            ? 'Webhook (configúralo en Twilio Console → WhatsApp sender → "When a message comes in")'
-            : 'Webhook (configúralo en Meta for Developers → WhatsApp → Configuración)'}
+          Webhook (configúralo en Meta for Developers → WhatsApp → Configuración)
         </div>
         <div className="flex items-center gap-2">
           <code className="flex-1 text-xs bg-white dark:bg-zinc-50 border border-zinc-200 rounded-lg px-2 py-1.5 break-all">{webhookUrl}</code>
@@ -456,9 +447,7 @@ function StatusCard({ cfg, provider, webhookUrl }) {
           </Button>
         </div>
         <div className="text-[11px] text-zinc-400 mt-2">
-          {isTwilio
-            ? 'Twilio firma cada POST — no hace falta verify token.'
-            : 'Usa como "Verify token" el mismo que guardaste en Configuración. Meta llamará a esta URL para validar el webhook y para reenviar los mensajes entrantes.'}
+          Usa como "Verify token" el mismo que guardaste en Configuración. En Meta suscribe también el campo "messages" de la cuenta WhatsApp correspondiente a +56 9 6453 7891.
         </div>
       </div>
 

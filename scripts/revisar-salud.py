@@ -31,7 +31,7 @@ from zero.alerts import notify_owner  # noqa: E402
 
 load_env()
 
-TUNEL = (os.environ.get("TWILIO_WEBHOOK_URL") or "").strip()
+TUNEL = (os.environ.get("WHATSAPP_WEBHOOK_URL") or "https://handpick-monogamy-spiny.ngrok-free.dev/api/webhooks/whatsapp").strip()
 
 
 def _servicio(nombre: str, usuario: bool = False) -> bool:
@@ -132,7 +132,7 @@ def revisar() -> list:
     # 401 = vivo y pidiendo login. Solo un fallo de conexión es problema.
     if not _http("http://localhost:8800/api/config", (200, 401)):
         fallas.append("el backend no responde en :8800")
-    if TUNEL and not _http(TUNEL, (200, 401, 405)):
+    if TUNEL and not _http(TUNEL, (200, 401, 403, 405)):
         fallas.append("el túnel público no responde (WhatsApp entrante caído)")
     if not _ollama_responde():
         fallas.append("el motor local no contesta (WhatsApp caería a la API paga)")

@@ -15,7 +15,6 @@ import os
 import subprocess
 import threading
 import time
-import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, Optional
@@ -34,7 +33,7 @@ load_into_environ()   # + secretos guardados en la nube (sobreviven a redeploys)
 from zero.config import (AGENCY_CLIENT_ID, AVG_DEAL_VALUE_CLP, CRM_OPEN_STAGES, CRM_STAGES,
                          DEFAULT_VENDOR_ID, MAX_INBOUND_MESSAGE_CHARS, PUBLIC_FORM_MAX_PER_HOUR_PER_IP,
                          PUBLIC_FORM_MAX_PER_HOUR_TOTAL, PUBLIC_FORM_SOURCES, TIERS)
-from zero.channels import make_outbox, whatsapp_provider
+from zero.channels import make_outbox
 from zero.icp import normalize_icp
 from zero.orchestrator import Zero
 from zero.quotes import compute_quote, format_quote, normalize_pricing
@@ -1111,24 +1110,16 @@ def whatsapp_verify(mode: Optional[str] = Query(None, alias="hub.mode"),
     raise HTTPException(status_code=403, detail="verificación fallida")
 
 
-def _process_inbound_messages(msgs: list, to_key: str) -> None:
+def _process_inbound_messages(msgs: list) -> None:
     """El trabajo pesado de un mensaje entrante (match/crear lead, CONCIERGE,
     enviar la respuesta) — corre DESPUÉS de que el webhook ya respondió (ver
-    BackgroundTasks en whatsapp_inbound/twilio_whatsapp_inbound de abajo).
+    BackgroundTasks en whatsapp_inbound de abajo).
 
     Por qué: con el motor real (Anthropic o modelo local) generar la respuesta
     puede tardar 15-20s+ (medido en vivo con qwen2.5:7b en CPU, 2026-07-22) —
-    tiempo de sobra para que Twilio/Meta den por caída la entrega del webhook
-    (Twilio: error 11200 "HTTP retrieval failure", con reintento de su lado, lo
-    que podía procesar el mismo mensaje dos veces). El envío real de la
-    respuesta sale por una llamada aparte a la API del proveedor (no depende de
-    la conexión del webhook), así que separar "confirmar recepción" de
-    "generar y mandar la respuesta" es seguro: nada se pierde, y el proveedor
-    ya no tiene por qué esperar ni reintentar.
-    `to_key` es el nombre de la clave en cada mensaje parseado que trae el
-    número/id receptor — "to_phone_id" (Meta) o "to" (Twilio), según cómo lo
-    arma cada parser — pero SIEMPRE se pasa a handle_inbound como su único
-    kwarg `to_phone_id` (ese nombre no cambia entre proveedores)."""
+    tiempo de sobra para que Meta reintente la entrega del webhook. La
+    respuesta sale por una llamada aparte a la Graph API, después de confirmar
+    la recepción del mensaje."""
     crm = make_crm(CRM_PATH)
     memory = make_memory(STATE_PATH)
     # Motor local a propósito — NO _agents_best (que prefiere la API paga). Ver
@@ -1136,7 +1127,7 @@ def _process_inbound_messages(msgs: list, to_key: str) -> None:
     agents, _ = _agents_whatsapp()
     zero = Zero(agents, memory=memory, crm=crm, outbox=make_outbox())
     for m in msgs:
-        zero.handle_inbound(m["from"], m["text"], to_phone_id=m.get(to_key))
+        zero.handle_inbound(m["from"], m["text"], to_phone_id=m.get("to_phone_id"))
 
 
 @app.post("/api/webhooks/whatsapp")
@@ -1151,36 +1142,8 @@ async def whatsapp_inbound(req: Request, background_tasks: BackgroundTasks):
     payload = json.loads(raw.decode("utf-8"))
     msgs = parse_inbound(payload)
     if msgs:
-        background_tasks.add_task(_process_inbound_messages, msgs, "to_phone_id")
+        background_tasks.add_task(_process_inbound_messages, msgs)
     return {"received": len(msgs)}
-
-
-@app.post("/api/webhooks/twilio-whatsapp")
-async def twilio_whatsapp_inbound(req: Request, background_tasks: BackgroundTasks):
-    """Inbound WhatsApp vía Twilio (plan B / BSP) → el MISMO flujo handle_inbound
-    que el webhook de Meta — cambia el transporte, no la conversación. Twilio
-    manda form-urlencoded y espera TwiML de vuelta: se responde un <Response/>
-    vacío DE INMEDIATO (la respuesta real al lead se procesa en segundo plano
-    — ver _process_inbound_messages — y sale por la API de Twilio vía Outbox,
-    no por TwiML) para no llenar el debugger de Twilio de warnings 12300 ni
-    arriesgar el error 11200 (timeout) que causaba el modelo real tardando
-    15-20s+. La cantidad de mensajes recibidos va en el header
-    X-Zero-Received (Twilio lo ignora; los tests HTTP lo leen). Queda dentro
-    de la excepción de auth del middleware (prefijo /api/webhooks/) — Twilio
-    se autentica con su firma."""
-    from zero.twilio_inbound import parse_inbound as parse_twilio_inbound, verify_twilio_signature
-    raw = await req.body()
-    params = dict(urllib.parse.parse_qsl(raw.decode("utf-8"), keep_blank_values=True))
-    # Con proxy/túnel delante, la URL que ve el server no es la que Twilio firmó —
-    # TWILIO_WEBHOOK_URL (la URL pública exacta pegada en la consola) la fija.
-    url = os.environ.get("TWILIO_WEBHOOK_URL") or str(req.url)
-    if not verify_twilio_signature(url, params, req.headers.get("x-twilio-signature")):
-        raise HTTPException(status_code=403, detail="firma inválida — no viene de Twilio")
-    msgs = parse_twilio_inbound(params)
-    if msgs:
-        background_tasks.add_task(_process_inbound_messages, msgs, "to")
-    return PlainTextResponse("<Response></Response>", media_type="application/xml",
-                             headers={"X-Zero-Received": str(len(msgs))})
 
 
 class Simulate(BaseModel):
@@ -1668,8 +1631,14 @@ def list_vendors():
     tiene asignados cada una (clients_count) — presentación, no cambia el
     registro guardado."""
     memory = make_memory(STATE_PATH)
-    vendors = [dict(v, clients_count=clients_count_for(v["id"], memory))
-              for v in memory.list_vendors()]
+    vendors = []
+    for v in memory.list_vendors():
+        visible = dict(v, clients_count=clients_count_for(v["id"], memory))
+        if visible.get("id") == DEFAULT_VENDOR_ID and visible.get("phone") == "+56 9 1111 1111":
+            visible["phone"] = "+56 9 6453 7891"
+        elif visible.get("phone") == "+56 9 2222 2222":
+            visible["phone"] = ""
+        vendors.append(visible)
     return {"vendors": vendors, "default": DEFAULT_VENDOR_ID}
 
 
@@ -2168,12 +2137,8 @@ def get_config():
         "supabase": bool(os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_KEY")),
         "email": bool(os.environ.get("SMTP_HOST")),
         "whatsapp": bool(os.environ.get("WHATSAPP_TOKEN") and os.environ.get("WHATSAPP_PHONE_ID")),
-        # Twilio como transporte alternativo de WhatsApp (plan B) — configurado
-        # solo si están las 3 keys; cuál transporte se usa lo dice whatsapp_provider
-        "twilio": bool(os.environ.get("TWILIO_ACCOUNT_SID")
-                       and os.environ.get("TWILIO_AUTH_TOKEN")
-                       and os.environ.get("TWILIO_WHATSAPP_FROM")),
-        "whatsapp_provider": whatsapp_provider(),   # "meta" | "twilio"
+        "whatsapp_verify_token_set": bool(os.environ.get("WHATSAPP_VERIFY_TOKEN")),
+        "whatsapp_app_secret_set": bool(os.environ.get("WHATSAPP_APP_SECRET")),
         # whether drafted messages are actually sent (vs mock-recorded)
         "outbox_live": os.environ.get("OUTBOX_LIVE") == "1",
         "auth": bool(os.environ.get("AUTH_PASSWORD")),
@@ -2218,10 +2183,6 @@ class ConfigBody(BaseModel):
     whatsapp_phone_id: Optional[str] = None
     whatsapp_verify_token: Optional[str] = None
     whatsapp_app_secret: Optional[str] = None
-    twilio_account_sid: Optional[str] = None
-    twilio_auth_token: Optional[str] = None
-    twilio_whatsapp_from: Optional[str] = None
-    whatsapp_provider: Optional[str] = None   # "meta" | "twilio"
     auth_password: Optional[str] = None
     meta_ads_token: Optional[str] = None
     meta_ad_account_id: Optional[str] = None
@@ -2231,12 +2192,6 @@ class ConfigBody(BaseModel):
 @app.post("/api/config")
 def set_config(body: ConfigBody):
     saved = []
-    # Un typo en el proveedor ("twillio") caería en silencio al default meta al
-    # leerlo — mejor rechazarlo al guardar, con las opciones válidas a la vista.
-    provider = (body.whatsapp_provider or "").strip().lower() or None
-    if provider and provider not in ("meta", "twilio"):
-        raise HTTPException(status_code=400,
-                            detail="whatsapp_provider debe ser 'meta' o 'twilio'")
     fields = {
         "ELEVENLABS_API_KEY": body.elevenlabs_api_key,
         "ANTHROPIC_API_KEY": body.anthropic_api_key,
@@ -2257,10 +2212,6 @@ def set_config(body: ConfigBody):
         "WHATSAPP_PHONE_ID": body.whatsapp_phone_id,
         "WHATSAPP_VERIFY_TOKEN": body.whatsapp_verify_token,
         "WHATSAPP_APP_SECRET": body.whatsapp_app_secret,
-        "TWILIO_ACCOUNT_SID": body.twilio_account_sid,
-        "TWILIO_AUTH_TOKEN": body.twilio_auth_token,
-        "TWILIO_WHATSAPP_FROM": body.twilio_whatsapp_from,
-        "WHATSAPP_PROVIDER": provider,
         "AUTH_PASSWORD": body.auth_password,
         "META_ADS_TOKEN": body.meta_ads_token,
         "META_AD_ACCOUNT_ID": body.meta_ad_account_id,
