@@ -1,9 +1,9 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { Routes, Route, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Toaster, toast } from 'sonner'
-import { Plus, Menu, ArrowLeft, Search } from 'lucide-react'
+import { Plus, Menu, ArrowLeft, Search, ChevronDown, Check } from 'lucide-react'
 import { api, setToken } from './lib/api'
 import { supabase } from './lib/supabase'
 import { Button, Input, Select, Card } from './components/ui'
@@ -20,7 +20,7 @@ import Campanas from './pages/Campanas'
 import Leads from './pages/Leads'
 import Pipeline from './pages/Pipeline'
 import Forecast from './pages/Forecast'
-import Clientes from './pages/Clientes'
+import Clientes, { NewClientModal } from './pages/Clientes'
 import Arquitectura from './pages/Arquitectura'
 import Llamadas from './pages/Llamadas'
 import Whatsapp from './pages/Whatsapp'
@@ -68,6 +68,7 @@ export default function App() {
   const [runId, setRunId] = useState(null)
   const { pathname } = useLocation()
   const nav = useNavigate()
+  const qc = useQueryClient()
   const [title, sub] = TITLES[pathname] || ['ZeroAI', '']
   const [authed, setAuthed] = useState(null)   // null=checking · false=login · true=in
   const [authError, setAuthError] = useState(null)
@@ -77,6 +78,8 @@ export default function App() {
   const [authEnabled, setAuthEnabled] = useState(false) // false = sin cuentas dadas de alta (mock/dev), sin restricciones
   const [navOpen, setNavOpen] = useState(false) // drawer móvil del sidebar
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [newBusinessOpen, setNewBusinessOpen] = useState(false)
+  const canAddBusiness = !authEnabled || role === 'admin' || role === 'cro'
 
   // Cmd/Ctrl+K en cualquier parte de la app abre el buscador de páginas/clientes.
   useEffect(() => {
@@ -121,6 +124,9 @@ export default function App() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data: clients = [], error: clientsError, refetch: retryClients } = useQuery({ queryKey: ['clients'], queryFn: api.clients, enabled: authed === true })
+  const { data: businessAccounts, error: businessAccountsError, refetch: retryBusinessAccounts } = useQuery({
+    queryKey: ['accounts'], queryFn: api.accounts, enabled: authed === true && newBusinessOpen,
+  })
   useEffect(() => {
     if (!client && clients.length) setClient(clients[0])
   }, [clients, client])
@@ -171,11 +177,9 @@ export default function App() {
                 className="hidden sm:inline-flex items-center gap-1.5 text-xs text-zinc-400 border border-zinc-200 rounded-lg px-2.5 py-1.5 hover:bg-zinc-50 hover:text-zinc-600 transition-colors">
                 <Search size={13} /> <kbd className="font-sans">⌘K</kbd>
               </button>
-              {clients.length > 0 && (
-                <Select value={client || ''} onChange={(e) => setClient(e.target.value)}
-                  className="max-sm:max-w-[7rem] max-sm:px-2">
-                  {clients.map((c) => <option key={c} value={c}>{c}</option>)}
-                </Select>
+              {(clients.length > 0 || canAddBusiness) && (
+                <BusinessSwitcher clients={clients} client={client} onSelect={setClient}
+                  canAdd={canAddBusiness} onAdd={() => setNewBusinessOpen(true)} />
               )}
               <Glow>
                 {/* En móvil queda solo el "+": la etiqueta se come el ancho del
@@ -221,6 +225,27 @@ export default function App() {
 
         <LeadModal client={client} leadKey={leadKey} onClose={() => setLeadKey(null)} />
         <RunModal open={runOpen} onClose={() => setRunOpen(false)} onStarted={setRunId} />
+        {newBusinessOpen && (businessAccounts ? (
+          <NewClientModal plans={businessAccounts.plans} existingClients={clients}
+            onClose={() => setNewBusinessOpen(false)}
+            onCreated={(id) => {
+              qc.invalidateQueries({ queryKey: ['accounts'] })
+              qc.invalidateQueries({ queryKey: ['clients'] })
+              setClient(id)
+              setNewBusinessOpen(false)
+              nav(canSeePage('/whatsapp', role, authEnabled) ? '/whatsapp' : '/clientes')
+            }} />
+        ) : (
+          <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm grid place-items-center p-4" onClick={() => setNewBusinessOpen(false)}>
+            <Card className="w-full max-w-sm p-6 text-center" onClick={(e) => e.stopPropagation()}>
+              {businessAccountsError ? <>
+                <p className="text-sm font-medium">No se pudieron cargar los planes.</p>
+                <Button variant="soft" className="mt-4" onClick={() => retryBusinessAccounts()}>Reintentar</Button>
+              </> : <p className="text-sm text-zinc-500">Cargando planes…</p>}
+              <Button variant="ghost" className="mt-4" onClick={() => setNewBusinessOpen(false)}>Cancelar</Button>
+            </Card>
+          </div>
+        ))}
         <CommandPalette
           open={paletteOpen}
           onClose={() => setPaletteOpen(false)}
@@ -236,6 +261,51 @@ export default function App() {
         <Toaster richColors position="top-right" toastOptions={{ style: { borderRadius: '12px' } }} />
       </div>
     </AppCtx.Provider>
+  )
+}
+
+function BusinessSwitcher({ clients, client, onSelect, canAdd, onAdd }) {
+  const [open, setOpen] = useState(false)
+  const root = useRef(null)
+
+  useEffect(() => {
+    if (!open) return
+    const closeOutside = (event) => { if (!root.current?.contains(event.target)) setOpen(false) }
+    const closeEscape = (event) => { if (event.key === 'Escape') setOpen(false) }
+    document.addEventListener('pointerdown', closeOutside)
+    document.addEventListener('keydown', closeEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside)
+      document.removeEventListener('keydown', closeEscape)
+    }
+  }, [open])
+
+  return (
+    <div className="relative shrink-0" ref={root}>
+      <button type="button" aria-label="Seleccionar negocio" aria-expanded={open} aria-haspopup="menu"
+        onClick={() => setOpen((value) => !value)}
+        className="inline-flex max-w-[10rem] max-sm:max-w-[7rem] items-center gap-1.5 rounded-xl border border-zinc-200 dark:border-zinc-700/50 bg-white dark:bg-zinc-50 px-3 max-sm:px-2 py-2 text-sm hover:bg-zinc-50 focus:outline-none focus:ring-4 focus:ring-champagne/40">
+        <span className="truncate">{client || 'Negocios'}</span><ChevronDown size={14} className="shrink-0 text-zinc-500" />
+      </button>
+      {open && (
+        <div role="menu" aria-label="Negocios" className="absolute right-0 top-full mt-2 w-56 max-w-[calc(100vw-2rem)] rounded-xl border border-zinc-200 bg-white p-1.5 shadow-lg z-30 max-h-[min(70vh,22rem)] overflow-y-auto">
+          {clients.map((name) => (
+            <button key={name} type="button" role="menuitemradio" aria-checked={name === client}
+              onClick={() => { onSelect(name); setOpen(false) }}
+              className="w-full flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-100 focus:bg-zinc-100 focus:outline-none">
+              <span className="truncate">{name}</span>{name === client && <Check size={15} className="shrink-0 text-gold-deep" />}
+            </button>
+          ))}
+          {canAdd && <>
+            {clients.length > 0 && <div className="my-1.5 border-t border-zinc-100" />}
+            <button type="button" role="menuitem" onClick={() => { setOpen(false); onAdd() }}
+              className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-semibold text-gold-deep hover:bg-champagne/20 focus:bg-champagne/20 focus:outline-none">
+              <Plus size={15} /> Agregar negocio
+            </button>
+          </>}
+        </div>
+      )}
+    </div>
   )
 }
 

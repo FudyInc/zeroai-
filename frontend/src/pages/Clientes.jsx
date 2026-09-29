@@ -106,7 +106,7 @@ export default function Clientes() {
         </motion.div>
       )}
 
-      {creating && <NewClientModal plans={plans} onClose={() => setCreating(false)} onCreated={afterCreate} />}
+      {creating && <NewClientModal plans={plans} existingClients={accounts.map((a) => a.client)} onClose={() => setCreating(false)} onCreated={afterCreate} />}
     </motion.div>
   )
 }
@@ -115,19 +115,20 @@ export default function Clientes() {
 // si ya le habías corrido una búsqueda de leads. El id se deriva igual que
 // vendors/functions en el backend (api.py: alfanumérico en minúsculas), acá
 // en el cliente para mostrar el preview antes de crear.
-function NewClientModal({ plans, onClose, onCreated }) {
+export function NewClientModal({ plans, existingClients = [], onClose, onCreated }) {
   useDismiss(true, onClose)
   const [name, setName] = useState('')
   const [tier, setTier] = useState(Object.keys(plans)[0] || 'GROWTH')
   const [busy, setBusy] = useState(false)
   const id = name.trim().toLowerCase().replace(/[^a-z0-9]/g, '')
+  const alreadyExists = existingClients.includes(id)
 
   const create = async () => {
-    if (!id) return
+    if (!id || alreadyExists || busy) return
     setBusy(true)
     try {
       await api.setPlan(id, tier)
-      toast.success(`${id} creado — completa su ficha, catálogo y vendedor`)
+      toast.success(`${id} creado`)
       onCreated(id)
     } catch (e) {
       toast.error('No se pudo crear: ' + e.message)
@@ -146,14 +147,15 @@ function NewClientModal({ plans, onClose, onCreated }) {
           {...dialog}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="text-lg font-bold">Nuevo cliente</div>
-          <div className="text-xs text-zinc-400 mt-0.5 mb-4">Queda con plan asignado de inmediato — sin necesitar un lead. Después de crearlo, completas su ficha, catálogo y vendedor.</div>
+          <div className="text-lg font-bold">Agregar negocio</div>
+          <div className="text-xs text-zinc-400 mt-0.5 mb-4">Elige un nombre y un plan. Después podrás completar la ficha del negocio.</div>
 
-          <label className="block text-[11px] text-zinc-400 mb-1">Nombre o ID del cliente</label>
+          <label className="block text-[11px] text-zinc-400 mb-1">Nombre del negocio</label>
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej: Mar Austral" autoFocus
             onKeyDown={(e) => e.key === 'Enter' && create()} />
           <div className="text-[11px] text-zinc-400 mt-1">
-            {id ? <>Se guardará como <code className="text-gold-deep font-medium">{id}</code></> : 'Escribe un nombre — se convierte en el id del cliente'}
+            {alreadyExists ? <span className="text-rose-600">Este negocio ya existe. Elige otro nombre.</span>
+              : id ? <>Se guardará como <code className="text-gold-deep font-medium">{id}</code></> : 'Escribe un nombre — se convierte en el id del cliente'}
           </div>
 
           <label className="block text-[11px] text-zinc-400 mb-1 mt-4">Plan</label>
@@ -165,7 +167,7 @@ function NewClientModal({ plans, onClose, onCreated }) {
 
           <div className="flex justify-end gap-2 mt-5">
             <Button variant="ghost" onClick={onClose} disabled={busy}>Cancelar</Button>
-            <Button variant="accent" onClick={create} disabled={!id || busy}>
+            <Button variant="accent" onClick={create} disabled={!id || alreadyExists || busy}>
               {busy ? 'Creando…' : 'Crear y configurar'}
             </Button>
           </div>
