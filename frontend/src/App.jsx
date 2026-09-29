@@ -284,11 +284,11 @@ function BusinessSwitcher({ clients, client, onSelect, canAdd, onAdd }) {
     <div className="relative shrink-0" ref={root}>
       <button type="button" aria-label="Seleccionar negocio" aria-expanded={open} aria-haspopup="menu"
         onClick={() => setOpen((value) => !value)}
-        className="inline-flex max-w-[10rem] max-sm:max-w-[7rem] items-center gap-1.5 rounded-xl border border-zinc-200 dark:border-zinc-700/50 bg-white dark:bg-zinc-50 px-3 max-sm:px-2 py-2 text-sm hover:bg-zinc-50 focus:outline-none focus:ring-4 focus:ring-champagne/40">
+        className="inline-flex max-w-[10rem] max-sm:max-w-[7rem] items-center gap-1.5 rounded-xl border border-zinc-200 dark:border-zinc-300 bg-white dark:bg-zinc-50 px-3 max-sm:px-2 py-2 text-sm text-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-100 focus:outline-none focus:ring-4 focus:ring-champagne/40">
         <span className="truncate">{client || 'Negocios'}</span><ChevronDown size={14} className="shrink-0 text-zinc-500" />
       </button>
       {open && (
-        <div role="menu" aria-label="Negocios" className="absolute right-0 top-full mt-2 w-56 max-w-[calc(100vw-2rem)] rounded-xl border border-zinc-200 bg-white p-1.5 shadow-lg z-30 max-h-[min(70vh,22rem)] overflow-y-auto">
+        <div role="menu" aria-label="Negocios" className="absolute right-0 top-full mt-2 w-56 max-w-[calc(100vw-2rem)] rounded-xl border border-zinc-200 dark:border-zinc-300 bg-white dark:bg-zinc-50 p-1.5 shadow-lg z-30 max-h-[min(70vh,22rem)] overflow-y-auto">
           {clients.map((name) => (
             <button key={name} type="button" role="menuitemradio" aria-checked={name === client}
               onClick={() => { onSelect(name); setOpen(false) }}
@@ -297,7 +297,7 @@ function BusinessSwitcher({ clients, client, onSelect, canAdd, onAdd }) {
             </button>
           ))}
           {canAdd && <>
-            {clients.length > 0 && <div className="my-1.5 border-t border-zinc-100" />}
+            {clients.length > 0 && <div className="my-1.5 border-t border-zinc-100 dark:border-zinc-300" />}
             <button type="button" role="menuitem" onClick={() => { setOpen(false); onAdd() }}
               className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-semibold text-gold-deep hover:bg-champagne/20 focus:bg-champagne/20 focus:outline-none">
               <Plus size={15} /> Agregar negocio
