@@ -474,7 +474,7 @@ class ShutdownTest(unittest.TestCase):
     `systemctl restart` se colgaba ~90s hasta el SIGKILL de systemd — el
     handler del WebSocket esperaba en queue.get() para siempre y uvicorn no
     completa su apagado elegante mientras haya una conexión viva. El backend
-    quedaba caído todo ese rato, webhooks de Twilio incluidos."""
+    quedaba caído todo ese rato, webhooks de Meta incluidos."""
 
     def setUp(self):
         self.session = _session("shut-1")

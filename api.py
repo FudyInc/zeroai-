@@ -11,7 +11,9 @@ Then the frontend (or http://localhost:8800/docs) talks to it.
 from __future__ import annotations
 
 import json
+import logging
 import os
+import re
 import subprocess
 import threading
 import time
@@ -26,15 +28,16 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Red
 from pydantic import BaseModel
 
 from zero._env import load_env, set_env
-from zero.agents import build_agents
 
 load_env()   # secrets locales (.env) — los de Render env ya están en os.environ
 from zero.cloud_env import backed_up_keys, load_into_environ, save_secret
 load_into_environ()   # + secretos guardados en la nube (sobreviven a redeploys)
+from zero.agents import build_agents
 from zero.config import (AGENCY_CLIENT_ID, AVG_DEAL_VALUE_CLP, CRM_OPEN_STAGES, CRM_STAGES,
+                         DEFAULT_INBOUND_CLIENT_ID, DEFAULT_INBOUND_WHATSAPP_NUMBER,
                          DEFAULT_VENDOR_ID, MAX_INBOUND_MESSAGE_CHARS, PUBLIC_FORM_MAX_PER_HOUR_PER_IP,
                          PUBLIC_FORM_MAX_PER_HOUR_TOTAL, PUBLIC_FORM_SOURCES, TIERS)
-from zero.channels import make_outbox, whatsapp_provider
+from zero.channels import make_outbox
 from zero.icp import normalize_icp
 from zero.orchestrator import Zero
 from zero.quotes import compute_quote, format_quote, normalize_pricing
@@ -141,6 +144,8 @@ _ROLE_ALLOWED: dict = {
         ("POST", "/api/followups"),       # correr seguimientos (TRACKER) — su trabajo central
         ("GET", "/api/vendors"),          # Whatsapp.jsx — catálogo de personalidades
         ("POST", "/api/vendors"),         # editar el tono de cada agente
+        ("GET", "/api/agent-profile"),   # instrucciones propias de cada empresa
+        ("POST", "/api/agent-profile"),
         ("GET", "/api/vendor"),           # vendedor asignado a un cliente
         ("POST", "/api/vendor"),          # asignar/desplegar personalidad
         ("GET", "/api/knowledge"),        # ficha de la empresa (WhatsApp) + /versions
@@ -149,7 +154,8 @@ _ROLE_ALLOWED: dict = {
         ("POST", "/api/cases"),
         ("GET", "/api/pricing"),          # precios que cita el agente (WhatsApp)
         ("POST", "/api/pricing"),
-        ("GET", "/api/whatsapp"),         # /whatsapp/status
+        ("GET", "/api/whatsapp"),         # /whatsapp/status y /web/chats
+        ("POST", "/api/whatsapp/web"),    # responder desde la bandeja
         ("POST", "/api/whatsapp"),        # /whatsapp/simulate — probar el chat
         ("GET", "/api/emails"),           # Vender.jsx
         ("POST", "/api/pitch"),           # Vender.jsx — compose/generate/send
@@ -990,7 +996,9 @@ def _agents_whatsapp(source=None):
 
     backend = FallbackBackend(LocalBackend(model=model, base_url=url),
                               secondary=paid, on_fallback=_warn)
-    return build_agents(backend=backend, mock=False, source=source), "local"
+    agents = build_agents(backend=backend, mock=False, source=source)
+    agents["CONCIERGE"].prompt_file = "concierge-whatsapp-local.md"
+    return agents, "local"
 
 
 def _whatsapp_engine_status():
@@ -1101,6 +1109,107 @@ def whatsapp_status():
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@app.get("/api/whatsapp/web/status")
+def whatsapp_web_status(client: Optional[str] = None):
+    """QR and connection status for the authenticated dashboard."""
+    if os.environ.get("WHATSAPP_PROVIDER", "meta").lower() != "web":
+        raise HTTPException(status_code=409, detail="WhatsApp Web no está seleccionado")
+    from zero.whatsapp_web import bridge_request
+    try:
+        return bridge_request("/status", client_id=client)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/api/whatsapp/readiness")
+def whatsapp_client_readiness(client: str):
+    """Configuration status for one business; connection health is separate."""
+    memory = make_memory(STATE_PATH)
+    profile = memory.get_client_agent_profile(client)
+    pricing = normalize_pricing(memory.get_client_pricing(client))
+    number = profile.get("whatsapp_number") or (
+        DEFAULT_INBOUND_WHATSAPP_NUMBER if client == DEFAULT_INBOUND_CLIENT_ID else "")
+    return {"client": client,
+            "knowledge": bool(memory.get_client_knowledge(client).strip()),
+            "response_rules": bool(profile.get("tone") or profile.get("instructions")),
+            "pricing_items": len(pricing["items"]),
+            "quote_engine": "unit_price_plus_tax",
+            "quote_mode": profile.get("quote_mode") or "automatic",
+            "response_mode": profile.get("response_mode") or "automatic",
+            "number": number,
+            "number_bound": bool(number)}
+
+
+def _whatsapp_web_inbox_request(path: str, body: Optional[dict] = None,
+                                client: Optional[str] = None):
+    """Only expose the session whose connected number belongs to this client."""
+    from zero.whatsapp_web import bridge_request
+    if os.environ.get("WHATSAPP_PROVIDER", "meta").lower() != "web":
+        raise HTTPException(status_code=409, detail="WhatsApp Web no está seleccionado")
+    if not client:
+        raise HTTPException(status_code=400, detail="selecciona la empresa antes de abrir la bandeja")
+    try:
+        memory = make_memory(STATE_PATH)
+        expected = memory.get_client_agent_profile(client).get("whatsapp_number") or (
+            DEFAULT_INBOUND_WHATSAPP_NUMBER if client == DEFAULT_INBOUND_CLIENT_ID else "")
+        status = bridge_request("/status", client_id=client)
+        if not expected or status.get("state") != "ready" or status.get("account") != expected:
+            raise HTTPException(status_code=409, detail="el número conectado no corresponde a esta empresa")
+        return bridge_request(path, body, client_id=client)
+    except HTTPException:
+        raise
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/api/whatsapp/web/chats")
+def whatsapp_web_chats(client: str):
+    return _whatsapp_web_inbox_request("/chats", client=client)
+
+
+@app.get("/api/whatsapp/web/chats/{chat_id}/messages")
+def whatsapp_web_messages(chat_id: str, limit: int = Query(50, ge=1, le=100),
+                          client: str = Query(...)):
+    return _whatsapp_web_inbox_request(
+        "/chats/" + urllib.parse.quote(chat_id, safe="") + "/messages?limit=" + str(limit),
+        client=client,
+    )
+
+
+class WhatsAppWebReply(BaseModel):
+    text: str
+
+
+@app.post("/api/whatsapp/web/chats/{chat_id}/messages")
+def whatsapp_web_reply(chat_id: str, body: WhatsAppWebReply,
+                       client: str = Query(...)):
+    text = body.text.strip()
+    if not text or len(text) > 4096:
+        raise HTTPException(status_code=400, detail="Escribe un mensaje de hasta 4096 caracteres")
+    if not re.fullmatch(r"\d{8,20}@(c\.us|lid)", chat_id):
+        raise HTTPException(status_code=400, detail="Selecciona un chat individual válido")
+    contact = chat_id.split("@", 1)[0]
+    result = _whatsapp_web_inbox_request(
+        "/send", {"to": contact, "text": text, "chat_id": chat_id}, client=client,
+    )
+    if not isinstance(result, dict) or not result.get("id") or result.get("ack") == -1:
+        raise HTTPException(status_code=502, detail="El puente no confirmó la aceptación del mensaje")
+    # The bridge returned a message ID, but this is still acceptance, not delivery.
+    if chat_id.endswith("@c.us"):
+        try:
+            crm = make_crm(CRM_PATH)
+            rec = crm.find_by_contact(phone=contact, client_id=client)
+            if rec:
+                crm.log(client, rec["key"], "manual_reply_accepted", text[:140])
+                crm.save()
+                memory = make_memory(STATE_PATH)
+                memory.add_turn(client, rec["key"], "agent", text)
+                memory.save()
+        except Exception:
+            logging.exception("No se pudo registrar la respuesta manual en el CRM")
+    return result
+
+
 @app.get("/api/webhooks/whatsapp")
 def whatsapp_verify(mode: Optional[str] = Query(None, alias="hub.mode"),
                     token: Optional[str] = Query(None, alias="hub.verify_token"),
@@ -1111,32 +1220,25 @@ def whatsapp_verify(mode: Optional[str] = Query(None, alias="hub.mode"),
     raise HTTPException(status_code=403, detail="verificación fallida")
 
 
-def _process_inbound_messages(msgs: list, to_key: str) -> None:
+def _process_inbound_messages(msgs: list) -> list:
     """El trabajo pesado de un mensaje entrante (match/crear lead, CONCIERGE,
     enviar la respuesta) — corre DESPUÉS de que el webhook ya respondió (ver
-    BackgroundTasks en whatsapp_inbound/twilio_whatsapp_inbound de abajo).
+    BackgroundTasks en whatsapp_inbound de abajo).
 
     Por qué: con el motor real (Anthropic o modelo local) generar la respuesta
     puede tardar 15-20s+ (medido en vivo con qwen2.5:7b en CPU, 2026-07-22) —
-    tiempo de sobra para que Twilio/Meta den por caída la entrega del webhook
-    (Twilio: error 11200 "HTTP retrieval failure", con reintento de su lado, lo
-    que podía procesar el mismo mensaje dos veces). El envío real de la
-    respuesta sale por una llamada aparte a la API del proveedor (no depende de
-    la conexión del webhook), así que separar "confirmar recepción" de
-    "generar y mandar la respuesta" es seguro: nada se pierde, y el proveedor
-    ya no tiene por qué esperar ni reintentar.
-    `to_key` es el nombre de la clave en cada mensaje parseado que trae el
-    número/id receptor — "to_phone_id" (Meta) o "to" (Twilio), según cómo lo
-    arma cada parser — pero SIEMPRE se pasa a handle_inbound como su único
-    kwarg `to_phone_id` (ese nombre no cambia entre proveedores)."""
+    tiempo de sobra para que Meta reintente la entrega del webhook. La
+    respuesta sale por una llamada aparte a la Graph API, después de confirmar
+    la recepción del mensaje."""
     crm = make_crm(CRM_PATH)
     memory = make_memory(STATE_PATH)
     # Motor local a propósito — NO _agents_best (que prefiere la API paga). Ver
     # _agents_whatsapp y config.WHATSAPP_ENGINE.
     agents, _ = _agents_whatsapp()
     zero = Zero(agents, memory=memory, crm=crm, outbox=make_outbox())
-    for m in msgs:
-        zero.handle_inbound(m["from"], m["text"], to_phone_id=m.get(to_key))
+    return [zero.handle_inbound(m["from"], m["text"], to_phone_id=m.get("to_phone_id"),
+                                whatsapp_chat_id=m.get("chat_id"))
+            for m in msgs]
 
 
 @app.post("/api/webhooks/whatsapp")
@@ -1148,39 +1250,36 @@ async def whatsapp_inbound(req: Request, background_tasks: BackgroundTasks):
     raw = await req.body()
     if not verify_meta_signature(raw, req.headers.get("x-hub-signature-256")):
         raise HTTPException(status_code=403, detail="firma inválida — no viene de Meta")
+    if os.environ.get("WHATSAPP_PROVIDER", "meta").lower() == "web":
+        return {"received": 0, "provider": "web"}
     payload = json.loads(raw.decode("utf-8"))
+    from zero.whatsapp_coexistence import archive_events
+    archived = archive_events(payload)
     msgs = parse_inbound(payload)
     if msgs:
-        background_tasks.add_task(_process_inbound_messages, msgs, "to_phone_id")
-    return {"received": len(msgs)}
+        background_tasks.add_task(_process_inbound_messages, msgs)
+    return {"received": len(msgs), "coexistence_events": archived}
 
 
-@app.post("/api/webhooks/twilio-whatsapp")
-async def twilio_whatsapp_inbound(req: Request, background_tasks: BackgroundTasks):
-    """Inbound WhatsApp vía Twilio (plan B / BSP) → el MISMO flujo handle_inbound
-    que el webhook de Meta — cambia el transporte, no la conversación. Twilio
-    manda form-urlencoded y espera TwiML de vuelta: se responde un <Response/>
-    vacío DE INMEDIATO (la respuesta real al lead se procesa en segundo plano
-    — ver _process_inbound_messages — y sale por la API de Twilio vía Outbox,
-    no por TwiML) para no llenar el debugger de Twilio de warnings 12300 ni
-    arriesgar el error 11200 (timeout) que causaba el modelo real tardando
-    15-20s+. La cantidad de mensajes recibidos va en el header
-    X-Zero-Received (Twilio lo ignora; los tests HTTP lo leen). Queda dentro
-    de la excepción de auth del middleware (prefijo /api/webhooks/) — Twilio
-    se autentica con su firma."""
-    from zero.twilio_inbound import parse_inbound as parse_twilio_inbound, verify_twilio_signature
+@app.post("/api/webhooks/whatsapp-web")
+async def whatsapp_web_inbound(req: Request, background_tasks: BackgroundTasks):
+    """Receive HMAC-signed messages from the loopback WhatsApp Web bridge."""
+    from zero.whatsapp_web import claim_event, parse_message, verify_signature
     raw = await req.body()
-    params = dict(urllib.parse.parse_qsl(raw.decode("utf-8"), keep_blank_values=True))
-    # Con proxy/túnel delante, la URL que ve el server no es la que Twilio firmó —
-    # TWILIO_WEBHOOK_URL (la URL pública exacta pegada en la consola) la fija.
-    url = os.environ.get("TWILIO_WEBHOOK_URL") or str(req.url)
-    if not verify_twilio_signature(url, params, req.headers.get("x-twilio-signature")):
-        raise HTTPException(status_code=403, detail="firma inválida — no viene de Twilio")
-    msgs = parse_twilio_inbound(params)
-    if msgs:
-        background_tasks.add_task(_process_inbound_messages, msgs, "to")
-    return PlainTextResponse("<Response></Response>", media_type="application/xml",
-                             headers={"X-Zero-Received": str(len(msgs))})
+    if os.environ.get("WHATSAPP_PROVIDER", "meta").lower() != "web":
+        raise HTTPException(status_code=409, detail="WhatsApp Web no está seleccionado")
+    if not verify_signature(raw, req.headers.get("x-zero-signature")):
+        raise HTTPException(status_code=403, detail="firma inválida")
+    try:
+        payload = json.loads(raw)
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(status_code=400, detail="JSON inválido")
+    message = parse_message(payload)
+    if not message:
+        raise HTTPException(status_code=400, detail="mensaje inválido")
+    if not claim_event(message["id"], message):
+        return {"received": 0, "duplicate": True}
+    return {"received": 1}
 
 
 class Simulate(BaseModel):
@@ -1196,17 +1295,15 @@ class Simulate(BaseModel):
 @app.post("/api/whatsapp/simulate")
 def whatsapp_simulate(body: Simulate):
     """Try the agent without WhatsApp: draft (don't send) a reply to a message, to
-    evaluate how it answers business questions. Uses the client's saved ICP,
-    knowledge base and the passed-in chat history."""
+    evaluate how it answers business questions with the same local engine and
+    prompt used for real inbound WhatsApp. No delivery or CRM writes."""
     memory = make_memory(STATE_PATH)
     vendor = memory.get_vendor(body.vendor_id) if body.vendor_id else None
     try:
-        res, mode = _agent_op(
-            lambda z: z.converse_result(body.client or "", body.message,
-                                        lead=body.lead or {},
-                                        history=body.history, vendor=vendor),
-            memory=memory,
-        )
+        agents, mode = _agents_whatsapp()
+        res = Zero(agents, memory=memory).converse_result(
+            body.client or "", body.message, lead=body.lead or {},
+            history=body.history, vendor=vendor)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"el agente falló: {e}")
     # `quote` viene solo si el mensaje pidió precios de ítems del catálogo: el
@@ -1668,8 +1765,14 @@ def list_vendors():
     tiene asignados cada una (clients_count) — presentación, no cambia el
     registro guardado."""
     memory = make_memory(STATE_PATH)
-    vendors = [dict(v, clients_count=clients_count_for(v["id"], memory))
-              for v in memory.list_vendors()]
+    vendors = []
+    for v in memory.list_vendors():
+        visible = dict(v, clients_count=clients_count_for(v["id"], memory))
+        if visible.get("id") == DEFAULT_VENDOR_ID and visible.get("phone") == "+56 9 1111 1111":
+            visible["phone"] = "+56 9 6453 7891"
+        elif visible.get("phone") == "+56 9 2222 2222":
+            visible["phone"] = ""
+        vendors.append(visible)
     return {"vendors": vendors, "default": DEFAULT_VENDOR_ID}
 
 
@@ -1706,6 +1809,44 @@ def client_vendor(client: str):
     memory = make_memory(STATE_PATH)
     vid = memory.get_client_vendor(client)
     return {"client": client, "vendor": memory.get_vendor(vid) or {}}
+
+
+class AgentProfileBody(BaseModel):
+    tone: str = ""
+    instructions: str = ""
+    whatsapp_number: str = ""
+    quote_mode: Literal["manual", "automatic"] = "manual"
+    response_mode: Literal["manual", "automatic"] = "manual"
+
+
+@app.get("/api/agent-profile")
+def get_agent_profile(client: str):
+    memory = make_memory(STATE_PATH)
+    return {"client": client, "profile": memory.get_client_agent_profile(client)}
+
+
+@app.post("/api/agent-profile")
+def set_agent_profile(client: str, body: AgentProfileBody):
+    memory = make_memory(STATE_PATH)
+    number = "".join(c for c in body.whatsapp_number if c.isdigit())
+    if body.whatsapp_number.strip() and not 8 <= len(number) <= 15:
+        raise HTTPException(status_code=400, detail="el número de WhatsApp debe tener 8 a 15 dígitos")
+    if number:
+        if client != DEFAULT_INBOUND_CLIENT_ID and number == DEFAULT_INBOUND_WHATSAPP_NUMBER:
+            raise HTTPException(status_code=409, detail=f"este número ya recibe los mensajes de {DEFAULT_INBOUND_CLIENT_ID}")
+        for other in memory.clients:
+            if other != client and "".join(c for c in str(memory.get_client_agent_profile(other).get("whatsapp_number") or "")
+                                          if c.isdigit()) == number:
+                raise HTTPException(status_code=409, detail=f"el número ya está asociado a {other}")
+    profile = {"tone": body.tone.strip()[:300],
+               "instructions": body.instructions.strip()[:1200],
+               "whatsapp_number": number,
+               "quote_mode": body.quote_mode,
+               "response_mode": body.response_mode,
+               "offer_flow": client == "zeroai"}
+    memory.set_client_agent_profile(client, profile)
+    memory.save()
+    return {"client": client, "profile": profile}
 
 
 class AssignVendor(BaseModel):
@@ -1828,6 +1969,27 @@ def set_cases(client: str, body: CasesBody):
     return {"client": client, "saved": True, "cases": cases}
 
 
+class ConversationCaseBody(BaseModel):
+    lead: str
+    question: str
+    expected: str = ""
+
+
+@app.post("/api/cases/from-conversation")
+def case_from_conversation(client: str, body: ConversationCaseBody):
+    """A human promotes a real customer question after writing the expected answer."""
+    if not body.expected.strip():
+        raise HTTPException(status_code=400, detail="escribe la respuesta esperada")
+    memory = make_memory(STATE_PATH)
+    try:
+        case = memory.add_case_from_conversation(
+            client, body.lead.strip(), body.question, body.expected)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    memory.save()
+    return {"client": client, "case": case}
+
+
 # --- lista de precios + presupuestos (la aritmética vive en zero/quotes.py) ----
 
 @app.get("/api/pricing")
@@ -1887,7 +2049,7 @@ def forecast(client: str):
     # ANALYST solo propone tasas (la aritmética es determinista) — con fallback a
     # mock está bien: nunca inventa datos, solo comenta.
     res, mode = _agent_op(lambda z: z.forecast(client), memory=memory, crm=crm)
-    res["mode"] = mode
+    res["mode"] = "base_rates" if res.get("rate_source") == "base_rates" else mode
     return res
 
 
@@ -2135,11 +2297,17 @@ def _start_functions_scheduler():
     _scheduler_stop.clear()
     _scheduler_thread = threading.Thread(target=_scheduler_loop, daemon=True)
     _scheduler_thread.start()
+    from zero.whatsapp_web import start_bridge, start_inbox_worker
+    start_inbox_worker(_process_inbound_messages)
+    start_bridge()
 
 
 @app.on_event("shutdown")
 def _stop_functions_scheduler():
     _scheduler_stop.set()
+    from zero.whatsapp_web import stop_bridge, stop_inbox_worker
+    stop_inbox_worker()
+    stop_bridge()
     # Suelta los WebSockets de Conductor y mata sus procesos `claude`; sin
     # esto el apagado se cuelga esperando conexiones que nunca cierran solas.
     try:
@@ -2174,13 +2342,12 @@ def get_config():
         "vapi": bool(os.environ.get("VAPI_API_KEY")),
         "supabase": bool(os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_KEY")),
         "email": bool(os.environ.get("SMTP_HOST")),
-        "whatsapp": bool(os.environ.get("WHATSAPP_TOKEN") and os.environ.get("WHATSAPP_PHONE_ID")),
-        # Twilio como transporte alternativo de WhatsApp (plan B) — configurado
-        # solo si están las 3 keys; cuál transporte se usa lo dice whatsapp_provider
-        "twilio": bool(os.environ.get("TWILIO_ACCOUNT_SID")
-                       and os.environ.get("TWILIO_AUTH_TOKEN")
-                       and os.environ.get("TWILIO_WHATSAPP_FROM")),
-        "whatsapp_provider": whatsapp_provider(),   # "meta" | "twilio"
+        "whatsapp": (bool(os.environ.get("WHATSAPP_WEB_BRIDGE_TOKEN"))
+                     if os.environ.get("WHATSAPP_PROVIDER", "meta").lower() == "web"
+                     else bool(os.environ.get("WHATSAPP_TOKEN") and os.environ.get("WHATSAPP_PHONE_ID"))),
+        "whatsapp_provider": os.environ.get("WHATSAPP_PROVIDER", "meta").lower(),
+        "whatsapp_verify_token_set": bool(os.environ.get("WHATSAPP_VERIFY_TOKEN")),
+        "whatsapp_app_secret_set": bool(os.environ.get("WHATSAPP_APP_SECRET")),
         # whether drafted messages are actually sent (vs mock-recorded)
         "outbox_live": os.environ.get("OUTBOX_LIVE") == "1",
         "auth": bool(os.environ.get("AUTH_PASSWORD")),
@@ -2225,10 +2392,6 @@ class ConfigBody(BaseModel):
     whatsapp_phone_id: Optional[str] = None
     whatsapp_verify_token: Optional[str] = None
     whatsapp_app_secret: Optional[str] = None
-    twilio_account_sid: Optional[str] = None
-    twilio_auth_token: Optional[str] = None
-    twilio_whatsapp_from: Optional[str] = None
-    whatsapp_provider: Optional[str] = None   # "meta" | "twilio"
     auth_password: Optional[str] = None
     meta_ads_token: Optional[str] = None
     meta_ad_account_id: Optional[str] = None
@@ -2238,12 +2401,6 @@ class ConfigBody(BaseModel):
 @app.post("/api/config")
 def set_config(body: ConfigBody):
     saved = []
-    # Un typo en el proveedor ("twillio") caería en silencio al default meta al
-    # leerlo — mejor rechazarlo al guardar, con las opciones válidas a la vista.
-    provider = (body.whatsapp_provider or "").strip().lower() or None
-    if provider and provider not in ("meta", "twilio"):
-        raise HTTPException(status_code=400,
-                            detail="whatsapp_provider debe ser 'meta' o 'twilio'")
     fields = {
         "ELEVENLABS_API_KEY": body.elevenlabs_api_key,
         "ANTHROPIC_API_KEY": body.anthropic_api_key,
@@ -2264,10 +2421,6 @@ def set_config(body: ConfigBody):
         "WHATSAPP_PHONE_ID": body.whatsapp_phone_id,
         "WHATSAPP_VERIFY_TOKEN": body.whatsapp_verify_token,
         "WHATSAPP_APP_SECRET": body.whatsapp_app_secret,
-        "TWILIO_ACCOUNT_SID": body.twilio_account_sid,
-        "TWILIO_AUTH_TOKEN": body.twilio_auth_token,
-        "TWILIO_WHATSAPP_FROM": body.twilio_whatsapp_from,
-        "WHATSAPP_PROVIDER": provider,
         "AUTH_PASSWORD": body.auth_password,
         "META_ADS_TOKEN": body.meta_ads_token,
         "META_AD_ACCOUNT_ID": body.meta_ad_account_id,

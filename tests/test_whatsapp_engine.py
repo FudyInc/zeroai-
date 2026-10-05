@@ -62,9 +62,137 @@ class WhatsAppEnginePolicyTest(unittest.TestCase):
         self.assertIn("localhost", WHATSAPP_ENGINE["base_url"])
         self.assertTrue(WHATSAPP_ENGINE["model"])
 
-    def test_paid_fallback_is_declared(self):
-        # Diego eligió explícitamente caer a Claude en vez de degradar a mock.
-        self.assertTrue(WHATSAPP_ENGINE["fallback_to_paid"])
+    def test_paid_fallback_is_disabled(self):
+        # La política actual es cero gasto también si falla Ollama.
+        self.assertFalse(WHATSAPP_ENGINE["fallback_to_paid"])
+
+    def test_local_whatsapp_prompt_and_context_fit_model_input(self):
+        import api
+        from zero.contracts import AgentResponse
+        from zero.memory import SessionMemory
+        from zero.orchestrator import Zero
+
+        agents, mode = api._agents_whatsapp()
+        self.assertEqual(mode, "local")
+        memory = SessionMemory(None)
+        memory.clients["zeroai"] = {"knowledge": "servicio " * 500}
+        zero = Zero(agents, memory=memory)
+        previous = [{"role": "lead", "text": "pregunta " * 200} for _ in range(12)]
+        answer = AgentResponse("test", "CONCIERGE", "done", {"reply": "Hola"})
+        with mock.patch.object(zero, "dispatch", return_value=answer) as dispatch:
+            zero.converse_result("zeroai", "hola", lead={"key": "x", "name": "Ana",
+                            "history": "no mandar al modelo" * 300}, history=previous)
+        task = dispatch.call_args.args[1]
+        self.assertEqual(task.data["lead"], {"name": "Ana"})
+        self.assertEqual(len(task.data["history"]), 4)
+        self.assertLessEqual(len(task.data["knowledge"]), 1600)
+        self.assertLess(len(agents["CONCIERGE"].system_prompt()) + len(task.to_json()), 6500)
+
+    def test_each_business_uses_its_own_reply_policy(self):
+        from zero.contracts import AgentResponse
+        from zero.memory import SessionMemory
+        from zero.orchestrator import Zero
+
+        memory = SessionMemory(None)
+        memory.set_client_agent_profile("empresa_a", {
+            "tone": "formal", "instructions": "Pide la comuna antes de ofrecer despacho."})
+        memory.set_client_agent_profile("empresa_b", {
+            "tone": "cercano", "instructions": "Ofrece retiro en tienda."})
+        zero = Zero({}, memory=memory)
+        answer = AgentResponse("test", "CONCIERGE", "done", {"reply": "Hola"})
+        with mock.patch.object(zero, "dispatch", return_value=answer) as dispatch:
+            zero.converse_result("empresa_a", "hola", history=[], vendor={"name": "Ana", "tone": "global"})
+            task_a = dispatch.call_args.args[1]
+            zero.converse_result("empresa_b", "hola", history=[], vendor={"name": "Ana", "tone": "global"})
+            task_b = dispatch.call_args.args[1]
+        self.assertEqual(task_a.data["vendor"]["tone"], "formal")
+        self.assertEqual(task_b.data["vendor"]["tone"], "cercano")
+        self.assertIn("Pide la comuna", task_a.instructions)
+        self.assertNotIn("Pide la comuna", task_b.instructions)
+        self.assertIn("retiro en tienda", task_b.instructions)
+
+    def test_inbound_number_scopes_contact_to_its_business(self):
+        from zero.crm import CRM
+        from zero.memory import SessionMemory
+        from zero.orchestrator import Zero
+
+        memory, crm = SessionMemory(None), CRM(None)
+        memory.set_client_agent_profile("empresa_a", {"whatsapp_number": "56911111111"})
+        memory.set_client_agent_profile("empresa_b", {"whatsapp_number": "56922222222"})
+        a = crm.upsert("empresa_a", {"phone": "56999999999", "channel": "whatsapp"})
+        b = crm.upsert("empresa_b", {"phone": "56999999999", "channel": "whatsapp"})
+        zero = Zero({}, memory=memory, crm=crm)
+        with mock.patch.object(zero, "converse_result", return_value={"reply": "Hola", "intent": "general"}), \
+             mock.patch.object(zero, "_deliver", return_value={"status": "sent", "via": "test"}):
+            reply = zero.handle_inbound("56999999999", "hola", to_phone_id="56922222222")
+        self.assertTrue(reply["matched"])
+        self.assertEqual(crm.get("empresa_a", a["key"])["stage"], "new")
+        self.assertEqual(crm.get("empresa_b", b["key"])["stage"], "replied")
+        self.assertIsNone(zero._resolve_inbound_client("56933333333"))
+
+    def test_same_whatsapp_number_cannot_be_assigned_to_two_businesses(self):
+        import api
+        from fastapi import HTTPException
+        from zero.memory import SessionMemory
+
+        memory = SessionMemory(None)
+        memory.set_client_agent_profile("empresa_a", {"whatsapp_number": "56911111111"})
+        with mock.patch.object(api, "make_memory", return_value=memory):
+            with self.assertRaises(HTTPException) as context:
+                api.set_agent_profile("empresa_b", api.AgentProfileBody(whatsapp_number="56911111111"))
+        self.assertEqual(context.exception.status_code, 409)
+
+    def test_inbound_remembers_only_customer_facts_for_next_turn(self):
+        from zero.crm import CRM
+        from zero.memory import SessionMemory
+        from zero.orchestrator import Zero
+
+        memory, crm = SessionMemory(None), CRM(None)
+        memory.set_client_agent_profile("empresa_a", {"whatsapp_number": "56911111111"})
+        zero = Zero({}, memory=memory, crm=crm)
+        answer = {"reply": "Perfecto, ¿qué modelo buscas?", "intent": "general",
+                  "facts": [{"kind": "location", "evidence": "Maipú"},
+                            {"kind": "budget", "evidence": "$500.000"}]}
+        with mock.patch.object(zero, "converse_result", return_value=answer), \
+             mock.patch.object(zero, "_deliver", return_value={"status": "sent", "via": "test"}):
+            zero.handle_inbound("56999999999", "Estoy en Maipú", to_phone_id="56911111111")
+        facts = memory.get_lead_facts("empresa_a", "56999999999")
+        self.assertEqual(facts, [{"kind": "location", "evidence": "Maipú"}])
+
+    def test_new_business_does_not_auto_quote_until_enabled(self):
+        from zero.contracts import AgentResponse
+        from zero.memory import SessionMemory
+        from zero.orchestrator import Zero
+
+        memory = SessionMemory(None)
+        memory.set_client_agent_profile("losetaschile", {"quote_mode": "manual", "offer_flow": False})
+        memory.set_client_pricing("losetaschile", {"currency": "CLP", "iva_rate": 0.19,
+            "items": [{"id": "borde-recto", "name": "Borde recto", "unit_price": 1000}]})
+        zero = Zero({}, memory=memory)
+        answer = AgentResponse("test", "CONCIERGE", "done", {"reply": "Necesito las medidas"})
+        with mock.patch.object(zero, "dispatch", return_value=answer):
+            result = zero.converse_result("losetaschile", "precio de 30 borde recto", history=[])
+        self.assertNotIn("quote", result)
+        self.assertEqual(result["reply"], "Necesito las medidas")
+
+    def test_manual_business_records_inbound_without_sending(self):
+        from zero.crm import CRM
+        from zero.memory import SessionMemory
+        from zero.orchestrator import Zero
+
+        memory, crm = SessionMemory(None), CRM(None)
+        memory.set_client_agent_profile("losetaschile", {
+            "whatsapp_number": "56964537891", "response_mode": "manual"})
+        zero = Zero({}, memory=memory, crm=crm)
+        with mock.patch.object(zero, "converse_result") as agent, \
+             mock.patch.object(zero, "_deliver") as deliver:
+            result = zero.handle_inbound("56999999999", "quiero bordes",
+                                         to_phone_id="56964537891")
+        self.assertTrue(result["manual_review"])
+        self.assertFalse(agent.called)
+        self.assertFalse(deliver.called)
+        self.assertEqual(memory.get_conversation("losetaschile", "56999999999")[-1]["text"],
+                         "quiero bordes")
 
     def test_alert_throttle_is_sane(self):
         # 0 permitiría un aviso por mensaje: el modo de falla que la ventana evita.
@@ -141,10 +269,8 @@ class OwnerAlertTest(unittest.TestCase):
     def test_sale_por_los_dos_canales_aunque_whatsapp_diga_que_si(self):
         """El aviso NO espera a que WhatsApp falle para usar el correo.
 
-        Comprobado contra la consola de Twilio (2026-08-22): el POST responde
-        queued/accepted y el `failed / 63015` llega después, asíncrono. Un respaldo
-        condicionado a que el primer canal "falle" nunca se habría activado — de ahí
-        que se mande por ambos."""
+        Una aceptación inicial puede fallar después de forma asíncrona; por eso
+        el correo de respaldo se envía de todas formas."""
         box = _RecordingOutbox()
         with mock.patch.dict(os.environ, {**self.SIN_CANALES,
                                           "OWNER_WHATSAPP_TO": "+56900000000",
@@ -290,12 +416,12 @@ class EngineStatusTest(unittest.TestCase):
             st = api._whatsapp_engine_status()
         self.assertEqual(st["model"], "otro:7b")
 
-    def test_declared_fallback_without_a_key_is_not_ready(self):
-        """Un respaldo declarado pero sin key NO puede mostrarse como listo."""
+    def test_paid_fallback_stays_disabled_with_a_key(self):
+        """Una key guardada no puede activar gastos por sí sola."""
         import api
-        with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": ""}, clear=False):
+        with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ant-secreta"}, clear=False):
             st = api._whatsapp_engine_status()
-        self.assertTrue(st["fallback_to_paid"])
+        self.assertFalse(st["fallback_to_paid"])
         self.assertFalse(st["fallback_ready"])
 
     def test_status_never_leaks_the_key(self):
@@ -398,73 +524,6 @@ class EmailSubjectTest(unittest.TestCase):
         self.assertLess(len(s), 60)
         self.assertNotIn("\n", s)
         self.assertNotIn("\r", s)
-
-
-class TwilioResultTest(unittest.TestCase):
-    """Un envío que Twilio rechazó no puede reportarse como enviado.
-
-    El POST devolviendo 200 solo dice que Twilio aceptó la petición. El cuerpo
-    puede traer `status: "failed"` con su error_code — y eso es justo lo que pasó
-    con el primer aviso al celular del dueño (63015, número no unido al sandbox),
-    reportado como "sent" durante toda la sesión.
-    """
-
-    def test_a_failed_send_is_reported_as_error(self):
-        from zero.channels import _twilio_result
-        r = _twilio_result("56978398103", {
-            "sid": "SM1", "status": "failed", "error_code": 63015,
-            "error_message": "Channel has not been joined"})
-        self.assertEqual(r["status"], "error")
-        self.assertIn("63015", r["error"])
-
-    def test_an_error_code_alone_is_enough(self):
-        # Twilio puede traer el código con un estado que suena inocente.
-        from zero.channels import _twilio_result
-        r = _twilio_result("569", {"sid": "SM2", "status": "sent", "error_code": 30008})
-        self.assertEqual(r["status"], "error")
-
-    def test_undelivered_counts_as_failure(self):
-        from zero.channels import _twilio_result
-        r = _twilio_result("569", {"sid": "SM3", "status": "undelivered"})
-        self.assertEqual(r["status"], "error")
-
-    def test_queued_is_the_normal_path(self):
-        # "queued" es lo que devuelve un envío sano: aceptado y en camino.
-        from zero.channels import _twilio_result
-        r = _twilio_result("569", {"sid": "SM4", "status": "queued", "error_code": None})
-        self.assertEqual(r["status"], "sent")
-        self.assertEqual(r["id"], "SM4")
-
-    def test_delivered_is_a_success(self):
-        from zero.channels import _twilio_result
-        self.assertEqual(_twilio_result("569", {"sid": "SM5", "status": "delivered"})["status"], "sent")
-
-    def test_a_failed_alert_does_not_burn_the_throttle(self):
-        """Si el aviso falla, el próximo problema tiene que poder reintentar.
-
-        Junta las dos piezas: alerts marca la ventana solo cuando el envío no dio
-        error, y ahora un rechazo de Twilio SÍ llega como error.
-        """
-        alerts.reset_throttle()
-        self.addCleanup(alerts.reset_throttle)
-
-        class TwilioRechaza:
-            def __init__(self): self.envios = 0
-            def send(self, msg, wa_creds=None):
-                self.envios += 1
-                from zero.channels import _twilio_result
-                return _twilio_result(msg["to"], {"sid": "SM", "status": "failed",
-                                                  "error_code": 63015})
-
-        box = TwilioRechaza()
-        # Sin correo de respaldo: acá se prueba el caso puro de WhatsApp rechazado.
-        with mock.patch.dict(os.environ, {"OWNER_WHATSAPP_TO": "+56978398103",
-                                          "OWNER_EMAIL_TO": "", "SMTP_FROM": "",
-                                          "SMTP_USER": ""}, clear=False):
-            alerts.notify_owner("uno", outbox=box, now=1000.0)
-            res = alerts.notify_owner("dos", outbox=box, now=1001.0)
-        self.assertNotEqual(res["status"], "throttled")
-        self.assertEqual(box.envios, 2)
 
 
 if __name__ == "__main__":

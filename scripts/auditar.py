@@ -65,12 +65,26 @@ def _corre(cmd: List[str], timeout: int = 900, cwd: Path = REPO):
         return 127, f"no existe el comando: {cmd[0]}"
 
 
+class NoSePudoCorrer(Exception):
+    """El check no midió nada. No es un hallazgo: es la ausencia de medición.
+
+    Un check que devuelve una lista vacía está afirmando «miré y no hay nada malo».
+    Cuando en realidad no pudo mirar, esa lista vacía es una firma en falso — el
+    defecto que dejó la auditoría diaria dando verde con 7 de 8 checks. Levantar
+    esto es la forma de decir «no sé», que es distinto de «está bien».
+    """
+
+
 # --- Comprobaciones -----------------------------------------------------------------
 def suite_de_tests() -> List[Dict[str, Any]]:
     """La red de seguridad del núcleo. Si está roja, nada más importa."""
     code, salida = _corre(["python3", "-m", "unittest", "discover", "-s", "tests", "-t", "."])
     if code == 0:
         return []
+    if code == 124:
+        raise NoSePudoCorrer("la suite no terminó a tiempo")
+    if code == 127:
+        raise NoSePudoCorrer("no existe el comando python3")
     return [_hallazgo("tests", ALTA, "la suite del núcleo está en rojo",
                       "python3 -m unittest discover -s tests -t .", salida[-1500:])]
 
@@ -82,8 +96,11 @@ def imports_del_nucleo() -> List[Dict[str, Any]]:
     la suite lo carga en un orden que funciona, y falla el día que alguien lo usa
     directo desde un script.
     """
+    modulos = sorted((REPO / "zero").glob("*.py"))
+    if not modulos:
+        raise NoSePudoCorrer("no hay módulos en zero/")
     fallos = []
-    for modulo in sorted((REPO / "zero").glob("*.py")):
+    for modulo in modulos:
         if modulo.stem.startswith("_") or modulo.stem == "__init__":
             continue
         code, salida = _corre(["python3", "-c", f"import zero.{modulo.stem}"], timeout=60)
@@ -100,6 +117,10 @@ def pipeline_en_mock() -> List[Dict[str, Any]]:
                            "--tier", "GROWTH", "--query", "fintech LATAM"], timeout=300)
     if code == 0:
         return []
+    if code == 124:
+        raise NoSePudoCorrer("el pipeline no terminó a tiempo")
+    if code == 127:
+        raise NoSePudoCorrer("no existe el comando python3")
     return [_hallazgo("pipeline_mock", ALTA, "el pipeline en mock no termina bien",
                       'python3 main.py --client auditoria --tier GROWTH --query "fintech LATAM"',
                       salida[-1500:])]
@@ -116,7 +137,10 @@ def rutas_duplicadas() -> List[Dict[str, Any]]:
     dos `/api/vendors` distintos que llegaron por ramas de larga vida— y se descubrió
     por casualidad, no por una prueba.
     """
-    texto = (REPO / "api.py").read_text(encoding="utf-8")
+    ruta_api = REPO / "api.py"
+    if not ruta_api.exists():
+        raise NoSePudoCorrer("no existe api.py")
+    texto = ruta_api.read_text(encoding="utf-8")
     vistas: Dict[tuple, int] = {}
     dupes = []
     for m in _RUTA_RE.finditer(texto):
@@ -140,6 +164,8 @@ def ficha_se_trunca() -> List[Dict[str, Any]]:
     saber lo que se escribió al final del archivo, y no hay ningún error que lo avise.
     """
     ruta = REPO / "docs" / "ficha-zeroai.md"
+    if not ruta.exists():
+        raise NoSePudoCorrer("no existe docs/ficha-zeroai.md")
     texto = ruta.read_text(encoding="utf-8")
     i, f = texto.find("<!-- INICIO FICHA"), texto.find("<!-- FIN FICHA")
     if i == -1 or f == -1:
@@ -165,6 +191,8 @@ def datos_locales_corruptos() -> List[Dict[str, Any]]:
     ese aviso solo aparece cuando alguien corre la parte que lo usa. Acá se nota al día
     siguiente.
     """
+    if not any((REPO / nombre).exists() for nombre in DATOS):
+        raise NoSePudoCorrer("no hay archivos de datos locales")
     fallos = []
     for nombre in DATOS:
         ruta = REPO / nombre
@@ -219,7 +247,7 @@ def secretos_versionados() -> List[Dict[str, Any]]:
     """
     code, salida = _corre(["git", "ls-files"], timeout=60)
     if code != 0:
-        return []
+        raise NoSePudoCorrer("no se pudo listar los archivos versionados: git ls-files falló")
     fallos = []
     for archivo in salida.splitlines():
         ruta = REPO / archivo
@@ -247,10 +275,14 @@ def secretos_versionados() -> List[Dict[str, Any]]:
 def build_del_dashboard() -> List[Dict[str, Any]]:
     """El dashboard tiene que compilar. Ningún test de Python toca una línea de JSX."""
     if not (REPO / "frontend" / "node_modules").is_dir():
-        return []          # sin dependencias no se puede afirmar nada, ni bueno ni malo
+        raise NoSePudoCorrer("sin frontend/node_modules")
     code, salida = _corre(["npm", "run", "build"], timeout=600, cwd=REPO / "frontend")
     if code == 0:
         return []
+    if code == 124:
+        raise NoSePudoCorrer("el build no terminó a tiempo")
+    if code == 127:
+        raise NoSePudoCorrer("no existe el comando npm")
     return [_hallazgo("build_dashboard", ALTA, "el dashboard no compila",
                       "cd frontend && npm run build", salida[-1500:])]
 
@@ -271,8 +303,11 @@ def auditar() -> Dict[str, Any]:
     hallazgos, corridos = [], []
     for nombre, fn in CHECKS:
         t0 = time.time()
+        motivo = None
         try:
             encontrados = fn()
+        except NoSePudoCorrer as e:
+            encontrados, motivo = [], str(e)
         except Exception as e:               # noqa: BLE001
             # Un check que revienta es un check que no comprobó nada. Decirlo, no
             # tragárselo: un auditor que falla en silencio da el peor de los verdes.
@@ -280,8 +315,10 @@ def auditar() -> Dict[str, Any]:
                                      f"la comprobación «{nombre}» no pudo correr: {e}",
                                      "python3 scripts/auditar.py")]
         hallazgos.extend(encontrados)
+        estado = "omitido" if motivo else ("hallazgos" if encontrados else "ok")
         corridos.append({"check": nombre, "hallazgos": len(encontrados),
-                         "segundos": round(time.time() - t0, 1)})
+                         "segundos": round(time.time() - t0, 1),
+                         "estado": estado, "motivo": motivo})
     return {"cuando": time.time(), "checks": corridos, "hallazgos": hallazgos}
 
 
@@ -298,14 +335,24 @@ def main() -> int:
         print(json.dumps(informe, ensure_ascii=False))
         return 0
 
+    omitidos = [c for c in informe["checks"] if c.get("estado") == "omitido"]
     for c in informe["checks"]:
-        marca = "✗" if c["hallazgos"] else "·"
-        print(f"  {marca} {c['check']:32} {c['segundos']:>6.1f}s"
-              + (f"  → {c['hallazgos']}" if c["hallazgos"] else ""))
+        marca = "?" if c.get("estado") == "omitido" else ("✗" if c["hallazgos"] else "·")
+        detalle = ""
+        if c.get("estado") == "omitido":
+            detalle = f"  → no se pudo correr: {c['motivo']}"
+        elif c["hallazgos"]:
+            detalle = f"  → {c['hallazgos']}"
+        print(f"  {marca} {c['check']:32} {c['segundos']:>6.1f}s" + detalle)
     print()
     altas = [h for h in informe["hallazgos"] if h["gravedad"] == ALTA]
     if not informe["hallazgos"]:
-        print("sin hallazgos")
+        if omitidos:
+            nombres = ", ".join(c["check"] for c in omitidos)
+            print(f"sin hallazgos ({len(omitidos)} de {len(informe['checks'])} "
+                  f"checks no se pudieron correr: {nombres})")
+        else:
+            print("sin hallazgos")
         return 0
     for h in informe["hallazgos"]:
         print(f"[{h['gravedad']}] {h['detalle']}")

@@ -81,7 +81,7 @@ class AgentResponse:
     # (el mock nunca pasa por from_dict). Justo el caso que el CLAUDE.md de
     # este repo advierte: un mock que diverge del contrato real da falsa
     # confianza — los tests en verde no lo detectaban porque todos usan mock.
-    _RESULT_KEYS = ("leads", "messages", "rates", "reply", "recommendations", "plan", "subject", "body", "intent")
+    _RESULT_KEYS = ("leads", "messages", "rates", "reply", "recommendations", "plan", "subject", "body", "intent", "facts")
 
     @classmethod
     def from_dict(
@@ -112,6 +112,20 @@ class AgentResponse:
             lifted = {k: d[k] for k in cls._RESULT_KEYS if k in d}
             if lifted:
                 result = lifted
+
+        # Qwen puede poner el texto en `response` o `message`, tanto en la raíz
+        # como dentro de `result`. Normalizar antes de entregar a CONCIERGE evita
+        # un status=done sin reply que dejaría al cliente sin respuesta.
+        if (agent or d.get("agent")) == "CONCIERGE" and not result.get("reply"):
+            candidate = (result.get("response") or result.get("message") or
+                         result.get("text") or d.get("response") or d.get("message"))
+            for _ in range(3):
+                if not isinstance(candidate, dict):
+                    break
+                candidate = (candidate.get("reply") or candidate.get("response") or
+                             candidate.get("message") or candidate.get("text"))
+            if isinstance(candidate, str) and candidate.strip():
+                result["reply"] = candidate.strip()
 
         status = d.get("status")
         if status not in ("done", "partial", "error"):

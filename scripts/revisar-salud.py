@@ -23,6 +23,7 @@ import time
 import sys
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -31,7 +32,7 @@ from zero.alerts import notify_owner  # noqa: E402
 
 load_env()
 
-TUNEL = (os.environ.get("TWILIO_WEBHOOK_URL") or "").strip()
+TUNEL = (os.environ.get("WHATSAPP_WEBHOOK_URL") or "").strip()
 
 
 def _servicio(nombre: str, usuario: bool = False) -> bool:
@@ -132,10 +133,28 @@ def revisar() -> list:
     # 401 = vivo y pidiendo login. Solo un fallo de conexión es problema.
     if not _http("http://localhost:8800/api/config", (200, 401)):
         fallas.append("el backend no responde en :8800")
-    if TUNEL and not _http(TUNEL, (200, 401, 405)):
+    if TUNEL and not _http(TUNEL, (200, 401, 403, 405)):
         fallas.append("el túnel público no responde (WhatsApp entrante caído)")
     if not _ollama_responde():
-        fallas.append("el motor local no contesta (WhatsApp caería a la API paga)")
+        fallas.append("el motor local no contesta (respuestas de WhatsApp detenidas)")
+    if os.environ.get("WHATSAPP_PROVIDER", "meta").lower() == "web":
+        try:
+            from zero.whatsapp_web import bridge_request, inbox_stats
+            bridge = bridge_request("/status")
+            if bridge.get("state") != "ready":
+                fallas.append(f"puente WhatsApp Web sin conexión ({bridge.get('state') or '?'})")
+            if bridge.get("pendingInbound", 0):
+                fallas.append(f"puente WhatsApp Web: {bridge['pendingInbound']} mensajes aún no aceptados por el backend")
+            stats = inbox_stats()
+            counts = stats["counts"]
+            if counts.get("needs_review", 0):
+                fallas.append(f"WhatsApp: {counts['needs_review']} mensajes requieren revisión")
+            oldest = stats.get("oldest_unfinished")
+            if oldest and (datetime.now(timezone.utc) -
+                           datetime.fromisoformat(oldest).replace(tzinfo=timezone.utc)).total_seconds() > 300:
+                fallas.append(f"WhatsApp: {counts.get('pending', 0) + counts.get('processing', 0)} mensajes llevan más de 5 minutos sin completar")
+        except Exception as e:
+            fallas.append(f"no se pudo verificar el puente WhatsApp Web: {e}")
     fallas.extend(_corrio_en_mock())
     return fallas
 

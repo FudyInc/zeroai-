@@ -9,6 +9,7 @@ inbox.json
 finance.json
 users.json
 activity.json
+whatsapp-coexistence-events.jsonl
 # telemetría de agentes (anillo local, se regenera solo)
 agent_activity.json
 # cola de trabajo autónomo (local, coordina procesos de esta máquina)
@@ -24,6 +25,9 @@ venv/
 frontend/node_modules/
 frontend/dist/
 node_modules/
+whatsapp-web-bridge/.session/
+whatsapp-web-bridge/.session-*/
+whatsapp-web-events.sqlite3*
 
 # otros
 *.mp3

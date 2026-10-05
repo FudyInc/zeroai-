@@ -15,6 +15,7 @@ import KnowledgeHistory from '../components/KnowledgeHistory'
 import CasesLab from '../components/CasesLab'
 import PricingCard from '../components/PricingCard'
 import ConversationThread from '../components/ConversationThread'
+import WhatsAppWebInbox from '../components/WhatsAppWebInbox'
 import { rise, fade, surface } from '../lib/motion'
 
 /* El agente de WhatsApp, en un solo lugar: en 3 pasos dejas a un agente
@@ -34,7 +35,9 @@ export default function Whatsapp() {
 
   const vendorsQ = useQuery({ queryKey: ['vendors'], queryFn: api.vendors })
   const assignedQ = useQuery({ queryKey: ['vendor', client], queryFn: () => api.vendorFor(client), enabled: !!client })
+  const profileQ = useQuery({ queryKey: ['agent-profile', client], queryFn: () => api.agentProfile(client), enabled: !!client })
   const knowledgeQ = useQuery({ queryKey: ['knowledge', client], queryFn: () => api.knowledge(client), enabled: !!client })
+  const readinessQ = useQuery({ queryKey: ['whatsapp-readiness', client], queryFn: () => api.whatsappReadiness(client), enabled: !!client })
   const leadsQ = useQuery({
     queryKey: ['leads', client, 'whatsapp-activity'],
     queryFn: () => api.leads(client, { group: 'todos', limit: 50 }),
@@ -53,6 +56,7 @@ export default function Whatsapp() {
     mutationFn: () => api.setVendor(client, currentId),
     onSuccess: (d) => {
       qc.invalidateQueries({ queryKey: ['vendor', client] })
+      qc.invalidateQueries({ queryKey: ['whatsapp-readiness', client] })
       setSelected(null)
       toast.success(`Listo: ${d.vendor?.name || 'el agente'} atiende a los leads de ${client}`)
     },
@@ -61,8 +65,7 @@ export default function Whatsapp() {
 
   const knowledgeSaved = (knowledgeQ.data?.knowledge || '').trim().length > 0
   const cfg = cfgQ.data
-  const provider = cfg?.whatsapp_provider === 'twilio' ? 'twilio' : 'meta'
-  const connected = provider === 'twilio' ? !!cfg?.twilio : !!cfg?.whatsapp
+  const connected = !!cfg?.whatsapp
 
   // Toda la página depende de un cliente elegido; sin uno no hay a quién
   // configurarle el agente, y consultar con cliente vacío pegaría contra la API mal.
@@ -89,9 +92,13 @@ export default function Whatsapp() {
         )}
       </motion.div>
 
+      <motion.div variants={surface}>
+        <ReadinessCard client={client} readinessQ={readinessQ} />
+      </motion.div>
+
       {!cfgQ.isLoading && !connected && (
         <motion.div variants={fade}>
-          <ConnectMetaBanner />
+          <ConnectMetaBanner provider={cfg?.whatsapp_provider} />
         </motion.div>
       )}
 
@@ -107,9 +114,12 @@ export default function Whatsapp() {
             <VendorPicker vendorsQ={vendorsQ} assignedId={assignedId} currentId={currentId} onPick={setSelected} />
           </motion.div>
           <motion.div variants={surface}>
+            <ProfileCard client={client} profileQ={profileQ} vendor={currentVendor} />
+          </motion.div>
+          <motion.div variants={surface}>
             <DeployCard
               client={client} vendor={currentVendor} assignedId={assignedId}
-              knowledgeSaved={knowledgeSaved} deploy={deploy}
+              knowledgeSaved={knowledgeSaved} deploy={deploy} cfg={cfg}
             />
           </motion.div>
         </motion.div>
@@ -123,17 +133,27 @@ export default function Whatsapp() {
               vendorName={currentVendor?.name}
             />
           </motion.div>
-          {connected && (
+          {connected && cfg?.whatsapp_provider === 'web' && (
+            <motion.div variants={surface}>
+              <WebStatusCard cfg={cfg} client={client} expectedNumber={readinessQ.data?.number} />
+            </motion.div>
+          )}
+          {connected && cfg?.whatsapp_provider !== 'web' && (
             <motion.div variants={surface}>
               <StatusCard
                 cfg={cfg}
-                provider={provider}
-                webhookUrl={`${BASE || window.location.origin}/api/webhooks/${provider === 'twilio' ? 'twilio-whatsapp' : 'whatsapp'}`}
+                webhookUrl={`${BASE || window.location.origin}/api/webhooks/whatsapp`}
               />
             </motion.div>
           )}
         </motion.div>
       </div>
+
+      {connected && cfg?.whatsapp_provider === 'web' && (
+        <motion.div variants={surface}>
+          <WhatsAppWebInbox client={client} expectedNumber={readinessQ.data?.number} />
+        </motion.div>
+      )}
 
       {/* A ancho completo y no en una columna: la comparación pone la respuesta esperada,
           la de antes y la de ahora una al lado de la otra, y eso no entra en media
@@ -156,17 +176,19 @@ export default function Whatsapp() {
    antes, YA NO bloquea el resto de la página: ficha/precios/vendedor/chat de
    prueba funcionan igual sin Meta conectado (solo el envío real por WhatsApp
    queda pendiente de esa conexión). */
-function ConnectMetaBanner() {
+function ConnectMetaBanner({ provider }) {
+  const web = provider === 'web'
   return (
     <Card className="p-4 flex items-start gap-3 bg-amber-50/60 border-amber-200">
       <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 grid place-items-center shrink-0">
         <MessageCircle size={17} />
       </div>
       <div className="text-sm text-amber-800">
-        <b>Meta todavía no está conectada.</b> Puedes preparar todo (ficha, precios, quién atiende) y
-        probarlo en el chat de al lado igual — el envío real por WhatsApp se activa apenas conectes tu
-        cuenta de <b>WhatsApp Business (Meta Cloud API)</b> en{' '}
-        <a href="/config" className="underline font-medium">Configuración</a>.
+        <b>{web ? 'WhatsApp Web todavía no está configurado.' : 'Meta todavía no está conectada.'}</b>{' '}
+        Puedes preparar la ficha, los precios y quién atiende, y probarlo en el chat de al lado.
+        {web ? ' Para recibir mensajes, configura el puente local y vincula el número de esta empresa.' :
+          <> Para recibir mensajes, conecta WhatsApp Business (Meta Cloud API) en{' '}
+            <a href="/config" className="underline font-medium">Configuración</a>.</>}
       </div>
     </Card>
   )
@@ -188,16 +210,18 @@ function KnowledgeCard({ client, knowledgeQ }) {
     mutationFn: () => api.setKnowledge(client, text),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['knowledge', client] })
+      qc.invalidateQueries({ queryKey: ['whatsapp-readiness', client] })
       toast.success('Ficha guardada — el agente ya la conoce')
     },
     onError: (e) => toast.error('No se pudo guardar: ' + e.message),
   })
   const dirty = text !== (knowledgeQ.data?.knowledge || '')
+  const knowledgeTemplate = `Empresa: [nombre y qué vende]\n\nProductos y servicios:\n[modelos, medidas, usos y diferencias]\n\nDespacho y retiro:\n[zonas, condiciones y plazos confirmados]\n\nPagos y presupuestos:\n[qué datos pedir y cuándo derivar a una persona]\n\nPreguntas frecuentes:\n[pregunta y respuesta verificadas]\n\nExcepciones y derivación humana:\n[reclamos, pedidos especiales, información desconocida]\n\nActualizado: [fecha]`
 
   return (
     <Card className="p-5">
       <StepHeader n={1} icon={Building2} title="La ficha de la empresa"
-        sub="Pega aquí todo lo que el agente debe saber para atender bien: qué vende, precios, horarios, políticas. Texto libre, como se lo contarías a un vendedor nuevo." />
+        sub="Organiza la información por temas. El agente recupera las secciones pertinentes para cada pregunta." />
       {knowledgeQ.isLoading ? (
         <Skeleton className="h-36 w-full" />
       ) : knowledgeQ.isError ? (
@@ -207,7 +231,7 @@ function KnowledgeCard({ client, knowledgeQ }) {
       ) : (
         <textarea
           value={text} onChange={(e) => setText(e.target.value)} rows={7}
-          placeholder={'Ej: Vendemos pallets de madera certificados para exportación.\nPrecios desde $8.900 + IVA por unidad, descuento sobre 500 unidades.\nDespacho en RM en 48h. Horario: lunes a viernes 9 a 18h.\nNo vendemos a particulares, solo empresas.'}
+          placeholder={knowledgeTemplate}
           className="w-full border border-zinc-200 rounded-xl px-3 py-2.5 text-sm outline-none transition focus:ring-4 focus:ring-champagne/40 focus:border-gold/60 placeholder:text-zinc-400 resize-y"
         />
       )}
@@ -218,9 +242,12 @@ function KnowledgeCard({ client, knowledgeQ }) {
               ? `${text.length.toLocaleString()} caracteres`
               : 'Sin ficha todavía — el agente responderá solo con lo básico.'}
           </span>
-          <Button variant={dirty ? 'accent' : 'soft'} onClick={() => save.mutate()} disabled={save.isPending || !dirty}>
-            {save.isPending ? 'Guardando…' : dirty ? 'Guardar ficha' : <><Check size={14} /> Guardada</>}
-          </Button>
+          <div className="flex gap-2">
+            {!text.trim() && <Button variant="soft" onClick={() => setText(knowledgeTemplate)}>Usar guía</Button>}
+            <Button variant={dirty ? 'accent' : 'soft'} onClick={() => save.mutate()} disabled={save.isPending || !dirty}>
+              {save.isPending ? 'Guardando…' : dirty ? 'Guardar ficha' : <><Check size={14} /> Guardada</>}
+            </Button>
+          </div>
         </div>
       )}
       {!knowledgeQ.isError && <KnowledgeHistory client={client} />}
@@ -272,56 +299,112 @@ function VendorPicker({ vendorsQ, assignedId, currentId, onPick }) {
           })}
         </div>
       )}
-      {current && <ToneEditor vendor={current} />}
     </Card>
   )
 }
 
-/* Regular el tono de la personalidad elegida — texto libre, como se lo dirías
-   a la persona. Se guarda con POST /api/vendors (solo pisa `tone`); pruébalo
-   en el chat de al lado (AgentTester) y ajusta hasta que suene como quieres —
-   el mismo loop de "escribe → prueba → ajusta" de un chat de IA normal. */
-function ToneEditor({ vendor }) {
+/* Las instrucciones viven en la empresa; editar una personalidad del catálogo
+   cambiaría el tono de todas las empresas que la comparten. */
+function ProfileCard({ client, profileQ, vendor }) {
   const qc = useQueryClient()
-  const [tone, setTone] = useState(vendor.tone || '')
-  useEffect(() => { setTone(vendor.tone || '') }, [vendor.id, vendor.tone])
+  const [profile, setProfile] = useState({ tone: '', instructions: '', whatsapp_number: '',
+    quote_mode: 'manual', response_mode: 'manual' })
+  useEffect(() => {
+    setProfile({ tone: profileQ.data?.profile?.tone || '', instructions: profileQ.data?.profile?.instructions || '',
+      whatsapp_number: profileQ.data?.profile?.whatsapp_number || '',
+      quote_mode: profileQ.data?.profile?.quote_mode || (client === 'zeroai' ? 'automatic' : 'manual'),
+      response_mode: profileQ.data?.profile?.response_mode || (client === 'zeroai' ? 'automatic' : 'manual') })
+  }, [client, profileQ.data])
 
   const save = useMutation({
-    mutationFn: () => api.saveVendor({ id: vendor.id, name: vendor.name, tone }),
+    mutationFn: () => api.setAgentProfile(client, profile),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['vendors'] })
-      toast.success(`Tono de ${vendor.name} actualizado — pruébalo en el chat`)
+      qc.invalidateQueries({ queryKey: ['agent-profile', client] })
+      qc.invalidateQueries({ queryKey: ['whatsapp-readiness', client] })
+      toast.success('Forma de atención guardada para ' + client)
     },
     onError: (e) => toast.error('No se pudo guardar: ' + e.message),
   })
-  const dirty = tone !== (vendor.tone || '')
+  const saved = profileQ.data?.profile || {}
+  const dirty = profile.tone !== (saved.tone || '') || profile.instructions !== (saved.instructions || '') ||
+    profile.whatsapp_number !== (saved.whatsapp_number || '') ||
+    profile.quote_mode !== (saved.quote_mode || 'automatic') ||
+    profile.response_mode !== (saved.response_mode || 'automatic')
 
   return (
-    <div className="mt-4 pt-4 border-t border-zinc-100">
-      <div className="text-xs font-medium text-zinc-600 mb-1.5">Tono de {vendor.name}</div>
+    <Card className="p-5">
+      <div className="font-semibold text-sm">Forma de atender de {client}</div>
+      <p className="text-xs text-zinc-500 mt-1 mb-3">Estas indicaciones se aplican solo a esta empresa. Identidad elegida: {vendor?.name || 'sin elegir'}.</p>
+      {profileQ.isError && <p className="text-xs text-rose-600 mb-2">No se pudo cargar. <button className="underline" onClick={() => profileQ.refetch()}>Reintentar</button></p>}
+      <label className="block text-xs font-medium text-zinc-600 mb-1">Tono de respuesta</label>
       <textarea
-        value={tone} onChange={(e) => setTone(e.target.value)} rows={2}
+        value={profile.tone} onChange={(e) => setProfile((p) => ({ ...p, tone: e.target.value }))} rows={2} maxLength={300}
         placeholder="Ej: cercana y cálida, chilena — usa 'ya', 'bacán' con moderación; tutea, sin muletillas ni sonar como robot"
         className="w-full border border-zinc-200 rounded-xl px-3 py-2 text-sm outline-none transition focus:ring-4 focus:ring-champagne/40 focus:border-gold/60 placeholder:text-zinc-400 resize-y"
       />
+      <label className="block text-xs font-medium text-zinc-600 mt-3 mb-1">Reglas de atención del negocio</label>
+      <textarea
+        value={profile.instructions} onChange={(e) => setProfile((p) => ({ ...p, instructions: e.target.value }))} rows={4} maxLength={1200}
+        placeholder="Ej: pide comuna y medidas antes de cotizar; informa el plazo solo si figura en la ficha; deriva reclamos a una persona."
+        className="w-full border border-zinc-200 rounded-xl px-3 py-2 text-sm outline-none transition focus:ring-4 focus:ring-champagne/40 focus:border-gold/60 placeholder:text-zinc-400 resize-y"
+      />
+      <label className="block text-xs font-medium text-zinc-600 mt-3 mb-1">Número receptor de esta empresa</label>
+      <Input value={profile.whatsapp_number} onChange={(e) => setProfile((p) => ({ ...p, whatsapp_number: e.target.value.replace(/[^\d]/g, '').slice(0, 15) }))}
+        inputMode="tel" placeholder="56912345678" />
+      <p className="text-[11px] text-zinc-500 mt-1">Debe coincidir con un número vinculado al servicio. El contacto nuevo se asociará a esta empresa por el número que recibió el mensaje.</p>
+      <label className="block text-xs font-medium text-zinc-600 mt-3 mb-1">Quién responde los mensajes</label>
+      <select value={profile.response_mode} onChange={(e) => setProfile((p) => ({ ...p, response_mode: e.target.value }))}
+        className="w-full border border-zinc-200 rounded-xl px-3 py-2.5 text-sm">
+        <option value="manual">Yo respondo desde la bandeja de WhatsApp</option>
+        <option value="automatic">El agente responde automáticamente</option>
+      </select>
+      <p className="text-[11px] text-zinc-500 mt-1">Durante la preparación, usa revisión manual. Activa respuestas automáticas después de probar la ficha y los presupuestos.</p>
+      <label className="block text-xs font-medium text-zinc-600 mt-3 mb-1">Presupuestos por WhatsApp</label>
+      <select value={profile.quote_mode} onChange={(e) => setProfile((p) => ({ ...p, quote_mode: e.target.value }))}
+        className="w-full border border-zinc-200 rounded-xl px-3 py-2.5 text-sm">
+        <option value="manual">Revisión humana: el agente pide los datos y no envía montos</option>
+        <option value="automatic">Automático: cantidad × precio unitario + impuesto</option>
+      </select>
+      <p className="text-[11px] text-zinc-500 mt-1">Activa el cálculo automático solo si esa fórmula representa exactamente cómo vende esta empresa.</p>
       <div className="flex items-center justify-between mt-2 gap-3">
-        <span className="text-[11px] text-zinc-400">
-          Escríbelo como se lo dirías a la persona. Guarda, prueba en el chat y ajusta las veces que quieras.
-        </span>
-        <Button variant={dirty ? 'accent' : 'soft'} onClick={() => save.mutate()} disabled={save.isPending || !dirty} className="shrink-0">
-          {save.isPending ? 'Guardando…' : dirty ? 'Guardar tono' : <><Check size={14} /> Guardado</>}
+        <span className="text-[11px] text-zinc-400">Guarda y prueba en el chat antes de atender mensajes reales.</span>
+        <Button variant={dirty ? 'accent' : 'soft'} onClick={() => save.mutate()} disabled={profileQ.isError || profileQ.isLoading || save.isPending || !dirty} className="shrink-0">
+          {save.isPending ? 'Guardando…' : dirty ? 'Guardar reglas' : <><Check size={14} /> Guardadas</>}
         </Button>
       </div>
-    </div>
+    </Card>
+  )
+}
+
+function ReadinessCard({ client, readinessQ }) {
+  const data = readinessQ.data
+  const rows = [
+    ['Ficha de conocimiento', data?.knowledge, 'Cargar la información del negocio.'],
+    ['Forma de respuesta', data?.response_rules, 'Definir tono y reglas de atención.'],
+    ['Número receptor', data?.number_bound, 'Vincular un número propio a la empresa.'],
+    ['Precios', (data?.pricing_items || 0) > 0, 'Opcional si no cotiza; el cálculo actual es cantidad × precio + impuesto.'],
+  ]
+  return (
+    <Card className="p-5">
+      <div className="font-display font-bold tracking-tight text-brand">Preparación de {client}</div>
+      <p className="text-xs text-zinc-500 mt-1 mb-3">Configuración de esta empresa. El número conectado y los cálculos particulares requieren verificación aparte.</p>
+      {readinessQ.isError ? <p className="text-sm text-rose-600">No se pudo consultar. <button className="underline" onClick={() => readinessQ.refetch()}>Reintentar</button></p> :
+        <div className="grid sm:grid-cols-2 gap-2">{rows.map(([label, done, hint]) => (
+          <div key={label} className="rounded-xl bg-zinc-50 px-3 py-2 text-sm">
+            <span className={done ? 'text-green-700' : 'text-amber-700'}>{done ? '✓' : '○'} {label}</span>
+            {!done && <p className="text-xs text-zinc-500 mt-0.5">{hint}</p>}
+          </div>
+        ))}</div>}
+    </Card>
   )
 }
 
 /* Paso 3 — desplegar: la personalidad elegida queda atendiendo a esa empresa. */
-function DeployCard({ client, vendor, assignedId, knowledgeSaved, deploy }) {
+function DeployCard({ client, vendor, assignedId, knowledgeSaved, deploy, cfg }) {
   const isDeployed = vendor && vendor.id === assignedId
   return (
     <Card className="p-5">
-      <StepHeader n={3} icon={Rocket} title="Desplegar agente"
+      <StepHeader n={3} icon={Rocket} title="Asignar agente a esta empresa"
         sub={vendor
           ? `${vendor.name} atenderá a los leads de ${client} usando la ficha guardada.`
           : 'Elige una personalidad en el paso 2.'} />
@@ -332,17 +415,18 @@ function DeployCard({ client, vendor, assignedId, knowledgeSaved, deploy }) {
       )}
       <div className="flex items-center gap-3">
         <Button variant="accent" onClick={() => deploy.mutate()} disabled={!vendor || deploy.isPending}>
-          <Rocket size={15} /> {deploy.isPending ? 'Desplegando…' : isDeployed ? 'Volver a desplegar' : 'Desplegar agente'}
+          <Rocket size={15} /> {deploy.isPending ? 'Guardando…' : isDeployed ? 'Guardar asignación' : 'Asignar agente'}
         </Button>
         {isDeployed && (
           <span className="text-xs text-gold-deep font-medium inline-flex items-center gap-1">
-            <CheckCircle2 size={13} /> {vendor.name} está atendiendo a {client}
+            <CheckCircle2 size={13} /> {vendor.name} está asignado a {client}
           </span>
         )}
       </div>
       <div className="text-[11px] text-zinc-400 mt-3">
-        El envío real por WhatsApp se activa cuando se conecte la cuenta de Meta; mientras tanto el
-        agente ya responde en el chat de prueba y por email.
+        La asignación guarda quién responde. Para atender contactos nuevos de esta empresa hace falta
+        asociarle un número o identificador de WhatsApp propio y verificar su enrutamiento.
+        {cfg?.whatsapp_provider === 'web' && ' Cada empresa requiere su propia sesión web vinculada al número asignado.'}
       </div>
     </Card>
   )
@@ -375,13 +459,45 @@ function VendorAvatar({ vendor }) {
   )
 }
 
-/* Estado real de la conexión con el proveedor de WhatsApp activo (Meta o
-   Twilio, plan B) — solo tiene sentido una vez conectado, por eso se muestra
-   únicamente si connected. "Probar conexión" llama a la Graph API de Meta;
-   no hay endpoint equivalente para Twilio, así que ahí solo se muestra el
-   estado configurado/no configurado. */
-function StatusCard({ cfg, provider, webhookUrl }) {
-  const isTwilio = provider === 'twilio'
+/* Estado de la conexión con Meta WhatsApp Cloud API. */
+function WebStatusCard({ cfg, client, expectedNumber }) {
+  const status = useQuery({
+    queryKey: ['whatsapp-web-status', client],
+    queryFn: () => api.whatsappWebStatus(client),
+    refetchInterval: 5000,
+    retry: false,
+  })
+  const ready = status.data?.state === 'ready'
+  const numberMatches = ready && expectedNumber && status.data?.account === expectedNumber
+  return (
+    <Card className="p-6">
+      <div className="flex items-center justify-between gap-3">
+        <SectionTitle className="flex items-center gap-2">
+          <MessageCircle size={18} className="text-[#16a34a]" /> WhatsApp Business
+        </SectionTitle>
+        <Badge color={numberMatches && cfg.outbox_live ? '#16a34a' : '#b45309'}>
+          {numberMatches && cfg.outbox_live ? 'Número conectado' : 'Conexión pendiente'}
+        </Badge>
+      </div>
+      {status.isError && <p className="text-sm text-rose-600 mt-3">{status.error.message}</p>}
+      {status.data?.state === 'scan_qr' && status.data.qr && (
+        <div className="mt-4 space-y-2">
+          <p className="text-sm text-zinc-600">En tu teléfono: WhatsApp Business → Settings → Linked devices → Link a device. Escanea este QR.</p>
+          <img src={status.data.qr} alt="QR para vincular WhatsApp Business" className="w-64 h-64 bg-white p-2 rounded-xl" />
+        </div>
+      )}
+      {ready && <p className="text-sm text-zinc-600 mt-3">Número vinculado: {status.data.account || 'WhatsApp Business'}. Las respuestas del agente usan el motor local.</p>}
+      {ready && !numberMatches && <p className="text-xs text-amber-700 mt-2">El número conectado no coincide con el guardado para {client}. Las respuestas automáticas no saldrán hasta corregirlo.</p>}
+      {ready && <p className="text-xs text-zinc-500 mt-2">Cada empresa necesita su propio número y una sesión vinculada. El selector muestra la sesión de {client}.</p>}
+      {!ready && status.data?.state !== 'scan_qr' && <p className="text-sm text-zinc-600 mt-3">Estado: {status.data?.state || 'consultando…'}</p>}
+      {status.data?.error && <p className="text-xs text-rose-600 mt-2">{status.data.error}</p>}
+      <p className="text-xs text-zinc-500 mt-3">El servicio funciona en esta computadora. Debe permanecer encendida para recibir y responder mensajes.</p>
+    </Card>
+  )
+}
+
+/* Estado de la conexión con Meta WhatsApp Cloud API. */
+function StatusCard({ cfg, webhookUrl }) {
   const [copied, setCopied] = useState(false)
   const [probe, setProbe] = useState(null) // null | { ok: true, data } | { ok: false, error }
   const [busy, setBusy] = useState(false)
@@ -395,7 +511,8 @@ function StatusCard({ cfg, provider, webhookUrl }) {
     try {
       const data = await api.whatsappStatus()
       setProbe({ ok: true, data })
-      toast.success('Conexión con WhatsApp OK')
+      if (data.cloud_api_ready) toast.success('Número conectado a Cloud API')
+      else toast.warning('El número aún no está conectado a Cloud API')
     } catch (e) {
       setProbe({ ok: false, error: e.message })
       toast.error('Conexión falló: ' + e.message)
@@ -405,49 +522,54 @@ function StatusCard({ cfg, provider, webhookUrl }) {
     <Card className="p-6">
       <div className="flex items-center justify-between">
         <SectionTitle className="flex items-center gap-2">
-          <MessageCircle size={18} className="text-[#16a34a]" /> Conexión con {isTwilio ? 'Twilio (plan B)' : 'Meta'}
+          <MessageCircle size={18} className="text-[#16a34a]" /> Conexión con Meta
         </SectionTitle>
-        <Badge color="#16a34a" className="inline-flex items-center gap-1">
-          <CheckCircle2 size={12} /> Activo
+        <Badge color={probe?.data?.cloud_api_ready && cfg?.outbox_live && cfg?.whatsapp_verify_token_set && cfg?.whatsapp_app_secret_set ? '#16a34a' : '#b45309'} className="inline-flex items-center gap-1">
+          <CheckCircle2 size={12} /> {probe?.data?.cloud_api_ready && cfg?.outbox_live && cfg?.whatsapp_verify_token_set && cfg?.whatsapp_app_secret_set ? 'Listo para probar mensajes' : 'Configuración pendiente'}
         </Badge>
       </div>
       <div className="text-xs text-zinc-400 mt-0.5 mb-3">
-        {isTwilio
-          ? 'Cuenta, auth token y remitente de Twilio conectados. El agente responde dudas y agenda dentro de la ventana de 24h de WhatsApp Business.'
-          : 'Token y phone number ID conectados. El agente responde dudas y agenda dentro de la ventana de 24h de WhatsApp Business.'}
+        Token y Phone Number ID guardados. Prueba la conexión y completa el webhook para recibir mensajes.
       </div>
 
-      {isTwilio ? (
-        <div className="flex items-center gap-2 mb-3 text-xs text-zinc-500">
-          <CheckCircle2 size={13} className="text-[#16a34a] shrink-0" /> Las 3 keys de Twilio están configuradas.
-        </div>
-      ) : (
-        <div className="flex items-center gap-2 mb-3">
-          <Button variant="soft" onClick={testConnection} disabled={busy}>
-            {busy ? 'Probando…' : 'Probar conexión'}
-          </Button>
-          {probe?.ok && (
-            <span className="text-xs text-zinc-500 flex items-center gap-1.5 min-w-0">
-              <CheckCircle2 size={13} className="text-[#16a34a] shrink-0" />
-              <span className="truncate">
-                {probe.data?.display_phone_number}
-                {probe.data?.verified_name ? ` · ${probe.data.verified_name}` : ''}
-              </span>
+      <div className="flex items-center gap-2 mb-3">
+        <Button variant="soft" onClick={testConnection} disabled={busy}>
+          {busy ? 'Probando…' : 'Probar conexión'}
+        </Button>
+        {probe?.ok && (
+          <span className="text-xs text-zinc-500 flex items-center gap-1.5 min-w-0">
+            <CheckCircle2 size={13} className="text-[#16a34a] shrink-0" />
+            <span className="truncate">
+              {probe.data?.display_phone_number}
+              {probe.data?.verified_name ? ` · ${probe.data.verified_name}` : ''}
             </span>
-          )}
-        </div>
-      )}
-      {!isTwilio && probe?.ok === false && (
+          </span>
+        )}
+      </div>
+      {probe?.ok === false && (
         <div className="text-xs text-rose-600 mb-3 flex items-start gap-1.5 break-words">
           <AlertCircle size={13} className="mt-0.5 shrink-0" /> {probe.error}
+        </div>
+      )}
+      {probe?.ok && !probe.data?.cloud_api_ready && (
+        <div className="text-xs text-amber-800 bg-amber-50 rounded-xl px-3 py-2 mb-3">
+          {probe.data?.is_on_biz_app
+            ? 'El número está en WhatsApp Business, pero todavía no está conectado al agente. Para conservar ambos hay que completar el registro de coexistencia de Meta.'
+            : `Meta indica ${probe.data?.status || 'sin conexión'} (${probe.data?.platform_type || 'sin plataforma'}). El agente todavía no puede recibir mensajes.`}
+        </div>
+      )}
+      {(!cfg?.whatsapp_verify_token_set || !cfg?.whatsapp_app_secret_set) && (
+        <div className="text-xs text-amber-800 bg-amber-50 rounded-xl px-3 py-2 mb-3">
+          Faltan en Configuración: {[
+            !cfg?.whatsapp_verify_token_set && 'Verify token',
+            !cfg?.whatsapp_app_secret_set && 'App Secret',
+          ].filter(Boolean).join(' y ')}. Sin ellos Meta no puede validar el webhook ni entregar mensajes al agente.
         </div>
       )}
 
       <div className="rounded-xl bg-zinc-50 p-3 mb-3">
         <div className="text-xs font-medium text-zinc-600 mb-1">
-          {isTwilio
-            ? 'Webhook (configúralo en Twilio Console → WhatsApp sender → "When a message comes in")'
-            : 'Webhook (configúralo en Meta for Developers → WhatsApp → Configuración)'}
+          Webhook (configúralo en Meta for Developers → WhatsApp → Configuración)
         </div>
         <div className="flex items-center gap-2">
           <code className="flex-1 text-xs bg-white dark:bg-zinc-50 border border-zinc-200 rounded-lg px-2 py-1.5 break-all">{webhookUrl}</code>
@@ -456,9 +578,7 @@ function StatusCard({ cfg, provider, webhookUrl }) {
           </Button>
         </div>
         <div className="text-[11px] text-zinc-400 mt-2">
-          {isTwilio
-            ? 'Twilio firma cada POST — no hace falta verify token.'
-            : 'Usa como "Verify token" el mismo que guardaste en Configuración. Meta llamará a esta URL para validar el webhook y para reenviar los mensajes entrantes.'}
+          Usa como "Verify token" el mismo que guardaste en Configuración. En Meta suscribe también el campo "messages" de la cuenta WhatsApp correspondiente a +56 9 6453 7891.
         </div>
       </div>
 
@@ -557,7 +677,7 @@ function ActivityCard({ leadsQ, client }) {
                 </button>
                 {isOpen && (
                   <div className="px-3 pb-3 pt-1 border-t border-zinc-200/70">
-                    <ConversationThread client={client} leadKey={r.key} />
+                    <ConversationThread client={client} leadKey={r.key} caseCapture />
                   </div>
                 )}
               </div>

@@ -57,6 +57,8 @@ def parse_inbound(payload: Dict[str, Any]) -> List[Dict[str, str]]:
         for change in changes:
             if not isinstance(change, dict):
                 continue
+            if change.get("field") not in (None, "messages"):
+                continue
             value = change.get("value") or {}
             if not isinstance(value, dict):
                 continue

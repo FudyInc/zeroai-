@@ -205,6 +205,24 @@ class SessionMemory:
     def get_client_cases(self, client_id: str) -> List[Dict[str, Any]]:
         return self.clients.get(client_id, {}).get("cases") or []
 
+    def add_case_from_conversation(self, client_id: str, lead_key: str,
+                                   question: str, expected: str = "") -> Dict[str, Any]:
+        """Promote an actual customer question to the reviewable case bank."""
+        question = (question or "").strip()
+        turns = self.get_conversation(client_id, lead_key)
+        if not any(t.get("role") == "lead" and t.get("text") == question for t in turns):
+            raise ValueError("la pregunta no figura en la conversación de este cliente")
+        cases = self.get_client_cases(client_id)
+        if len(cases) >= MAX_TEST_CASES_PER_CLIENT:
+            raise ValueError("el banco de casos está lleno")
+        if any(c.get("pregunta") == question for c in cases):
+            raise ValueError("la pregunta ya está en el banco de casos")
+        case = normalize_cases([{"pregunta": question,
+                                 "respuesta_esperada": expected,
+                                 "nota": "Pregunta de una conversación real"}])[0]
+        self.clients.setdefault(client_id, {})["cases"] = [*cases, case]
+        return case
+
     # --- pricing (lista de precios estructurada, para presupuestos) -----------
     def set_client_pricing(self, client_id: str, pricing: Dict[str, Any]) -> None:
         """Lista de precios del cliente (ya normalizada por quotes.normalize_pricing).
@@ -214,6 +232,13 @@ class SessionMemory:
 
     def get_client_pricing(self, client_id: str) -> Dict[str, Any]:
         return self.clients.get(client_id, {}).get("pricing") or {}
+
+    def set_client_agent_profile(self, client_id: str, profile: Dict[str, str]) -> None:
+        """Instructions for this business only; vendor identities remain reusable."""
+        self.clients.setdefault(client_id, {})["agent_profile"] = profile
+
+    def get_client_agent_profile(self, client_id: str) -> Dict[str, str]:
+        return self.clients.get(client_id, {}).get("agent_profile") or {}
 
     # --- conversation history (memoria del diálogo con cada lead) -------------
     # Vive dentro de la ficha del cliente (junto a icp/meta/knowledge), así el
@@ -236,6 +261,32 @@ class SessionMemory:
         convs = self.clients.get(client_id, {}).get("conversations") or {}
         turns = convs.get(str(lead_key).lower(), [])
         return turns[-limit:] if limit else list(turns)
+
+    _FACT_KINDS = frozenset({"product", "quantity", "location", "measurement",
+                             "budget", "preference"})
+
+    def remember_lead_facts(self, client_id: str, lead_key: str,
+                            message: str, facts: Any) -> None:
+        """Remember only excerpts copied verbatim from the latest lead message."""
+        if not isinstance(facts, list) or not lead_key:
+            return
+        known = self.clients.setdefault(client_id, {}).setdefault("lead_facts", {})
+        by_kind = known.setdefault(str(lead_key).lower(), {})
+        for fact in facts[:6]:
+            if not isinstance(fact, dict):
+                continue
+            kind = str(fact.get("kind") or "").strip().lower()
+            evidence = str(fact.get("evidence") or "").strip()
+            if (kind in self._FACT_KINDS and 2 <= len(evidence) <= 120
+                    and evidence.casefold() in (message or "").casefold()):
+                by_kind[kind] = {"evidence": evidence, "at": _now()}
+
+    def get_lead_facts(self, client_id: str, lead_key: str) -> List[Dict[str, str]]:
+        stored = (self.clients.get(client_id, {}).get("lead_facts") or {}).get(
+            str(lead_key).lower(), {})
+        return [{"kind": kind, "evidence": value["evidence"]}
+                for kind, value in stored.items() if isinstance(value, dict)
+                and isinstance(value.get("evidence"), str)]
 
     # --- vendor catalog (Fernanda, Stéfano, ... each with their own WhatsApp) --
     def _ensure_vendors_seeded(self) -> None:

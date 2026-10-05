@@ -31,17 +31,14 @@ partición Ubuntu bare-metal (211 GB) **no se toca** — es la única vuelta atr
 
 ## PARTE B — Mover el webhook y probar de verdad
 
-5. Confirma que `TWILIO_WEBHOOK_URL` en el `.env` coincide **exactamente** con
-   la URL que está puesta en la consola de Twilio. La firma se valida contra
-   esa URL carácter por carácter; si difieren, todo llega como 403.
-6. **Prueba sintética primero** (no gasta mensajes): POST firmado al webhook
-   `/api/webhooks/twilio-whatsapp` con una firma HMAC-SHA1 válida construida
-   con `TWILIO_AUTH_TOKEN`. Debe responder 200 y `X-Zero-Received: 1`.
-   Comprueba también que una firma inválida da 403.
-7. **Prueba real**: pídele a Diego que escriba por WhatsApp al sandbox
-   (`+1 415 523 8886`) desde su teléfono. Verifica en el CRM que el mensaje
-   entró y que salió una respuesta. **Mide el tiempo** desde que llega hasta
-   que se envía la respuesta — con el 14b en GPU debería ser pocos segundos.
+5. Configura en Meta for Developers el webhook público
+   `https://handpick-monogamy-spiny.ngrok-free.dev/api/webhooks/whatsapp`, con
+   el mismo `WHATSAPP_VERIFY_TOKEN` guardado en el backend. Suscribe `messages`.
+6. Confirma que `WHATSAPP_APP_SECRET` corresponde a esa app. El servidor valida
+   cada POST mediante la firma `X-Hub-Signature-256`.
+7. **Prueba real**: envía un mensaje desde otro teléfono al +56 9 6453 7891.
+   Verifica en el CRM que entró y que el agente respondió. Activa `OUTBOX_LIVE=1`
+   solo cuando quieras permitir envíos reales.
 
 ⚠️ Cuidado: `OUTBOX_LIVE=1` está activo, así que los envíos son **reales**.
 Para pruebas sintéticas usa acciones internas (notas, etapas), nunca mensajes

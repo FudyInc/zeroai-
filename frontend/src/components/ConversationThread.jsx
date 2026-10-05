@@ -1,4 +1,6 @@
-import { useQuery } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
 import { api } from '../lib/api'
 import { Skeleton, Button } from './ui'
 
@@ -14,7 +16,12 @@ function formatAt(iso) {
   return isToday ? time : `${d.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit' })} ${time}`
 }
 
-export default function ConversationThread({ client, leadKey, limit = 100 }) {
+export default function ConversationThread({ client, leadKey, limit = 100, caseCapture = false }) {
+  const qc = useQueryClient()
+  const [caseTurn, setCaseTurn] = useState(null)
+  const [expected, setExpected] = useState('')
+  const [saving, setSaving] = useState(false)
+  useEffect(() => { setCaseTurn(null); setExpected('') }, [client, leadKey])
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['conversation', client, leadKey, limit],
     queryFn: () => api.conversation(client, leadKey, limit),
@@ -57,6 +64,32 @@ export default function ConversationThread({ client, leadKey, limit = 100 }) {
               <div className={'text-[10px] mt-1 ' + (fromAgent ? 'text-gold-deep/70' : 'text-zinc-400')}>
                 {formatAt(t.at)}
               </div>
+              {caseCapture && !fromAgent && (
+                <button type="button" className="text-[11px] underline mt-1 text-brand"
+                  onClick={() => { setCaseTurn(i); setExpected('') }}>Guardar como caso de prueba</button>
+              )}
+              {caseCapture && !fromAgent && caseTurn === i && (
+                <form className="mt-2 space-y-2" onSubmit={async (event) => {
+                  event.preventDefault()
+                  if (!expected.trim() || saving) return
+                  setSaving(true)
+                  try {
+                    await api.caseFromConversation(client, leadKey, t.text, expected.trim())
+                    qc.invalidateQueries({ queryKey: ['cases', client] })
+                    setCaseTurn(null); setExpected('')
+                    toast.success('Pregunta agregada al banco de casos')
+                  } catch (error) { toast.error(error.message) }
+                  finally { setSaving(false) }
+                }}>
+                  <textarea value={expected} onChange={(event) => setExpected(event.target.value)}
+                    maxLength={2000} rows={2} placeholder="Respuesta correcta que debería dar el agente"
+                    aria-label="Respuesta esperada" className="w-full rounded-lg border border-zinc-200 p-2 text-sm" />
+                  <div className="flex gap-2">
+                    <Button type="submit" disabled={!expected.trim() || saving}>Guardar caso</Button>
+                    <Button type="button" variant="soft" onClick={() => setCaseTurn(null)}>Cancelar</Button>
+                  </div>
+                </form>
+              )}
             </div>
           </div>
         )

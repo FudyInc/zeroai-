@@ -28,24 +28,23 @@ load_env()
 
 
 def seed_vendors() -> List[Dict[str, Any]]:
-    """Two offline vendors with fake phone_ids and no real token — run fully in
-    mock, no network needed."""
+    """Default personas share the configured Meta number until each gets one."""
     return [
         {
             "id": "fernanda",
             "name": "Fernanda",
             "photo": None,
             "tone": "cercana, cálida, directa",
-            "phone": "+56 9 1111 1111",
-            "whatsapp_phone_id": "000000000000001",
+            "phone": "+56 9 6453 7891",
+            "whatsapp_phone_id": None,
         },
         {
             "id": "stefano",
             "name": "Stéfano",
             "photo": None,
             "tone": "formal, técnico, al grano",
-            "phone": "+56 9 2222 2222",
-            "whatsapp_phone_id": "000000000000002",
+            "phone": "",
+            "whatsapp_phone_id": None,
         },
     ]
 
@@ -64,32 +63,20 @@ def clients_count_for(vendor_id: str, memory: Any) -> int:
 
 
 def credentials_for(vendor: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
-    """The WhatsApp credentials pair for sending as this vendor. Its meaning
-    depends on the active provider (see `whatsapp_provider` in zero/channels.py);
-    either way the orchestrator just passes the tuple to Outbox.send(wa_creds=...)
-    and the outbox's factory builds the matching sender — same flow, no
-    provider-specific logic outside this function and make_outbox().
-
-    Meta (default) — (phone_id, token):
+    """Meta credentials (phone_id, token) for sending as this vendor:
     - phone_id: the vendor's own `whatsapp_phone_id`, or the global
       WHATSAPP_PHONE_ID if the vendor doesn't have one.
     - token: `WHATSAPP_TOKEN_<ID>` (vendor id uppercased) if set, else the global
       WHATSAPP_TOKEN. The token is never read from the vendor record itself —
       it's a secret and lives only in the environment.
 
-    Twilio (WHATSAPP_PROVIDER=twilio) — (from_number, auth_token):
-    - from_number: `TWILIO_WHATSAPP_FROM_<ID>` if set, else the global
-      TWILIO_WHATSAPP_FROM (sandbox or real number) — exact mirror of the
-      per-vendor token pattern above.
-    - auth_token: the global TWILIO_AUTH_TOKEN (Twilio auth is per account,
-      not per number).
     """
-    from .channels import whatsapp_provider
     vendor_id = str(vendor.get("id") or "").upper()
-    if whatsapp_provider() == "twilio":
-        from_number = (os.environ.get(f"TWILIO_WHATSAPP_FROM_{vendor_id}")
-                       or os.environ.get("TWILIO_WHATSAPP_FROM"))
-        return from_number, os.environ.get("TWILIO_AUTH_TOKEN")
-    phone_id = vendor.get("whatsapp_phone_id") or os.environ.get("WHATSAPP_PHONE_ID")
+    phone_id = vendor.get("whatsapp_phone_id")
+    # Los catálogos semilla anteriores guardaron IDs falsos. Pueden persistir en
+    # state.json/Supabase; nunca deben desplazar el único número real configurado.
+    if phone_id in ("000000000000001", "000000000000002"):
+        phone_id = None
+    phone_id = phone_id or os.environ.get("WHATSAPP_PHONE_ID")
     token = os.environ.get(f"WHATSAPP_TOKEN_{vendor_id}") or os.environ.get("WHATSAPP_TOKEN")
     return phone_id, token

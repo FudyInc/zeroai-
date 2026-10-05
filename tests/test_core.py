@@ -13,12 +13,13 @@ import ast
 import json
 import os
 import unittest
+from unittest import mock
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from zero.agents import build_agents
-from zero.config import MIN_ICP_SCORE, RECONTACT_BLACKOUT_DAYS
-from zero.contracts import Constraints, Lead, TaskPayload
+from zero.config import FORECAST_RATES, MIN_ICP_SCORE, RECONTACT_BLACKOUT_DAYS
+from zero.contracts import AgentResponse, Constraints, Lead, TaskPayload
 from zero.crm import CRM
 from zero.memory import SessionMemory, _now
 from zero.orchestrator import Zero
@@ -849,6 +850,19 @@ class LifecycleTest(unittest.TestCase):
         self.assertGreaterEqual(crm_to_csv(crm, "acme", path), 1)
 
 
+class ForecastFallbackTest(unittest.TestCase):
+    def test_failed_analyst_uses_declared_base_rates(self):
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=CRM(None))
+        failed = AgentResponse(task_id="failed", agent="ANALYST", status="error",
+                               notes="proveedor sin saldo")
+        with mock.patch.object(z, "dispatch", return_value=failed):
+            result = z.forecast("acme")
+        self.assertEqual(result["rate_source"], "base_rates")
+        self.assertEqual({key: result["forecast"]["assumptions"][key]
+                          for key in FORECAST_RATES}, FORECAST_RATES)
+        self.assertIn("Tasas base", result["forecast"]["commentary"])
+
+
 class ReplyLoopTest(unittest.TestCase):
     """When a lead replies, ZERO stops chasing it and moves it to `replied`."""
 
@@ -1175,23 +1189,7 @@ class WhatsAppVendorSendTest(unittest.TestCase):
     """Cada cliente envía WhatsApp con las credenciales de SU vendedor (Fase 3.2).
     Todo offline: el factory de senders se inyecta, nunca se toca la red.
 
-    Prueba el camino Meta (credentials_for con WHATSAPP_PROVIDER sin setear) —
-    en una máquina con WHATSAPP_PROVIDER=twilio en el .env real (producción),
-    sin limpiarlo acá credentials_for() devolvería la tupla de Twilio en vez
-    de (whatsapp_phone_id, token), y las aserciones de abajo fallarían por
-    fuga del entorno real, no por un bug de la resolución en sí."""
-
-    def setUp(self):
-        import os
-        self._prev_provider = os.environ.get("WHATSAPP_PROVIDER")
-        os.environ.pop("WHATSAPP_PROVIDER", None)
-
-    def tearDown(self):
-        import os
-        if self._prev_provider is None:
-            os.environ.pop("WHATSAPP_PROVIDER", None)
-        else:
-            os.environ["WHATSAPP_PROVIDER"] = self._prev_provider
+    Usa un factory inyectado para verificar el envío sin tocar la red."""
 
     @staticmethod
     def _ok(msg):
@@ -1253,12 +1251,10 @@ class WhatsAppVendorSendTest(unittest.TestCase):
             z = Zero(build_agents(mock=True), memory=SessionMemory(None), outbox=box)
             z.memory.set_client_vendor("a", "fernanda")
             z.memory.set_client_vendor("b", "stefano")
-            f, st = z.memory.get_vendor("fernanda"), z.memory.get_vendor("stefano")
-
             z._deliver("a", "k1", "569111", {"channel": "whatsapp", "body": "hola"})
             z._deliver("b", "k2", "569222", {"channel": "whatsapp", "body": "hola"})
-            self.assertEqual(box.calls[0], ("whatsapp", (f["whatsapp_phone_id"], "tok-f")))
-            self.assertEqual(box.calls[1], ("whatsapp", (st["whatsapp_phone_id"], "tok-s")))
+            self.assertEqual(box.calls[0], ("whatsapp", (os.environ.get("WHATSAPP_PHONE_ID"), "tok-f")))
+            self.assertEqual(box.calls[1], ("whatsapp", (os.environ.get("WHATSAPP_PHONE_ID"), "tok-s")))
 
             # email no resuelve credenciales de WhatsApp
             z._deliver("a", "k3", "a@b.cl", {"channel": "email", "body": "x"})
@@ -1295,6 +1291,9 @@ class WhatsAppVendorSendTest(unittest.TestCase):
             z.run_pipeline("acme", "GROWTH", "fintech LATAM", count=8)
             lead = crm.list("acme", "nurturing")[0]
             stefano = z.memory.get_vendor("stefano")
+            stefano["whatsapp_phone_id"] = "56911112222"
+            z.memory.upsert_vendor(stefano)
+            z.memory.set_client_agent_profile("acme", {"whatsapp_number": "56911112222"})
             from_contact = "".join(c for c in (lead.get("phone") or lead.get("email") or "") if c.isalnum())
 
             box.calls.clear()
@@ -1586,8 +1585,7 @@ class ConciergeTest(unittest.TestCase):
 
 class InboundClientResolutionTest(unittest.TestCase):
     """_resolve_inbound_client: el número receptor manda si resuelve sin
-    ambigüedad a UN solo cliente (correcto en producción, número propio por
-    cliente); si no, cae al catch-all — nunca adivina entre varios."""
+    ambigüedad a UN solo cliente; números desconocidos o compartidos se detienen."""
 
     def _zero(self):
         return Zero(build_agents(mock=True), memory=SessionMemory(None), crm=CRM(None))
@@ -1596,27 +1594,33 @@ class InboundClientResolutionTest(unittest.TestCase):
         z = self._zero()
         z.memory.set_client_vendor("acme", "fernanda")
         fernanda = z.memory.get_vendor("fernanda")
+        fernanda["whatsapp_phone_id"] = "123456789012345"
         client = z._resolve_inbound_client(fernanda["whatsapp_phone_id"])
         self.assertEqual(client, "acme")
 
-    def test_vendor_shared_by_several_clients_falls_back_to_default(self):
+    def test_vendor_shared_by_several_clients_is_ambiguous(self):
         z = self._zero()
         z.memory.set_client_vendor("acme", "fernanda")
         z.memory.set_client_vendor("otra-empresa", "fernanda")   # mismo vendedor, dos clientes
         fernanda = z.memory.get_vendor("fernanda")
-        from zero.config import DEFAULT_INBOUND_CLIENT_ID
+        fernanda["whatsapp_phone_id"] = "123456789012345"
         client = z._resolve_inbound_client(fernanda["whatsapp_phone_id"])
-        self.assertEqual(client, DEFAULT_INBOUND_CLIENT_ID)
+        self.assertIsNone(client)
 
     def test_no_phone_id_falls_back_to_default(self):
         z = self._zero()
         from zero.config import DEFAULT_INBOUND_CLIENT_ID
         self.assertEqual(z._resolve_inbound_client(None), DEFAULT_INBOUND_CLIENT_ID)
 
-    def test_unknown_phone_id_falls_back_to_default(self):
+    def test_unknown_phone_id_is_not_routed_to_another_business(self):
         z = self._zero()
-        from zero.config import DEFAULT_INBOUND_CLIENT_ID
-        self.assertEqual(z._resolve_inbound_client("no-existe-este-numero"), DEFAULT_INBOUND_CLIENT_ID)
+        self.assertIsNone(z._resolve_inbound_client("no-existe-este-numero"))
+
+    def test_current_web_number_routes_to_zeroai_despite_old_seed_phone(self):
+        z = self._zero()
+        from zero.config import DEFAULT_INBOUND_CLIENT_ID, DEFAULT_INBOUND_WHATSAPP_NUMBER
+        self.assertEqual(z._resolve_inbound_client(DEFAULT_INBOUND_WHATSAPP_NUMBER),
+                         DEFAULT_INBOUND_CLIENT_ID)
 
     def test_disabled_default_returns_none_when_no_vendor_match(self):
         import zero.config as config
@@ -3255,21 +3259,15 @@ class FunctionsSchedulingTest(unittest.TestCase):
 class VendorCredentialsTest(unittest.TestCase):
     """Resolución de credenciales por vendedor, con fallback a las env globales.
 
-    Prueba el camino Meta (default) — por eso limpia WHATSAPP_PROVIDER: en una
-    máquina donde el .env real tiene WHATSAPP_PROVIDER=twilio (producción,
-    Ubuntu), sin esto credentials_for() tomaría el camino Twilio y las
-    aserciones de abajo (que esperan whatsapp_phone_id/WHATSAPP_TOKEN) fallan
-    — no por un bug de la lógica, sino por fuga del entorno real al test."""
+    Aísla las variables Meta del entorno real para que las pruebas sean deterministas."""
 
     def setUp(self):
-        import os
-        self._env_keys = ("WHATSAPP_TOKEN", "WHATSAPP_PHONE_ID", "WHATSAPP_TOKEN_FERNANDA",
-                         "WHATSAPP_PROVIDER")
+        self._env_keys = ("WHATSAPP_TOKEN", "WHATSAPP_PHONE_ID", "WHATSAPP_TOKEN_FERNANDA")
         self._prev = {k: os.environ.get(k) for k in self._env_keys}
-        os.environ.pop("WHATSAPP_PROVIDER", None)
+        for k in self._env_keys:
+            os.environ.pop(k, None)
 
     def tearDown(self):
-        import os
         for k, v in self._prev.items():
             if v is None:
                 os.environ.pop(k, None)
@@ -3281,9 +3279,10 @@ class VendorCredentialsTest(unittest.TestCase):
         from zero.vendors import credentials_for, seed_vendors
         os.environ.pop("WHATSAPP_TOKEN_FERNANDA", None)
         os.environ["WHATSAPP_TOKEN"] = "global-token"
+        os.environ["WHATSAPP_PHONE_ID"] = "real-phone-id"
         fernanda = next(v for v in seed_vendors() if v["id"] == "fernanda")
         phone_id, token = credentials_for(fernanda)
-        self.assertEqual(phone_id, fernanda["whatsapp_phone_id"])  # propio
+        self.assertEqual(phone_id, "real-phone-id")  # número global
         self.assertEqual(token, "global-token")                    # fallback global
 
     def test_per_vendor_token_takes_priority(self):
@@ -3302,6 +3301,13 @@ class VendorCredentialsTest(unittest.TestCase):
         vendor = {"id": "sin-phone", "whatsapp_phone_id": None}
         phone_id, _ = credentials_for(vendor)
         self.assertEqual(phone_id, "global-phone-id")
+
+    def test_old_seed_phone_id_does_not_override_real_meta_number(self):
+        import os
+        from zero.vendors import credentials_for
+        os.environ["WHATSAPP_PHONE_ID"] = "real-phone-id"
+        phone_id, _ = credentials_for({"id": "fernanda", "whatsapp_phone_id": "000000000000001"})
+        self.assertEqual(phone_id, "real-phone-id")
 
 
 class WhatsAppSenderCredentialsTest(unittest.TestCase):
@@ -3435,297 +3441,23 @@ class WhatsAppTemplateTest(unittest.TestCase):
             self.assertTrue(all(c.get("whatsapp_send_type") == "template") for c in wa_calls)
 
 
-class TwilioSenderContractTest(unittest.TestCase):
-    """TwilioWhatsAppSender cumple EXACTAMENTE el contrato `send` de
-    WhatsAppSender (mismo shape de _result, mismo trato de template) — el Outbox
-    no distingue proveedor. Todo offline: se intercepta _post, nunca la red."""
+class WhatsAppMetaOutboxTest(unittest.TestCase):
+    def test_meta_sender_uses_configured_credentials(self):
+        from zero.channels import WhatsAppSender, make_outbox
+        with mock.patch.dict(os.environ, {"OUTBOX_LIVE": "1", "WHATSAPP_TOKEN": "meta-tok",
+                                          "WHATSAPP_PHONE_ID": "meta-pid", "SMTP_HOST": ""}):
+            box = make_outbox()
+            self.assertIsInstance(box.real["whatsapp"], WhatsAppSender)
+            self.assertIsInstance(box._wa_factory("pid-x", "tok-x"), WhatsAppSender)
 
-    _RESULT_KEYS = {"channel", "to", "status", "id", "error", "via"}
-
-    class _Capturing:
-        """Sender real con el POST interceptado — prueba todo salvo la red."""
-        def __new__(cls):
-            from zero.channels import TwilioWhatsAppSender
-
-            class Capturing(TwilioWhatsAppSender):
-                def __init__(self):
-                    super().__init__(from_number="+1 415 523 8886",
-                                     auth_token="tok", account_sid="AC123")
-                    self.posted = []
-
-                def _post(self, form):
-                    self.posted.append(form)
-                    return {"sid": "SM-test-1"}
-
-            return Capturing()
-
-    def setUp(self):
-        self._prev = os.environ.get("TWILIO_CONTENT_SID")
-        os.environ.pop("TWILIO_CONTENT_SID", None)
-
-    def tearDown(self):
-        if self._prev is None:
-            os.environ.pop("TWILIO_CONTENT_SID", None)
-        else:
-            os.environ["TWILIO_CONTENT_SID"] = self._prev
-
-    def test_free_text_form_and_result_shape(self):
-        s = self._Capturing()
-        res = s.send({"channel": "whatsapp", "to": "+56 9 1111 2222", "body": "hola"})
-        self.assertEqual(s.posted, [{
-            "From": "whatsapp:+14155238886", "To": "whatsapp:+56911112222", "Body": "hola",
-        }])
-        self.assertEqual(set(res), self._RESULT_KEYS)   # contrato idéntico a WhatsAppSender
-        self.assertEqual(res["status"], "sent")
-        self.assertEqual(res["id"], "SM-test-1")
-        self.assertEqual(res["via"], "whatsapp")
-        self.assertIsNone(res["error"])
-
-    def test_no_number_is_skipped_like_meta(self):
-        s = self._Capturing()
-        res = s.send({"channel": "whatsapp", "to": "", "body": "hola"})
-        self.assertEqual(res["status"], "skipped")
-        self.assertEqual(set(res), self._RESULT_KEYS)
-        self.assertEqual(s.posted, [])                  # ni un intento de red
-
-    def test_template_uses_content_sid_when_configured(self):
-        os.environ["TWILIO_CONTENT_SID"] = "HX-plantilla-1"
-        s = self._Capturing()
-        res = s.send({"channel": "whatsapp", "to": "56911112222", "body": "hola, te escribo de...",
-                      "whatsapp_send_type": "template"})
-        self.assertEqual(res["status"], "sent")
-        form = s.posted[0]
-        self.assertEqual(form["ContentSid"], "HX-plantilla-1")
-        self.assertEqual(json.loads(form["ContentVariables"]), {"1": "hola, te escribo de..."})
-        self.assertNotIn("Body", form)                  # plantilla, jamás texto libre
-
-    def test_template_without_content_sid_is_clear_error_never_free_text(self):
-        """Sin TWILIO_CONTENT_SID, un contacto en frío NUNCA degrada en silencio
-        a texto libre — error claro y visible, igual criterio que
-        WhatsAppSender._template_body (que levanta y el Outbox degrada)."""
-        s = self._Capturing()
-        res = s.send({"channel": "whatsapp", "to": "56911112222", "body": "hola",
-                      "whatsapp_send_type": "template"})
-        self.assertEqual(res["status"], "error")
-        self.assertIn("template no configurado en Twilio", res["error"])
-        self.assertEqual(set(res), self._RESULT_KEYS)
-        self.assertEqual(s.posted, [])                  # no envió NADA distinto
-
-    def test_env_credentials_fallback(self):
-        """Sin parámetros, cae a las env globales — espejo de
-        WhatsAppSenderCredentialsTest para el proveedor nuevo."""
-        from zero.channels import TwilioWhatsAppSender
-        prev = {k: os.environ.get(k) for k in
-                ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_WHATSAPP_FROM")}
-        os.environ["TWILIO_ACCOUNT_SID"] = "AC-global"
-        os.environ["TWILIO_AUTH_TOKEN"] = "tok-global"
-        os.environ["TWILIO_WHATSAPP_FROM"] = "+14155238886"
-        try:
-            s = TwilioWhatsAppSender()
-            self.assertEqual(s.account_sid, "AC-global")
-            self.assertEqual(s.auth_token, "tok-global")
-            self.assertEqual(s.from_number, "+14155238886")
-            s2 = TwilioWhatsAppSender(from_number="+1999", auth_token="tok-vendor")
-            self.assertEqual(s2.from_number, "+1999")   # per-vendor pisa al global
-            self.assertEqual(s2.auth_token, "tok-vendor")
-        finally:
-            for k, v in prev.items():
-                if v is None:
-                    os.environ.pop(k, None)
-                else:
-                    os.environ[k] = v
-
-
-class WhatsAppProviderSelectionTest(unittest.TestCase):
-    """make_outbox() elige el proveedor por WHATSAPP_PROVIDER (config de
-    deployment, mismo criterio que OUTBOX_LIVE). Sin setear → Meta, exactamente
-    igual que hoy — la prueba de que el plan B no toca el plan A."""
-
-    _KEYS = ("OUTBOX_LIVE", "WHATSAPP_PROVIDER", "WHATSAPP_TOKEN", "WHATSAPP_PHONE_ID",
-             "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_WHATSAPP_FROM", "SMTP_HOST")
-
-    def setUp(self):
-        self._prev = {k: os.environ.get(k) for k in self._KEYS}
-        for k in self._KEYS:
-            os.environ.pop(k, None)
-
-    def tearDown(self):
-        for k, v in self._prev.items():
-            if v is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = v
-
-    def _set_meta_creds(self):
-        os.environ["WHATSAPP_TOKEN"] = "meta-tok"
-        os.environ["WHATSAPP_PHONE_ID"] = "meta-pid"
-
-    def _set_twilio_creds(self):
-        os.environ["TWILIO_ACCOUNT_SID"] = "AC123"
-        os.environ["TWILIO_AUTH_TOKEN"] = "tok"
-        os.environ["TWILIO_WHATSAPP_FROM"] = "+14155238886"
-
-    def test_provider_unset_behaves_exactly_like_today(self):
-        """WHATSAPP_PROVIDER ausente → Meta, aunque las credenciales de Twilio
-        estén completas en el entorno (el plan A sigue siendo el default)."""
-        from zero.channels import TwilioWhatsAppSender, WhatsAppSender, make_outbox
-        os.environ["OUTBOX_LIVE"] = "1"
-        self._set_meta_creds()
-        self._set_twilio_creds()
-        box = make_outbox()
-        self.assertIsInstance(box.real["whatsapp"], WhatsAppSender)
-        self.assertNotIsInstance(box.real["whatsapp"], TwilioWhatsAppSender)
-        # y el factory per-vendor también construye senders de Meta
-        self.assertIsInstance(box._wa_factory("pid-x", "tok-x"), WhatsAppSender)
-
-    def test_twilio_provider_builds_twilio_senders(self):
-        from zero.channels import TwilioWhatsAppSender, make_outbox
-        os.environ["OUTBOX_LIVE"] = "1"
-        os.environ["WHATSAPP_PROVIDER"] = "twilio"
-        self._set_meta_creds()      # presentes pero ignoradas: manda el provider
-        self._set_twilio_creds()
-        box = make_outbox()
-        self.assertIsInstance(box.real["whatsapp"], TwilioWhatsAppSender)
-        vendor_sender = box._wa_factory("+1999", "tok-v")
-        self.assertIsInstance(vendor_sender, TwilioWhatsAppSender)
-        self.assertEqual(vendor_sender.from_number, "+1999")
-
-    def test_twilio_provider_without_creds_stays_mock_for_whatsapp(self):
+    def test_without_outbox_live_send_is_mock(self):
         from zero.channels import make_outbox
-        os.environ["OUTBOX_LIVE"] = "1"
-        os.environ["WHATSAPP_PROVIDER"] = "twilio"
-        self._set_meta_creds()      # las de Meta NO habilitan el canal en modo twilio
-        box = make_outbox()
-        self.assertNotIn("whatsapp", box.real)
-
-    def test_without_outbox_live_everything_stays_mock_regardless_of_provider(self):
-        """Mock-first: sin OUTBOX_LIVE=1 no hay envío real — tampoco con Twilio
-        completamente configurado (mismo seguro que ya protege a Meta/SMTP)."""
-        from zero.channels import make_outbox
-        os.environ["WHATSAPP_PROVIDER"] = "twilio"
-        self._set_twilio_creds()
-        box = make_outbox()
-        self.assertFalse(box.live)
-        res = box.send({"channel": "whatsapp", "to": "56911112222", "body": "x"})
-        self.assertEqual(res["via"], "mock")
-
-
-class TwilioCredentialsTest(unittest.TestCase):
-    """credentials_for() en modo twilio: (from_number, auth_token) con el From
-    por-vendedor TWILIO_WHATSAPP_FROM_<ID> y fallback al global — espejo exacto
-    del patrón WHATSAPP_TOKEN_<ID> de Meta. Con el provider sin setear, la
-    resolución de Meta no cambia ni un bit."""
-
-    _KEYS = ("WHATSAPP_PROVIDER", "WHATSAPP_TOKEN", "WHATSAPP_PHONE_ID",
-             "TWILIO_AUTH_TOKEN", "TWILIO_WHATSAPP_FROM", "TWILIO_WHATSAPP_FROM_FERNANDA")
-
-    def setUp(self):
-        self._prev = {k: os.environ.get(k) for k in self._KEYS}
-        for k in self._KEYS:
-            os.environ.pop(k, None)
-
-    def tearDown(self):
-        for k, v in self._prev.items():
-            if v is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = v
-
-    def _fernanda(self):
-        from zero.vendors import seed_vendors
-        return next(v for v in seed_vendors() if v["id"] == "fernanda")
-
-    def test_twilio_from_falls_back_to_global(self):
-        from zero.vendors import credentials_for
-        os.environ["WHATSAPP_PROVIDER"] = "twilio"
-        os.environ["TWILIO_AUTH_TOKEN"] = "tok-cuenta"
-        os.environ["TWILIO_WHATSAPP_FROM"] = "+14155238886"
-        frm, token = credentials_for(self._fernanda())
-        self.assertEqual(frm, "+14155238886")
-        self.assertEqual(token, "tok-cuenta")
-
-    def test_per_vendor_from_takes_priority(self):
-        from zero.vendors import credentials_for
-        os.environ["WHATSAPP_PROVIDER"] = "twilio"
-        os.environ["TWILIO_AUTH_TOKEN"] = "tok-cuenta"
-        os.environ["TWILIO_WHATSAPP_FROM"] = "+14155238886"
-        os.environ["TWILIO_WHATSAPP_FROM_FERNANDA"] = "+56922223333"
-        frm, _ = credentials_for(self._fernanda())
-        self.assertEqual(frm, "+56922223333")
-
-    def test_meta_resolution_unchanged_when_provider_unset(self):
-        """Aunque las env de Twilio estén completas, sin WHATSAPP_PROVIDER la
-        tupla sigue siendo (phone_id de Meta, WHATSAPP_TOKEN) — hoy intacto."""
-        from zero.vendors import credentials_for
-        os.environ["WHATSAPP_TOKEN"] = "meta-tok"
-        os.environ["TWILIO_AUTH_TOKEN"] = "tok-cuenta"
-        os.environ["TWILIO_WHATSAPP_FROM"] = "+14155238886"
-        fernanda = self._fernanda()
-        phone_id, token = credentials_for(fernanda)
-        self.assertEqual(phone_id, fernanda["whatsapp_phone_id"])
-        self.assertEqual(token, "meta-tok")
-
-
-class TwilioInboundTest(unittest.TestCase):
-    """Firma y parseo del webhook de Twilio — puros, offline (zero/twilio_inbound.py)."""
-
-    URL = "https://zeroai.example/api/webhooks/twilio-whatsapp"
-    PARAMS = {"From": "whatsapp:+56911112222", "To": "whatsapp:+14155238886",
-              "Body": "hola", "MessageSid": "SM1"}
-
-    @staticmethod
-    def _sign(url, params, token):
-        import base64
-        import hashlib
-        import hmac as hmac_mod
-        signed = url + "".join(k + v for k, v in sorted(params.items()))
-        return base64.b64encode(
-            hmac_mod.new(token.encode(), signed.encode(), hashlib.sha1).digest()
-        ).decode()
-
-    def test_valid_signature_accepts(self):
-        from zero.twilio_inbound import verify_twilio_signature
-        sig = self._sign(self.URL, self.PARAMS, "tok")
-        self.assertTrue(verify_twilio_signature(self.URL, self.PARAMS, sig, auth_token="tok"))
-
-    def test_wrong_signature_rejects(self):
-        from zero.twilio_inbound import verify_twilio_signature
-        self.assertFalse(verify_twilio_signature(self.URL, self.PARAMS,
-                                                 "firma-que-no-cuadra", auth_token="tok"))
-
-    def test_tampered_params_reject_original_signature(self):
-        """Una firma válida deja de cuadrar si CUALQUIER parámetro cambió —
-        nadie puede reusar una request firmada cambiándole el texto."""
-        from zero.twilio_inbound import verify_twilio_signature
-        sig = self._sign(self.URL, self.PARAMS, "tok")
-        tampered = dict(self.PARAMS, Body="texto del atacante")
-        self.assertFalse(verify_twilio_signature(self.URL, tampered, sig, auth_token="tok"))
-
-    def test_no_token_or_no_header_rejects(self):
-        from zero.twilio_inbound import verify_twilio_signature
-        prev = os.environ.get("TWILIO_AUTH_TOKEN")
-        os.environ.pop("TWILIO_AUTH_TOKEN", None)
-        try:
-            sig = self._sign(self.URL, self.PARAMS, "tok")
-            self.assertFalse(verify_twilio_signature(self.URL, self.PARAMS, sig))   # sin token
-            self.assertFalse(verify_twilio_signature(self.URL, self.PARAMS, None,
-                                                     auth_token="tok"))             # sin header
-        finally:
-            if prev is not None:
-                os.environ["TWILIO_AUTH_TOKEN"] = prev
-
-    def test_parse_inbound_normalizes_numbers(self):
-        from zero.twilio_inbound import parse_inbound
-        msgs = parse_inbound(self.PARAMS)
-        self.assertEqual(msgs, [{"from": "56911112222", "text": "hola", "to": "14155238886"}])
-
-    def test_parse_inbound_media_and_malformed(self):
-        from zero.twilio_inbound import parse_inbound
-        media = parse_inbound({"From": "whatsapp:+569", "NumMedia": "2"})
-        self.assertEqual(media[0]["text"], "[media]")   # igual registra la respuesta
-        self.assertEqual(parse_inbound({"Body": "sin From"}), [])
-        self.assertEqual(parse_inbound(None), [])
-        self.assertEqual(parse_inbound("basura"), [])
+        with mock.patch.dict(os.environ, {"OUTBOX_LIVE": "", "WHATSAPP_TOKEN": "meta-tok",
+                                          "WHATSAPP_PHONE_ID": "meta-pid"}):
+            box = make_outbox()
+            self.assertFalse(box.live)
+            self.assertEqual(box.send({"channel": "whatsapp", "to": "56911112222",
+                                       "body": "x"})["via"], "mock")
 
 
 class ApiRoutesTest(unittest.TestCase):

@@ -113,6 +113,9 @@ export const api = {
   saveVendor: (body) =>
     req('/api/vendors', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   vendorFor: (c) => req('/api/vendor?client=' + q(c)),
+  agentProfile: (c) => req('/api/agent-profile?client=' + q(c)),
+  setAgentProfile: (c, profile) =>
+    req('/api/agent-profile?client=' + q(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(profile) }),
   setVendor: (c, vendor_id) =>
     req('/api/vendor?client=' + q(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ vendor_id }) }),
   pricing: (c) => req('/api/pricing?client=' + q(c)),
@@ -137,6 +140,11 @@ export const api = {
     req('/api/knowledge?client=' + q(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ knowledge }) }),
   conversation: (c, lead, limit = 50) =>
     req(`/api/conversation?client=${q(c)}&lead=${q(lead)}&limit=${limit}`),
+  caseFromConversation: (c, lead, question, expected) =>
+    req('/api/cases/from-conversation?client=' + q(c), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lead, question, expected }),
+    }),
   pitchCompose: (body) =>
     req('/api/pitch/compose', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   pitchGenerate: (body) =>
@@ -158,6 +166,14 @@ export const api = {
   },
   metaadsAccounts: () => req('/api/metaads/accounts').then((d) => d.accounts),
   whatsappStatus: () => req('/api/whatsapp/status'),
+  whatsappWebStatus: (c) => req('/api/whatsapp/web/status' + (c ? '?client=' + q(c) : '')),
+  whatsappReadiness: (c) => req('/api/whatsapp/readiness?client=' + q(c)),
+  whatsappWebChats: (c) => req('/api/whatsapp/web/chats?client=' + q(c)),
+  whatsappWebMessages: (c, chatId) => req('/api/whatsapp/web/chats/' + q(chatId) + '/messages?client=' + q(c)),
+  whatsappWebReply: (c, chatId, text) =>
+    req('/api/whatsapp/web/chats/' + q(chatId) + '/messages?client=' + q(c), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }),
+    }),
   config: () => req('/api/config'),
   agentsTelemetry: (limit = 40) => req('/api/agents/telemetry?limit=' + limit),
   setConfig: (body) =>

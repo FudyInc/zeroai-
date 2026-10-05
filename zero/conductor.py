@@ -864,7 +864,7 @@ def shutdown() -> None:
     para siempre, y uvicorn no termina su apagado elegante mientras haya una
     conexión viva — con una sola pestaña del panel abierta, `systemctl restart`
     se colgaba ~90s hasta que systemd mandaba SIGKILL. El servicio quedaba
-    caído todo ese rato, con los webhooks de Twilio incluidos.
+    caído todo ese rato, con los webhooks de Meta incluidos.
 
     Dos cosas, en orden: avisarle a cada suscriptor que se vaya (así el
     WebSocket devuelve y uvicorn puede cerrar), y matar los procesos `claude`
