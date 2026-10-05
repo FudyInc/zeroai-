@@ -1,4 +1,6 @@
 import unittest
+import tempfile
+from pathlib import Path
 from unittest import mock
 
 from zero.contracts import AgentResponse
@@ -29,6 +31,19 @@ class WhatsAppContextTest(unittest.TestCase):
             zero.converse_result("empresa-a", "¿Despachan a Maipú?", history=[])
         self.assertIn("Maipú solo los jueves", dispatch.call_args.args[1].data["knowledge"])
 
+    def test_delivery_synonyms_find_policy_without_exact_query_words(self):
+        sheet = ("Empresa: Losetas Chile.\n\n" +
+                 "Productos: " + "baldosas decorativas. " * 55 + "\n\n" +
+                 "Despacho y retiro: Entregamos en Ñuñoa los viernes.")
+        selected = select_knowledge(sheet, "¿Hacen envíos a Ñuñoa?", 900)
+        self.assertIn("los viernes", selected)
+        self.assertLessEqual(len(selected), 900)
+
+    def test_generic_question_keeps_the_business_overview(self):
+        sheet = "Empresa: Losetas Chile.\n\nVendemos baldosas.\n\nAtendemos por WhatsApp."
+        selected = select_knowledge(sheet, "hola", 1600)
+        self.assertIn("Vendemos baldosas", selected)
+
     def test_relevant_old_turn_survives_recent_context_limit(self):
         turns = [{"role": "lead", "text": "Necesito baldosas para la terraza"},
                  {"role": "agent", "text": "¿Cuántos metros?"},
@@ -57,6 +72,21 @@ class WhatsAppContextTest(unittest.TestCase):
         self.assertIn("Ñuñoa", str(memory.get_lead_facts("empresa-a", "lead-1")))
         self.assertNotIn("Maipú", str(memory.get_lead_facts("empresa-a", "lead-1")))
 
+    def test_human_can_correct_facts_only_for_existing_conversation(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = str(Path(folder) / "state.json")
+            memory = SessionMemory(path)
+            memory.add_turn("empresa-a", "lead-1", "lead", "Estoy en Maipú")
+            with self.assertRaises(ValueError):
+                memory.set_lead_facts("empresa-b", "lead-1", [
+                    {"kind": "location", "evidence": "Ñuñoa"}])
+            corrected = memory.set_lead_facts("empresa-a", "lead-1", [
+                {"kind": "location", "evidence": "Ñuñoa"}])
+            self.assertEqual(corrected[0]["source"], "human")
+            memory.save()
+            self.assertEqual(SessionMemory(path).get_lead_facts("empresa-a", "lead-1"),
+                             corrected)
+
     def test_real_question_can_be_promoted_only_inside_its_business(self):
         memory = SessionMemory(None)
         memory.add_turn("empresa-a", "lead-1", "lead", "¿Despachan a Maipú?")
@@ -67,6 +97,30 @@ class WhatsAppContextTest(unittest.TestCase):
         self.assertEqual(case["respuesta_esperada"], "Sí, martes y jueves")
         with self.assertRaises(ValueError):
             memory.add_case_from_conversation("empresa-a", "lead-1", "¿Despachan a Maipú?", "Sí")
+
+    def test_human_review_keeps_actual_reply_and_knowledge_version(self):
+        memory = SessionMemory(None)
+        memory.set_client_cases("empresa-a", [{"id": "despacho", "pregunta": "¿Despachan?"}])
+        with self.assertRaises(ValueError):
+            memory.add_case_review("empresa-b", "despacho", "correct", "Sí")
+        first = memory.add_case_review("empresa-a", "despacho", "needs_work",
+                                       "Sí, mañana", "El plazo no está confirmado", 3)
+        self.assertEqual(first["knowledge_version"], 3)
+        self.assertEqual(first["reply"], "Sí, mañana")
+        memory.add_case_review("empresa-a", "despacho", "correct", "Confirmaré el plazo", "", 4)
+        reviews = memory.get_case_reviews("empresa-a")["despacho"]
+        self.assertEqual(reviews["count"], 2)
+        self.assertEqual(reviews["latest"]["verdict"], "correct")
+        memory.set_client_cases("empresa-a", [{"id": "despacho", "pregunta": "¿Hay retiro?"}])
+        self.assertEqual(memory.get_case_reviews("empresa-a"), {})
+
+    def test_cco_can_review_its_conversation_and_cases(self):
+        import api
+
+        self.assertTrue(api._role_may_access("cco", "GET", "/api/conversation"))
+        self.assertTrue(api._role_may_access("cco", "POST", "/api/conversation/facts"))
+        self.assertTrue(api._role_may_access("cco", "POST", "/api/cases/reviews"))
+        self.assertFalse(api._role_may_access("cto", "POST", "/api/conversation/facts"))
 
 
 if __name__ == "__main__":

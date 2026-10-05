@@ -89,7 +89,8 @@ function EditorDeCasos({ casos, onChange, disabled }) {
 /* Una fila de la comparación. Tres columnas cuando hay corrida anterior: qué se esperaba,
    qué contestó antes, qué contesta ahora. El ojo va a la diferencia entre las dos
    últimas; la esperada es la vara. */
-function Comparacion({ caso, antes, ahora, corriendo }) {
+function Comparacion({ caso, antes, ahora, corriendo, review, canReview, reviewing, onReview }) {
+  const [note, setNote] = useState('')
   return (
     <motion.div variants={surface} className="rounded-xl border border-zinc-200 p-3.5">
       <div className="text-sm font-semibold text-zinc-800">{caso.pregunta}</div>
@@ -125,6 +126,20 @@ function Comparacion({ caso, antes, ahora, corriendo }) {
           </div>
         </div>
       </div>
+      {review?.latest && <div className="mt-2 text-[11px] text-zinc-500">
+        Última revisión humana: {review.latest.verdict === 'correct' ? 'correcta' : 'necesita ajuste'}
+        {review.latest.knowledge_version ? ` · ficha v${review.latest.knowledge_version}` : ''}
+        {review.latest.note ? ` · ${review.latest.note}` : ''}
+      </div>}
+      {ahora?.reply && canReview && <div className="mt-3 border-t border-zinc-100 pt-3 space-y-2">
+        <textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={500}
+          rows={2} placeholder="Nota de revisión (opcional): qué respondió bien o qué corregir"
+          aria-label="Nota de revisión" className="w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-xs" />
+        <div className="flex gap-2 flex-wrap">
+          <Button variant="soft" disabled={reviewing} onClick={() => onReview('correct', note)}>Respuesta correcta</Button>
+          <Button variant="soft" disabled={reviewing} onClick={() => onReview('needs_work', note)}>Necesita ajuste</Button>
+        </div>
+      </div>}
     </motion.div>
   )
 }
@@ -137,25 +152,38 @@ export default function CasesLab({ client, vendorId }) {
   const versionsQ = useQuery({
     queryKey: ['knowledge-versions', client], queryFn: () => api.knowledgeVersions(client), enabled: !!client,
   })
+  const reviewsQ = useQuery({
+    queryKey: ['case-reviews', client], queryFn: () => api.caseReviews(client), enabled: !!client,
+  })
 
   const [casos, setCasos] = useState([])
   const [cargadoPara, setCargadoPara] = useState(null)
   const [resultados, setResultados] = useState({})     // id -> {reply, error, version}
   const [anteriores, setAnteriores] = useState(null)   // la tanda previa, para comparar
   const [progreso, setProgreso] = useState(null)       // {hecho, total}
+  const [reviewingId, setReviewingId] = useState(null)
   const cancelar = useRef(false)
+  const lastServerCases = useRef(null)
 
   useEffect(() => {
-    if (casesQ.data && cargadoPara !== client) {
+    if (!casesQ.data) return
+    const incoming = JSON.stringify(casesQ.data)
+    const previous = lastServerCases.current?.client === client
+      ? lastServerCases.current.value : null
+    if (cargadoPara !== client || (previous !== incoming && JSON.stringify(casos) === previous)) {
       setCasos(casesQ.data)
       setCargadoPara(client)
       setResultados({}); setAnteriores(null); setProgreso(null)
     }
-  }, [casesQ.data, client, cargadoPara])
+    lastServerCases.current = { client, value: incoming }
+  }, [casesQ.data, client, cargadoPara, casos])
 
   const versionActual = versionsQ.data?.current ?? null
   const sucio = JSON.stringify(casos) !== JSON.stringify(casesQ.data || [])
   const corriendo = progreso !== null
+  const reviewedCurrent = Object.values(reviewsQ.data || {}).filter((item) =>
+    item.latest?.knowledge_version === versionActual)
+  const correctCurrent = reviewedCurrent.filter((item) => item.latest.verdict === 'correct').length
 
   const guardar = async () => {
     try {
@@ -201,6 +229,19 @@ export default function CasesLab({ client, vendorId }) {
     if (cancelar.current) toast('Tanda cortada', { description: 'Lo que alcanzó a responder queda en pantalla.' })
   }
 
+  const reviewAnswer = async (caseId, answer, verdict, note) => {
+    setReviewingId(caseId)
+    try {
+      await api.saveCaseReview(client, {
+        case_id: caseId, verdict, reply: answer.reply, note,
+        knowledge_version: answer.version || 0,
+      })
+      await qc.invalidateQueries({ queryKey: ['case-reviews', client] })
+      toast.success('Revisión guardada')
+    } catch (error) { toast.error(error.message) }
+    finally { setReviewingId(null) }
+  }
+
   if (!client) return null
 
   return (
@@ -215,6 +256,8 @@ export default function CasesLab({ client, vendorId }) {
             Las mismas preguntas, repetidas después de cada cambio de ficha. Así se ve qué
             arreglaste y qué rompiste sin tener que acordarte de lo que preguntaste la vez pasada.
             {versionActual != null && <> Ficha vigente: <b className="text-zinc-500">v{versionActual}</b>.</>}
+            {' '}Puedes marcar cada respuesta con tu revisión; el agente no se califica solo.
+            {reviewedCurrent.length > 0 && <> Revisados en esta versión: <b>{correctCurrent}/{reviewedCurrent.length} correctos</b>.</>}
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -262,6 +305,10 @@ export default function CasesLab({ client, vendorId }) {
                     antes={anteriores?.resultados?.[c.id || c.pregunta]}
                     ahora={resultados[c.id || c.pregunta]}
                     corriendo={corriendo}
+                    review={reviewsQ.data?.[c.id]}
+                    canReview={(casesQ.data || []).some((saved) => saved.id === c.id)}
+                    reviewing={reviewingId === c.id}
+                    onReview={(verdict, note) => reviewAnswer(c.id, resultados[c.id || c.pregunta], verdict, note)}
                   />
                 ))}
               </AnimatePresence>

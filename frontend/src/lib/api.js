@@ -128,6 +128,11 @@ export const api = {
   cases: (c) => req('/api/cases?client=' + q(c)).then((d) => d.cases || []),
   setCases: (c, cases) =>
     req('/api/cases?client=' + q(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cases }) }),
+  caseReviews: (c) => req('/api/cases/reviews?client=' + q(c)).then((d) => d.reviews || {}),
+  saveCaseReview: (c, body) =>
+    req('/api/cases/reviews?client=' + q(c), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    }),
 
   /* Historial de la ficha. La lista no trae los textos enteros —son miles de
      caracteres cada uno—, así que el texto completo se pide por versión. */
@@ -140,6 +145,11 @@ export const api = {
     req('/api/knowledge?client=' + q(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ knowledge }) }),
   conversation: (c, lead, limit = 50) =>
     req(`/api/conversation?client=${q(c)}&lead=${q(lead)}&limit=${limit}`),
+  setConversationFacts: (c, lead, facts) =>
+    req('/api/conversation/facts?client=' + q(c), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lead, facts }),
+    }),
   caseFromConversation: (c, lead, question, expected) =>
     req('/api/cases/from-conversation?client=' + q(c), {
       method: 'POST', headers: { 'Content-Type': 'application/json' },

@@ -11,8 +11,8 @@ que los cambios ya estén desplegados en el backend o dashboard públicos.
 | Catálogo de precios | Separado por `client_id`; cantidades, subtotal e impuesto se calculan en código. Moneda e impuesto editables. |
 | Tono e instrucciones de atención | Perfil separado por `client_id`, usado por el agente de WhatsApp. La identidad del vendedor se puede reutilizar sin cambiar a otras empresas. |
 | Prueba de conversación | Usa el mismo motor y prompt local que los mensajes entrantes; no envía ni guarda la conversación en CRM. |
-| Conversaciones y leads | Se guardan bajo `client_id`. Para WhatsApp entrante con número receptor conocido, la búsqueda del contacto queda acotada a ese cliente. El agente recupera turnos anteriores pertinentes y recuerda solo frases explícitas del contacto. |
-| Pruebas con conversaciones reales | Desde la conversación del dashboard se puede guardar una pregunta del contacto, junto con la respuesta esperada escrita por una persona, en el banco de casos de esa empresa. |
+| Conversaciones y leads | Se guardan bajo `client_id`. Para WhatsApp entrante con número receptor conocido, la búsqueda del contacto queda acotada a ese cliente. El agente recupera turnos anteriores pertinentes y recuerda solo frases explícitas del contacto. Una persona puede revisar y corregir esos datos desde el dashboard. |
+| Pruebas con conversaciones reales | Desde la conversación del dashboard se puede guardar una pregunta del contacto, junto con la respuesta esperada escrita por una persona, en el banco de casos de esa empresa. Cada respuesta de la tanda se puede marcar manualmente como correcta o pendiente de ajuste; se conservan la respuesta, nota y versión de ficha. |
 | Número receptor | Se puede vincular un número de WhatsApp a una empresa; se rechaza la duplicación y se detienen mensajes de destinos desconocidos. |
 | Sesiones de WhatsApp Web | El puente principal sirve al cliente predeterminado. Se pueden configurar puertos y sesiones locales separados para otras empresas; cada vista consulta su propia sesión. |
 

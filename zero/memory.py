@@ -199,7 +199,15 @@ class SessionMemory:
     def set_client_cases(self, client_id: str, cases: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Reemplaza el banco completo (mismo patrón que pricing/meta) ya normalizado."""
         limpios = normalize_cases(cases)
-        self.clients.setdefault(client_id, {})["cases"] = limpios
+        client = self.clients.setdefault(client_id, {})
+        previous = {case.get("id"): case.get("pregunta") for case in client.get("cases") or []}
+        valid_reviews = {case["id"] for case in limpios
+                         if previous.get(case["id"]) == case["pregunta"]}
+        client["cases"] = limpios
+        if "case_reviews" in client:
+            client["case_reviews"] = {case_id: reviews
+                                      for case_id, reviews in client["case_reviews"].items()
+                                      if case_id in valid_reviews}
         return limpios
 
     def get_client_cases(self, client_id: str) -> List[Dict[str, Any]]:
@@ -222,6 +230,29 @@ class SessionMemory:
                                  "nota": "Pregunta de una conversación real"}])[0]
         self.clients.setdefault(client_id, {})["cases"] = [*cases, case]
         return case
+
+    def add_case_review(self, client_id: str, case_id: str, verdict: str,
+                        reply: str, note: str = "", version: int = 0) -> Dict[str, Any]:
+        """Store a human judgment with the actual answer and knowledge version."""
+        if not any(case.get("id") == case_id for case in self.get_client_cases(client_id)):
+            raise ValueError("el caso no pertenece a esta empresa")
+        if verdict not in ("correct", "needs_work"):
+            raise ValueError("resultado de revisión inválido")
+        if not isinstance(reply, str) or not reply.strip():
+            raise ValueError("falta la respuesta evaluada")
+        entry = {"verdict": verdict, "reply": reply.strip()[:2000],
+                 "note": str(note or "").strip()[:500],
+                 "knowledge_version": max(0, int(version)), "reviewed_at": _now()}
+        reviews = self.clients.setdefault(client_id, {}).setdefault("case_reviews", {})
+        history = reviews.setdefault(case_id, [])
+        history.append(entry)
+        del history[:-20]
+        return entry
+
+    def get_case_reviews(self, client_id: str) -> Dict[str, Dict[str, Any]]:
+        reviews = self.clients.get(client_id, {}).get("case_reviews") or {}
+        return {case_id: {"latest": history[-1], "count": len(history)}
+                for case_id, history in reviews.items() if history}
 
     # --- pricing (lista de precios estructurada, para presupuestos) -----------
     def set_client_pricing(self, client_id: str, pricing: Dict[str, Any]) -> None:
@@ -284,9 +315,31 @@ class SessionMemory:
     def get_lead_facts(self, client_id: str, lead_key: str) -> List[Dict[str, str]]:
         stored = (self.clients.get(client_id, {}).get("lead_facts") or {}).get(
             str(lead_key).lower(), {})
-        return [{"kind": kind, "evidence": value["evidence"]}
+        return [{"kind": kind, "evidence": value["evidence"],
+                 "source": value.get("source", "lead")}
                 for kind, value in stored.items() if isinstance(value, dict)
                 and isinstance(value.get("evidence"), str)]
+
+    def set_lead_facts(self, client_id: str, lead_key: str,
+                       facts: Any) -> List[Dict[str, str]]:
+        """Human-reviewed facts replace the compact memory for this one lead."""
+        if not self.get_conversation(client_id, lead_key):
+            raise ValueError("no existe una conversación para este contacto")
+        if not isinstance(facts, list):
+            raise ValueError("los datos deben ser una lista")
+        checked: Dict[str, Dict[str, str]] = {}
+        for fact in facts:
+            if not isinstance(fact, dict):
+                raise ValueError("dato inválido")
+            kind = str(fact.get("kind") or "").strip().lower()
+            evidence = str(fact.get("evidence") or "").strip()
+            if kind not in self._FACT_KINDS or len(evidence) > 120:
+                raise ValueError("tipo o contenido de dato inválido")
+            if evidence:
+                checked[kind] = {"evidence": evidence, "source": "human", "at": _now()}
+        known = self.clients.setdefault(client_id, {}).setdefault("lead_facts", {})
+        known[str(lead_key).lower()] = checked
+        return self.get_lead_facts(client_id, lead_key)
 
     # --- vendor catalog (Fernanda, Stéfano, ... each with their own WhatsApp) --
     def _ensure_vendors_seeded(self) -> None:

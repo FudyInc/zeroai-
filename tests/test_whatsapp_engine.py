@@ -157,7 +157,7 @@ class WhatsAppEnginePolicyTest(unittest.TestCase):
              mock.patch.object(zero, "_deliver", return_value={"status": "sent", "via": "test"}):
             zero.handle_inbound("56999999999", "Estoy en Maipú", to_phone_id="56911111111")
         facts = memory.get_lead_facts("empresa_a", "56999999999")
-        self.assertEqual(facts, [{"kind": "location", "evidence": "Maipú"}])
+        self.assertEqual(facts, [{"kind": "location", "evidence": "Maipú", "source": "lead"}])
 
     def test_new_business_does_not_auto_quote_until_enabled(self):
         from zero.contracts import AgentResponse

@@ -152,6 +152,8 @@ _ROLE_ALLOWED: dict = {
         ("POST", "/api/knowledge"),       # + /rollback (el match es por prefijo)
         ("GET", "/api/cases"),            # banco de casos de prueba de la ficha
         ("POST", "/api/cases"),
+        ("GET", "/api/conversation"),     # historial y datos recordados del contacto
+        ("POST", "/api/conversation/facts"),
         ("GET", "/api/pricing"),          # precios que cita el agente (WhatsApp)
         ("POST", "/api/pricing"),
         ("GET", "/api/whatsapp"),         # /whatsapp/status y /web/chats
@@ -1990,6 +1992,32 @@ def case_from_conversation(client: str, body: ConversationCaseBody):
     return {"client": client, "case": case}
 
 
+@app.get("/api/cases/reviews")
+def get_case_reviews(client: str):
+    memory = make_memory(STATE_PATH)
+    return {"client": client, "reviews": memory.get_case_reviews(client)}
+
+
+class CaseReviewBody(BaseModel):
+    case_id: str
+    verdict: Literal["correct", "needs_work"]
+    reply: str
+    note: str = ""
+    knowledge_version: int = 0
+
+
+@app.post("/api/cases/reviews")
+def save_case_review(client: str, body: CaseReviewBody):
+    memory = make_memory(STATE_PATH)
+    try:
+        review = memory.add_case_review(client, body.case_id, body.verdict,
+                                        body.reply, body.note, body.knowledge_version)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    memory.save()
+    return {"client": client, "case_id": body.case_id, "review": review}
+
+
 # --- lista de precios + presupuestos (la aritmética vive en zero/quotes.py) ----
 
 @app.get("/api/pricing")
@@ -2037,7 +2065,24 @@ def conversation(client: str, lead: str, limit: int = 50):
     """El hilo del diálogo con un lead, para verlo en el dashboard."""
     memory = make_memory(STATE_PATH)
     return {"client": client, "lead": lead.strip().lower(),
-            "turns": memory.get_conversation(client, lead.strip(), limit=limit)}
+            "turns": memory.get_conversation(client, lead.strip(), limit=limit),
+            "facts": memory.get_lead_facts(client, lead.strip())}
+
+
+class LeadFactsBody(BaseModel):
+    lead: str
+    facts: list
+
+
+@app.post("/api/conversation/facts")
+def update_conversation_facts(client: str, body: LeadFactsBody):
+    memory = make_memory(STATE_PATH)
+    try:
+        facts = memory.set_lead_facts(client, body.lead.strip(), body.facts)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    memory.save()
+    return {"client": client, "lead": body.lead.strip().lower(), "facts": facts}
 
 
 @app.get("/api/forecast")
