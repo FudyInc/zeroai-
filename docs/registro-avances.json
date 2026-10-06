@@ -10,8 +10,8 @@
       "summary": "Se preservó intacto el checkout del servicio y se integraron en una copia el código Meta, WhatsApp Web por negocio, atención manual, CRM y bloqueo de presupuesto final de PoolEdge.",
       "status": "verificado en código local",
       "scope": "Checkout aislado; no desplegado",
-      "evidence": "Revisión de conflictos y pruebas locales del 2026-10-06; zero/orchestrator.py; zero/whatsapp_web.py; tests/test_whatsapp_handoff.py",
-      "pending": "Revisar credenciales por negocio y estado del checkout activo antes de desplegar; comprobar conversación real y pantalla Avances en producción."
+      "evidence": "993 pruebas Python, 3 pruebas frontend y build Vite OK el 2026-10-06; verificación de variables activas: ZeroAI tiene Meta global pero no claves por negocio; cero secretos expuestos.",
+      "pending": "Migrar credenciales Meta de ZeroAI a claves por negocio, resolver los cambios locales del checkout del servicio y desplegar; después comprobar conversación real y Avances."
     },
     {
       "id": "2026-10-06-integracion-main-meta",

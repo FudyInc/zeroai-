@@ -6,8 +6,9 @@ ZeroAI y conexión Meta comprobadas el 2026-10-06. **Conversación real con este
 código:** pendiente.
 
 El código integrado admite Meta Cloud y sesiones WhatsApp Web asignadas por
-negocio. El envío real exige credenciales propias del negocio; la migración de
-ZeroAI desde las variables globales aún debe verificarse antes del despliegue.
+negocio. El envío real exige credenciales propias del negocio; el servicio activo tiene credenciales Meta globales pero ninguna clave Meta por
+negocio para ZeroAI (comprobado el 2026-10-06, sin leer sus valores). Es necesario
+migrarlas antes de desplegar para evitar que el webhook rechace mensajes.
 
 El webhook de Meta valida el mensaje, obtiene el ID del número receptor y, si Meta
 lo entrega, el nombre del perfil del remitente. El ID receptor determina la empresa
