@@ -15,12 +15,11 @@ import os
 import subprocess
 import threading
 import time
-import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, Optional
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from pydantic import BaseModel
@@ -33,8 +32,9 @@ from zero.cloud_env import backed_up_keys, load_into_environ, save_secret
 load_into_environ()   # + secretos guardados en la nube (sobreviven a redeploys)
 from zero.config import (AGENCY_CLIENT_ID, AVG_DEAL_VALUE_CLP, CRM_OPEN_STAGES, CRM_STAGES,
                          DEFAULT_VENDOR_ID, MAX_INBOUND_MESSAGE_CHARS, PUBLIC_FORM_MAX_PER_HOUR_PER_IP,
-                         PUBLIC_FORM_MAX_PER_HOUR_TOTAL, PUBLIC_FORM_SOURCES, TIERS)
-from zero.channels import make_outbox, whatsapp_provider
+                         PUBLIC_FORM_MAX_PER_HOUR_TOTAL, PUBLIC_FORM_SOURCES,
+                         QUOTE_REVIEW_REQUIRED_CLIENT_IDS, TIERS)
+from zero.channels import make_outbox
 from zero.icp import normalize_icp
 from zero.orchestrator import Zero
 from zero.quotes import compute_quote, format_quote, normalize_pricing
@@ -1111,24 +1111,16 @@ def whatsapp_verify(mode: Optional[str] = Query(None, alias="hub.mode"),
     raise HTTPException(status_code=403, detail="verificación fallida")
 
 
-def _process_inbound_messages(msgs: list, to_key: str) -> None:
+def _process_inbound_messages(msgs: list) -> None:
     """El trabajo pesado de un mensaje entrante (match/crear lead, CONCIERGE,
     enviar la respuesta) — corre DESPUÉS de que el webhook ya respondió (ver
-    BackgroundTasks en whatsapp_inbound/twilio_whatsapp_inbound de abajo).
+    BackgroundTasks en whatsapp_inbound de abajo).
 
     Por qué: con el motor real (Anthropic o modelo local) generar la respuesta
     puede tardar 15-20s+ (medido en vivo con qwen2.5:7b en CPU, 2026-07-22) —
-    tiempo de sobra para que Twilio/Meta den por caída la entrega del webhook
-    (Twilio: error 11200 "HTTP retrieval failure", con reintento de su lado, lo
-    que podía procesar el mismo mensaje dos veces). El envío real de la
-    respuesta sale por una llamada aparte a la API del proveedor (no depende de
-    la conexión del webhook), así que separar "confirmar recepción" de
-    "generar y mandar la respuesta" es seguro: nada se pierde, y el proveedor
-    ya no tiene por qué esperar ni reintentar.
-    `to_key` es el nombre de la clave en cada mensaje parseado que trae el
-    número/id receptor — "to_phone_id" (Meta) o "to" (Twilio), según cómo lo
-    arma cada parser — pero SIEMPRE se pasa a handle_inbound como su único
-    kwarg `to_phone_id` (ese nombre no cambia entre proveedores)."""
+    tiempo de sobra para que Meta reintente la entrega del webhook. La
+    respuesta sale por una llamada aparte a la Graph API, después de confirmar
+    la recepción del mensaje."""
     crm = make_crm(CRM_PATH)
     memory = make_memory(STATE_PATH)
     # Motor local a propósito — NO _agents_best (que prefiere la API paga). Ver
@@ -1136,9 +1128,9 @@ def _process_inbound_messages(msgs: list, to_key: str) -> None:
     agents, _ = _agents_whatsapp()
     zero = Zero(agents, memory=memory, crm=crm, outbox=make_outbox())
     for m in msgs:
-        zero.handle_inbound(m["from"], m["text"], to_phone_id=m.get(to_key),
-                            profile_name=m.get("profile_name"),
-                            provider="twilio" if to_key == "to" else "meta")
+        zero.handle_inbound(m["from"], m["text"],
+                            to_phone_id=m.get("to_phone_id"),
+                            profile_name=m.get("profile_name"))
 
 
 @app.post("/api/webhooks/whatsapp")
@@ -1153,36 +1145,8 @@ async def whatsapp_inbound(req: Request, background_tasks: BackgroundTasks):
     payload = json.loads(raw.decode("utf-8"))
     msgs = parse_inbound(payload)
     if msgs:
-        background_tasks.add_task(_process_inbound_messages, msgs, "to_phone_id")
+        background_tasks.add_task(_process_inbound_messages, msgs)
     return {"received": len(msgs)}
-
-
-@app.post("/api/webhooks/twilio-whatsapp")
-async def twilio_whatsapp_inbound(req: Request, background_tasks: BackgroundTasks):
-    """Inbound WhatsApp vía Twilio (plan B / BSP) → el MISMO flujo handle_inbound
-    que el webhook de Meta — cambia el transporte, no la conversación. Twilio
-    manda form-urlencoded y espera TwiML de vuelta: se responde un <Response/>
-    vacío DE INMEDIATO (la respuesta real al lead se procesa en segundo plano
-    — ver _process_inbound_messages — y sale por la API de Twilio vía Outbox,
-    no por TwiML) para no llenar el debugger de Twilio de warnings 12300 ni
-    arriesgar el error 11200 (timeout) que causaba el modelo real tardando
-    15-20s+. La cantidad de mensajes recibidos va en el header
-    X-Zero-Received (Twilio lo ignora; los tests HTTP lo leen). Queda dentro
-    de la excepción de auth del middleware (prefijo /api/webhooks/) — Twilio
-    se autentica con su firma."""
-    from zero.twilio_inbound import parse_inbound as parse_twilio_inbound, verify_twilio_signature
-    raw = await req.body()
-    params = dict(urllib.parse.parse_qsl(raw.decode("utf-8"), keep_blank_values=True))
-    # Con proxy/túnel delante, la URL que ve el server no es la que Twilio firmó —
-    # TWILIO_WEBHOOK_URL (la URL pública exacta pegada en la consola) la fija.
-    url = os.environ.get("TWILIO_WEBHOOK_URL") or str(req.url)
-    if not verify_twilio_signature(url, params, req.headers.get("x-twilio-signature")):
-        raise HTTPException(status_code=403, detail="firma inválida — no viene de Twilio")
-    msgs = parse_twilio_inbound(params)
-    if msgs:
-        background_tasks.add_task(_process_inbound_messages, msgs, "to")
-    return PlainTextResponse("<Response></Response>", media_type="application/xml",
-                             headers={"X-Zero-Received": str(len(msgs))})
 
 
 class Simulate(BaseModel):
@@ -1398,7 +1362,7 @@ def avances():
 # Solo LEE. tareas.json es dato local y vivo: acá no hay POST, ni cancelar ni reencolar.
 #
 # Sin entrada en _ROLE_ALLOWED a propósito: una ruta que no aparece ahí ya es admin-only
-# por el fail-closed del auth_guard, igual que /api/conductor/*. Esto NO es /api/public/*.
+# por el fail-closed del auth_guard, igual que /api/funciones/*. Esto NO es /api/public/*.
 
 # El historial vive en la rama `audit/diaria`, no en main. Se lee con plumbing de solo
 # lectura (ls-tree + show): jamás un checkout, porque dia.sh corre tandas sobre este
@@ -1680,8 +1644,14 @@ def list_vendors():
     tiene asignados cada una (clients_count) — presentación, no cambia el
     registro guardado."""
     memory = make_memory(STATE_PATH)
-    vendors = [dict(v, clients_count=clients_count_for(v["id"], memory))
-              for v in memory.list_vendors()]
+    vendors = []
+    for v in memory.list_vendors():
+        visible = dict(v, clients_count=clients_count_for(v["id"], memory))
+        if visible.get("id") == DEFAULT_VENDOR_ID and visible.get("phone") == "+56 9 1111 1111":
+            visible["phone"] = "+56 9 6453 7891"
+        elif visible.get("phone") == "+56 9 2222 2222":
+            visible["phone"] = ""
+        vendors.append(visible)
     return {"vendors": vendors, "default": DEFAULT_VENDOR_ID}
 
 
@@ -1873,6 +1843,9 @@ class QuoteBody(BaseModel):
 def make_quote(body: QuoteBody):
     """Cotizador directo (sin conversación): calcula el presupuesto determinista
     para los ítems pedidos, contra la lista de precios del cliente."""
+    if body.client in QUOTE_REVIEW_REQUIRED_CLIENT_IDS:
+        raise HTTPException(status_code=409,
+                            detail="Presupuesto final pendiente de revisar despacho y datos del pedido")
     memory = make_memory(STATE_PATH)
     pricing = normalize_pricing(memory.get_client_pricing(body.client))
     quote = compute_quote(pricing, body.items)
@@ -2152,13 +2125,6 @@ def _start_functions_scheduler():
 @app.on_event("shutdown")
 def _stop_functions_scheduler():
     _scheduler_stop.set()
-    # Suelta los WebSockets de Conductor y mata sus procesos `claude`; sin
-    # esto el apagado se cuelga esperando conexiones que nunca cierran solas.
-    try:
-        from zero import conductor
-        conductor.shutdown()
-    except Exception:   # noqa: BLE001 — apagando: nada acá puede impedir el cierre
-        pass
 
 
 # --- config (secrets stored in .env, set once from the dashboard) -------------
@@ -2187,12 +2153,8 @@ def get_config():
         "supabase": bool(os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_KEY")),
         "email": bool(os.environ.get("SMTP_HOST")),
         "whatsapp": bool(os.environ.get("WHATSAPP_TOKEN") and os.environ.get("WHATSAPP_PHONE_ID")),
-        # Twilio como transporte alternativo de WhatsApp (plan B) — configurado
-        # solo si están las 3 keys; cuál transporte se usa lo dice whatsapp_provider
-        "twilio": bool(os.environ.get("TWILIO_ACCOUNT_SID")
-                       and os.environ.get("TWILIO_AUTH_TOKEN")
-                       and os.environ.get("TWILIO_WHATSAPP_FROM")),
-        "whatsapp_provider": whatsapp_provider(),   # "meta" | "twilio"
+        "whatsapp_verify_token_set": bool(os.environ.get("WHATSAPP_VERIFY_TOKEN")),
+        "whatsapp_app_secret_set": bool(os.environ.get("WHATSAPP_APP_SECRET")),
         # whether drafted messages are actually sent (vs mock-recorded)
         "outbox_live": os.environ.get("OUTBOX_LIVE") == "1",
         "auth": bool(os.environ.get("AUTH_PASSWORD")),
@@ -2237,10 +2199,6 @@ class ConfigBody(BaseModel):
     whatsapp_phone_id: Optional[str] = None
     whatsapp_verify_token: Optional[str] = None
     whatsapp_app_secret: Optional[str] = None
-    twilio_account_sid: Optional[str] = None
-    twilio_auth_token: Optional[str] = None
-    twilio_whatsapp_from: Optional[str] = None
-    whatsapp_provider: Optional[str] = None   # "meta" | "twilio"
     auth_password: Optional[str] = None
     meta_ads_token: Optional[str] = None
     meta_ad_account_id: Optional[str] = None
@@ -2250,12 +2208,6 @@ class ConfigBody(BaseModel):
 @app.post("/api/config")
 def set_config(body: ConfigBody):
     saved = []
-    # Un typo en el proveedor ("twillio") caería en silencio al default meta al
-    # leerlo — mejor rechazarlo al guardar, con las opciones válidas a la vista.
-    provider = (body.whatsapp_provider or "").strip().lower() or None
-    if provider and provider not in ("meta", "twilio"):
-        raise HTTPException(status_code=400,
-                            detail="whatsapp_provider debe ser 'meta' o 'twilio'")
     fields = {
         "ELEVENLABS_API_KEY": body.elevenlabs_api_key,
         "ANTHROPIC_API_KEY": body.anthropic_api_key,
@@ -2276,10 +2228,6 @@ def set_config(body: ConfigBody):
         "WHATSAPP_PHONE_ID": body.whatsapp_phone_id,
         "WHATSAPP_VERIFY_TOKEN": body.whatsapp_verify_token,
         "WHATSAPP_APP_SECRET": body.whatsapp_app_secret,
-        "TWILIO_ACCOUNT_SID": body.twilio_account_sid,
-        "TWILIO_AUTH_TOKEN": body.twilio_auth_token,
-        "TWILIO_WHATSAPP_FROM": body.twilio_whatsapp_from,
-        "WHATSAPP_PROVIDER": provider,
         "AUTH_PASSWORD": body.auth_password,
         "META_ADS_TOKEN": body.meta_ads_token,
         "META_AD_ACCOUNT_ID": body.meta_ad_account_id,
@@ -2341,149 +2289,3 @@ def call(body: CallBody):
         return place_call(body.number.strip(), body.name, body.assistant_id, body.phone_number_id)
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
-
-
-# --- conductor (sesiones de Claude Code, tipo Conductor.build) --------------
-# Lanza/monitorea procesos reales del CLI `claude` desde el dashboard — la
-# versión integrada de lo que hoy se hace a mano con zero-terminals.sh. Toda
-# la lógica vive en zero/conductor.py; acá solo la capa HTTP/WS. Admin-only
-# por diseño: no tiene entrada en _ROLE_ALLOWED (fail-closed, mismo criterio
-# que Equipo/Funciones) — ejecuta procesos y shell, superficie sensible. Y
-# local-only en la práctica: conductor.is_available() da False en Render (sin
-# `claude` en PATH / sin git worktrees reales), así que /status gatea la UI
-# antes de que se ofrezca la función ahí.
-
-@app.get("/api/conductor/status")
-def conductor_status():
-    from zero import conductor
-    available, reason = conductor.is_available()
-    return {"available": available, "reason": reason}
-
-
-@app.get("/api/conductor/roles")
-def conductor_roles():
-    from zero import conductor
-    return {"roles": conductor.roles_catalog(), "models": conductor.models_catalog()}
-
-
-@app.get("/api/conductor/sessions")
-def conductor_sessions():
-    from zero import conductor
-    return {"sessions": conductor.list_sessions()}
-
-
-class ConductorStartBody(BaseModel):
-    role_id: str
-    model: Optional[str] = None   # None -> el sugerido del rol (ver conductor.MODELS)
-
-
-@app.post("/api/conductor/sessions")
-async def conductor_start_session(body: ConductorStartBody, request: Request):
-    from zero import conductor
-    identity = getattr(request.state, "auth", None)
-    started_by = {"username": identity.get("username"), "email": identity.get("email")} if identity else None
-    try:
-        session = await conductor.start_session(body.role_id, started_by=started_by,
-                                                model=body.model)
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"rol desconocido: {body.role_id}")
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except conductor.SessionAlreadyRunning as e:
-        return JSONResponse(
-            {"detail": "ya hay una sesión de este rol corriendo",
-             "existing_session_id": e.existing_session_id},
-            status_code=409,
-        )
-    except RuntimeError as e:
-        # Motor local pedido pero Ollama no responde — 503, no 500: el servidor
-        # está bien, el modelo no está disponible ahora mismo.
-        raise HTTPException(status_code=503, detail=str(e))
-    return JSONResponse(session.summary(), status_code=201)
-
-
-@app.get("/api/conductor/sessions/{session_id}")
-def conductor_get_session(session_id: str):
-    from zero import conductor
-    session = conductor.get_session(session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="sesión no encontrada")
-    return {"session": session.summary(), "messages": list(session.messages)}
-
-
-class ConductorTurnBody(BaseModel):
-    text: str
-
-
-@app.post("/api/conductor/sessions/{session_id}/turns")
-async def conductor_send_turn(session_id: str, body: ConductorTurnBody):
-    from zero import conductor
-    try:
-        await conductor.send_turn(session_id, body.text)
-    except KeyError:
-        raise HTTPException(status_code=404, detail="sesión no encontrada")
-    except RuntimeError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    return JSONResponse({"accepted": True}, status_code=202)
-
-
-@app.post("/api/conductor/sessions/{session_id}/stop")
-async def conductor_stop_session(session_id: str):
-    from zero import conductor
-    try:
-        session = await conductor.stop_session(session_id)
-    except KeyError:
-        raise HTTPException(status_code=404, detail="sesión no encontrada")
-    return {"session": session.summary()}
-
-
-@app.delete("/api/conductor/sessions/{session_id}")
-def conductor_delete_session(session_id: str):
-    from zero import conductor
-    try:
-        ok = conductor.delete_session(session_id)
-    except RuntimeError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    if not ok:
-        raise HTTPException(status_code=404, detail="sesión no encontrada")
-    return {"ok": True}
-
-
-@app.websocket("/api/conductor/sessions/{session_id}/stream")
-async def conductor_stream(ws: WebSocket, session_id: str):
-    """El auth_guard HTTP (@app.middleware("http")) no corre sobre el scope
-    'websocket' — Starlette solo lo aplica a 'http'. Se autentica acá a mano,
-    antes de accept(), mismo criterio que el resto del dashboard: sin auth
-    configurado, abierto (dev); con auth, exige token de admin. El token va
-    por query param porque el WebSocket nativo del navegador no permite
-    headers custom en el handshake."""
-    from zero import conductor
-    from zero.auth import auth_enabled, token_identity
-    if auth_enabled():
-        identity = token_identity(ws.query_params.get("token", ""))
-        if identity is None or identity.get("role") != "admin":
-            await ws.close(code=4401)
-            return
-    session = conductor.get_session(session_id)
-    if session is None:
-        await ws.close(code=4404)
-        return
-    await ws.accept()
-    for event in list(session.messages):
-        await ws.send_json(event)
-    queue = conductor.subscribe(session_id)
-    try:
-        while True:
-            event = await queue.get()
-            # Sentinela de apagado: sin esto el handler espera para siempre y
-            # uvicorn no completa su shutdown elegante — una sola pestaña
-            # abierta dejaba `systemctl restart` colgado ~90s hasta el SIGKILL
-            # de systemd, con el backend caído todo ese rato (encontrado en
-            # producción, 2026-08-04). Ver zero/conductor.py::shutdown.
-            if event is conductor.SHUTDOWN:
-                break
-            await ws.send_json(event)
-    except WebSocketDisconnect:
-        pass
-    finally:
-        conductor.unsubscribe(session_id, queue)

@@ -39,7 +39,7 @@ Estos necesitan credenciales de **otros** servicios, no del modelo.
 
 | Integración | Qué necesita | Costo |
 |---|---|---|
-| WhatsApp (enviar/recibir) | Meta WhatsApp Business (token) — o Twilio como plan B (`WHATSAPP_PROVIDER=twilio`, ver `docs/twilio-whatsapp.md`) | setup gratis; envío con límites (Twilio: USD $0.005/msg, sandbox gratis) |
+| WhatsApp (enviar/recibir) | Meta WhatsApp Cloud API (token, Phone Number ID y webhook) | tarifas de Meta según tipo de mensaje y país |
 | Meta Ads (campañas/insights/gestión real) | token + cuenta Meta | cuenta nueva tiene cooldown; ads = tu presupuesto |
 | Discovery de leads reales | proveedor con key (o DuckDuckGo gratis parcial) | pago para cobertura |
 | Voz / llamadas | ElevenLabs + Vapi | pago |

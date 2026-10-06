@@ -43,7 +43,9 @@ export default function PricingCard({ client }) {
       const pricing = d.pricing || d
       qc.setQueryData(['pricing', client], { client, pricing })
       setRows(toRows(pricing))
-      toast.success('Lista de precios guardada — el agente ya cotiza con ella')
+      toast.success(client === 'pooledge'
+        ? 'Lista de precios guardada — los presupuestos requieren revisión del despacho'
+        : 'Lista de precios guardada — el agente ya cotiza con ella')
     },
     onError: (e) => toast.error('No se pudo guardar: ' + e.message),
   })
@@ -61,8 +63,10 @@ export default function PricingCard({ client }) {
         <div>
           <div className="font-semibold leading-tight">Lista de precios</div>
           <div className="text-xs text-zinc-400 mt-0.5">
-            Con esto el agente arma presupuestos exactos — los números los calcula el sistema,
-            nunca la IA. Precios sin IVA: el {ivaPct}% se agrega al cotizar.
+            {client === 'pooledge'
+              ? 'Los precios de producto no habilitan un presupuesto final: faltan despacho y revisión humana.'
+              : <>Con esto el agente arma presupuestos exactos — los números los calcula el sistema,
+                nunca la IA. Precios sin IVA: el {ivaPct}% se agrega al cotizar.</>}
           </div>
         </div>
       </div>

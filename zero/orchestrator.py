@@ -210,33 +210,25 @@ class Zero:
         vendor_id = self.memory.get_client_vendor(client_id)
         return self.memory.get_vendor(vendor_id) or self.memory.get_vendor(DEFAULT_VENDOR_ID) or {}
 
-    def _vendors_for_recipient(self, recipient: Optional[str],
-                               provider: str = "meta") -> List[Dict[str, Any]]:
-        """Vendedores cuyo identificador Meta o número Twilio recibió el mensaje."""
+    def _vendors_for_recipient(self, recipient: Optional[str]) -> List[Dict[str, Any]]:
+        """Vendedores cuyo identificador Meta recibió el mensaje."""
         if not recipient:
             return []
-        if provider == "twilio":
-            digits = "".join(c for c in str(recipient) if c.isdigit())
-            return [v for v in self.memory.list_vendors()
-                    if digits and digits == "".join(c for c in (
-                        os.environ.get(f"TWILIO_WHATSAPP_FROM_{str(v.get('id') or '').upper()}")
-                        or "") if c.isdigit())]
         return [v for v in self.memory.list_vendors()
-                if v.get("whatsapp_phone_id") == recipient]
+                if v.get("whatsapp_phone_id") == recipient
+                and recipient not in ("000000000000001", "000000000000002")]
 
-    def vendor_by_phone_id(self, phone_id: Optional[str],
-                           provider: str = "meta") -> Dict[str, Any]:
+    def vendor_by_phone_id(self, phone_id: Optional[str]) -> Dict[str, Any]:
         """Vendedor receptor, solo cuando el identificador no es ambiguo."""
-        matches = self._vendors_for_recipient(phone_id, provider)
+        matches = self._vendors_for_recipient(phone_id)
         return matches[0] if len(matches) == 1 else {}
 
-    def _resolve_inbound_client(self, to_phone_id: Optional[str],
-                                provider: str = "meta") -> Optional[str]:
+    def _resolve_inbound_client(self, to_phone_id: Optional[str]) -> Optional[str]:
         """Which client's business context a first-time (unmatched) WhatsApp
         contact should be answered as — see DEFAULT_INBOUND_CLIENT_ID in
         config.py for the policy this implements and why it's needed.
 
-        Tries the Meta phone ID or Twilio receiver number first. A receiver
+        Tries the Meta phone ID first. A receiver
         assigned to exactly one client wins. If several clients share it,
         returns None: answering with a guessed business would mix brands.
         Unknown receivers use DEFAULT_INBOUND_CLIENT_ID only when there is one
@@ -246,7 +238,7 @@ class Zero:
         # catch-all desactivado) se refleja de inmediato — mismo motivo que
         # WhatsAppSender._template_body importa WHATSAPP_TEMPLATE adentro.
         from .config import DEFAULT_INBOUND_CLIENT_ID
-        vendors = self._vendors_for_recipient(to_phone_id, provider)
+        vendors = self._vendors_for_recipient(to_phone_id)
         vendor_ids = {v.get("id") for v in vendors}
         matches = [c for c in self.memory.clients
                    if self.memory.get_client_vendor(c) in vendor_ids]
@@ -260,13 +252,8 @@ class Zero:
             # Con varias empresas configuradas, un receptor desconocido no
             # autoriza a presentar ZeroAI en un número quizá ajeno. Solo el
             # receptor global configurado conserva el catch-all histórico.
-            global_recipient = (os.environ.get("TWILIO_WHATSAPP_FROM") if provider == "twilio"
-                                else os.environ.get("WHATSAPP_PHONE_ID")) or ""
-            received = str(to_phone_id)
-            if provider == "twilio":
-                received = "".join(c for c in received if c.isdigit())
-                global_recipient = "".join(c for c in global_recipient if c.isdigit())
-            if not global_recipient or received != global_recipient:
+            global_recipient = os.environ.get("WHATSAPP_PHONE_ID") or ""
+            if not global_recipient or str(to_phone_id) != global_recipient:
                 return None
         return DEFAULT_INBOUND_CLIENT_ID or None
 
@@ -1042,8 +1029,7 @@ class Zero:
     def handle_inbound(self, from_contact: str, text: str,
                        channel: str = "whatsapp",
                        to_phone_id: Optional[str] = None,
-                       profile_name: Optional[str] = None,
-                       provider: str = "meta") -> Dict[str, Any]:
+                       profile_name: Optional[str] = None) -> Dict[str, Any]:
         """An inbound message arrived (e.g. a WhatsApp reply). Match it to its lead,
         close the loop (`register_reply`), then draft + send a reply with CONCIERGE.
         Reply goes from the vendor that owns `to_phone_id` (the number the lead wrote
@@ -1060,17 +1046,37 @@ class Zero:
         # El número receptor define el negocio antes de buscar al contacto. Una
         # misma persona puede ser lead de varias empresas: un lookup global
         # respondería con la primera ficha encontrada, aunque haya escrito a otra.
-        inbound_client = self._resolve_inbound_client(to_phone_id, provider) if to_phone_id and self.crm else None
-        rec = (self.crm.find_by_contact(phone=from_contact, email=from_contact,
-                                        client_id=inbound_client) if inbound_client else
-               self.crm.find_by_contact(phone=from_contact, email=from_contact)
-               if self.crm and not to_phone_id else None)
+        inbound_client = self._resolve_inbound_client(to_phone_id) if to_phone_id and self.crm else None
+        rec = None
+        global_recipient = os.environ.get("WHATSAPP_PHONE_ID") or ""
+        if (self.crm and to_phone_id and global_recipient == str(to_phone_id)
+                and not self._vendors_for_recipient(to_phone_id)):
+            # El número Meta global puede atender más de una empresa. Un lead
+            # ya registrado identifica su ficha si hay una única coincidencia;
+            # dos coincidencias no autorizan a usar el catch-all de ZeroAI.
+            matches = [match for cid in self.memory.clients
+                       if credentials_for(self.vendor_for(cid))[0] == str(to_phone_id)
+                       if (match := self.crm.find_by_contact(
+                           phone=from_contact, email=from_contact, client_id=cid))]
+            if len(matches) > 1:
+                self.memory.log("inbound_unmatched", channel=channel,
+                                sender=from_contact, text=(text or "")[:200])
+                self.memory.save()
+                return {"matched": False, "sender": from_contact}
+            if matches:
+                rec = matches[0]
+                inbound_client = rec["client_id"]
+        if not rec:
+            rec = (self.crm.find_by_contact(phone=from_contact, email=from_contact,
+                                            client_id=inbound_client) if inbound_client else
+                   self.crm.find_by_contact(phone=from_contact, email=from_contact)
+                   if self.crm and not to_phone_id else None)
         if not rec and to_phone_id and not inbound_client and self.crm:
             # Un número compartido no identifica a un remitente nuevo. Para un
             # contacto ya registrado, solo se puede responder si aparece en una
             # única empresa asociada a ese receptor.
             recipient_vendor_ids = {v.get("id") for v in
-                                    self._vendors_for_recipient(to_phone_id, provider)}
+                                    self._vendors_for_recipient(to_phone_id)}
             candidates = [self.crm.find_by_contact(phone=from_contact,
                                                      email=from_contact, client_id=cid)
                           for cid in self.memory.clients
@@ -1108,7 +1114,7 @@ class Zero:
 
         client_id, key = rec["client_id"], rec["key"]
         # Reply from the number the lead wrote to (its vendor), else the client's vendor.
-        inbound_vendor = self.vendor_by_phone_id(to_phone_id, provider)
+        inbound_vendor = self.vendor_by_phone_id(to_phone_id)
         wa_creds = credentials_for(inbound_vendor) if inbound_vendor else None
         out = self.register_reply(client_id, key, text=text, channel=channel)
 

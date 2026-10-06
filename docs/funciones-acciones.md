@@ -38,7 +38,7 @@ no es un dict con `actions`, no pasa nada raro, es un resultado normal.
 
 El código de una función corre **aislado en Docker, sin red y sin
 credenciales** (`--network=none`). Si para mandar un WhatsApp le diéramos red y
-el token de Twilio, cualquier código pegado en el panel podría robarse las keys
+el token de Meta, cualquier código pegado en el panel podría robarse las keys
 o el CRM completo.
 
 Por eso la función **nunca actúa**: solo *devuelve* lo que quiere que pase, como
@@ -89,7 +89,7 @@ Y la respuesta de `POST /api/functions/{id}/run` trae el detalle completo en
 {
   "requested": 4,
   "applied": 3,
-  "results":  [{"type": "whatsapp", "lead": "...", "detail": "sent/twilio"}],
+  "results":  [{"type": "whatsapp", "lead": "...", "detail": "sent/meta"}],
   "rejected": [{"action": {...}, "reason": "ese lead pidió no ser contactado (opt-out)"}]
 }
 ```

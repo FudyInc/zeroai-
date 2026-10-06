@@ -1,5 +1,5 @@
 [Unit]
-Description=ZeroAI ngrok tunnel (dominio fijo, expone el backend a Twilio)
+Description=ZeroAI ngrok tunnel (dominio fijo, expone el webhook de Meta)
 After=network.target zero-backend.service
 Requires=zero-backend.service
 

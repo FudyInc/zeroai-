@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { CheckCircle2, AlertCircle, WifiOff } from 'lucide-react'
 import { toast } from 'sonner'
-import { api, BASE } from '../lib/api'
+import { api } from '../lib/api'
 import { Card, Button, Input, Skeleton, Badge, SectionTitle } from '../components/ui'
 import AgentTester from '../components/AgentTester'
 import { rise, fade, surface, stagger } from '../lib/motion'
@@ -120,12 +120,12 @@ export default function Config() {
       )}
 
       <motion.div variants={surface}>
-          <IntegrationCard title="WhatsApp (Meta Cloud API)" ok={cfg?.whatsapp} hint="token + phone number ID de tu app de WhatsApp Business · el agente responde dentro de la ventana de 24h">
+          <IntegrationCard title="WhatsApp (Meta Cloud API)" ok={cfg?.whatsapp && cfg?.whatsapp_verify_token_set && cfg?.whatsapp_app_secret_set} hint="Token y Phone Number ID de Meta · el webhook también requiere Verify token y App Secret">
           <div className="space-y-2">
             <Input type="password" placeholder="WhatsApp token" value={vals.wt || ''} onChange={(e) => set('wt', e.target.value)} />
-            <Input placeholder="Phone Number ID" value={vals.wp || ''} onChange={(e) => set('wp', e.target.value)} />
+            <Input placeholder="Phone Number ID de +56 9 6453 7891 (ID numérico, no +569…)" value={vals.wp || ''} onChange={(e) => set('wp', e.target.value)} />
             <Input placeholder="Verify token (lo inventas tú, p/ el webhook)" value={vals.wv || ''} onChange={(e) => set('wv', e.target.value)} />
-            <Input type="password" placeholder="App Secret (Meta Business Settings → App → Basic)" value={vals.was || ''} onChange={(e) => set('was', e.target.value)} />
+            <Input type="password" placeholder="App Secret (Meta for Developers → App settings → Basic)" value={vals.was || ''} onChange={(e) => set('was', e.target.value)} />
             <Button onClick={() => save({
               ...(vals.wt && { whatsapp_token: vals.wt }),
               ...(vals.wp && { whatsapp_phone_id: vals.wp }),
@@ -134,29 +134,6 @@ export default function Config() {
             }, ['wt', 'wp', 'wv', 'was'])}>Guardar WhatsApp</Button>
           </div>
         </IntegrationCard>
-      </motion.div>
-
-      <motion.div variants={surface}>
-          <IntegrationCard title="WhatsApp vía Twilio (plan B)" ok={cfg?.twilio} hint="las 3 keys salen de la consola de Twilio: Account SID y Auth Token en home → Account Info; el From es el número del sandbox mientras pruebas (después, tu número real)">
-          <div className="space-y-2">
-            <Input placeholder="Account SID (empieza con AC)" value={vals.tsid || ''} onChange={(e) => set('tsid', e.target.value)} />
-            <Input type="password" placeholder="Auth Token" value={vals.ttok || ''} onChange={(e) => set('ttok', e.target.value)} />
-            <Input placeholder="+14155238886 (sandbox)" value={vals.tfrom || ''} onChange={(e) => set('tfrom', e.target.value)} />
-            <Button onClick={() => save({
-              ...(vals.tsid && { twilio_account_sid: vals.tsid }),
-              ...(vals.ttok && { twilio_auth_token: vals.ttok }),
-              ...(vals.tfrom && { twilio_whatsapp_from: vals.tfrom }),
-            }, ['tsid', 'ttok', 'tfrom'])}>Guardar Twilio</Button>
-            <div className="text-[11px] text-zinc-400 pt-1">
-              Webhook para la consola de Twilio (sandbox → "When a message comes in", método POST):{' '}
-              <code className="select-all text-gold-deep break-all">{(BASE || window.location.origin) + '/api/webhooks/twilio-whatsapp'}</code>
-            </div>
-          </div>
-        </IntegrationCard>
-      </motion.div>
-
-      <motion.div variants={surface}>
-        <WhatsappProviderCard cfg={cfg} save={save} />
       </motion.div>
 
       <motion.div variants={surface}>
@@ -196,36 +173,6 @@ export default function Config() {
   )
 }
 
-/* Selector del transporte activo del canal WhatsApp (meta | twilio). Vive fuera
-   de las IntegrationCard porque debe seguir visible (y cambiable) aunque ambas
-   integraciones ya estén configuradas y colapsadas. */
-function WhatsappProviderCard({ cfg, save }) {
-  const provider = cfg?.whatsapp_provider || 'meta'
-  const choose = (p) => p !== provider && save({ whatsapp_provider: p }, [])
-  return (
-    <Card className="p-6">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <SectionTitle>Proveedor activo de WhatsApp</SectionTitle>
-          <div className="text-xs text-zinc-400 mt-0.5">por cuál transporte salen y entran los mensajes del canal</div>
-        </div>
-        <div className="flex gap-2 shrink-0">
-          <Button variant={provider === 'meta' ? 'primary' : 'soft'} onClick={() => choose('meta')}>Meta (plan A)</Button>
-          <Button variant={provider === 'twilio' ? 'primary' : 'soft'} onClick={() => choose('twilio')}>Twilio (plan B)</Button>
-        </div>
-      </div>
-      {provider === 'twilio' && !cfg?.twilio && (
-        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-800">
-          ⚠️ <b>Twilio está elegido pero faltan sus 3 keys</b> — el canal WhatsApp queda en mock hasta que las guardes en la tarjeta de arriba.
-        </div>
-      )}
-    </Card>
-  )
-}
-
-/* Tarjeta de Meta Ads en Config: estado de conexión (Conectado / Error / Sin conectar),
-   campos para token + cuenta, y botón "Probar conexión" que lista las cuentas
-   publicitarias visibles para ese token (para elegir el act_ correcto). */
 function MetaAdsCard({ cfg, vals, set, save }) {
   const [editing, setEditing] = useState(false)
   const [probe, setProbe] = useState(null) // null | { ok: true, accounts } | { ok: false, error }

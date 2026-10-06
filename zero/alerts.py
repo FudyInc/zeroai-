@@ -4,7 +4,7 @@ Frontera al exterior, así que sigue la disciplina del repo: **mock por defecto*
 Sin `OWNER_WHATSAPP_TO` en el entorno, o sin `OUTBOX_LIVE=1`, no sale nada real —
 pero la forma del resultado es idéntica, así que el código que llama no distingue.
 
-Transporte: el MISMO WhatsApp que ya usa el producto (Outbox → Twilio/Meta). No se
+Transporte: el MISMO WhatsApp que ya usa el producto (Outbox → Meta). No se
 agrega dependencia, cuenta ni servicio nuevo: el aviso llega al celular por el
 canal que ya está probado y andando.
 
@@ -129,11 +129,8 @@ def notify_owner(text: str, *, kind: str = "generic",
     # Se manda por TODOS los canales configurados, no por uno con respaldo.
     #
     # La razón es que "envío exitoso" no significa "mensaje entregado": el POST a
-    # Twilio (y a Meta) responde `queued`/`accepted`, y el fallo real llega después,
-    # asíncrono. Comprobado el 2026-08-22 en la consola de Twilio — tres avisos con
-    # `status: sent` de nuestro lado y `failed / 63015` del suyo, porque el número
-    # había salido del sandbox (caduca cada 72 horas). Un respaldo que se activa solo
-    # cuando el primer canal "falla" nunca se habría activado.
+    # Meta puede aceptar una petición y reportar el resultado de entrega más tarde.
+    # Por eso no condicionamos el correo al resultado inicial de WhatsApp.
     #
     # Un aviso es la única pieza cuyo fallo nadie más nota, porque justamente avisa
     # cuando nadie está mirando. Frente a eso, un correo duplicado cuando ambos

@@ -1,7 +1,8 @@
 # PRD — Base de conocimiento por empresa
 
-**Estado:** revisión parcial · 2026-09-29. Se verificaron los puntos indicados abajo
-contra el código; el almacén de producción no se verificó.
+**Estado:** revisión parcial · 2026-10-06. Se verificaron los puntos indicados abajo
+contra el código y se leyó el almacén Supabase del servicio activo. El flujo de
+conversación con la versión integrada aún no se comprobó en producción.
 **Contexto:** ZERO se despliega en distintas empresas. Cada una necesita que el agente
 sepa *su* negocio. Este documento define qué existe hoy, qué falta y en qué orden.
 
@@ -40,22 +41,27 @@ su ICP, su catálogo y su vendedor. Instalar ZERO en una empresa nueva no requie
 ignoraba la ficha y contestaba genérico. Corregido el 2026-08-21.
 
 ### 3.2 El catch-all de mensajes nuevos apunta a ZeroAI — CERRADO EN CÓDIGO
-`config.DEFAULT_INBOUND_CLIENT_ID = "zeroai"` (verificado el 2026-09-29). El
-enrutamiento de producción y su ficha activa requieren comprobación aparte.
+`config.DEFAULT_INBOUND_CLIENT_ID = "zeroai"` (verificado el 2026-10-06).
+La ficha activa de ZeroAI en Supabase coincide con la versionada; el enrutamiento
+de una conversación real con este código sigue pendiente.
 
-### 3.3 Un número por empresa — PENDIENTE DE VERIFICAR EN EL ALMACÉN
+### 3.3 Un número por empresa — PARCIALMENTE COMPROBADO
 `_resolve_inbound_client` sabe resolver la empresa por el número que recibió el mensaje,
-si el vendedor tiene `whatsapp_phone_id` asignado. Este documento no demuestra qué
-números tienen asignados los vendedores en el almacén actual. Hay que comprobarlo
-antes de conectar otra empresa: dos clientes compartiendo número crearían ambigüedad.
+si el vendedor tiene `whatsapp_phone_id` asignado. El 2026-10-06 se comprobó sin
+mostrar identificadores que ZeroAI usa el número Meta global y que su vendedor
+tiene un ID semilla antiguo en el almacén; el código ignora ese ID para enviar.
+PoolEdge no está registrado como cliente activo. Antes de conectarlo hay que
+asignar y probar su receptor: dos empresas que comparten número requieren
+resolver el contacto sin ambigüedad.
 
 ### 3.4 La ficha activa puede diferir de la versionada — ABIERTO
 La carga por dashboard escribe en el almacén configurado (Supabase o archivo local)
 y conserva versiones allí, pero no modifica `docs/ficha-zeroai.md`. El archivo
 versionado y `scripts/cargar_empresa.py` permiten reconstruir la ficha, pero cargarlo
 sin revisar podría pisar una edición posterior hecha en el dashboard. El comparador
-de solo lectura `scripts/verificar_ficha.py --empresa zeroai` detecta diferencias;
-falta incorporar al repositorio las ediciones válidas del dashboard.
+de solo lectura `scripts/verificar_ficha.py --empresa zeroai` detecta diferencias.
+La ficha activa y la versionada de ZeroAI coincidieron el 2026-10-06 (3982
+caracteres); hay que repetir esa comparación tras futuras ediciones del dashboard.
 
 ### 3.5 Límite de 4000 caracteres — ACEPTADO POR AHORA
 `reply_to_inbound` corta la ficha en 4000 caracteres para no reventar el contexto. Sirve
@@ -76,12 +82,11 @@ caro en un modelo local), sino recuperar solo los trozos relevantes al mensaje.
 
 ## 5. Orden de trabajo
 
-1. Verificar cuál ficha está activa en producción y conciliarla con
-   `docs/ficha-zeroai.md` antes de cargar cambios. El archivo local de este checkout
-   no tiene ficha para `zeroai` (verificado el 2026-09-29); eso no demuestra el estado
-   de Supabase ni del servicio en producción.
-2. `DEFAULT_INBOUND_CLIENT_ID` ya apunta a `zeroai` en el código; comprobar su
-   despliegue y el enrutamiento real.
+1. La ficha activa de ZeroAI en Supabase coincidió con `docs/ficha-zeroai.md` el
+   2026-10-06. Repetir la comparación antes de una futura carga; el almacén local
+   de este checkout no representa producción.
+2. `DEFAULT_INBOUND_CLIENT_ID` apunta a `zeroai` en el código. Desplegar la
+   versión integrada y comprobar el enrutamiento en una conversación real.
 3. Asignar `phone_id` por vendedor cuando haya una segunda empresa en producción. *(3.3)*
 4. Exportar ficha del dashboard → repo. *(3.4)*
 5. Recuperación por trozos, solo si una empresa real no cabe. *(3.5)*

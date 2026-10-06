@@ -240,7 +240,7 @@ class LimitesYSuperficie(unittest.TestCase):
 
     def test_son_admin_only_por_fail_closed(self):
         """No aparecer en `_ROLE_ALLOWED` no es un olvido: es lo que las deja en
-        admin-only, igual que /api/conductor/*. Este test fija esa decisión, para que
+        admin-only, igual que /api/functions/*. Este test fija esa decisión, para que
         agregarlas ahí después sea deliberado y no accidental."""
         permitidas = {ruta for rutas in self.api._ROLE_ALLOWED.values()
                       for _metodo, ruta in rutas}

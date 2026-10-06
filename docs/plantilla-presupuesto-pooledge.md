@@ -4,7 +4,8 @@
 al cotizador ni al envío de WhatsApp.
 **Revisado en código local:** 2026-10-06. La tarifa de despacho y el abono de esta
 plantilla siguen pendientes de representación estructurada y cálculo en el
-cotizador; ningún presupuesto final de PoolEdge se emite automáticamente.
+cotizador; el chat y `/api/quote` bloquean el presupuesto final de PoolEdge en
+esta rama. PoolEdge no figura como cliente activo en el almacén Supabase verificado.
 
 ## Datos del pedido
 

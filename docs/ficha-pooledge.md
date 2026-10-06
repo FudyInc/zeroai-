@@ -2,9 +2,11 @@
 
 **Estado:** contenido aprobado para preparar la ficha; no cargado en el almacén activo.
 **Confirmado por Diego:** 2026-09-29.
-**Verificación de código:** 2026-10-06. El motor impide adjuntar automáticamente un
+**Verificación de código:** 2026-10-06. El motor y `/api/quote` impiden emitir un
 presupuesto final para `pooledge` mientras no exista cálculo de despacho revisado.
-La plantilla aún no está conectada y no se verificó producción. Las tarifas y el
+La plantilla aún no está conectada. Una lectura del almacén Supabase de producción
+el 2026-10-06 no encontró a PoolEdge como cliente registrado; este código tampoco
+está desplegado allí. Las tarifas y el
 abono confirmados se documentan en `docs/plantilla-presupuesto-pooledge.md`; antes
 de activar esta ficha deben quedar como datos estructurados en el catálogo y el
 cotizador, con el cálculo comprobado.

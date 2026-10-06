@@ -13,7 +13,6 @@ from zero.crm import CRM
 from zero.memory import SessionMemory
 from zero.orchestrator import Zero
 from zero.quotes import normalize_pricing
-from zero.twilio_inbound import parse_inbound as parse_twilio
 from zero.whatsapp_inbound import parse_inbound as parse_meta
 
 
@@ -92,50 +91,98 @@ class CompanyContextTest(unittest.TestCase):
         self.assertFalse(result["matched"])
         self.assertIsNone(self.crm.find_by_contact(phone="56911112222"))
 
-    def test_twilio_recipient_number_selects_pooledge_instead_of_zeroai(self):
-        self.memory.upsert_vendor({"id": "pool", "name": "Paula", "tone": "cercana",
-                                   "whatsapp_phone_id": "meta-pool"})
-        self.memory.set_client_vendor("pooledge", "pool")
-        self.crm.upsert("zeroai", {"phone": "56911112222", "name": "Nombre ZeroAI"})
-        self.crm.upsert("pooledge", {"phone": "56911112222", "name": "Nombre PoolEdge"})
-        previous = {k: os.environ.get(k) for k in (
-            "WHATSAPP_PROVIDER", "TWILIO_WHATSAPP_FROM", "TWILIO_WHATSAPP_FROM_POOL")}
-        os.environ["WHATSAPP_PROVIDER"] = "twilio"
-        os.environ["TWILIO_WHATSAPP_FROM"] = "+56933334444"
-        os.environ["TWILIO_WHATSAPP_FROM_POOL"] = "+56955556666"
-        try:
-            result = self.zero.handle_inbound("56911112222", "hola",
-                                              to_phone_id="56955556666", provider="twilio")
-        finally:
-            for key, value in previous.items():
-                if value is None:
-                    os.environ.pop(key, None)
-                else:
-                    os.environ[key] = value
-        self.assertIn("Nombre PoolEdge", result["reply"])
-        self.assertNotIn("Nombre ZeroAI", result["reply"])
-        self.assertEqual(self.crm.get("pooledge", "56911112222")["stage"], "replied")
-        self.assertEqual(self.crm.get("zeroai", "56911112222")["stage"], "new")
-
-    def test_twilio_global_number_uses_default_with_multiple_vendors(self):
+    def test_meta_global_number_uses_default_with_multiple_vendors(self):
+        self.memory.register_client("zeroai", "GROWTH")
         self.memory.upsert_vendor({"id": "pool", "name": "Paula"})
         self.memory.set_client_vendor("pooledge", "pool")
-        previous = {key: os.environ.get(key) for key in
-                    ("TWILIO_WHATSAPP_FROM", "TWILIO_WHATSAPP_FROM_POOL")}
-        os.environ["TWILIO_WHATSAPP_FROM"] = "+56933334444"
-        os.environ.pop("TWILIO_WHATSAPP_FROM_POOL", None)
+        previous = os.environ.get("WHATSAPP_PHONE_ID")
+        os.environ["WHATSAPP_PHONE_ID"] = "global-meta-number"
         try:
             result = self.zero.handle_inbound("56911112222", "hola",
-                                              to_phone_id="56933334444", provider="twilio")
+                                              to_phone_id="global-meta-number")
         finally:
-            for key, value in previous.items():
-                if value is None:
-                    os.environ.pop(key, None)
-                else:
-                    os.environ[key] = value
+            if previous is None:
+                os.environ.pop("WHATSAPP_PHONE_ID", None)
+            else:
+                os.environ["WHATSAPP_PHONE_ID"] = previous
         self.assertTrue(result["matched"])
         self.assertIsNotNone(self.crm.find_by_contact(phone="56911112222", client_id="zeroai"))
         self.assertIsNone(self.crm.find_by_contact(phone="56911112222", client_id="pooledge"))
+
+    def test_meta_global_number_uses_unique_existing_company_contact(self):
+        self.memory.upsert_vendor({"id": "pool", "name": "Paula"})
+        self.memory.set_client_vendor("pooledge", "pool")
+        self.crm.upsert("pooledge", {"phone": "56911112222", "name": "Nombre PoolEdge"})
+        previous = os.environ.get("WHATSAPP_PHONE_ID")
+        os.environ["WHATSAPP_PHONE_ID"] = "global-meta-number"
+        try:
+            result = self.zero.handle_inbound("56911112222", "hola",
+                                              to_phone_id="global-meta-number")
+        finally:
+            if previous is None:
+                os.environ.pop("WHATSAPP_PHONE_ID", None)
+            else:
+                os.environ["WHATSAPP_PHONE_ID"] = previous
+        self.assertTrue(result["matched"])
+        self.assertIn("Nombre PoolEdge", result["reply"])
+        self.assertIsNone(self.crm.find_by_contact(phone="56911112222", client_id="zeroai"))
+
+    def test_meta_global_number_uses_only_configured_company(self):
+        self.crm.upsert("pooledge", {"phone": "56911112222", "name": "Nombre PoolEdge"})
+        previous = os.environ.get("WHATSAPP_PHONE_ID")
+        os.environ["WHATSAPP_PHONE_ID"] = "global-meta-number"
+        try:
+            result = self.zero.handle_inbound("56911112222", "hola",
+                                              to_phone_id="global-meta-number")
+        finally:
+            if previous is None:
+                os.environ.pop("WHATSAPP_PHONE_ID", None)
+            else:
+                os.environ["WHATSAPP_PHONE_ID"] = previous
+        self.assertTrue(result["matched"])
+        self.assertIn("Nombre PoolEdge", result["reply"])
+        self.assertIsNone(self.crm.find_by_contact(phone="56911112222", client_id="zeroai"))
+
+    def test_meta_global_number_does_not_route_to_dedicated_company(self):
+        self.memory.register_client("zeroai", "GROWTH")
+        self.memory.upsert_vendor({"id": "pool", "name": "Paula",
+                                   "whatsapp_phone_id": "dedicated-pool-number"})
+        self.memory.set_client_vendor("pooledge", "pool")
+        self.crm.upsert("pooledge", {"phone": "56911112222", "name": "Nombre PoolEdge"})
+        previous = os.environ.get("WHATSAPP_PHONE_ID")
+        os.environ["WHATSAPP_PHONE_ID"] = "global-meta-number"
+        try:
+            result = self.zero.handle_inbound("56911112222", "hola",
+                                              to_phone_id="global-meta-number")
+        finally:
+            if previous is None:
+                os.environ.pop("WHATSAPP_PHONE_ID", None)
+            else:
+                os.environ["WHATSAPP_PHONE_ID"] = previous
+        self.assertTrue(result["matched"])
+        self.assertNotIn("Nombre PoolEdge", result["reply"])
+        self.assertEqual(self.crm.get("pooledge", "56911112222")["stage"], "new")
+        self.assertIsNotNone(self.crm.find_by_contact(phone="56911112222", client_id="zeroai"))
+
+    def test_meta_global_number_rejects_contact_in_multiple_companies(self):
+        self.memory.register_client("zeroai", "GROWTH")
+        self.memory.upsert_vendor({"id": "pool", "name": "Paula"})
+        self.memory.set_client_vendor("pooledge", "pool")
+        self.crm.upsert("zeroai", {"phone": "56911112222"})
+        self.crm.upsert("pooledge", {"phone": "56911112222"})
+        previous = os.environ.get("WHATSAPP_PHONE_ID")
+        os.environ["WHATSAPP_PHONE_ID"] = "global-meta-number"
+        try:
+            result = self.zero.handle_inbound("56911112222", "hola",
+                                              to_phone_id="global-meta-number")
+        finally:
+            if previous is None:
+                os.environ.pop("WHATSAPP_PHONE_ID", None)
+            else:
+                os.environ["WHATSAPP_PHONE_ID"] = previous
+        self.assertFalse(result["matched"])
+        self.assertEqual(self.crm.get("zeroai", "56911112222")["stage"], "new")
+        self.assertEqual(self.crm.get("pooledge", "56911112222")["stage"], "new")
 
     def test_shared_recipient_uses_unique_existing_company_contact(self):
         self.memory.upsert_vendor({"id": "shared", "name": "Paula",
@@ -162,7 +209,7 @@ class CompanyContextTest(unittest.TestCase):
         self.assertEqual(self.crm.get("zeroai", "56911112222")["stage"], "new")
         self.assertEqual(self.crm.get("pooledge", "56911112222")["stage"], "new")
 
-    def test_meta_and_twilio_extract_profile_name_when_available(self):
+    def test_meta_extracts_profile_name_when_available(self):
         meta = {"entry": [{"changes": [{"value": {
             "metadata": {"phone_number_id": "pool-number"},
             "contacts": [{"wa_id": "56911112222", "profile": {"name": "Ana Pérez"}}],
@@ -170,9 +217,6 @@ class CompanyContextTest(unittest.TestCase):
                           "text": {"body": "Hola"}}],
         }}]}]}
         self.assertEqual(parse_meta(meta)[0]["profile_name"], "Ana Pérez")
-        self.assertEqual(parse_twilio({"From": "whatsapp:+56911112222",
-                                       "To": "whatsapp:+56933334444", "Body": "Hola",
-                                       "ProfileName": "Ana Pérez"})[0]["profile_name"], "Ana Pérez")
 
     def test_profile_name_and_history_survive_a_second_message_and_restart(self):
         with TemporaryDirectory() as tmp:
@@ -225,6 +269,7 @@ class CompanyContextTest(unittest.TestCase):
                              ["lead", "agent"])
 
     def test_failed_send_does_not_enter_conversation_as_agent_turn(self):
+        self.memory.register_client("zeroai", "GROWTH")
         class FailedOutbox(Outbox):
             def send(self, msg, wa_creds=None):
                 return {"channel": msg["channel"], "to": msg["to"],

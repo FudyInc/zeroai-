@@ -81,7 +81,7 @@ MAPA = {
     "core": "zero/ (núcleo: orquestador, agentes, contratos, CRM, config), main.py, tests/",
     "dashboard": "frontend/ (las 18 páginas del dashboard) y api.py (sus endpoints)",
     "landing": "web/ (la landing pública: HTML, CSS y JS sin build)",
-    "motor-whatsapp": "zero/channels.py, zero/whatsapp_inbound.py, zero/twilio_inbound.py, "
+    "motor-whatsapp": "zero/channels.py, zero/whatsapp_inbound.py, "
                       "zero/agents/concierge.py",
     "motor-llamadas": "zero/calls.py, zero/voice.py",
     "prompts": "prompts/*.md (los prompts de cada agente)",

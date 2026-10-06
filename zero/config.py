@@ -28,8 +28,7 @@ DEFAULT_VENDOR_ID = "fernanda"
 # clientes pueden compartir el mismo vendedor (zero/vendors.py::
 # clients_count_for). Si ese número pertenece a un único cliente sin
 # ambigüedad, ZERO usa ese (correcto en producción, con un número propio por
-# cliente). Si no — hoy, mientras el sandbox de Twilio usa UN SOLO número
-# compartido para cualquier prueba — cae aquí.
+# cliente). Si no hay un cliente único para el número de Meta, cae aquí.
 # `None`/"" desactiva el catch-all (vuelve al comportamiento anterior: ignora
 # al desconocido) — útil si algún día hay varios clientes reales y ya no
 # tiene sentido adivinar.

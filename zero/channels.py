@@ -22,7 +22,6 @@ default is mock even in production until the switch is deliberately flipped).
 """
 from __future__ import annotations
 
-import base64
 import json
 import os
 import smtplib
@@ -48,36 +47,6 @@ SENDABLE = ("email", "whatsapp")
 def _result(channel: str, to: Optional[str], status: str, *, id: Optional[str] = None,
             error: Optional[str] = None, via: str = "mock") -> Dict[str, Any]:
     return {"channel": channel, "to": to, "status": status, "id": id, "error": error, "via": via}
-
-
-# Estados con los que Twilio dice "esto NO salió". El resto (queued, accepted,
-# sending, sent, delivered, read) es camino normal.
-_TWILIO_ESTADOS_FALLIDOS = ("failed", "undelivered")
-
-
-def _twilio_result(to: str, res: Dict[str, Any]) -> Dict[str, Any]:
-    """Traduce la respuesta de Twilio a nuestro contrato, MIRANDO lo que dijo.
-
-    Que el POST devuelva 200 solo significa que Twilio aceptó la petición, no que
-    el mensaje haya salido: el cuerpo puede traer `status: "failed"` con su
-    `error_code`. Antes se devolvía "sent" incondicionalmente y un fallo real se
-    reportaba como éxito.
-
-    Encontrado en vivo (2026-08-21): un aviso al celular del dueño devolvió
-    "sent" y Twilio lo tenía como `failed / 63015` (el número no está unido al
-    sandbox, la sesión dura 3 días). Un sistema de alertas que informa éxito
-    mientras falla es peor que no tener alertas — es la única pieza cuyo fallo
-    nadie más va a notar.
-    """
-    estado = str(res.get("status") or "").lower()
-    codigo = res.get("error_code")
-    if codigo or estado in _TWILIO_ESTADOS_FALLIDOS:
-        detalle = res.get("error_message") or f"Twilio devolvió estado '{estado or "?"}'"
-        if codigo:
-            detalle = f"[{codigo}] {detalle}"
-        return _result("whatsapp", to, "error", id=res.get("sid"),
-                       error=detalle, via="whatsapp")
-    return _result("whatsapp", to, "sent", id=res.get("sid"), via="whatsapp")
 
 
 class MockSender:
@@ -136,10 +105,9 @@ class EmailSender:
 class WhatsAppSender:
     """Real WhatsApp send via Meta Cloud API (stdlib urllib). Needs a phone_id +
     token — either passed in (per-vendor credentials, see `zero/vendors.py`) or,
-    if omitted, the global WHATSAPP_TOKEN/WHATSAPP_PHONE_ID env vars. Swappable
-    for Twilio/another provider — same `send` contract."""
+    if omitted, the global WHATSAPP_TOKEN/WHATSAPP_PHONE_ID env vars."""
     name = "whatsapp"
-    API = "https://graph.facebook.com/v20.0"
+    API = "https://graph.facebook.com/v26.0"
 
     def __init__(self, phone_id: Optional[str] = None, token: Optional[str] = None) -> None:
         self.token = token or os.environ["WHATSAPP_TOKEN"]
@@ -194,79 +162,6 @@ class WhatsAppSender:
         }
 
 
-def whatsapp_provider() -> str:
-    """Proveedor activo del canal WhatsApp: "meta" (default) | "twilio".
-
-    Config de deployment vía env — mismo criterio que OUTBOX_LIVE, y por eso NO
-    vive en config.py (no es política de negocio: el mensaje, la cadencia y el
-    gate no cambian según quién transporte el WhatsApp). Twilio es el plan B
-    mientras el WABA directo con Meta sigue en revisión — ver docs/twilio-whatsapp.md."""
-    return (os.environ.get("WHATSAPP_PROVIDER") or "meta").strip().lower()
-
-
-class TwilioWhatsAppSender:
-    """Real WhatsApp send via Twilio (BSP — plan B mientras Meta revisa el WABA).
-
-    EXACTAMENTE el mismo contrato `send` que WhatsAppSender (mismo shape de
-    _result, mismo trato de whatsapp_send_type="template") — el Outbox no
-    distingue proveedor. Needs TWILIO_ACCOUNT_SID + TWILIO_AUTH_TOKEN + a From
-    number: either passed in (per-vendor, resolved by `credentials_for` in
-    zero/vendors.py) or the global TWILIO_WHATSAPP_FROM (sandbox or real)."""
-    name = "whatsapp"
-    API = "https://api.twilio.com/2010-04-01"
-
-    def __init__(self, from_number: Optional[str] = None, auth_token: Optional[str] = None,
-                 account_sid: Optional[str] = None) -> None:
-        self.account_sid = account_sid or os.environ["TWILIO_ACCOUNT_SID"]
-        self.auth_token = auth_token or os.environ["TWILIO_AUTH_TOKEN"]
-        self.from_number = from_number or os.environ["TWILIO_WHATSAPP_FROM"]
-
-    def send(self, msg: Dict[str, Any]) -> Dict[str, Any]:
-        to = "".join(ch for ch in str(msg.get("to") or "") if ch.isdigit())
-        if not to:
-            return _result("whatsapp", msg.get("to"), "skipped", error="sin número válido", via="whatsapp")
-        if msg.get("whatsapp_send_type") == "template":
-            fields = self._template_fields(msg.get("body") or "")
-            if fields is None:
-                # Mismo principio que WhatsAppSender._template_body: un contacto en
-                # frío sin plantilla NUNCA degrada en silencio a texto libre (Twilio
-                # también lo rechaza fuera de la ventana de 24h) — error visible.
-                # En el sandbox de Twilio el texto libre sí llega (el teléfono ya
-                # hizo opt-in con el join code), pero eso no cambia el contrato.
-                return _result("whatsapp", to, "error",
-                               error="template no configurado en Twilio (falta TWILIO_CONTENT_SID)",
-                               via="whatsapp")
-        else:
-            fields = {"Body": msg.get("body") or ""}
-        frm = "".join(ch for ch in str(self.from_number) if ch.isdigit())
-        form = {"From": f"whatsapp:+{frm}", "To": f"whatsapp:+{to}", **fields}
-        res = self._post(form)
-        return _twilio_result(to, res)
-
-    @staticmethod
-    def _template_fields(text: str) -> Optional[Dict[str, str]]:
-        """Twilio no manda plantillas por nombre como Meta: usa un Content SID
-        pre-aprobado (Content API) + variables. `None` si no hay TWILIO_CONTENT_SID
-        configurado — el caller lo reporta como error claro, nunca envía otra cosa."""
-        sid = (os.environ.get("TWILIO_CONTENT_SID") or "").strip()
-        if not sid:
-            return None
-        return {"ContentSid": sid, "ContentVariables": json.dumps({"1": text})}
-
-    def _post(self, form: Dict[str, str]) -> Dict[str, Any]:
-        """POST form-encoded con Basic auth (urllib puro). Separado de send() para
-        poder probar el contrato completo sin red — mismo seam que EmailSender._build_message."""
-        auth = base64.b64encode(f"{self.account_sid}:{self.auth_token}".encode("utf-8")).decode("ascii")
-        req = urllib.request.Request(
-            f"{self.API}/Accounts/{self.account_sid}/Messages.json",
-            data=urllib.parse.urlencode(form).encode("utf-8"), method="POST",
-            headers={"Authorization": f"Basic {auth}",
-                     "Content-Type": "application/x-www-form-urlencoded"},
-        )
-        with urllib.request.urlopen(req, timeout=20) as r:
-            return json.loads(r.read().decode("utf-8"))
-
-
 def whatsapp_status() -> Dict[str, Any]:
     """Pings the Graph API with WHATSAPP_TOKEN/WHATSAPP_PHONE_ID to confirm the
     WhatsApp Business number is really linked (not just that the env vars exist).
@@ -276,10 +171,11 @@ def whatsapp_status() -> Dict[str, Any]:
     phone_id = os.environ.get("WHATSAPP_PHONE_ID")
     if not (token and phone_id):
         raise RuntimeError("WhatsApp sin configurar: faltan WHATSAPP_TOKEN / WHATSAPP_PHONE_ID")
-    q = urllib.parse.urlencode({"fields": "display_phone_number,verified_name", "access_token": token})
+    q = urllib.parse.urlencode({"fields": "display_phone_number,verified_name"})
     url = f"{WhatsAppSender.API}/{phone_id}?{q}"
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
     try:
-        with urllib.request.urlopen(url, timeout=20) as r:
+        with urllib.request.urlopen(req, timeout=20) as r:
             d = json.loads(r.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", "replace")
@@ -306,9 +202,11 @@ class Outbox:
     def __init__(self, real_senders: Optional[Dict[str, Any]] = None,
                  wa_sender_factory: Optional[Any] = None,
                  retry_attempts: Optional[int] = None,
-                 retry_delay: Optional[float] = None) -> None:
+                 retry_delay: Optional[float] = None,
+                 require_configured: bool = False) -> None:
         from .config import OUTBOX_RETRY_ATTEMPTS, OUTBOX_RETRY_DELAY_SECONDS
         self.real = real_senders or {}
+        self.require_configured = require_configured
         self._mock = MockSender()
         # Builds a per-vendor WhatsApp sender from (phone_id, token) when live, so
         # each client sends from its assigned vendor's number. Cached by phone_id.
@@ -320,10 +218,10 @@ class Outbox:
 
     @property
     def live(self) -> bool:
-        return bool(self.real)
+        return bool(self.real) or self.require_configured
 
     def _sender_for(self, channel: str, wa_creds: Optional[Any]) -> Any:
-        if not self.real:
+        if not self.real and not self.require_configured:
             return self._mock                       # mock mode: never real
         if channel == "whatsapp" and wa_creds and self._wa_factory:
             phone_id, token = wa_creds
@@ -331,11 +229,19 @@ class Outbox:
                 if phone_id not in self._wa_cache:
                     self._wa_cache[phone_id] = self._wa_factory(phone_id, token)
                 return self._wa_cache[phone_id]
+        if self.require_configured and channel in SENDABLE:
+            return self.real.get(channel)
         return self.real.get(channel, self._mock)
 
     def send(self, msg: Dict[str, Any], wa_creds: Optional[Any] = None) -> Dict[str, Any]:
         channel = msg.get("channel") or "email"
         sender = self._sender_for(channel, wa_creds)
+        if sender is None:
+            res = _result(channel, msg.get("to"), "error",
+                          error=f"canal {channel} sin credenciales para envío real",
+                          via="unconfigured")
+            self.log.append(res)
+            return res
         last_error: Optional[Exception] = None
         for attempt in range(1, max(self.retry_attempts, 1) + 1):
             try:
@@ -367,18 +273,8 @@ def make_outbox() -> Outbox:
         not os.environ.get("SMTP_USER") or os.environ.get("SMTP_PASS")
     ):
         real["email"] = EmailSender()
-    if whatsapp_provider() == "twilio":
-        # Plan B: mismo canal, otro transporte. El factory per-vendor recibe la
-        # tupla (from_number, auth_token) que arma credentials_for() en modo
-        # twilio — misma forma y mismo flujo que el par (phone_id, token) de Meta,
-        # así ni el orquestador ni el Outbox distinguen proveedor.
-        if (os.environ.get("TWILIO_ACCOUNT_SID") and os.environ.get("TWILIO_AUTH_TOKEN")
-                and os.environ.get("TWILIO_WHATSAPP_FROM")):
-            real["whatsapp"] = TwilioWhatsAppSender()    # global fallback sender
-        wa_factory = lambda frm, tok: TwilioWhatsAppSender(from_number=frm, auth_token=tok)  # noqa: E731
-    else:
-        if os.environ.get("WHATSAPP_TOKEN") and os.environ.get("WHATSAPP_PHONE_ID"):
-            real["whatsapp"] = WhatsAppSender()          # global fallback sender
-        wa_factory = lambda pid, tok: WhatsAppSender(pid, tok)  # noqa: E731
+    if os.environ.get("WHATSAPP_TOKEN") and os.environ.get("WHATSAPP_PHONE_ID"):
+        real["whatsapp"] = WhatsAppSender()
+    wa_factory = lambda pid, tok: WhatsAppSender(pid, tok)  # noqa: E731
     # Per-vendor senders are built on demand from each vendor's credentials.
-    return Outbox(real, wa_sender_factory=wa_factory)
+    return Outbox(real, wa_sender_factory=wa_factory, require_configured=True)

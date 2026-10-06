@@ -24,7 +24,7 @@ export const TECHNOLOGIES = [
   { title: 'Orquestación', icon: Cpu, tags: ['Python', 'FastAPI', 'JSON'], text: 'ZERO asigna tareas, valida respuestas y coordina el trabajo de los agentes.', note: 'Lógica de control · no es un LLM' },
   { title: 'Inferencia', icon: BrainCircuit, tags: ['Ollama · qwen2.5', 'Anthropic', 'OpenAI'], text: 'Backends intercambiables para ejecutar los mismos agentes. Hoy corre en local con qwen2.5:14b; Anthropic y OpenAI se activan con su API key.', note: 'Sin motor real el backend responde 503 — ya no simula' },
   { title: 'Memoria y datos', icon: Database, tags: ['Supabase', 'CRM', 'ICP'], text: 'Conserva leads, contexto y criterios de calificación. También admite persistencia local.', note: 'La persistencia depende de la configuración' },
-  { title: 'Comunicación', icon: MessagesSquare, tags: ['WhatsApp', 'SMTP', 'Twilio'], text: 'Los agentes preparan las respuestas y la capa de canales gestiona su envío.', note: 'Envíos reales sujetos a configuración' },
+  { title: 'Comunicación', icon: MessagesSquare, tags: ['WhatsApp', 'SMTP', 'Meta'], text: 'Los agentes preparan las respuestas y la capa de canales gestiona su envío.', note: 'Envíos reales sujetos a configuración' },
   { title: 'Interfaz', icon: Monitor, tags: ['React', 'Vite', 'Framer Motion'], text: 'Una vista interactiva para explorar agentes, seguir resultados y recorrer el pipeline.', note: 'Adaptable a móvil · movimiento reducido' },
   { title: 'Observabilidad', icon: Network, tags: ['TanStack Query', 'Telemetría'], text: 'Consulta ejecuciones finalizadas, tiempos, estados y volumen de entrada y salida.', note: 'Actualización cada 5 s mientras la vista está activa' },
 ]
@@ -43,6 +43,6 @@ export function timeAgo(ts, now) {
 export const BRAND_MARKS = {
   Python: ['python', '#3776AB'], FastAPI: ['fastapi', '#009688'], JSON: ['json', '#555555'],
   Ollama: ['ollama', '#222222'], Anthropic: ['anthropic', '#191919'], Supabase: ['supabase', '#3ECF8E'],
-  WhatsApp: ['whatsapp', '#25D366'], Twilio: ['twilio', '#F22F46'], React: ['react', '#61DAFB'],
+  WhatsApp: ['whatsapp', '#25D366'], React: ['react', '#61DAFB'],
   Vite: ['vite', '#646CFF'], 'Framer Motion': ['framer', '#0055FF'], 'TanStack Query': ['reactquery', '#FF4154'],
 }

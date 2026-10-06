@@ -12,6 +12,7 @@ Lo de abajo sigue valiendo entero: son las puertas por las que un dato falso pod
 llegar al CRM o a la pantalla. Lo nuevo está en `SinMotorNoHayRespuestaTest`.
 """
 import os
+import re
 import unittest
 from unittest import mock
 
@@ -108,10 +109,32 @@ class SinMotorNoHayRespuestaTest(unittest.TestCase):
     hizo que ocho días de ciclo muerto pasaran inadvertidos.
     """
 
+    # Cada motor que `_agents_best` sepa construir tiene que estar acá, o el test deja
+    # de probar lo que dice. Pasó de verdad el 2026-09-08: al guardar una OPENAI_API_KEY
+    # en el .env, estos tests se pusieron rojos —no porque el código fallara, sino
+    # porque la lista se había quedado corta y la máquina ya no estaba "rota".
+    _MOTORES = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "LOCAL_MODEL")
+
+    def _apagado(self, escotilla=""):
+        """Apaga TODOS los motores; `escotilla` es el valor de ZERO_PIPELINE_MOCK_OK."""
+        apagado = {v: "" for v in self._MOTORES}
+        apagado["ZERO_PIPELINE_MOCK_OK"] = escotilla
+        return mock.patch.dict(os.environ, apagado, clear=False)
+
     def _sin_motor(self):
-        """Ni Anthropic, ni Ollama, ni escotilla. El estado de una máquina rota."""
-        return mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "", "LOCAL_MODEL": "",
-                                            "ZERO_PIPELINE_MOCK_OK": ""}, clear=False)
+        """Ni Anthropic, ni OpenAI, ni Ollama, ni escotilla. Una máquina rota."""
+        return self._apagado()
+
+    def test_la_lista_de_motores_cubre_todo_lo_que_lee_el_codigo(self):
+        """Candado contra el mismo olvido: si mañana se agrega un motor nuevo a
+        `_agents_best` y nadie lo agrega acá, esto avisa en vez de volverse verde
+        por la razón equivocada."""
+        import inspect
+        fuente = inspect.getsource(api._agents_best) + inspect.getsource(api._agents_autonomous)
+        leidas = {v for v in re.findall(r'os\.environ\.get\("([A-Z_]+)"', fuente)
+                  if v.endswith("_API_KEY") or v == "LOCAL_MODEL"}
+        self.assertTrue(leidas <= set(self._MOTORES),
+                        f"motores que el código lee pero el test no apaga: {leidas - set(self._MOTORES)}")
 
     def test_agents_best_levanta_503_en_vez_de_devolver_mock(self):
         with self._sin_motor():
@@ -136,14 +159,12 @@ class SinMotorNoHayRespuestaTest(unittest.TestCase):
     def test_la_escotilla_es_solo_de_la_suite(self):
         """Existe para probar plomería HTTP sin motor. Solo el valor exacto "1" abre —
         un env declarado pero vacío NO, que es el modo de fallo que ya mordió antes."""
-        with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "", "LOCAL_MODEL": "",
-                                          "ZERO_PIPELINE_MOCK_OK": "1"}, clear=False):
+        with self._apagado(escotilla="1"):
             _, modo = api._agents_best()
             self.assertEqual(modo, "mock")
         for valor in ("", " ", "true", "0"):
             with self.subTest(valor=valor):
-                with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "", "LOCAL_MODEL": "",
-                                                  "ZERO_PIPELINE_MOCK_OK": valor}, clear=False):
+                with self._apagado(escotilla=valor):
                     with self.assertRaises(HTTPException):
                         api._agents_best()
 

@@ -67,7 +67,7 @@ envolverlo en un WAV (sin `ffmpeg`/`pydub`, solo stdlib), la salida de este modo
 ## Lo honesto: esto es solo la VOZ, no el agente de llamadas completo
 
 Hacer que *llame de verdad y converse* necesita además:
-`STT` (oír al prospecto) + `LLM` (conversación) + **telefonía** (Twilio) + orquestación en
+`STT` (oír al prospecto) + `LLM` (conversación) + **telefonía** (Vapi) + orquestación en
 tiempo real. Eso lo arman plataformas como **Vapi / Retell / Bland / ElevenLabs
 Conversational AI** (todas con tu cuenta/keys).
 
