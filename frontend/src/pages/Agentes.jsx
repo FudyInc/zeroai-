@@ -27,6 +27,10 @@ export default function Agentes() {
   const { client } = useApp()
   const cfgQ = useQuery({ queryKey: ['config'], queryFn: api.config })
   const cfg = cfgQ.data
+  const integrationsQ = useQuery({ queryKey: ['integrations', client], queryFn: () => api.clientIntegrations(client), enabled: !!client })
+  const integrations = integrationsQ.data
+  const readinessQ = useQuery({ queryKey: ['whatsapp-readiness', client], queryFn: () => api.whatsappReadiness(client), enabled: !!client })
+  const whatsappAssigned = !!readinessQ.data?.number_bound
   const leadsQ = useQuery({
     queryKey: ['leads', client, 'agentes-activity'],
     queryFn: () => api.leads(client, { group: 'todos', limit: 50 }),
@@ -45,21 +49,23 @@ export default function Agentes() {
     {
       key: 'email', name: 'Email', branded: true, chip: 'bg-white border border-zinc-200',
       desc: 'Envía un pitch con demo a un prospecto y los seguimientos por correo.',
-      status: cfg?.email ? { t: 'Conectado', tone: 'ok' } : { t: 'Configurar', tone: 'warn' },
-      onClick: () => nav(cfg?.email ? '/vender' : '/config'),
+      status: integrations?.email ? { t: 'Conectado', tone: 'ok' } : { t: 'Configurar', tone: 'warn' },
+      onClick: () => nav(integrations?.email ? '/vender' : '/config'),
       activity: activityLine(emailReplied),
     },
     {
       key: 'call', name: 'Llamadas', branded: true, chip: '',
       desc: 'Llama con un agente de voz (Fernanda) por teléfono.',
-      status: cfg?.vapi ? { t: 'Activo', tone: 'ok' } : { t: 'Configurar', tone: 'warn' },
+      status: integrations?.vapi ? { t: 'Conectado', tone: 'ok' } : { t: 'Configurar', tone: 'warn' },
       onClick: () => nav('/llamadas'),
       activity: null,
     },
     {
       key: 'wa', name: 'WhatsApp', branded: true, chip: 'bg-white border border-zinc-200',
-      desc: 'Configura la ficha, quién atiende y prueba el agente que responde dudas y agenda (ventana de 24h).',
-      status: cfg?.whatsapp ? { t: 'Activo', tone: 'ok' } : { t: 'Configurar / probar', tone: 'warn' },
+      desc: 'Configura el agente, vincula WhatsApp Web y revisa o responde sus chats.',
+      status: ((integrations?.whatsapp_provider === 'web' && cfg?.whatsapp && whatsappAssigned) ||
+               (integrations?.whatsapp_provider === 'meta' && integrations?.whatsapp_cloud))
+        ? { t: 'Número asignado', tone: 'ok' } : { t: 'Configurar / probar', tone: 'warn' },
       onClick: () => nav('/whatsapp'),
       activity: activityLine(waReplied),
     },

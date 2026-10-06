@@ -60,6 +60,7 @@ const TITLES = {
 export default function App() {
   const [client, setClient] = useState(null)
   const [leadKey, setLeadKey] = useState(null)
+  useEffect(() => { setLeadKey(null) }, [client])
   const [runOpen, setRunOpen] = useState(false)
   /* La corrida recién disparada. Vive acá y no en Leads porque quien la dispara es el
      modal global —desde cualquier página— y quien la muestra es Leads: es el único
@@ -190,7 +191,7 @@ export default function App() {
 
           <main className="p-4 md:p-8">
             <motion.div
-              key={pathname}
+              key={`${pathname}:${client || ''}`}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}

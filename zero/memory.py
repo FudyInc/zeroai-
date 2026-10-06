@@ -215,6 +215,13 @@ class SessionMemory:
     def get_client_pricing(self, client_id: str) -> Dict[str, Any]:
         return self.clients.get(client_id, {}).get("pricing") or {}
 
+    def set_client_agent_profile(self, client_id: str, profile: Dict[str, str]) -> None:
+        """Instructions for this business only; vendor identities remain reusable."""
+        self.clients.setdefault(client_id, {})["agent_profile"] = profile
+
+    def get_client_agent_profile(self, client_id: str) -> Dict[str, str]:
+        return self.clients.get(client_id, {}).get("agent_profile") or {}
+
     # --- conversation history (memoria del diálogo con cada lead) -------------
     # Vive dentro de la ficha del cliente (junto a icp/meta/knowledge), así el
     # snapshot no cambia de forma y snapshots viejos siguen restaurando bien.
@@ -236,6 +243,20 @@ class SessionMemory:
         convs = self.clients.get(client_id, {}).get("conversations") or {}
         turns = convs.get(str(lead_key).lower(), [])
         return turns[-limit:] if limit else list(turns)
+
+    def get_whatsapp_handoff(self, client_id: str, lead_key: str) -> Optional[Dict[str, str]]:
+        handoffs = self.clients.get(client_id, {}).get("whatsapp_handoffs") or {}
+        return handoffs.get(str(lead_key).lower())
+
+    def set_whatsapp_handoff(self, client_id: str, lead_key: str, reason: str) -> Dict[str, str]:
+        handoffs = self.clients.setdefault(client_id, {}).setdefault("whatsapp_handoffs", {})
+        item = {"reason": reason[:200], "at": _now()}
+        handoffs[str(lead_key).lower()] = item
+        return item
+
+    def clear_whatsapp_handoff(self, client_id: str, lead_key: str) -> bool:
+        handoffs = self.clients.get(client_id, {}).get("whatsapp_handoffs") or {}
+        return handoffs.pop(str(lead_key).lower(), None) is not None
 
     # --- vendor catalog (Fernanda, Stéfano, ... each with their own WhatsApp) --
     def _ensure_vendors_seeded(self) -> None:

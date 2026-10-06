@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { Mail, Sparkles, Send } from 'lucide-react'
@@ -6,12 +6,14 @@ import { toast } from 'sonner'
 import { api } from '../lib/api'
 import { Card, Button, Input, Badge, SectionTitle } from '../components/ui'
 import { Glow } from '../components/Glow'
+import { useApp } from '../App'
 import { rise, fade, surface } from '../lib/motion'
 
 // Pon el mail de un prospecto → genera el pitch (editable) → envíalo por tu SMTP.
 export default function Vender() {
-  const { data: cfg } = useQuery({ queryKey: ['config'], queryFn: api.config })
-  const { data: emails = [] } = useQuery({ queryKey: ['usedEmails'], queryFn: api.usedEmails })
+  const { client } = useApp()
+  const { data: integrations } = useQuery({ queryKey: ['integrations', client], queryFn: () => api.clientIntegrations(client), enabled: !!client })
+  const { data: emails = [] } = useQuery({ queryKey: ['usedEmails', client], queryFn: () => api.usedEmails(client), enabled: !!client })
   const qc = useQueryClient()
   const [to, setTo] = useState('')
   const [name, setName] = useState('')
@@ -22,6 +24,9 @@ export default function Vender() {
   const [busy, setBusy] = useState(false)
   const [genBusy, setGenBusy] = useState(false)
   const [mode, setMode] = useState(null)
+  useEffect(() => {
+    setTo(''); setName(''); setCompany(''); setNotes(''); setSubject(''); setBody(''); setMode(null)
+  }, [client])
 
   const generate = async () => {
     setGenBusy(true)
@@ -37,19 +42,19 @@ export default function Vender() {
     if (!subject.trim() || !body.trim()) return toast.error('Genera o escribe el pitch primero')
     setBusy(true)
     try {
-      await api.pitchSend({ to: to.trim(), subject, body })
+      await api.pitchSend({ client, to: to.trim(), subject, body })
       toast.success('Pitch enviado a ' + to.trim())
-      qc.invalidateQueries({ queryKey: ['usedEmails'] })
+      qc.invalidateQueries({ queryKey: ['usedEmails', client] })
     } catch (e) { toast.error('No se pudo enviar: ' + e.message) }
     finally { setBusy(false) }
   }
 
   return (
     <motion.div className="max-w-2xl space-y-4" initial="hidden" animate="show" variants={rise}>
-      {cfg && !cfg.email && (
+      {integrations && !integrations.email && (
         <motion.div variants={fade}>
           <Card className="p-4 border-amber-200 bg-amber-50/60 text-sm text-amber-800">
-            Aún no conectas el email. Ve a <b>Configuración → Email (SMTP)</b> para poder enviar.
+            Aún no conectas el email de {client}. Ve a <b>Configuración → Integraciones del negocio</b> para poder enviar.
           </Card>
         </motion.div>
       )}

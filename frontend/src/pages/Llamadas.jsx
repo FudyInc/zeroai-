@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { Link } from 'react-router-dom'
@@ -6,16 +6,19 @@ import { Phone } from 'lucide-react'
 import { api } from '../lib/api'
 import { Card, Button, Input, Select, Skeleton, SectionTitle } from '../components/ui'
 import { rise, fade } from '../lib/motion'
+import { useApp } from '../App'
 
 export default function Llamadas() {
-  const agentsQ = useQuery({ queryKey: ['assistants'], queryFn: api.assistants, retry: false })
-  const numbersQ = useQuery({ queryKey: ['vapiNumbers'], queryFn: api.vapiNumbers, retry: false })
+  const { client } = useApp()
+  const agentsQ = useQuery({ queryKey: ['assistants', client], queryFn: () => api.assistants(client), enabled: !!client, retry: false })
+  const numbersQ = useQuery({ queryKey: ['vapiNumbers', client], queryFn: () => api.vapiNumbers(client), enabled: !!client, retry: false })
 
   const [agent, setAgent] = useState('')
   const [num, setNum] = useState('')
   const [digits, setDigits] = useState('')
   const [msg, setMsg] = useState(null)
   const [busy, setBusy] = useState(false)
+  useEffect(() => { setAgent(''); setNum(''); setDigits(''); setMsg(null) }, [client])
 
   // Cargando (importante: sin esto, durante la carga mostraba 'No tienes agentes' en rojo).
   if (agentsQ.isLoading || numbersQ.isLoading) {
@@ -35,7 +38,7 @@ export default function Llamadas() {
       <Card className="p-6 max-w-xl">
         <div className="font-semibold mb-1">Llamadas con IA</div>
         <div className="text-sm text-zinc-500 mb-2">
-          Este canal usa <b>Vapi</b>. Conecta tu <b>VAPI_API_KEY</b> en Configuración para activarlo.
+          Este canal usa <b>Vapi</b>. Conecta la clave de <b>{client}</b> en Configuración para activarlo.
         </div>
         <div className="text-xs text-zinc-400 mb-3 break-words">({agentsQ.error?.message || 'no disponible'})</div>
         <div className="flex gap-3">
@@ -47,7 +50,7 @@ export default function Llamadas() {
   }
 
   const agents = agentsQ.data || []
-  const numbers = (numbersQ.data || []).filter((n) => String(n.number || '').replace(/\D/g, '') === '56964537891')
+  const numbers = numbersQ.data || []
   // Sin esto, el botón queda clickeable con las listas vacías y dispara una
   // llamada al backend que ya sabemos que va a fallar (assistant_id/phone_id
   // undefined) — mejor no dejar iniciar la acción si falta configurar algo en Vapi.
@@ -59,7 +62,7 @@ export default function Llamadas() {
     if (d.length !== 9) { setMsg({ ok: false, t: 'Escribe los 9 dígitos (el 9 + 8 más).' }); return }
     setBusy(true); setMsg(null)
     try {
-      await api.call({ number: '+56' + d, assistant_id: agent || agents[0]?.id, phone_number_id: num || numbers[0]?.id })
+      await api.call({ client, number: '+56' + d, assistant_id: agent || agents[0]?.id, phone_number_id: num || numbers[0]?.id })
       setMsg({ ok: true, t: 'Llamada iniciada a +56' + d + '. Te debería sonar el teléfono.' })
     } catch (e) { setMsg({ ok: false, t: e.message }) } finally { setBusy(false) }
   }
@@ -87,7 +90,7 @@ export default function Llamadas() {
           <Select className="w-full" value={num} onChange={(e) => setNum(e.target.value)}>
             {numbers.map((n) => <option key={n.id} value={n.id}>{n.number}</option>)}
           </Select>
-        ) : <div className="text-sm text-rose-600">El +56 9 6453 7891 aún no está habilitado como origen en Vapi. La SIM y Meta solo habilitan WhatsApp; para llamar, Vapi debe tener este número importado desde un proveedor de telefonía compatible.</div>}
+        ) : <div className="text-sm text-rose-600">Este negocio aún no tiene número de origen habilitado en Vapi.</div>}
       </div>
 
       <div>

@@ -34,6 +34,15 @@ export default function Forecast() {
   })
   if (gate) return gate
 
+  if (!data?.forecast?.projection || !data.forecast.assumptions || !data.forecast.inputs) {
+    return (
+      <Card className="p-6 text-sm text-zinc-600" role="alert">
+        No se pudo preparar el forecast. Intenta de nuevo cuando el motor esté disponible.
+        <button className="ml-2 underline" onClick={() => refetch()}>Reintentar</button>
+      </Card>
+    )
+  }
+
   const f = data.forecast, p = f.projection, a = f.assumptions, i = f.inputs
   const k = FACTOR[scen]
   const stats = [
@@ -53,11 +62,13 @@ export default function Forecast() {
               que uno real. Mismo patrón que Campanas.jsx y Vender.jsx. */}
           {data.mode && (
             <Badge color={data.mode === 'live' ? '#16a34a' : '#94a3b8'}>
-              {data.mode === 'live' ? 'modelo real' : 'mock · cifras simuladas'}
+              {data.mode === 'live' ? 'modelo real' : data.mode === 'base_rates' ? 'tasas base · sin IA' : 'mock · cifras simuladas'}
             </Badge>
           )}
           <span className="text-xs text-zinc-400">
-            {scen === 'base' ? 'Tasas estimadas por el ANALYST' : `Escenario what-if: ×${k} sobre la base`}
+            {scen === 'base'
+              ? data.mode === 'base_rates' ? 'Tasas base del sistema, sin ajuste de IA' : 'Tasas estimadas por el ANALYST'
+              : `Escenario what-if: ×${k} sobre la base`}
           </span>
         </div>
       </motion.div>

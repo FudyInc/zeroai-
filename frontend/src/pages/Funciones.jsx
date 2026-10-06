@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Terminal, AlertTriangle, Play, Pencil, Trash2, Plus, CheckCircle2, XCircle, Repeat } from 'lucide-react'
@@ -52,13 +52,14 @@ export default function Funciones() {
   const closeForm = useCallback(() => setForm(null), [])
   useDismiss(!!form, closeForm)
   const [runningId, setRunningId] = useState(null)
+  useEffect(() => { setForm(null); setRunningId(null) }, [client])
 
-  const { data: functions, isLoading, error, refetch } = useQuery({ queryKey: ['functions'], queryFn: api.functions })
+  const { data: functions, isLoading, error, refetch } = useQuery({ queryKey: ['functions', client], queryFn: () => api.functions(client), enabled: !!client })
 
   const save = useMutation({
     mutationFn: (body) => api.saveFunction(body),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['functions'] })
+      qc.invalidateQueries({ queryKey: ['functions', client] })
       toast.success('Función guardada')
       setForm(null)
     },
@@ -66,17 +67,17 @@ export default function Funciones() {
   })
 
   const del = useMutation({
-    mutationFn: (id) => api.deleteFunction(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['functions'] }); toast.success('Función eliminada') },
+    mutationFn: (id) => api.deleteFunction(client, id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['functions', client] }); toast.success('Función eliminada') },
     onError: (e) => toast.error('No se pudo eliminar: ' + e.message),
   })
 
   const run = useMutation({
-    mutationFn: (id) => api.runFunction(id),
+    mutationFn: (id) => api.runFunction(client, id),
     onMutate: (id) => setRunningId(id),
     onSettled: () => setRunningId(null),
     onSuccess: (d) => {
-      qc.invalidateQueries({ queryKey: ['functions'] })
+      qc.invalidateQueries({ queryKey: ['functions', client] })
       const ok = d?.run?.error == null
       if (ok) toast.success('Corrida OK')
       else toast.error('Corrida con error: ' + d.run.error)

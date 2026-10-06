@@ -4,6 +4,7 @@ Everything that defines *policy* (what a tier gets, what makes a lead deliverabl
 which model each role uses) lives here so it can change without touching logic.
 """
 from __future__ import annotations
+import os
 
 # --- Models ------------------------------------------------------------------
 FABLE = "claude-fable-5"      # el más potente — cerebro de ZERO (orquestador).
@@ -40,7 +41,10 @@ DEFAULT_VENDOR_ID = "fernanda"
 # lo nuestro. Cuando haya un segundo cliente real con número propio, esto deja de
 # usarse: `_resolve_inbound_client` resuelve por `phone_id` del vendedor y solo
 # cae acá si no puede (ver zero/orchestrator.py::handle_inbound).
-DEFAULT_INBOUND_CLIENT_ID = "zeroai"
+DEFAULT_INBOUND_CLIENT_ID = os.environ.get("DEFAULT_INBOUND_CLIENT_ID", "zeroai")
+# El número Web real del catch-all. Estados antiguos todavía guardan el número
+# de demostración 1111 en Fernanda; no se debe usar ese dato para enrutar.
+DEFAULT_INBOUND_WHATSAPP_NUMBER = os.environ.get("DEFAULT_INBOUND_WHATSAPP_NUMBER", "56964537891")
 
 # --- Acciones que una función programada puede PEDIR --------------------------
 # Una función sandboxeada nunca actúa por sí misma: corre con --network=none y
@@ -144,7 +148,7 @@ MAX_INBOUND_MESSAGE_CHARS = 2000
 WHATSAPP_ENGINE = {
     "model": "qwen2.5:14b-instruct-q4_K_M",   # el que ya está cargado en VRAM
     "base_url": "http://localhost:11434/v1",  # Ollama, endpoint OpenAI-compatible
-    "fallback_to_paid": True,                 # si el local no responde → Anthropic
+    "fallback_to_paid": False,                # política cero gasto: nunca Anthropic
 }
 
 # --- Avisos al dueño (zero/alerts.py) -----------------------------------------

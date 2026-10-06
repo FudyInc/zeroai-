@@ -1,14 +1,17 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { CheckCircle2, AlertCircle, WifiOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
-import { Card, Button, Input, Skeleton, Badge, SectionTitle } from '../components/ui'
+import { Card, Button, Input, Select, Skeleton, Badge, SectionTitle } from '../components/ui'
 import AgentTester from '../components/AgentTester'
+import { useApp } from '../App'
 import { rise, fade, surface, stagger } from '../lib/motion'
 
 export default function Config() {
+  const { client } = useApp()
   const qc = useQueryClient()
   const { data: cfg, isLoading, error, refetch } = useQuery({ queryKey: ['config'], queryFn: api.config })
   const [vals, setVals] = useState({})
@@ -52,18 +55,7 @@ export default function Config() {
       </motion.div>
 
       <motion.div variants={surface}>
-          <IntegrationCard title="Vapi (llamadas)" ok={cfg?.vapi} hint="con tu API key se listan agentes y números solos">
-          <div className="space-y-2">
-            <Input type="password" placeholder="Vapi API key" value={vals.vk || ''} onChange={(e) => set('vk', e.target.value)} />
-            <Input placeholder="Assistant ID (opcional)" value={vals.va || ''} onChange={(e) => set('va', e.target.value)} />
-            <Input placeholder="Phone Number ID (opcional)" value={vals.vp || ''} onChange={(e) => set('vp', e.target.value)} />
-            <Button onClick={() => save({
-              ...(vals.vk && { vapi_api_key: vals.vk }),
-              ...(vals.va && { vapi_assistant_id: vals.va }),
-              ...(vals.vp && { vapi_phone_number_id: vals.vp }),
-            }, ['vk', 'va', 'vp'])}>Guardar Vapi</Button>
-          </div>
-        </IntegrationCard>
+        <ClientChannelsCard key={client || 'sin-cliente'} client={client} />
       </motion.div>
 
       <motion.div variants={surface}>
@@ -88,56 +80,8 @@ export default function Config() {
         </IntegrationCard>
       </motion.div>
 
-      <motion.div variants={fade}>
-        <div className="pt-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">Canales de envío</div>
-      </motion.div>
-
       <motion.div variants={surface}>
-          <IntegrationCard title="Email (SMTP · email marketing)" ok={cfg?.email} hint="con esto el primer toque y los follow-ups salen por correo de verdad">
-          <div className="space-y-2">
-            <Input placeholder="SMTP host (smtp.gmail.com)" value={vals.sh || ''} onChange={(e) => set('sh', e.target.value)} />
-            <div className="flex gap-2">
-              <Input placeholder="Puerto (587)" value={vals.sp || ''} onChange={(e) => set('sp', e.target.value)} className="w-28" />
-              <Input placeholder="From (hola@tudominio.com)" value={vals.sfrom || ''} onChange={(e) => set('sfrom', e.target.value)} />
-            </div>
-            <Input placeholder="Usuario" value={vals.suser || ''} onChange={(e) => set('suser', e.target.value)} />
-            <Input type="password" placeholder="Contraseña / app password" value={vals.spass || ''} onChange={(e) => set('spass', e.target.value)} />
-            <Button onClick={() => save({
-              ...(vals.sh && { smtp_host: vals.sh }),
-              ...(vals.sp && { smtp_port: vals.sp }),
-              ...(vals.sfrom && { smtp_from: vals.sfrom }),
-              ...(vals.suser && { smtp_user: vals.suser }),
-              ...(vals.spass && { smtp_pass: vals.spass }),
-            }, ['sh', 'sp', 'sfrom', 'suser', 'spass'])}>Guardar SMTP</Button>
-          </div>
-        </IntegrationCard>
-      </motion.div>
-
-      {cfg?.email && (
-        <motion.div variants={surface}>
-          <TestEmailRow />
-        </motion.div>
-      )}
-
-      <motion.div variants={surface}>
-          <IntegrationCard title="WhatsApp (Meta Cloud API)" ok={cfg?.whatsapp && cfg?.whatsapp_verify_token_set && cfg?.whatsapp_app_secret_set} hint="Token y Phone Number ID de Meta · el webhook también requiere Verify token y App Secret">
-          <div className="space-y-2">
-            <Input type="password" placeholder="WhatsApp token" value={vals.wt || ''} onChange={(e) => set('wt', e.target.value)} />
-            <Input placeholder="Phone Number ID de +56 9 6453 7891 (ID numérico, no +569…)" value={vals.wp || ''} onChange={(e) => set('wp', e.target.value)} />
-            <Input placeholder="Verify token (lo inventas tú, p/ el webhook)" value={vals.wv || ''} onChange={(e) => set('wv', e.target.value)} />
-            <Input type="password" placeholder="App Secret (Meta for Developers → App settings → Basic)" value={vals.was || ''} onChange={(e) => set('was', e.target.value)} />
-            <Button onClick={() => save({
-              ...(vals.wt && { whatsapp_token: vals.wt }),
-              ...(vals.wp && { whatsapp_phone_id: vals.wp }),
-              ...(vals.wv && { whatsapp_verify_token: vals.wv }),
-              ...(vals.was && { whatsapp_app_secret: vals.was }),
-            }, ['wt', 'wp', 'wv', 'was'])}>Guardar WhatsApp</Button>
-          </div>
-        </IntegrationCard>
-      </motion.div>
-
-      <motion.div variants={surface}>
-        <MetaAdsCard cfg={cfg} vals={vals} set={set} save={save} />
+        <MetaAdsCard key={client || 'sin-cliente'} client={client} />
       </motion.div>
 
       <motion.div variants={fade}>
@@ -173,22 +117,83 @@ export default function Config() {
   )
 }
 
-function MetaAdsCard({ cfg, vals, set, save }) {
-  const [editing, setEditing] = useState(false)
-  const [probe, setProbe] = useState(null) // null | { ok: true, accounts } | { ok: false, error }
-  const [busy, setBusy] = useState(false)
+const CHANNEL_FIELDS = {
+  email: [
+    ['SMTP_HOST', 'Servidor SMTP'], ['SMTP_PORT', 'Puerto (587)'],
+    ['SMTP_USER', 'Usuario'], ['SMTP_PASS', 'Contraseña', true], ['SMTP_FROM', 'Remitente (correo)'],
+  ],
+  vapi: [
+    ['VAPI_API_KEY', 'API key de Vapi', true], ['VAPI_ASSISTANT_ID', 'Assistant ID (opcional)'],
+    ['VAPI_PHONE_NUMBER_ID', 'Phone Number ID (opcional)'],
+  ],
+  whatsapp: [
+    ['WHATSAPP_TOKEN', 'Token de WhatsApp Cloud', true], ['WHATSAPP_PHONE_ID', 'Phone Number ID'],
+    ['WHATSAPP_VERIFY_TOKEN', 'Verify token del webhook', true],
+    ['WHATSAPP_APP_SECRET', 'App Secret de Meta', true],
+  ],
+}
 
-  const connected = !!cfg?.metaads
+function ClientChannelsCard({ client }) {
+  const qc = useQueryClient()
+  const { data: status } = useQuery({ queryKey: ['integrations', client], queryFn: () => api.clientIntegrations(client), enabled: !!client })
+  const [values, setValues] = useState({})
+  const [busy, setBusy] = useState('')
+  const save = async (channel) => {
+    const fields = [...CHANNEL_FIELDS[channel].map(([key]) => key), ...(channel === 'whatsapp' ? ['WHATSAPP_PROVIDER'] : [])]
+    const payload = Object.fromEntries(fields.filter((key) => values[key]?.trim()).map((key) => [key, values[key].trim()]))
+    if (!client || !Object.keys(payload).length) return
+    setBusy(channel)
+    try {
+      const result = await api.setClientIntegration(client, channel, payload)
+      setValues((old) => Object.fromEntries(Object.entries(old).filter(([key]) => !fields.includes(key))))
+      qc.invalidateQueries({ queryKey: ['integrations', client] })
+      toast[result.backed_up ? 'success' : 'warning'](result.backed_up ? `Conexión de ${client} respaldada` : 'Guardado localmente; falta respaldo en la nube')
+    } catch (error) { toast.error(error.message) }
+    finally { setBusy('') }
+  }
+  return (
+    <Card className="p-6 space-y-5">
+      <div><SectionTitle>Integraciones de {client || 'un negocio'}</SectionTitle>
+        <p className="text-xs text-zinc-500 mt-1">Estas credenciales solo se usan para el negocio seleccionado.</p></div>
+      {Object.entries(CHANNEL_FIELDS).map(([channel, fields]) => (
+        <div key={channel} className="border-t border-zinc-200 pt-4 space-y-2">
+          <div className="flex justify-between items-center gap-2"><strong className="text-sm">{channel === 'email' ? 'Email SMTP' : channel === 'vapi' ? 'Llamadas Vapi' : 'WhatsApp Cloud API'}</strong>
+            <Badge color={(channel === 'whatsapp' ? (status?.whatsapp_provider === 'web' ? status?.whatsapp_number : status?.whatsapp_cloud) : status?.[channel]) ? '#16a34a' : '#8C929B'}>{(channel === 'whatsapp' ? (status?.whatsapp_provider === 'web' ? status?.whatsapp_number : status?.whatsapp_cloud) : status?.[channel]) ? 'Configurado' : 'Sin conectar'}</Badge></div>
+          {channel === 'whatsapp' && <Select aria-label="Proveedor de WhatsApp" value={values.WHATSAPP_PROVIDER || status?.whatsapp_provider || 'meta'} onChange={(event) => setValues((old) => ({ ...old, WHATSAPP_PROVIDER: event.target.value }))} disabled={!client || !!busy}>
+            <option value="web">WhatsApp Web (sesión propia)</option><option value="meta">Meta Cloud API</option>
+          </Select>}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {fields.map(([key, label, secret]) => <Input key={key} type={secret ? 'password' : 'text'} autoComplete="off" aria-label={label} placeholder={label} value={values[key] || ''} onChange={(event) => setValues((old) => ({ ...old, [key]: event.target.value }))} disabled={!client || !!busy} />)}
+          </div>
+          <Button variant="soft" onClick={() => save(channel)} disabled={!client || !!busy}>Guardar {channel}</Button>
+          {channel === 'email' && status?.email && <TestEmailRow client={client} />}
+        </div>
+      ))}
+      <p className="text-xs text-zinc-500">WhatsApp Web se vincula por negocio desde la sección WhatsApp.</p>
+    </Card>
+  )
+}
+
+/* El token pertenece al negocio seleccionado. La cuenta se asigna en Campañas. */
+function MetaAdsCard({ client }) {
+  const qc = useQueryClient()
+  const { data: marketing, isError } = useQuery({
+    queryKey: ['marketing', client], queryFn: () => api.marketing(client), enabled: !!client,
+  })
+  const [token, setToken] = useState('')
+  const [probe, setProbe] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const connected = !!marketing?.metaads_connected
   const status = probe?.ok === false
-    ? { label: 'Error: Key inválida', color: '#e11d48', icon: AlertCircle }
+    ? { label: 'Error de acceso', color: '#e11d48', icon: AlertCircle }
     : connected
-      ? { label: 'Conectado', color: '#16a34a', icon: CheckCircle2 }
+      ? { label: 'Configurado', color: '#16a34a', icon: CheckCircle2 }
       : { label: 'Sin conectar', color: '#8C929B', icon: WifiOff }
 
   const testConnection = async () => {
     setBusy(true)
     try {
-      const accounts = await api.metaadsAccounts()
+      const accounts = await api.metaadsAccounts(client)
       setProbe({ ok: true, accounts })
       toast.success('Conexión con Meta OK')
     } catch (e) {
@@ -197,59 +202,54 @@ function MetaAdsCard({ cfg, vals, set, save }) {
     } finally { setBusy(false) }
   }
 
-  const connect = () => {
-    save({
-      ...(vals.mt && { meta_ads_token: vals.mt }),
-      ...(vals.ma && { meta_ad_account_id: vals.ma }),
-    }, ['mt', 'ma'])
-    setEditing(false)
-    setProbe(null)
+  const connect = async () => {
+    if (!client || !token.trim()) return
+    setBusy(true)
+    try {
+      const saved = await api.setMetaadsToken(client, token.trim())
+      setToken('')
+      setProbe(null)
+      await qc.invalidateQueries({ queryKey: ['marketing', client] })
+      if (saved.backed_up) toast.success(`Token de Meta Ads guardado para ${client}`)
+      else toast.warning('Token guardado localmente; no se pudo respaldar en la nube')
+    } catch (e) { toast.error('No se pudo guardar: ' + e.message) }
+    finally { setBusy(false) }
   }
 
   return (
     <Card className="p-6">
       <div className="flex items-center justify-between">
-        <SectionTitle>Meta Ads (campañas)</SectionTitle>
+        <SectionTitle>Meta Ads · {client || 'elige un negocio'}</SectionTitle>
         <Badge color={status.color} className="inline-flex items-center gap-1">
           <status.icon size={12} /> {status.label}
         </Badge>
       </div>
-      <div className="text-xs text-zinc-400 mt-0.5 mb-3">
-        access token + Ad Account ID (act_…) de tu Meta Business · sin esto, datos mock
-      </div>
+      <p className="text-xs text-zinc-500 mt-1 mb-3">La credencial se guarda solo para este negocio. La cuenta publicitaria se asigna en <Link to="/campanas" className="text-gold-deep underline">Campañas</Link>.</p>
+      {isError && <p className="text-xs text-rose-600 mb-2">No se pudo leer la configuración de este negocio.</p>}
+      {marketing?.config?.ad_account && <p className="text-xs text-zinc-500 mb-3">Cuenta asignada: <code>{marketing.config.ad_account}</code></p>}
 
       {probe?.ok === false && (
         <div className="text-xs text-rose-600 mb-2 break-words">{probe.error}</div>
       )}
 
-      {connected && !editing ? (
-        <div className="flex items-center gap-2">
-          <Button variant="soft" onClick={testConnection} disabled={busy}>
-            {busy ? 'Probando…' : 'Probar conexión'}
-          </Button>
-          <Button variant="ghost" onClick={() => setEditing(true)}>Reconectar</Button>
+      <div className="space-y-2">
+        <Input type="password" autoComplete="off" aria-label="Token Meta Ads del negocio" placeholder="Access token para este negocio" value={token} onChange={(e) => setToken(e.target.value)} disabled={!client || busy} />
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={connect} disabled={!client || !token.trim() || busy}>Guardar token</Button>
+          <Button variant="soft" onClick={testConnection} disabled={!client || busy}>{busy ? 'Probando…' : 'Probar conexión'}</Button>
         </div>
-      ) : (
-        <div className="space-y-2">
-          <Input type="password" placeholder="Access token" value={vals.mt || ''} onChange={(e) => set('mt', e.target.value)} />
-          <Input placeholder="Ad Account ID (act_123…)" value={vals.ma || ''} onChange={(e) => set('ma', e.target.value)} />
-          <div className="flex gap-2">
-            <Button onClick={connect}>{connected ? 'Guardar y reconectar' : 'Conectar Meta Ads'}</Button>
-            {connected && <Button variant="ghost" onClick={() => setEditing(false)}>Cancelar</Button>}
-          </div>
-        </div>
-      )}
+      </div>
 
       {probe?.ok && (
         <div className="mt-3 space-y-1">
           {probe.accounts.length === 0 && <div className="text-xs text-zinc-400">El token no ve cuentas publicitarias.</div>}
           {probe.accounts.map((a) => (
-            <div key={a.id} className="text-xs flex items-center gap-2 bg-zinc-50 rounded-lg px-2 py-1">
+            <div key={a.id} className="text-xs flex items-center gap-2 bg-zinc-50 dark:bg-zinc-100 rounded-lg px-2 py-1">
               <code className="text-gold-deep font-semibold">{a.id}</code>
               <span className="text-zinc-500">{a.name}</span>
             </div>
           ))}
-          {probe.accounts.length > 0 && <div className="text-[11px] text-zinc-400 mt-1">Copia el <code>act_…</code> de la cuenta que quieras al campo de arriba y guarda.</div>}
+          {probe.accounts.length > 0 && <div className="text-[11px] text-zinc-500 mt-1">Asigna el <code>act_…</code> correspondiente en Campañas → Config del cliente.</div>}
         </div>
       )}
     </Card>
@@ -257,14 +257,14 @@ function MetaAdsCard({ cfg, vals, set, save }) {
 }
 
 /* Manda un correo de prueba a tu propia dirección para verificar que el SMTP envía. */
-function TestEmailRow() {
+function TestEmailRow({ client }) {
   const [to, setTo] = useState('')
   const [busy, setBusy] = useState(false)
   const send = async () => {
     if (!to.trim()) return
     setBusy(true)
     try {
-      await api.testEmail(to.trim())
+      await api.testEmail(client, to.trim())
       toast.success('Correo de prueba enviado — revisa tu inbox (y spam)')
     } catch (e) { toast.error('No se pudo enviar: ' + e.message) }
     finally { setBusy(false) }
