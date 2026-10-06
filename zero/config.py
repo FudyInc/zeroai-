@@ -43,6 +43,11 @@ DEFAULT_VENDOR_ID = "fernanda"
 # cae acá si no puede (ver zero/orchestrator.py::handle_inbound).
 DEFAULT_INBOUND_CLIENT_ID = "zeroai"
 
+# PoolEdge requiere dirección completa y despacho revisado por una persona antes
+# de emitir un total final (ficha confirmada el 2026-09-29). El cotizador genérico
+# solo suma productos e IVA; no debe enviar ese subtotal como presupuesto final.
+QUOTE_REVIEW_REQUIRED_CLIENT_IDS = frozenset({"pooledge"})
+
 # --- Acciones que una función programada puede PEDIR --------------------------
 # Una función sandboxeada nunca actúa por sí misma: corre con --network=none y
 # sin credenciales (zero/sandbox.py), así que lo único que puede hacer es

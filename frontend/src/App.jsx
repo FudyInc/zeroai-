@@ -32,6 +32,7 @@ import Funciones from './pages/Funciones'
 import Conductor from './pages/Conductor'
 import Aprobar from './pages/Aprobar'
 import Preferencias from './pages/Preferencias'
+import Avances from './pages/Avances'
 
 const AppCtx = createContext(null)
 export const useApp = () => useContext(AppCtx)
@@ -55,6 +56,7 @@ const TITLES = {
   '/conductor': ['Conductor', 'Lanza y monitorea las terminales de Claude Code del proyecto'],
   '/aprobar': ['Por aprobar', 'Lo que los agentes redactaron y espera tu visto bueno'],
   '/preferencias': ['Preferencias', 'Cómo ves tu propio dashboard — por dispositivo'],
+  '/avances': ['Avances', 'Decisiones, cambios y estado real de cada pedido'],
 }
 
 export default function App() {
@@ -203,6 +205,7 @@ export default function App() {
                 <Route path="/conductor" element={<Conductor />} />
                 <Route path="/aprobar" element={<Aprobar />} />
                 <Route path="/preferencias" element={<Preferencias />} />
+                <Route path="/avances" element={<Avances />} />
               </Routes>
             </motion.div>
           </main>

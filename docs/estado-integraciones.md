@@ -1,5 +1,11 @@
 # Estado de integraciones — qué es mock, qué es real, qué necesita cada cosa
 
+> **Documento histórico sin auditoría completa al 2026-09-29.** Las secciones sobre
+> cerebro IA y operación mock-first quedaron desactualizadas: el backend HTTP requiere
+> un motor real y responde 503 si falta, según `CLAUDE.md` y `api.py`. Verifica el
+> estado de cada integración en código y en el entorno activo antes de usar este mapa
+> como descripción de producción.
+
 Mapa para entender ZeroAI de un vistazo (útil para onboarding del socio).
 Hay **dos tipos de mock**: el **cerebro** (IA) y los **canales/datos externos**. No todo
 depende de Anthropic.

@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "id": "2026-10-06-cierre-motor-whatsapp",
+      "date": "2026-10-06",
+      "type": "change",
+      "title": "Cierre local del enrutamiento WhatsApp por empresa",
+      "origin": "Pedido de Diego de terminar y confirmar el lote pendiente",
+      "summary": "El número global de Twilio conserva el cliente predeterminado con varios vendedores; un receptor compartido atiende a un contacto existente solo cuando pertenece a una única empresa candidata. La ficha de PoolEdge no incluye importes calculables en texto libre.",
+      "status": "verificado en código local",
+      "scope": "Código y pruebas locales",
+      "evidence": "1049 pruebas Python OK el 2026-10-06; tests/test_whatsapp_company_context.py; docs/estado-motor-whatsapp.md; docs/ficha-pooledge.md",
+      "pending": "Verificar ficha activa, números receptores y conversación real en producción; conectar cotizador de PoolEdge con tarifas estructuradas y revisión del despacho."
+    },
+    {
+      "id": "2026-10-06-avances-validacion",
+      "date": "2026-10-06",
+      "type": "change",
+      "title": "Módulo Avances preparado en el checkout",
+      "origin": "Pedido de Diego de terminar y confirmar el lote pendiente",
+      "summary": "La API y la pantalla muestran el registro versionado con origen, evidencia y pendientes. La suite Python, las pruebas del frontend y su compilación pasaron en este checkout.",
+      "status": "verificado en código local",
+      "scope": "Código y compilación locales",
+      "evidence": "1049 pruebas Python, 2 pruebas frontend y npm run build OK el 2026-10-06; api.py; zero/progress_log.py; frontend/src/pages/Avances.jsx",
+      "pending": "Comprobar Avances en el servicio de producción después del despliegue."
+    },
+    {
+      "id": "2026-10-01-registro-avances",
+      "date": "2026-10-01",
+      "type": "input",
+      "title": "Registro visible de decisiones y avances",
+      "origin": "Pedido de Diego en esta conversación",
+      "summary": "Crear un módulo donde se publiquen los cambios, el progreso de sus pedidos y el avance de ZeroAI.",
+      "status": "en desarrollo",
+      "scope": "Código local",
+      "evidence": "frontend/src/pages/Avances.jsx; api.py; docs/registro-avances.json",
+      "pending": "Comprobar el módulo en el servicio de producción después del despliegue."
+    },
+    {
+      "id": "2026-10-01-motor-whatsapp",
+      "date": "2026-10-01",
+      "type": "change",
+      "title": "Motor WhatsApp: contexto y enrutamiento por empresa",
+      "origin": "Trabajo retomado a pedido de Diego",
+      "summary": "El número receptor define la empresa; se conserva el nombre de perfil y el historial; un envío fallido no aparece como respuesta entregada; PoolEdge no envía un total final sin revisar despacho.",
+      "status": "verificado en código",
+      "scope": "Código local",
+      "evidence": "1046 pruebas locales OK el 2026-10-01; docs/estado-motor-whatsapp.md",
+      "pending": "Verificar ficha activa, números receptores y conversación real en producción."
+    },
+    {
+      "id": "2026-09-29-pool-edge-presupuesto",
+      "date": "2026-09-29",
+      "type": "decision",
+      "title": "Reglas de presupuesto de PoolEdge",
+      "origin": "Confirmación de Diego registrada en la ficha del 2026-09-29",
+      "summary": "Presupuesto con productos separados, despacho revisado por una persona y abono reflejado según el pago confirmado.",
+      "status": "pendiente de integración",
+      "scope": "Documentación local",
+      "evidence": "docs/ficha-pooledge.md; docs/plantilla-presupuesto-pooledge.md",
+      "pending": "Conectar el cotizador, validar los precios vigentes y comprobar el almacén activo."
+    }
+  ]
+}

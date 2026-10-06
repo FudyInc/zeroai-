@@ -47,6 +47,7 @@ export const wsBase = () => {
 }
 
 export const api = {
+  avances: () => req('/api/avances').then((d) => d.entries),
   clients: () => req('/api/clients').then((d) => d.clients),
   accounts: () => req('/api/accounts'),
   setPlan: (c, tier) =>

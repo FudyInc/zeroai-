@@ -1,5 +1,9 @@
 # GO-LIVE — interruptores para pasar ZERO de mock a real
 
+> **Guía histórica sin auditoría completa al 2026-09-29.** La afirmación mock-first
+> de abajo ya no describe el backend HTTP: requiere motor real o responde 503.
+> Consulta `CLAUDE.md` y el código actual antes de ejecutar pasos de despliegue.
+
 Esta rama (`integration`) corre **mock-first**: todo funciona offline, sin keys y sin
 gasto. Los mocks **se quedan** (son la red de seguridad y el modo de desarrollo). Para
 encender el modo real, activa estos interruptores **en orden**. Cada uno es independiente:

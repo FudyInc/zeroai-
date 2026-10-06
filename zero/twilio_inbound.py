@@ -64,4 +64,7 @@ def parse_inbound(params: Dict[str, Any]) -> List[Dict[str, str]]:
             n_media = 0
         text = "[media]" if n_media > 0 else "[mensaje]"
     to = "".join(ch for ch in str(params.get("To") or "") if ch.isdigit())
-    return [{"from": frm, "text": text, "to": to}]
+    parsed = {"from": frm, "text": text, "to": to}
+    if params.get("ProfileName"):
+        parsed["profile_name"] = str(params["ProfileName"])
+    return [parsed]

@@ -38,7 +38,7 @@ from zero.channels import make_outbox, whatsapp_provider
 from zero.icp import normalize_icp
 from zero.orchestrator import Zero
 from zero.quotes import compute_quote, format_quote, normalize_pricing
-from zero import runs, tasks, telemetry
+from zero import runs, tasks, telemetry, progress_log
 from zero.store import make_crm, make_memory
 from zero.vendors import clients_count_for
 from zero._supabase import SupabaseError
@@ -1136,7 +1136,9 @@ def _process_inbound_messages(msgs: list, to_key: str) -> None:
     agents, _ = _agents_whatsapp()
     zero = Zero(agents, memory=memory, crm=crm, outbox=make_outbox())
     for m in msgs:
-        zero.handle_inbound(m["from"], m["text"], to_phone_id=m.get(to_key))
+        zero.handle_inbound(m["from"], m["text"], to_phone_id=m.get(to_key),
+                            profile_name=m.get("profile_name"),
+                            provider="twilio" if to_key == "to" else "meta")
 
 
 @app.post("/api/webhooks/whatsapp")
@@ -1374,6 +1376,16 @@ def pipeline_runs(limit: int = 10):
     """Las corridas que el proceso todavía recuerda — para reenganchar la pantalla
     después de un F5 sin tener que guardar el id en el navegador."""
     return {"runs": runs.ultimas(limit)}
+
+
+@app.get("/api/avances")
+def avances():
+    """Decisiones y cambios de producto, versionados y visibles solo al admin."""
+    try:
+        entries = progress_log.list_entries()
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=503, detail=f"Registro de avances no disponible: {exc}") from exc
+    return {"entries": entries}
 
 
 # --- El ciclo autónomo, visible ------------------------------------------------

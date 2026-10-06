@@ -43,6 +43,7 @@ export const PAGE_ROLES = {
   '/equipo': [],
   '/funciones': [],
   '/conductor': [],
+  '/avances': [],
   '/aprobar': ['cro', 'cto', 'cco'],
   '/preferencias': ['cro', 'cto', 'cco'],
 }

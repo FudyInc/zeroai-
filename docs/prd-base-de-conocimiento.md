@@ -1,6 +1,7 @@
 # PRD — Base de conocimiento por empresa
 
-**Estado:** borrador · 2026-08-21
+**Estado:** revisión parcial · 2026-09-29. Se verificaron los puntos indicados abajo
+contra el código; el almacén de producción no se verificó.
 **Contexto:** ZERO se despliega en distintas empresas. Cada una necesita que el agente
 sepa *su* negocio. Este documento define qué existe hoy, qué falta y en qué orden.
 
@@ -38,22 +39,23 @@ su ICP, su catálogo y su vendedor. Instalar ZERO en una empresa nueva no requie
 `knowledge`, aunque el orquestador ya lo pasaba. Con motor local (qwen2.5:14b) el modelo
 ignoraba la ficha y contestaba genérico. Corregido el 2026-08-21.
 
-### 3.2 El catch-all de mensajes nuevos apunta al cliente equivocado — ABIERTO
-`config.DEFAULT_INBOUND_CLIENT_ID = "demo"`. Un desconocido que escribe al WhatsApp se
-atiende con el contexto de `demo` (pallets de madera). Para vender ZeroAI hay que
-apuntarlo a `zeroai`. Decisión de negocio: vive en `config.py`, no en código.
+### 3.2 El catch-all de mensajes nuevos apunta a ZeroAI — CERRADO EN CÓDIGO
+`config.DEFAULT_INBOUND_CLIENT_ID = "zeroai"` (verificado el 2026-09-29). El
+enrutamiento de producción y su ficha activa requieren comprobación aparte.
 
-### 3.3 Un número por empresa — ABIERTO
+### 3.3 Un número por empresa — PENDIENTE DE VERIFICAR EN EL ALMACÉN
 `_resolve_inbound_client` sabe resolver la empresa por el número que recibió el mensaje,
-pero los vendedores no tienen `phone_id` asignado, así que siempre cae al catch-all. Con
-más de una empresa en producción esto deja de ser opcional: dos clientes compartiendo
-número es ambigüedad que el código, correctamente, se niega a adivinar.
+si el vendedor tiene `whatsapp_phone_id` asignado. Este documento no demuestra qué
+números tienen asignados los vendedores en el almacén actual. Hay que comprobarlo
+antes de conectar otra empresa: dos clientes compartiendo número crearían ambigüedad.
 
-### 3.4 La ficha vive solo en la nube — MITIGADO
-La carga por dashboard escribe en Supabase; si se pierde, se pierde el trabajo de
-redacción. Mitigado con `docs/ficha-*.md` versionado + `scripts/cargar_empresa.py`, que
-reconstruye una empresa desde el repo. Falta el camino inverso (exportar lo que se
-editó en el dashboard de vuelta al repo).
+### 3.4 La ficha activa puede diferir de la versionada — ABIERTO
+La carga por dashboard escribe en el almacén configurado (Supabase o archivo local)
+y conserva versiones allí, pero no modifica `docs/ficha-zeroai.md`. El archivo
+versionado y `scripts/cargar_empresa.py` permiten reconstruir la ficha, pero cargarlo
+sin revisar podría pisar una edición posterior hecha en el dashboard. El comparador
+de solo lectura `scripts/verificar_ficha.py --empresa zeroai` detecta diferencias;
+falta incorporar al repositorio las ediciones válidas del dashboard.
 
 ### 3.5 Límite de 4000 caracteres — ACEPTADO POR AHORA
 `reply_to_inbound` corta la ficha en 4000 caracteres para no reventar el contexto. Sirve
@@ -74,8 +76,12 @@ caro en un modelo local), sino recuperar solo los trozos relevantes al mensaje.
 
 ## 5. Orden de trabajo
 
-1. Cargar la ficha de ZeroAI y corregir su `sells`. *(listo, pendiente de aplicar)*
-2. Decidir y apuntar `DEFAULT_INBOUND_CLIENT_ID`. *(3.2 — decisión de Diego)*
+1. Verificar cuál ficha está activa en producción y conciliarla con
+   `docs/ficha-zeroai.md` antes de cargar cambios. El archivo local de este checkout
+   no tiene ficha para `zeroai` (verificado el 2026-09-29); eso no demuestra el estado
+   de Supabase ni del servicio en producción.
+2. `DEFAULT_INBOUND_CLIENT_ID` ya apunta a `zeroai` en el código; comprobar su
+   despliegue y el enrutamiento real.
 3. Asignar `phone_id` por vendedor cuando haya una segunda empresa en producción. *(3.3)*
 4. Exportar ficha del dashboard → repo. *(3.4)*
 5. Recuperación por trozos, solo si una empresa real no cabe. *(3.5)*

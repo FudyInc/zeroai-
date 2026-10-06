@@ -58,24 +58,27 @@ class CoreIntentTest(unittest.TestCase):
         self.assertEqual(_intent("¿podemos agendar una llamada?")["intent"], "meeting")
 
     def test_intent_accept_simple(self):
-        self.assertEqual(_intent("dale")["intent"], "accept")
+        # "ya" a secas: el ok chileno por WhatsApp. El afirmativo rioplatense que
+        # ocupaba este lugar salió del léxico — ver tests/test_concierge_persona.py.
+        self.assertEqual(_intent("ya")["intent"], "accept")
 
 
 class AcceptEdgeCaseTest(unittest.TestCase):
     """'accept' is the most edge-case-prone intent: short, caps, tildes, emojis."""
 
     def test_intent_accept_with_caps(self):
-        self.assertEqual(_intent("DALE")["intent"], "accept")
+        self.assertEqual(_intent("LISTO")["intent"], "accept")
 
     def test_intent_accept_edge_tildes(self):
-        # con tilde ("sí") y sin ella ("dale") deben dar lo mismo
-        self.assertEqual(_intent("Sí, dale")["intent"], "accept")
+        # con tilde ("sí") y sin ella ("ya") deben dar lo mismo
+        self.assertEqual(_intent("Sí, ya")["intent"], "accept")
+        self.assertEqual(_intent("ya, si")["intent"], "accept")
 
     def test_intent_accept_edge_short_msg(self):
         self.assertEqual(_intent("ok")["intent"], "accept")
 
     def test_intent_accept_edge_emoji(self):
-        self.assertEqual(_intent("dale 👍")["intent"], "accept")
+        self.assertEqual(_intent("ya 👍")["intent"], "accept")
         self.assertEqual(_intent("sí👍")["intent"], "accept")
 
     def test_intent_accept_vale(self):

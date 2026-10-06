@@ -111,19 +111,22 @@ class SupabaseCRM(CRM):
         return len(rows)
 
     def find_by_contact(self, phone: Optional[str] = None,
-                        email: Optional[str] = None) -> Optional[Dict[str, Any]]:
+                        email: Optional[str] = None,
+                        client_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Match an inbound (WhatsApp/email reply) to its lead without a full scan.
         Email matches server-side; phone scans a bounded window of recent leads
         (the one that replies was contacted recently) and compares by digits."""
         em = (email or "").strip().lower()
+        client_filter = ("&client_id=eq." + urllib.parse.quote(str(client_id), safe="")) \
+            if client_id else ""
         if em and "@" in em:
             q = urllib.parse.quote(em, safe="")
-            rows = self._req("GET", f"{self.TABLE}?email=ilike.{q}&limit=1") or []
+            rows = self._req("GET", f"{self.TABLE}?email=ilike.{q}{client_filter}&limit=1") or []
             if rows:
                 return self._row_to_rec(rows[0])
         pd = "".join(c for c in str(phone or "") if c.isdigit())
         if pd:
-            rows = self._req("GET", f"{self.TABLE}?select=*&order=updated.desc&limit=500") or []
+            rows = self._req("GET", f"{self.TABLE}?select=*{client_filter}&order=updated.desc&limit=500") or []
             for row in rows:
                 rp = "".join(c for c in str(row.get("phone") or "") if c.isdigit())
                 if rp and rp == pd:

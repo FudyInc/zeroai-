@@ -1270,9 +1270,8 @@ class WhatsAppVendorSendTest(unittest.TestCase):
                 else:
                     os.environ[k] = v
 
-    def test_inbound_reply_uses_vendor_of_received_number(self):
-        """Una respuesta sale del número al que el lead escribió (su vendedor por
-        phone_id), aunque el cliente esté asignado a otro vendedor."""
+    def test_inbound_reply_does_not_guess_company_from_unassigned_vendor(self):
+        """Un vendedor sin empresa asociada no identifica el negocio del mensaje."""
         import os
         prev = {k: os.environ.get(k) for k in ("WHATSAPP_TOKEN_STEFANO", "WHATSAPP_TOKEN")}
         os.environ["WHATSAPP_TOKEN_STEFANO"] = "tok-s"
@@ -1298,12 +1297,13 @@ class WhatsAppVendorSendTest(unittest.TestCase):
             from_contact = "".join(c for c in (lead.get("phone") or lead.get("email") or "") if c.isalnum())
 
             box.calls.clear()
-            # llega un mensaje al NÚMERO de Stéfano (no el de Fernanda)
-            z.handle_inbound(from_contact, "¿qué hacen?", to_phone_id=stefano["whatsapp_phone_id"])
+            # El número de Stéfano no está asociado a acme. La coincidencia del
+            # contacto en el CRM no autoriza a contestar como esa empresa.
+            result = z.handle_inbound(from_contact, "¿qué hacen?",
+                                      to_phone_id=stefano["whatsapp_phone_id"])
             wa_calls = [c for c in box.calls if c[0] == "whatsapp"]
-            self.assertTrue(wa_calls)
-            # respondió con las credenciales de Stéfano (el número que recibió), no Fernanda
-            self.assertEqual(wa_calls[-1][1], (stefano["whatsapp_phone_id"], "tok-s"))
+            self.assertFalse(result["matched"])
+            self.assertFalse(wa_calls)
         finally:
             for k, v in prev.items():
                 if v is None:
@@ -1324,7 +1324,7 @@ class ConciergeTest(unittest.TestCase):
     def test_concierge_intents(self):
         z = Zero(build_agents(mock=True), memory=SessionMemory(None))
         z.memory.set_client_icp("acme", {"sells": "pallets de madera"})
-        self.assertIn("plan", z.converse("acme", "¿cuánto cuesta?").lower())
+        self.assertIn("detalles", z.converse("acme", "¿cuánto cuesta?").lower())
         self.assertIn("pallets", z.converse("acme", "¿qué hacen exactamente?").lower())
         self.assertTrue(z.converse("acme", "¿podemos agendar una llamada?"))
         # transparency: admits it's an AI if asked
@@ -1354,7 +1354,8 @@ class ConciergeTest(unittest.TestCase):
         z = Zero(build_agents(mock=True), memory=SessionMemory(None))
         r = self._intent(z, "¿de dónde sacaste mi número?")
         self.assertEqual(r["intent"], "trust")
-        self.assertIn("pública", r["reply"].lower())   # honesto: fuente del contacto
+        self.assertIn("revisar", r["reply"].lower())
+        self.assertNotIn("información pública", r["reply"].lower())
 
     def test_objections_are_handled(self):
         z = Zero(build_agents(mock=True), memory=SessionMemory(None))
@@ -1417,7 +1418,9 @@ class ConciergeTest(unittest.TestCase):
         # Afirmaciones cortas sin contenido propio → 'accept', con una propuesta
         # concreta de siguiente paso (no el menú genérico de 'general').
         z = Zero(build_agents(mock=True), memory=SessionMemory(None))
-        for msg in ("dale, vamos", "ok", "vale", "sí👍", "perfecto, genial"):
+        # "ya" es el afirmativo más común por WhatsApp en Chile; reemplazó al
+        # rioplatense que estaba acá (ver tests/test_concierge_persona.py).
+        for msg in ("ya, vamos", "ok", "vale", "sí👍", "perfecto, genial"):
             r = self._intent(z, msg)
             self.assertEqual(r["intent"], "accept", msg)
             self.assertIn("?", r["reply"])  # sigue proponiendo un siguiente paso
@@ -1599,14 +1602,13 @@ class InboundClientResolutionTest(unittest.TestCase):
         client = z._resolve_inbound_client(fernanda["whatsapp_phone_id"])
         self.assertEqual(client, "acme")
 
-    def test_vendor_shared_by_several_clients_falls_back_to_default(self):
+    def test_vendor_shared_by_several_clients_does_not_guess(self):
         z = self._zero()
         z.memory.set_client_vendor("acme", "fernanda")
         z.memory.set_client_vendor("otra-empresa", "fernanda")   # mismo vendedor, dos clientes
         fernanda = z.memory.get_vendor("fernanda")
-        from zero.config import DEFAULT_INBOUND_CLIENT_ID
         client = z._resolve_inbound_client(fernanda["whatsapp_phone_id"])
-        self.assertEqual(client, DEFAULT_INBOUND_CLIENT_ID)
+        self.assertIsNone(client)
 
     def test_no_phone_id_falls_back_to_default(self):
         z = self._zero()
@@ -1617,6 +1619,12 @@ class InboundClientResolutionTest(unittest.TestCase):
         z = self._zero()
         from zero.config import DEFAULT_INBOUND_CLIENT_ID
         self.assertEqual(z._resolve_inbound_client("no-existe-este-numero"), DEFAULT_INBOUND_CLIENT_ID)
+
+    def test_unknown_phone_id_with_multiple_clients_does_not_guess(self):
+        z = self._zero()
+        z.memory.register_client("zeroai", "GROWTH")
+        z.memory.register_client("pooledge", "GROWTH")
+        self.assertIsNone(z._resolve_inbound_client("numero-desconocido"))
 
     def test_disabled_default_returns_none_when_no_vendor_match(self):
         import zero.config as config
@@ -1710,7 +1718,7 @@ class ConciergeEdgeCasesTest(unittest.TestCase):
                         constraints=Constraints(channels=["whatsapp"]))
         r = z.agents["CONCIERGE"].run(t).result
         self.assertTrue(r["reply"])
-        self.assertTrue(r["reply"].startswith("Hola,") or r["reply"].startswith("Hola "))
+        self.assertTrue(r["reply"].startswith("Estimado/a,"))
 
 
 class PendingOfferTest(unittest.TestCase):
@@ -1742,13 +1750,13 @@ class PendingOfferTest(unittest.TestCase):
         r3 = z.handle_inbound(sender, "ok")              # ya no hay nada pendiente
         self.assertNotEqual(r3["intent"], "fulfill")
 
-    def test_objection_yes_gets_examples(self):
+    def test_objection_without_offer_does_not_trigger_summary(self):
         z, _, _, sender = self._zero()
         r1 = z.handle_inbound(sender, "ya trabajamos con alguien que nos hace esto")
         self.assertEqual(r1["intent"], "objection")
         r2 = z.handle_inbound(sender, "bueno, déjalos")
-        self.assertEqual(r2["intent"], "fulfill")
-        self.assertIn("3 ejemplos", r2["reply"])
+        self.assertNotEqual(r2["intent"], "fulfill")
+        self.assertNotIn("Gerente de operaciones", r2["reply"])
 
     def test_acceptance_with_email_goes_to_email(self):
         z, _, _, sender = self._zero()

@@ -62,6 +62,16 @@ def parse_inbound(payload: Dict[str, Any]) -> List[Dict[str, str]]:
                 continue
             metadata = value.get("metadata") or {}
             to_phone_id = str((metadata.get("phone_number_id") if isinstance(metadata, dict) else None) or "")
+            profiles: Dict[str, str] = {}
+            contacts = value.get("contacts") or []
+            if not isinstance(contacts, list):
+                contacts = []
+            for contact in contacts:
+                if not isinstance(contact, dict):
+                    continue
+                profile = contact.get("profile") or {}
+                if isinstance(profile, dict) and contact.get("wa_id") and profile.get("name"):
+                    profiles[str(contact["wa_id"])] = str(profile["name"])
             messages = value.get("messages") or []
             if not isinstance(messages, list):
                 continue
@@ -77,5 +87,8 @@ def parse_inbound(payload: Dict[str, Any]) -> List[Dict[str, str]]:
                     text = (text_obj.get("body") if isinstance(text_obj, dict) else None) or ""
                 else:
                     text = f"[{mtype or 'mensaje'}]"
-                out.append({"from": frm, "text": text, "to_phone_id": to_phone_id})
+                parsed = {"from": frm, "text": text, "to_phone_id": to_phone_id}
+                if profiles.get(frm):
+                    parsed["profile_name"] = profiles[frm]
+                out.append(parsed)
     return out
