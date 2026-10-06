@@ -11,10 +11,12 @@ Then the frontend (or http://localhost:8800/docs) talks to it.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 import threading
 import time
+import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, Optional
@@ -25,12 +27,13 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Red
 from pydantic import BaseModel
 
 from zero._env import load_env, set_env
-from zero.agents import build_agents
 
 load_env()   # secrets locales (.env) — los de Render env ya están en os.environ
 from zero.cloud_env import backed_up_keys, load_into_environ, save_secret
 load_into_environ()   # + secretos guardados en la nube (sobreviven a redeploys)
+from zero.agents import build_agents
 from zero.config import (AGENCY_CLIENT_ID, AVG_DEAL_VALUE_CLP, CRM_OPEN_STAGES, CRM_STAGES,
+                         DEFAULT_INBOUND_CLIENT_ID, DEFAULT_INBOUND_WHATSAPP_NUMBER,
                          DEFAULT_VENDOR_ID, MAX_INBOUND_MESSAGE_CHARS, PUBLIC_FORM_MAX_PER_HOUR_PER_IP,
                          PUBLIC_FORM_MAX_PER_HOUR_TOTAL, PUBLIC_FORM_SOURCES,
                          QUOTE_REVIEW_REQUIRED_CLIENT_IDS, TIERS)
@@ -98,6 +101,7 @@ _ROLE_ALLOWED: dict = {
         ("POST", "/api/accounts"),        # Clientes.jsx (cambiar plan)
         ("GET", "/api/forecast"),         # Forecast.jsx (compartido con cto)
         ("GET", "/api/campaigns"),        # Campañas.jsx (incluye /campaigns/optimize)
+        ("GET", "/api/metaads/accounts"), # verificar token del cliente en Campañas.jsx
         ("GET", "/api/marketing"),        # Campañas.jsx
         ("POST", "/api/marketing"),       # Campañas.jsx
         ("POST", "/api/campaigns"),       # Campañas.jsx (sync-leads)
@@ -140,7 +144,8 @@ _ROLE_ALLOWED: dict = {
         ("POST", "/api/leads"),           # LeadModal (enviar el borrador aprobado)
         ("POST", "/api/followups"),       # correr seguimientos (TRACKER) — su trabajo central
         ("GET", "/api/vendors"),          # Whatsapp.jsx — catálogo de personalidades
-        ("POST", "/api/vendors"),         # editar el tono de cada agente
+        ("GET", "/api/agent-profile"),
+        ("POST", "/api/agent-profile"),
         ("GET", "/api/vendor"),           # vendedor asignado a un cliente
         ("POST", "/api/vendor"),          # asignar/desplegar personalidad
         ("GET", "/api/knowledge"),        # ficha de la empresa (WhatsApp) + /versions
@@ -149,7 +154,8 @@ _ROLE_ALLOWED: dict = {
         ("POST", "/api/cases"),
         ("GET", "/api/pricing"),          # precios que cita el agente (WhatsApp)
         ("POST", "/api/pricing"),
-        ("GET", "/api/whatsapp"),         # /whatsapp/status
+        ("GET", "/api/whatsapp"),         # /whatsapp/status y /web/chats
+        ("POST", "/api/whatsapp/web"),    # responder en un chat abierto
         ("POST", "/api/whatsapp"),        # /whatsapp/simulate — probar el chat
         ("GET", "/api/emails"),           # Vender.jsx
         ("POST", "/api/pitch"),           # Vender.jsx — compose/generate/send
@@ -603,8 +609,10 @@ def set_plan(client: str, body: PlanChange):
 
 
 @app.get("/api/kpis")
-def kpis(client: Optional[str] = None):
-    counts = _crm().counts(client)           # one query · None = resumen de agencia
+def kpis(client: str):
+    if client not in make_memory(STATE_PATH).clients:
+        raise HTTPException(status_code=404, detail="cliente no encontrado")
+    counts = _crm().counts(client)
     won = counts.get("won", 0)
     return {
         "total": sum(counts.values()),
@@ -642,16 +650,14 @@ def leads(client: str, group: str = "todos", limit: int = 50, offset: int = 0):
 
 
 @app.get("/api/leads/pending")
-def leads_pending(client: Optional[str] = None):
-    """La bandeja de aprobación: todo lo que los agentes redactaron y espera
-    el visto bueno de una persona. Sin `client`, de TODOS los clientes a la vez
-    — es la vista que Diego abre desde el celular para despachar el trabajo que
-    las corridas automáticas dejaron durante el día (ver la política de
-    borradores en zero/config.py::FUNCTION_JOBS_AUTO_SEND).
+def leads_pending(client: str):
+    """Borradores pendientes exclusivamente del negocio seleccionado.
 
     Devuelve solo lo que la bandeja necesita mostrar, no el registro completo
     del CRM: se lee por datos móviles y el historial de un lead puede ser
     largo. Para el detalle completo ya está GET /api/leads."""
+    if client not in make_memory(STATE_PATH).clients:
+        raise HTTPException(status_code=404, detail="cliente no encontrado")
     rows = _crm().pending_outreach(client)
     return {"pending": [{
         "key": r.get("key"),
@@ -668,14 +674,13 @@ def leads_pending(client: Optional[str] = None):
 
 
 @app.get("/api/leads/search")
-def leads_search(q: str, limit: int = 20):
-    """Busca un lead por company/email/phone en TODOS los clientes a la vez — el
-    salto rápido cuando no se sabe de antemano en qué cuenta está (a diferencia
-    de /api/leads, que siempre exige ?client=). Cada resultado ya trae su propio
-    client_id (columna nativa del registro), no hace falta ningún wrapper extra."""
+def leads_search(q: str, client: str, limit: int = 20):
+    """Busca leads solo dentro del negocio seleccionado."""
     if len(q.strip()) < 2:
         raise HTTPException(status_code=400, detail="query muy corta (mínimo 2 caracteres)")
-    rows = _crm().search(q, limit=limit)
+    if client not in make_memory(STATE_PATH).clients:
+        raise HTTPException(status_code=404, detail="cliente no encontrado")
+    rows = _crm().search(q, limit=limit, client_id=client)
     return {"results": rows, "q": q, "limit": limit}
 
 
@@ -711,7 +716,7 @@ def _safe_campaigns(client: str, cfg: dict):
     badge chico. Una cifra falsa bien maquetada se lee como real: es peor que una
     pantalla vacía que dice por qué está vacía. La pestaña sigue sin romperse."""
     from zero.metaads import make_metaads
-    src = make_metaads(cfg)
+    src = make_metaads(cfg, client_id=client)
     if not getattr(src, "live", False):
         return [], "sin_datos", None
     try:
@@ -722,15 +727,22 @@ def _safe_campaigns(client: str, cfg: dict):
 
 @app.get("/api/campaigns")
 def campaigns(client: str):
-    """Campañas de Meta Ads del cliente, en CLP (mock si no hay credenciales de Meta)."""
-    from zero.metaads import CHILE
+    """Campañas e Insights reales de la cuenta asignada al cliente."""
+    from zero.metaads import CHILE, make_metaads
     cfg = _client_meta_cfg(client)
     items, source, error = _safe_campaigns(client, cfg)
+    daily_spend = []
+    if source == "live":
+        try:
+            daily_spend = make_metaads(cfg, client_id=client).daily_spend()
+        except Exception:
+            pass  # La serie es opcional; las cifras mensuales siguen siendo reales.
     spent = sum(c["spent_clp"] for c in items)
     leads = sum(c["leads"] for c in items)
     return {
         "client": client,
         "campaigns": items,
+        "daily_spend": daily_spend,
         "summary": {
             "spent_clp": spent, "leads": leads,
             "cpl_clp": round(spent / leads) if leads else 0,
@@ -743,36 +755,26 @@ def campaigns(client: str):
 
 @app.post("/api/campaigns/sync-leads")
 def sync_ad_leads(client: str):
-    """Trae los leads de Meta Lead Ads y los mete al CRM (el 'producto único').
-
-    Se niega si Meta no está conectado. Sin token ni cuenta, `make_metaads` devuelve
-    el mock, y sus leads salen etiquetados `source: "meta_ads"` — una vez guardados
-    son indistinguibles de gente real. Importarlos ensuciaría el sistema de registro
-    con contactos que no existen. Es la misma regla que ya aplica el camino autónomo
-    en `function_actions.run_job`: en mock no se escribe al CRM.
-    """
+    """La importación queda cerrada hasta implementar Lead Ads real."""
     from zero.metaads import make_metaads
     cfg = _client_meta_cfg(client)
-    src = make_metaads(cfg)
+    src = make_metaads(cfg, client_id=client)
     if not getattr(src, "live", False):
         raise HTTPException(status_code=400, detail=(
-            "Meta Ads no está conectado: falta el token de la agencia o la cuenta "
-            "publicitaria del cliente. Conéctalo en Configuración — hasta entonces no "
-            "se importa nada, para no meter leads inventados al CRM."))
-    leads = src.lead_ads(client, cfg)
-    crm = make_crm(CRM_PATH)
-    memory = make_memory(STATE_PATH)
-    zero = Zero(build_agents(mock=True), memory=memory, crm=crm)
-    return zero.import_ad_leads(client, leads)
+            "Meta Ads no está conectado para este negocio: configura su token y cuenta publicitaria."))
+    raise HTTPException(status_code=501, detail="La importación de formularios Lead Ads aún no está disponible.")
 
 
 @app.get("/api/metaads/accounts")
-def metaads_accounts():
-    """Prueba el token de Meta y lista las cuentas publicitarias que puede gestionar."""
-    token = os.environ.get("META_ADS_TOKEN")
+def metaads_accounts(client: str):
+    """Prueba solo el token del negocio seleccionado."""
+    from zero.metaads import client_token, list_ad_accounts
+    memory = make_memory(STATE_PATH)
+    if client not in memory.clients:
+        raise HTTPException(status_code=404, detail="cliente no encontrado")
+    token = client_token(client)
     if not token:
-        raise HTTPException(status_code=400, detail="Configura primero el token de Meta Ads.")
-    from zero.metaads import list_ad_accounts
+        raise HTTPException(status_code=400, detail="Configura primero el token de Meta Ads de este negocio.")
     try:
         return {"accounts": list_ad_accounts(token)}
     except RuntimeError as e:
@@ -798,17 +800,111 @@ class Marketing(BaseModel):
 
 @app.get("/api/marketing")
 def get_marketing(client: str):
-    return {"client": client, "config": make_memory(STATE_PATH).get_client_meta(client)}
+    from zero.metaads import client_token
+    memory = make_memory(STATE_PATH)
+    if client not in memory.clients:
+        raise HTTPException(status_code=404, detail="cliente no encontrado")
+    cfg = memory.get_client_meta(client)
+    return {"client": client, "config": cfg,
+            "metaads_connected": bool(cfg.get("ad_account") and client_token(client))}
 
 
 @app.post("/api/marketing")
 def set_marketing(client: str, body: Marketing):
+    from zero.metaads import client_token
     memory = make_memory(STATE_PATH)
+    if client not in memory.clients:
+        raise HTTPException(status_code=404, detail="cliente no encontrado")
     cfg = dict(memory.get_client_meta(client))
-    cfg.update({k: v for k, v in body.dict().items() if v is not None})
+    updates = body.model_dump(exclude_unset=True)
+    if "ad_account" in updates:
+        account = (updates.pop("ad_account") or "").strip()
+        if account and not account.startswith("act_"):
+            account = "act_" + account
+        if account and not account[4:].isdigit():
+            raise HTTPException(status_code=400, detail="ID de cuenta publicitaria inválido")
+        if account:
+            for other, data in memory.clients.items():
+                assigned = str((data.get("meta") or {}).get("ad_account") or "").strip()
+                if other != client and assigned.removeprefix("act_") == account[4:]:
+                    raise HTTPException(status_code=409, detail=(
+                        f"La cuenta publicitaria ya está asignada a {other}."))
+            cfg["ad_account"] = account
+        else:
+            cfg.pop("ad_account", None)
+    cfg.update({k: v for k, v in updates.items() if v is not None})
     memory.set_client_meta(client, cfg)
     memory.save()
-    return {"client": client, "config": cfg}
+    return {"client": client, "config": cfg,
+            "metaads_connected": bool(cfg.get("ad_account") and client_token(client))}
+
+
+class MetaTokenBody(BaseModel):
+    token: str
+
+
+@app.post("/api/metaads/token")
+def set_metaads_token(client: str, body: MetaTokenBody):
+    """Credencial de un negocio. Admin-only por el guard de rutas."""
+    from zero.metaads import client_token_key
+    memory = make_memory(STATE_PATH)
+    if client not in memory.clients:
+        raise HTTPException(status_code=404, detail="cliente no encontrado")
+    token = body.token.strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="token vacío")
+    key = client_token_key(client)
+    set_env(key, token)
+    backed_up = save_secret(key, token)
+    return {"client": client, "configured": True, "backed_up": backed_up}
+
+
+class IntegrationCredentials(BaseModel):
+    values: dict[str, str]
+
+
+@app.get("/api/integrations")
+def client_integrations(client: str):
+    """Estado de las conexiones de un negocio, sin devolver secretos."""
+    from zero.client_integrations import configured, credentials, whatsapp_provider
+    memory = make_memory(STATE_PATH)
+    if client not in memory.clients:
+        raise HTTPException(status_code=404, detail="cliente no encontrado")
+    return {"client": client,
+            "email": configured(client, "email"),
+            "vapi": configured(client, "vapi"),
+            "whatsapp_cloud": configured(client, "whatsapp"),
+            "whatsapp_provider": whatsapp_provider(client),
+            "whatsapp_webhook_ready": bool(credentials(client, "whatsapp").get("WHATSAPP_APP_SECRET") and
+                                           credentials(client, "whatsapp").get("WHATSAPP_VERIFY_TOKEN")),
+            "whatsapp_number": bool(memory.get_client_agent_profile(client).get("whatsapp_number"))}
+
+
+@app.post("/api/integrations")
+def set_client_integration(client: str, channel: str, body: IntegrationCredentials):
+    """Admin-only: credenciales exclusivamente del negocio indicado."""
+    from zero.client_integrations import FIELDS, configured, credentials, save_credentials
+    memory = make_memory(STATE_PATH)
+    if client not in memory.clients:
+        raise HTTPException(status_code=404, detail="cliente no encontrado")
+    if channel not in FIELDS or not set(body.values) <= set(FIELDS[channel]):
+        raise HTTPException(status_code=400, detail="integración inválida")
+    if not any(str(v).strip() for v in body.values.values()):
+        raise HTTPException(status_code=400, detail="no se entregaron credenciales")
+    if channel == "whatsapp" and body.values.get("WHATSAPP_PROVIDER") == "web":
+        from zero.whatsapp_web import _client_ports
+        if client != DEFAULT_INBOUND_CLIENT_ID and client not in _client_ports():
+            raise HTTPException(status_code=409, detail="Este negocio aún no tiene una sesión de WhatsApp Web propia")
+    exclusive = {"VAPI_API_KEY", "WHATSAPP_TOKEN", "WHATSAPP_PHONE_ID",
+                 "WHATSAPP_APP_SECRET", "WHATSAPP_VERIFY_TOKEN", "SMTP_FROM"}
+    for field, value in body.values.items():
+        if field in exclusive and str(value).strip():
+            for other in memory.clients:
+                if other != client and credentials(other, channel).get(field) == str(value).strip():
+                    raise HTTPException(status_code=409, detail=f"{field} ya está asignado a {other}")
+    backed_up = save_credentials(client, channel, body.values)
+    return {"client": client, "channel": channel,
+            "configured": configured(client, channel), "backed_up": backed_up}
 
 
 @app.get("/api/leads/{key}")
@@ -990,7 +1086,9 @@ def _agents_whatsapp(source=None):
 
     backend = FallbackBackend(LocalBackend(model=model, base_url=url),
                               secondary=paid, on_fallback=_warn)
-    return build_agents(backend=backend, mock=False, source=source), "local"
+    agents = build_agents(backend=backend, mock=False, source=source)
+    agents["CONCIERGE"].prompt_file = "concierge-whatsapp-local.md"
+    return agents, "local"
 
 
 def _whatsapp_engine_status():
@@ -1090,15 +1188,150 @@ def _agent_op(fn, memory=None, crm=None):
 
 
 @app.get("/api/whatsapp/status")
-def whatsapp_status():
+def whatsapp_status(client: str):
     """Prueba el token + phone_id de WhatsApp contra la Graph API real."""
-    if not (os.environ.get("WHATSAPP_TOKEN") and os.environ.get("WHATSAPP_PHONE_ID")):
-        raise HTTPException(status_code=400, detail="Configura primero WhatsApp en Configuración.")
+    from zero.client_integrations import configured, credentials
+    if client not in make_memory(STATE_PATH).clients:
+        raise HTTPException(status_code=404, detail="cliente no encontrado")
+    if not configured(client, "whatsapp"):
+        raise HTTPException(status_code=400, detail="WhatsApp Cloud no está configurado para este negocio.")
     from zero.channels import whatsapp_status as _whatsapp_status
     try:
-        return _whatsapp_status()
+        return _whatsapp_status(credentials(client, "whatsapp"))
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/whatsapp/web/status")
+def whatsapp_web_status(client: str):
+    """QR and connection status for the authenticated dashboard."""
+    if client not in make_memory(STATE_PATH).clients:
+        raise HTTPException(status_code=404, detail="cliente no encontrado")
+    from zero.client_integrations import whatsapp_provider
+    if whatsapp_provider(client) != "web":
+        raise HTTPException(status_code=409, detail="WhatsApp Web no está seleccionado")
+    from zero.whatsapp_web import bridge_request
+    try:
+        return bridge_request("/status", client_id=client)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/api/whatsapp/readiness")
+def whatsapp_client_readiness(client: str):
+    """Configuration status for one business; connection health is separate."""
+    memory = make_memory(STATE_PATH)
+    profile = memory.get_client_agent_profile(client)
+    pricing = normalize_pricing(memory.get_client_pricing(client))
+    number = profile.get("whatsapp_number") or (
+        DEFAULT_INBOUND_WHATSAPP_NUMBER if client == DEFAULT_INBOUND_CLIENT_ID else "")
+    return {"client": client,
+            "knowledge": bool(memory.get_client_knowledge(client).strip()),
+            "response_rules": bool(profile.get("tone") or profile.get("instructions")),
+            "pricing_items": len(pricing["items"]),
+            "quote_engine": "unit_price_plus_tax",
+            "quote_mode": profile.get("quote_mode") or "automatic",
+            "response_mode": profile.get("response_mode") or "automatic",
+            "number": number,
+            "number_bound": bool(number)}
+
+
+def _whatsapp_web_inbox_request(path: str, body: dict | None = None,
+                                client: Optional[str] = None):
+    from zero.whatsapp_web import bridge_request
+    from zero.client_integrations import whatsapp_provider
+    if not client or whatsapp_provider(client) != "web":
+        raise HTTPException(status_code=409, detail="WhatsApp Web no está seleccionado")
+    try:
+        memory = make_memory(STATE_PATH)
+        expected = memory.get_client_agent_profile(client).get("whatsapp_number") or (
+            DEFAULT_INBOUND_WHATSAPP_NUMBER if client == DEFAULT_INBOUND_CLIENT_ID else "")
+        status = bridge_request("/status", client_id=client)
+        if not expected or status.get("state") != "ready" or status.get("account") != expected:
+            raise HTTPException(status_code=409, detail="el número conectado no corresponde a esta empresa")
+        return bridge_request(path, body, client_id=client)
+    except HTTPException:
+        raise
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/api/whatsapp/web/chats")
+def whatsapp_web_chats(client: str):
+    result = _whatsapp_web_inbox_request("/chats", client=client)
+    memory = make_memory(STATE_PATH)
+    for chat in result.get("chats") or []:
+        chat["handoff"] = memory.get_whatsapp_handoff(client, chat.get("id") or "")
+    return result
+
+
+@app.get("/api/whatsapp/web/chats/{chat_id}/messages")
+def whatsapp_web_messages(chat_id: str, limit: int = Query(50, ge=1, le=100),
+                          client: str = Query(...)):
+    result = _whatsapp_web_inbox_request(
+        "/chats/" + urllib.parse.quote(chat_id, safe="") + "/messages?limit=" + str(limit),
+        client=client,
+    )
+    result["handoff"] = make_memory(STATE_PATH).get_whatsapp_handoff(client, chat_id)
+    return result
+
+
+class WhatsAppHandoffBody(BaseModel):
+    active: bool
+
+
+@app.post("/api/whatsapp/web/chats/{chat_id}/handoff")
+def whatsapp_web_handoff(chat_id: str, body: WhatsAppHandoffBody,
+                         client: str = Query(...)):
+    chats = _whatsapp_web_inbox_request("/chats", client=client).get("chats") or []
+    if not any(chat.get("id") == chat_id for chat in chats):
+        raise HTTPException(status_code=404, detail="chat no encontrado en este número")
+    memory = make_memory(STATE_PATH)
+    if body.active:
+        handoff = memory.set_whatsapp_handoff(client, chat_id, "El equipo tomó la conversación")
+    else:
+        memory.clear_whatsapp_handoff(client, chat_id)
+        handoff = None
+    memory.log("whatsapp_handoff_changed", client=client, chat=chat_id, active=body.active)
+    memory.save()
+    return {"client": client, "chat_id": chat_id, "handoff": handoff}
+
+
+class WhatsAppWebReply(BaseModel):
+    text: str
+
+
+@app.post("/api/whatsapp/web/chats/{chat_id}/messages")
+def whatsapp_web_reply(chat_id: str, body: WhatsAppWebReply,
+                       client: str = Query(...)):
+    text = body.text.strip()
+    if not text or len(text) > 4096:
+        raise HTTPException(status_code=400, detail="Escribe un mensaje de hasta 4096 caracteres")
+    chats = _whatsapp_web_inbox_request("/chats", client=client).get("chats") or []
+    if not any(chat.get("id") == chat_id for chat in chats):
+        raise HTTPException(status_code=404, detail="chat no encontrado en este número")
+    # A human replying owns the conversation until they explicitly restore the bot.
+    memory = make_memory(STATE_PATH)
+    memory.set_whatsapp_handoff(client, chat_id, "El equipo respondió manualmente")
+    memory.save()
+    result = _whatsapp_web_inbox_request(
+        "/chats/" + urllib.parse.quote(chat_id, safe="") + "/messages", {"text": text},
+        client=client,
+    )
+    contact = chat_id.split("@")[0]
+    if contact.isdigit():
+        try:
+            crm = make_crm(CRM_PATH)
+            rec = crm.find_by_contact(phone=contact, client_id=client)
+            if rec:
+                crm.log(client, rec["key"], "manual_reply", text[:140])
+                crm.save()
+                memory = make_memory(STATE_PATH)
+                memory.add_turn(client, rec["key"], "agent", text)
+                memory.save()
+        except Exception:
+            logging.exception("No se pudo registrar la respuesta manual en el CRM")
+    return result
 
 
 @app.get("/api/webhooks/whatsapp")
@@ -1106,12 +1339,17 @@ def whatsapp_verify(mode: Optional[str] = Query(None, alias="hub.mode"),
                     token: Optional[str] = Query(None, alias="hub.verify_token"),
                     challenge: Optional[str] = Query(None, alias="hub.challenge")):
     """Meta webhook verification handshake — echoes the challenge if the token matches."""
-    if mode == "subscribe" and token and token == os.environ.get("WHATSAPP_VERIFY_TOKEN"):
+    from zero.client_integrations import credentials, whatsapp_provider
+    clients = make_memory(STATE_PATH).clients
+    valid = any(whatsapp_provider(c) == "meta" and
+                credentials(c, "whatsapp").get("WHATSAPP_VERIFY_TOKEN") == token
+                for c in clients)
+    if mode == "subscribe" and token and valid:
         return PlainTextResponse(challenge or "")
     raise HTTPException(status_code=403, detail="verificación fallida")
 
 
-def _process_inbound_messages(msgs: list) -> None:
+def _process_inbound_messages(msgs: list) -> list:
     """El trabajo pesado de un mensaje entrante (match/crear lead, CONCIERGE,
     enviar la respuesta) — corre DESPUÉS de que el webhook ya respondió (ver
     BackgroundTasks en whatsapp_inbound de abajo).
@@ -1127,10 +1365,10 @@ def _process_inbound_messages(msgs: list) -> None:
     # _agents_whatsapp y config.WHATSAPP_ENGINE.
     agents, _ = _agents_whatsapp()
     zero = Zero(agents, memory=memory, crm=crm, outbox=make_outbox())
-    for m in msgs:
-        zero.handle_inbound(m["from"], m["text"],
-                            to_phone_id=m.get("to_phone_id"),
-                            profile_name=m.get("profile_name"))
+    return [zero.handle_inbound(m["from"], m["text"], to_phone_id=m.get("to_phone_id"),
+                                profile_name=m.get("profile_name"),
+                                whatsapp_chat_id=m.get("chat_id"))
+            for m in msgs]
 
 
 @app.post("/api/webhooks/whatsapp")
@@ -1139,19 +1377,62 @@ async def whatsapp_inbound(req: Request, background_tasks: BackgroundTasks):
     CONCIERGE. Responde de inmediato (Meta espera confirmación rápida) y
     procesa cada mensaje en segundo plano — ver _process_inbound_messages."""
     from zero.whatsapp_inbound import parse_inbound, verify_meta_signature
+    from zero.client_integrations import credentials, whatsapp_provider
     raw = await req.body()
-    if not verify_meta_signature(raw, req.headers.get("x-hub-signature-256")):
+    clients = make_memory(STATE_PATH).clients
+    signed = [c for c in clients if whatsapp_provider(c) == "meta" and
+              verify_meta_signature(raw, req.headers.get("x-hub-signature-256"),
+                                    credentials(c, "whatsapp").get("WHATSAPP_APP_SECRET") or "")]
+    if not signed:
         raise HTTPException(status_code=403, detail="firma inválida — no viene de Meta")
     payload = json.loads(raw.decode("utf-8"))
     msgs = parse_inbound(payload)
+    allowed = {credentials(c, "whatsapp").get("WHATSAPP_PHONE_ID") for c in signed}
+    msgs = [m for m in msgs if m.get("to_phone_id") in allowed and m.get("to_phone_id")]
     if msgs:
         background_tasks.add_task(_process_inbound_messages, msgs)
     return {"received": len(msgs)}
 
 
+@app.post("/api/webhooks/whatsapp-web")
+async def whatsapp_web_inbound(req: Request, background_tasks: BackgroundTasks):
+    """Receive HMAC-signed messages from the loopback WhatsApp Web bridge."""
+    from zero.whatsapp_web import _client_ports, claim_event, parse_message, verify_signature
+    from zero.client_integrations import whatsapp_provider
+    from zero.config import DEFAULT_INBOUND_CLIENT_ID, DEFAULT_INBOUND_WHATSAPP_NUMBER
+    raw = await req.body()
+    if not verify_signature(raw, req.headers.get("x-zero-signature")):
+        raise HTTPException(status_code=403, detail="firma inválida")
+    try:
+        payload = json.loads(raw)
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(status_code=400, detail="JSON inválido")
+    message = parse_message(payload)
+    if not message:
+        raise HTTPException(status_code=400, detail="mensaje inválido")
+    destination = message["to_phone_id"]
+    memory = make_memory(STATE_PATH)
+    ports = _client_ports()
+    allowed = []
+    for client in memory.clients:
+        if whatsapp_provider(client) != "web":
+            continue
+        if client != DEFAULT_INBOUND_CLIENT_ID and client not in ports:
+            continue
+        assigned = memory.get_client_agent_profile(client).get("whatsapp_number") or (
+            DEFAULT_INBOUND_WHATSAPP_NUMBER if client == DEFAULT_INBOUND_CLIENT_ID else "")
+        if "".join(ch for ch in str(assigned) if ch.isdigit()) == destination:
+            allowed.append(client)
+    if len(allowed) != 1:
+        raise HTTPException(status_code=409, detail="número Web no asignado de forma única")
+    if not claim_event(message["id"], message):
+        return {"received": 0, "duplicate": True}
+    return {"received": 1}
+
+
 class Simulate(BaseModel):
     message: str
-    client: Optional[str] = None
+    client: str
     lead: Optional[dict] = None
     # Transcripción del chat de prueba (turnos previos, [{"role","text"}]) — la
     # mantiene el frontend; el servidor no guarda nada de un ensayo.
@@ -1162,17 +1443,17 @@ class Simulate(BaseModel):
 @app.post("/api/whatsapp/simulate")
 def whatsapp_simulate(body: Simulate):
     """Try the agent without WhatsApp: draft (don't send) a reply to a message, to
-    evaluate how it answers business questions. Uses the client's saved ICP,
-    knowledge base and the passed-in chat history."""
+    evaluate how it answers business questions with the same local engine and
+    prompt used for real inbound WhatsApp. No delivery or CRM writes."""
     memory = make_memory(STATE_PATH)
+    if body.client not in memory.clients:
+        raise HTTPException(status_code=404, detail="cliente no encontrado")
     vendor = memory.get_vendor(body.vendor_id) if body.vendor_id else None
     try:
-        res, mode = _agent_op(
-            lambda z: z.converse_result(body.client or "", body.message,
-                                        lead=body.lead or {},
-                                        history=body.history, vendor=vendor),
-            memory=memory,
-        )
+        agents, mode = _agents_whatsapp()
+        res = Zero(agents, memory=memory).converse_result(
+            body.client, body.message, lead=body.lead or {},
+            history=body.history, vendor=vendor)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"el agente falló: {e}")
     # `quote` viene solo si el mensaje pidió precios de ítems del catálogo: el
@@ -1558,6 +1839,7 @@ def pitch_generate(body: PitchGen):
 
 
 class PitchSend(BaseModel):
+    client: str
     to: str
     subject: str
     body: str
@@ -1566,29 +1848,38 @@ class PitchSend(BaseModel):
 @app.post("/api/pitch/send")
 def pitch_send(body: PitchSend):
     """Send the (possibly edited) pitch to a prospect via SMTP."""
-    if not os.environ.get("SMTP_HOST"):
-        raise HTTPException(status_code=400, detail="Configura primero el SMTP en Configuración → Email.")
+    from zero.client_integrations import configured, credentials
+    memory = make_memory(STATE_PATH)
+    if body.client not in memory.clients:
+        raise HTTPException(status_code=404, detail="cliente no encontrado")
+    if not configured(body.client, "email"):
+        raise HTTPException(status_code=400, detail="Configura el SMTP propio de este negocio.")
     from zero.channels import EmailSender
     try:
-        res = EmailSender().send({"channel": "email", "to": body.to.strip(),
+        res = EmailSender(credentials(body.client, "email")).send({"channel": "email", "to": body.to.strip(),
                                   "subject": body.subject, "body": body.body})
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"SMTP falló: {e}")
     if res["status"] != "sent":
         raise HTTPException(status_code=400, detail=res.get("error") or "no se pudo enviar")
-    memory = make_memory(STATE_PATH)          # recuerda el correo para autocompletar después
-    memory.add_used_email(body.to)
+    used = memory.clients[body.client].setdefault("used_emails", [])
+    if body.to.strip() not in used:
+        used.append(body.to.strip())
     memory.save()
     return res
 
 
 @app.get("/api/emails")
-def used_emails():
+def used_emails(client: str):
     """Correos ya contactados — para sugerir/autocompletar al escribir."""
-    return {"emails": sorted(make_memory(STATE_PATH).used_emails)}
+    memory = make_memory(STATE_PATH)
+    if client not in memory.clients:
+        raise HTTPException(status_code=404, detail="cliente no encontrado")
+    return {"emails": sorted(memory.clients[client].get("used_emails", []))}
 
 
 class TestEmail(BaseModel):
+    client: str
     to: str
 
 
@@ -1598,11 +1889,14 @@ def test_email(body: TestEmail):
 
     Works regardless of OUTBOX_LIVE (it's a deliberate test), but needs SMTP set.
     """
-    if not os.environ.get("SMTP_HOST"):
-        raise HTTPException(status_code=400, detail="Configura primero el SMTP (host, usuario, contraseña).")
+    from zero.client_integrations import configured, credentials
+    if body.client not in make_memory(STATE_PATH).clients:
+        raise HTTPException(status_code=404, detail="cliente no encontrado")
+    if not configured(body.client, "email"):
+        raise HTTPException(status_code=400, detail="Configura primero el SMTP de este negocio.")
     from zero.channels import EmailSender
     try:
-        res = EmailSender().send({
+        res = EmailSender(credentials(body.client, "email")).send({
             "channel": "email", "to": body.to.strip(),
             "subject": "Prueba de ZeroAI ✅",
             "body": "Si lees esto, tu envío por email quedó funcionando. — ZeroAI",
@@ -1688,6 +1982,44 @@ def client_vendor(client: str):
     memory = make_memory(STATE_PATH)
     vid = memory.get_client_vendor(client)
     return {"client": client, "vendor": memory.get_vendor(vid) or {}}
+
+
+class AgentProfileBody(BaseModel):
+    tone: str = ""
+    instructions: str = ""
+    whatsapp_number: str = ""
+    quote_mode: Literal["manual", "automatic"] = "manual"
+    response_mode: Literal["manual", "automatic"] = "manual"
+
+
+@app.get("/api/agent-profile")
+def get_agent_profile(client: str):
+    memory = make_memory(STATE_PATH)
+    return {"client": client, "profile": memory.get_client_agent_profile(client)}
+
+
+@app.post("/api/agent-profile")
+def set_agent_profile(client: str, body: AgentProfileBody):
+    memory = make_memory(STATE_PATH)
+    number = "".join(c for c in body.whatsapp_number if c.isdigit())
+    if body.whatsapp_number.strip() and not 8 <= len(number) <= 15:
+        raise HTTPException(status_code=400, detail="el número de WhatsApp debe tener 8 a 15 dígitos")
+    if number:
+        if client != DEFAULT_INBOUND_CLIENT_ID and number == DEFAULT_INBOUND_WHATSAPP_NUMBER:
+            raise HTTPException(status_code=409, detail=f"este número ya recibe los mensajes de {DEFAULT_INBOUND_CLIENT_ID}")
+        for other in memory.clients:
+            if other != client and "".join(c for c in str(memory.get_client_agent_profile(other).get("whatsapp_number") or "")
+                                          if c.isdigit()) == number:
+                raise HTTPException(status_code=409, detail=f"el número ya está asociado a {other}")
+    profile = {"tone": body.tone.strip()[:300],
+               "instructions": body.instructions.strip()[:1200],
+               "whatsapp_number": number,
+               "quote_mode": body.quote_mode,
+               "response_mode": body.response_mode,
+               "offer_flow": client == "zeroai"}
+    memory.set_client_agent_profile(client, profile)
+    memory.save()
+    return {"client": client, "profile": profile}
 
 
 class AssignVendor(BaseModel):
@@ -1872,7 +2204,7 @@ def forecast(client: str):
     # ANALYST solo propone tasas (la aritmética es determinista) — con fallback a
     # mock está bien: nunca inventa datos, solo comenta.
     res, mode = _agent_op(lambda z: z.forecast(client), memory=memory, crm=crm)
-    res["mode"] = mode
+    res["mode"] = "base_rates" if res.get("rate_source") == "base_rates" else mode
     return res
 
 
@@ -1965,9 +2297,12 @@ class FunctionBody(BaseModel):
 
 
 @app.get("/api/functions")
-def list_functions():
+def list_functions(client: str):
     memory = make_memory(STATE_PATH)
-    return {"functions": memory.list_functions()}
+    if client not in memory.clients:
+        raise HTTPException(status_code=404, detail="cliente no encontrado")
+    return {"functions": [fn for fn in memory.list_functions()
+                          if (fn.get("lookup_scope") or {}).get("client_id") == client]}
 
 
 @app.post("/api/functions")
@@ -1978,10 +2313,19 @@ def upsert_function(body: FunctionBody, request: Request):
     from zero.functions import compute_next_run
 
     memory = make_memory(STATE_PATH)
-    fid = "".join(ch for ch in (body.id or body.name).strip().lower() if ch.isalnum())
+    client = body.lookup_scope.client_id
+    if client not in memory.clients:
+        raise HTTPException(status_code=404, detail="cliente no encontrado")
+    slug = "".join(ch for ch in body.name.strip().lower() if ch.isalnum())
+    if not slug:
+        raise HTTPException(status_code=400, detail="la función necesita un nombre")
+    from hashlib import sha256
+    fid = body.id or (sha256(client.encode("utf-8")).hexdigest()[:12] + "-" + slug)
     if not fid:
         raise HTTPException(status_code=400, detail="la función necesita un nombre")
     existing = memory.get_function(fid) or {}
+    if existing and (existing.get("lookup_scope") or {}).get("client_id") != client:
+        raise HTTPException(status_code=409, detail="esa función pertenece a otro negocio")
 
     schedule = None
     next_run = None
@@ -2014,8 +2358,11 @@ def upsert_function(body: FunctionBody, request: Request):
 
 
 @app.delete("/api/functions/{function_id}")
-def delete_function(function_id: str):
+def delete_function(function_id: str, client: str):
     memory = make_memory(STATE_PATH)
+    fn = memory.get_function(function_id)
+    if fn is None or (fn.get("lookup_scope") or {}).get("client_id") != client:
+        raise HTTPException(status_code=404, detail="esa función no existe para este negocio")
     if not memory.delete_function(function_id):
         raise HTTPException(status_code=404, detail="esa función no existe")
     memory.save()
@@ -2023,7 +2370,7 @@ def delete_function(function_id: str):
 
 
 @app.post("/api/functions/{function_id}/run")
-def run_function(function_id: str):
+def run_function(function_id: str, client: str):
     """Ejecuta la función AHORA, a pedido (evento "manual") — mismo camino de
     ejecución real que usa el scheduler automático (zero/functions.py::
     execute), nunca una segunda implementación."""
@@ -2031,8 +2378,8 @@ def run_function(function_id: str):
 
     memory = make_memory(STATE_PATH)
     fn = memory.get_function(function_id)
-    if fn is None:
-        raise HTTPException(status_code=404, detail="esa función no existe")
+    if fn is None or (fn.get("lookup_scope") or {}).get("client_id") != client:
+        raise HTTPException(status_code=404, detail="esa función no existe para este negocio")
     if not fn.get("enabled", True):
         raise HTTPException(status_code=409, detail="esa función está deshabilitada")
 
@@ -2120,11 +2467,17 @@ def _start_functions_scheduler():
     _scheduler_stop.clear()
     _scheduler_thread = threading.Thread(target=_scheduler_loop, daemon=True)
     _scheduler_thread.start()
+    from zero.whatsapp_web import start_bridge, start_inbox_worker
+    start_inbox_worker(_process_inbound_messages)
+    start_bridge()
 
 
 @app.on_event("shutdown")
 def _stop_functions_scheduler():
     _scheduler_stop.set()
+    from zero.whatsapp_web import stop_bridge, stop_inbox_worker
+    stop_inbox_worker()
+    stop_bridge()
 
 
 # --- config (secrets stored in .env, set once from the dashboard) -------------
@@ -2152,7 +2505,10 @@ def get_config():
         "vapi": bool(os.environ.get("VAPI_API_KEY")),
         "supabase": bool(os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_KEY")),
         "email": bool(os.environ.get("SMTP_HOST")),
-        "whatsapp": bool(os.environ.get("WHATSAPP_TOKEN") and os.environ.get("WHATSAPP_PHONE_ID")),
+        "whatsapp": (bool(os.environ.get("WHATSAPP_WEB_BRIDGE_TOKEN"))
+                     if os.environ.get("WHATSAPP_PROVIDER", "meta").lower() == "web"
+                     else bool(os.environ.get("WHATSAPP_TOKEN") and os.environ.get("WHATSAPP_PHONE_ID"))),
+        "whatsapp_provider": os.environ.get("WHATSAPP_PROVIDER", "meta").lower(),
         "whatsapp_verify_token_set": bool(os.environ.get("WHATSAPP_VERIFY_TOKEN")),
         "whatsapp_app_secret_set": bool(os.environ.get("WHATSAPP_APP_SECRET")),
         # whether drafted messages are actually sent (vs mock-recorded)
@@ -2207,6 +2563,15 @@ class ConfigBody(BaseModel):
 
 @app.post("/api/config")
 def set_config(body: ConfigBody):
+    business_fields = (
+        body.vapi_api_key, body.vapi_assistant_id, body.vapi_phone_number_id,
+        body.smtp_host, body.smtp_port, body.smtp_user, body.smtp_pass, body.smtp_from,
+        body.whatsapp_token, body.whatsapp_phone_id,
+        body.meta_ads_token, body.meta_ad_account_id,
+    )
+    if any(value is not None for value in business_fields):
+        raise HTTPException(status_code=400, detail=(
+            "Selecciona un negocio y configura sus credenciales en Integraciones del negocio."))
     saved = []
     fields = {
         "ELEVENLABS_API_KEY": body.elevenlabs_api_key,
@@ -2258,24 +2623,37 @@ def set_config(body: ConfigBody):
 
 
 @app.get("/api/assistants")
-def assistants():
+def assistants(client: str):
     from zero.calls import list_assistants
+    from zero.client_integrations import credentials
+    if client not in make_memory(STATE_PATH).clients:
+        raise HTTPException(status_code=404, detail="cliente no encontrado")
+    key = credentials(client, "vapi").get("VAPI_API_KEY")
+    if not key:
+        raise HTTPException(status_code=400, detail="Vapi no está configurado para este negocio")
     try:
-        return {"assistants": list_assistants()}
+        return {"assistants": list_assistants(api_key=key)}
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.get("/api/vapi/numbers")
-def vapi_numbers():
+def vapi_numbers(client: str):
     from zero.calls import list_phone_numbers
+    from zero.client_integrations import credentials
+    if client not in make_memory(STATE_PATH).clients:
+        raise HTTPException(status_code=404, detail="cliente no encontrado")
+    key = credentials(client, "vapi").get("VAPI_API_KEY")
+    if not key:
+        raise HTTPException(status_code=400, detail="Vapi no está configurado para este negocio")
     try:
-        return {"numbers": list_phone_numbers()}
+        return {"numbers": list_phone_numbers(api_key=key)}
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
 class CallBody(BaseModel):
+    client: str
     number: str
     name: Optional[str] = None
     assistant_id: Optional[str] = None
@@ -2285,7 +2663,19 @@ class CallBody(BaseModel):
 @app.post("/api/call")
 def call(body: CallBody):
     from zero.calls import place_call
+    from zero.client_integrations import credentials
+    if body.client not in make_memory(STATE_PATH).clients:
+        raise HTTPException(status_code=404, detail="cliente no encontrado")
+    values = credentials(body.client, "vapi")
+    key = values.get("VAPI_API_KEY")
+    if not key:
+        raise HTTPException(status_code=400, detail="Vapi no está configurado para este negocio")
+    assistant = body.assistant_id or values.get("VAPI_ASSISTANT_ID")
+    phone = body.phone_number_id or values.get("VAPI_PHONE_NUMBER_ID")
+    if not assistant or not phone:
+        raise HTTPException(status_code=400, detail="Falta asistente o número propio del negocio")
     try:
-        return place_call(body.number.strip(), body.name, body.assistant_id, body.phone_number_id)
+        return place_call(body.number.strip(), body.name, assistant, phone,
+                          api_key=key)
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))

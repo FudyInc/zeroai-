@@ -8,8 +8,8 @@ const MIN_LEAD_QUERY = 2
 const DEBOUNCE_MS = 300
 
 /* Buscador rápido (Cmd/Ctrl+K): salta entre páginas, cambia de cliente, y —si
-   el texto no matchea ninguna página/cliente conocido— busca el lead entre
-   TODOS los clientes vía GET /api/leads/search (debounced). Mismo patrón
+   el texto no matchea ninguna página/cliente conocido— busca leads del
+   cliente seleccionado vía GET /api/leads/search (debounced). Mismo patrón
    visual que el resto de los modales (backdrop + spring). */
 export default function CommandPalette({ open, onClose, pages, clients, currentClient, onNavigate, onSelectClient, onOpenLead }) {
   const [q, setQ] = useState('')
@@ -39,20 +39,22 @@ export default function CommandPalette({ open, onClose, pages, clients, currentC
 
   // Solo se busca un lead cross-cliente cuando el texto no matchea nada
   // conocido — evita un fetch de más cuando ya hay una página/cliente a mano.
-  const shouldSearchLeads = knownItems.length === 0 && q.trim().length >= MIN_LEAD_QUERY
+  const shouldSearchLeads = !!currentClient && knownItems.length === 0 && q.trim().length >= MIN_LEAD_QUERY
 
   useEffect(() => {
     if (!shouldSearchLeads) { setLeadResults([]); setLeadSearching(false); return }
     const needle = q.trim()
+    let cancelled = false
+    setLeadResults([])
     setLeadSearching(true)
     const t = setTimeout(() => {
-      api.searchLeads(needle)
-        .then((d) => setLeadResults(d.results || []))
-        .catch(() => setLeadResults([]))
-        .finally(() => setLeadSearching(false))
+      api.searchLeads(currentClient, needle)
+        .then((d) => { if (!cancelled) setLeadResults(d.results || []) })
+        .catch(() => { if (!cancelled) setLeadResults([]) })
+        .finally(() => { if (!cancelled) setLeadSearching(false) })
     }, DEBOUNCE_MS)
-    return () => clearTimeout(t)
-  }, [shouldSearchLeads, q])
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [shouldSearchLeads, q, currentClient])
 
   const leadItems = shouldSearchLeads
     ? leadResults.map((r) => ({

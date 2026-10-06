@@ -1,4 +1,4 @@
-"""Meta Ads — campañas de marketing digital, por cliente, mock-first.
+"""Meta Ads — campañas de marketing digital, por cliente.
 
 Cada cliente tiene su propia config de marketing (cuenta publicitaria, presupuesto
 mensual, zonas) → las campañas son personalizadas y aisladas por cliente. Foco
@@ -10,16 +10,17 @@ Marketing API) que se enchufa con credenciales.
 Contrato de una campaña:
   {id, name, objective, status, region, budget_clp, spent_clp, leads, cpl_clp}
 
-Real: token de la agencia (META_ADS_TOKEN) + cuenta del cliente (cfg.ad_account, o
-META_AD_ACCOUNT_ID como fallback).
+En HTTP, cada negocio necesita su token y cuenta publicitaria propios.
 """
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import urllib.error
 import urllib.parse
 import urllib.request
+from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional
 
 from ._env import load_env
@@ -91,50 +92,60 @@ def _ad_leads_mock(client_id: str, cfg: Optional[Dict[str, Any]]) -> List[Dict[s
 
 
 class MetaAds:
-    """Campañas reales vía Meta Marketing API (Graph). Lectura de campañas; gasto/
-    resultados finos vienen de insights (siguiente iteración)."""
+    """Campañas e Insights reales vía Meta Marketing API (Graph)."""
     live = True
     API = "https://graph.facebook.com/v20.0"
 
-    def __init__(self, ad_account: str) -> None:
-        self.token = os.environ["META_ADS_TOKEN"]
+    def __init__(self, ad_account: str, token: Optional[str] = None) -> None:
+        self.token = token if token is not None else os.environ["META_ADS_TOKEN"]
         self.account = ad_account
 
     def campaigns(self, client_id: str, cfg: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
-        params = urllib.parse.urlencode({
-            "fields": "name,objective,effective_status,daily_budget",
-            "access_token": self.token, "limit": 50,
-        })
-        req = urllib.request.Request(f"{self.API}/{self.account}/campaigns?{params}")
         try:
-            with urllib.request.urlopen(req, timeout=20) as r:
-                raw = r.read().decode("utf-8")
-        except urllib.error.HTTPError as e:
-            raise RuntimeError(f"Meta Ads {e.code}: {e.read().decode('utf-8', 'replace')[:200]}") from e
-        except urllib.error.URLError as e:
-            raise RuntimeError(f"no pude contactar a Meta Ads: {e}") from e
-        try:
-            data = json.loads(raw)
-        except Exception:
-            raise RuntimeError(f"Meta Ads: respuesta no-JSON ({raw[:200]!r})")
-        # Defensivo: la Graph API siempre debería devolver {"data": [...]}, pero
-        # si algún día cambia de forma no queremos reventar con AttributeError
-        # iterando algo que no es una lista de dicts.
-        items = data.get("data") if isinstance(data, dict) else None
-        if not isinstance(items, list):
+            items = _graph_pages(f"{self.account}/campaigns", self.token, {
+                "fields": "id,name,objective,effective_status,daily_budget,lifetime_budget,created_time",
+                "limit": 100,
+            })
+        except RuntimeError as exc:
+            if "forma de respuesta inesperada" not in str(exc):
+                raise
             return []
+        insights = _graph_pages(f"{self.account}/insights", self.token, {
+            "fields": "campaign_id,spend,actions,account_currency",
+            "level": "campaign", "date_preset": "this_month", "limit": 100,
+        })
+        by_campaign = {str(r.get("campaign_id")): r for r in insights
+                       if isinstance(r, dict) and r.get("campaign_id")}
         out: List[Dict[str, Any]] = []
         for c in items:
             if not isinstance(c, dict):
                 continue
+            insight = by_campaign.get(str(c.get("id"))) or {}
+            spent = _amount(insight.get("spend"))
+            leads = _lead_count(insight.get("actions"))
+            daily = c.get("daily_budget")
+            lifetime = c.get("lifetime_budget")
+            budget = daily if daily is not None else lifetime
             out.append({
                 "id": c.get("id"), "name": c.get("name"), "objective": c.get("objective"),
                 "status": "active" if c.get("effective_status") == "ACTIVE" else "paused",
-                "region": (cfg or {}).get("regions", [CHILE["default_region"]])[0],
-                "budget_clp": int(float(c.get("daily_budget", 0) or 0)),  # ya en CLP (sin decimales)
-                "spent_clp": 0, "leads": 0, "cpl_clp": 0,
+                "region": ((cfg or {}).get("regions") or [CHILE["default_region"]])[0],
+                "budget_clp": _amount(budget) if budget is not None else None,
+                "budget_period": "daily" if daily is not None else "lifetime" if lifetime is not None else None,
+                "spent_clp": spent, "leads": leads,
+                "cpl_clp": round(spent / leads) if leads else 0,
+                "created_at": c.get("created_time"),
+                "currency": insight.get("account_currency") or CHILE["currency"],
             })
         return out
+
+    def daily_spend(self) -> List[Dict[str, Any]]:
+        rows = _graph_pages(f"{self.account}/insights", self.token, {
+            "fields": "date_start,spend", "level": "account",
+            "date_preset": "last_7d", "time_increment": 1, "limit": 100,
+        })
+        return [{"date": r.get("date_start"), "spent_clp": _amount(r.get("spend"))}
+                for r in rows if isinstance(r, dict) and r.get("date_start")]
 
     def lead_ads(self, client_id: str, cfg: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         # Lead Ads real (Graph: /{form}/leads) — pendiente de pago/token. Por ahora vacío.
@@ -143,12 +154,34 @@ class MetaAds:
 
 _API = "https://graph.facebook.com/v20.0"
 
+_LEAD_ACTION_TYPES = (
+    "onsite_conversion.lead_grouped", "onsite_conversion.lead",
+    "lead", "offsite_conversion.fb_pixel_lead",
+)
+
+
+def _amount(value: Any) -> int:
+    try:
+        return int(Decimal(str(value or 0)).quantize(Decimal("1")))
+    except (InvalidOperation, ValueError):
+        return 0
+
+
+def _lead_count(actions: Any) -> int:
+    """Elige una métrica de lead: sumar action types duplicaría conversiones."""
+    values = {a.get("action_type"): _amount(a.get("value"))
+              for a in actions if isinstance(a, dict)} if isinstance(actions, list) else {}
+    for kind in _LEAD_ACTION_TYPES:
+        if kind in values:
+            return values[kind]
+    return 0
+
 
 def _graph(path: str, token: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    q = {"access_token": token, **(params or {})}
-    url = f"{_API}/{path}?{urllib.parse.urlencode(q)}"
+    url = f"{_API}/{path}?{urllib.parse.urlencode(params or {})}"
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
     try:
-        with urllib.request.urlopen(url, timeout=20) as r:
+        with urllib.request.urlopen(req, timeout=20) as r:
             raw = r.read().decode("utf-8")
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", "replace")
@@ -156,7 +189,7 @@ def _graph(path: str, token: str, params: Optional[Dict[str, Any]] = None) -> Di
             msg = json.loads(detail).get("error", {}).get("message", detail)
         except Exception:
             msg = detail
-        raise RuntimeError(f"Meta: {msg[:200]}") from e
+        raise RuntimeError(f"Meta HTTP {e.code}: {msg[:200]}") from e
     except urllib.error.URLError as e:
         raise RuntimeError(f"no pude contactar a Meta: {e}") from e
     try:
@@ -168,27 +201,64 @@ def _graph(path: str, token: str, params: Optional[Dict[str, Any]] = None) -> Di
     return data
 
 
+def _graph_pages(path: str, token: str, params: Dict[str, Any], max_pages: int = 20) -> List[Dict[str, Any]]:
+    """Lee todas las páginas hasta un límite explícito; nunca trunca en silencio."""
+    out: List[Dict[str, Any]] = []
+    cursor = None
+    for _ in range(max_pages):
+        query = dict(params)
+        if cursor:
+            query["after"] = cursor
+        data = _graph(path, token, query)
+        items = data.get("data")
+        if not isinstance(items, list):
+            return out
+        out.extend(x for x in items if isinstance(x, dict))
+        paging = data.get("paging") or {}
+        cursors = paging.get("cursors") or {}
+        next_cursor = cursors.get("after") if isinstance(cursors, dict) else None
+        if not paging.get("next") or not next_cursor or next_cursor == cursor:
+            return out
+        cursor = next_cursor
+    raise RuntimeError("Meta devolvió más páginas que el límite de lectura; no se muestran cifras parciales")
+
+
 def list_ad_accounts(token: str) -> List[Dict[str, Any]]:
     """Cuentas publicitarias que el token puede ver — para elegir el act_ correcto."""
-    d = _graph("me/adaccounts", token, {"fields": "id,name,account_status", "limit": 100})
-    items = d.get("data")
-    if not isinstance(items, list):
-        return []
+    items = _graph_pages("me/adaccounts", token, {"fields": "id,name,account_status", "limit": 100})
     return [{"id": a.get("id"), "name": a.get("name"), "status": a.get("account_status")}
             for a in items if isinstance(a, dict)]
 
 
-def make_metaads(cfg: Optional[Dict[str, Any]] = None):
-    """Real si hay token de agencia + cuenta del cliente (o cuenta global); si no, mock."""
-    cfg = cfg or {}
-    account = cfg.get("ad_account") or os.environ.get("META_AD_ACCOUNT_ID")
+def client_token_key(client_id: str) -> str:
+    """Nombre estable del secreto de Meta de un negocio; el valor nunca va al CRM."""
+    digest = hashlib.sha256(client_id.encode("utf-8")).hexdigest()[:20].upper()
+    return f"META_ADS_TOKEN_CLIENT_{digest}"
+
+
+def client_token(client_id: str) -> Optional[str]:
+    return os.environ.get(client_token_key(client_id))
+
+
+def make_metaads(cfg: Optional[Dict[str, Any]] = None, *, client_id: Optional[str] = None):
+    """En HTTP exige cuenta y token asignados al negocio; sin mezcla global.
+
+    La llamada sin cliente conserva el modo histórico de CLI/pruebas, pero las
+    rutas por negocio siempre entregan `client_id` y no usan esa credencial.
+    """
+    if client_id is not None:
+        account = (cfg or {}).get("ad_account")
+        token = client_token(client_id)
+    else:
+        account = os.environ.get("META_AD_ACCOUNT_ID") if cfg is None else cfg.get("ad_account")
+        token = os.environ.get("META_ADS_TOKEN")
     if account:
         account = str(account).strip()
         if account and not account.startswith("act_"):   # tolera que peguen solo el número
             account = "act_" + account
-    if os.environ.get("META_ADS_TOKEN") and account:
+    if token and account:
         try:
-            return MetaAds(account)
+            return MetaAds(account, token)
         except Exception:
             pass
     return MockMetaAds()

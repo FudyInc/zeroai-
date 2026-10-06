@@ -2,6 +2,18 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-10-06-integracion-checkout-activo",
+      "date": "2026-10-06",
+      "type": "change",
+      "title": "Integración aislada del WhatsApp activo",
+      "origin": "Diego pidió proceder con los pendientes y el commit/push",
+      "summary": "Se preservó intacto el checkout del servicio y se integraron en una copia el código Meta, WhatsApp Web por negocio, atención manual, CRM y bloqueo de presupuesto final de PoolEdge.",
+      "status": "verificado en código local",
+      "scope": "Checkout aislado; no desplegado",
+      "evidence": "Revisión de conflictos y pruebas locales del 2026-10-06; zero/orchestrator.py; zero/whatsapp_web.py; tests/test_whatsapp_handoff.py",
+      "pending": "Revisar credenciales por negocio y estado del checkout activo antes de desplegar; comprobar conversación real y pantalla Avances en producción."
+    },
+    {
       "id": "2026-10-06-integracion-main-meta",
       "date": "2026-10-06",
       "type": "change",

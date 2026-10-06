@@ -182,8 +182,9 @@ class CRM:
         email reply) is matched back to its lead. Phones compare by digits only."""
         pd = "".join(c for c in str(phone or "") if c.isdigit())
         em = (email or "").strip().lower()
+        self._ensure(client_id)
         for rec in self.leads.values():
-            if client_id and rec.get("client_id") != client_id:
+            if client_id is not None and rec.get("client_id") != client_id:
                 continue
             rp = "".join(c for c in str(rec.get("phone") or "") if c.isdigit())
             if pd and rp and rp == pd:
@@ -192,15 +193,13 @@ class CRM:
                 return rec
         return None
 
-    def search(self, q: str, limit: int = 20) -> List[Dict[str, Any]]:
-        """Cross-client search by company/email/phone substring — for finding a
-        lead without already knowing which client account it belongs to (unlike
-        `list`/`query`, which always scope to one client). Case-insensitive."""
+    def search(self, q: str, limit: int = 20, client_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Busca por texto; filtra por negocio cuando la vista tiene uno activo."""
         needle = (q or "").strip().lower()
         if not needle:
             return []
         out: List[Dict[str, Any]] = []
-        for cid in self.client_ids():
+        for cid in ([client_id] if client_id else self.client_ids()):
             for rec in self.list(cid):
                 if (needle in (rec.get("company") or "").lower()
                         or needle in (rec.get("email") or "").lower()

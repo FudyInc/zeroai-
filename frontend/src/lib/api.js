@@ -48,7 +48,7 @@ export const api = {
   leads: (c, { group = 'todos', limit = 50, offset = 0 } = {}) =>
     req(`/api/leads?client=${q(c)}&group=${q(group)}&limit=${limit}&offset=${offset}`),
   lead: (c, k) => req('/api/leads/' + q(k) + '?client=' + q(c)),
-  searchLeads: (query, limit = 20) => req(`/api/leads/search?q=${q(query)}&limit=${limit}`),
+  searchLeads: (client, query, limit = 20) => req(`/api/leads/search?client=${q(client)}&q=${q(query)}&limit=${limit}`),
   moveStage: (c, k, stage) =>
     req('/api/leads/' + q(k) + '/stage?client=' + q(c), {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stage }),
@@ -103,14 +103,17 @@ export const api = {
   /* Las corridas que el proceso todavía recuerda: con esto la pantalla se reengancha
      sola después de un F5, sin guardar el id en el navegador. */
   pipelineRuns: (limit = 10) => req('/api/pipeline/runs?limit=' + q(limit)).then((d) => d.runs || []),
-  testEmail: (to) =>
-    req('/api/test-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to }) }),
+  testEmail: (client, to) =>
+    req('/api/test-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client, to }) }),
   simulateAgent: (body) =>
     req('/api/whatsapp/simulate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   vendors: () => req('/api/vendors'),
   saveVendor: (body) =>
     req('/api/vendors', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   vendorFor: (c) => req('/api/vendor?client=' + q(c)),
+  agentProfile: (c) => req('/api/agent-profile?client=' + q(c)),
+  setAgentProfile: (c, profile) =>
+    req('/api/agent-profile?client=' + q(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(profile) }),
   setVendor: (c, vendor_id) =>
     req('/api/vendor?client=' + q(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ vendor_id }) }),
   pricing: (c) => req('/api/pricing?client=' + q(c)),
@@ -141,7 +144,7 @@ export const api = {
     req('/api/pitch/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   pitchSend: (body) =>
     req('/api/pitch/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
-  usedEmails: () => req('/api/emails').then((d) => d.emails),
+  usedEmails: (c) => req('/api/emails?client=' + q(c)).then((d) => d.emails),
   authStatus: () => req('/api/auth/status'),
   login: (username, password) =>
     req('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) })
@@ -154,21 +157,38 @@ export const api = {
     setToken(null)
     supabase.auth.signOut().finally(() => window.location.reload())
   },
-  metaadsAccounts: () => req('/api/metaads/accounts').then((d) => d.accounts),
-  whatsappStatus: () => req('/api/whatsapp/status'),
+  metaadsAccounts: (c) => req('/api/metaads/accounts?client=' + q(c)).then((d) => d.accounts),
+  setMetaadsToken: (c, token) =>
+    req('/api/metaads/token?client=' + q(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) }),
+  whatsappStatus: (c) => req('/api/whatsapp/status?client=' + q(c)),
+  whatsappWebStatus: (c) => req('/api/whatsapp/web/status' + (c ? '?client=' + q(c) : '')),
+  whatsappReadiness: (c) => req('/api/whatsapp/readiness?client=' + q(c)),
+  whatsappWebChats: (c) => req('/api/whatsapp/web/chats?client=' + q(c)),
+  whatsappWebMessages: (c, chatId) => req('/api/whatsapp/web/chats/' + q(chatId) + '/messages?client=' + q(c)),
+  whatsappWebHandoff: (c, chatId, active) =>
+    req('/api/whatsapp/web/chats/' + q(chatId) + '/handoff?client=' + q(c), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active }),
+    }),
+  whatsappWebReply: (c, chatId, text) =>
+    req('/api/whatsapp/web/chats/' + q(chatId) + '/messages?client=' + q(c), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }),
+    }),
   config: () => req('/api/config'),
+  clientIntegrations: (c) => req('/api/integrations?client=' + q(c)),
+  setClientIntegration: (c, channel, values) =>
+    req('/api/integrations?client=' + q(c) + '&channel=' + q(channel), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ values }) }),
   agentsTelemetry: (limit = 40) => req('/api/agents/telemetry?limit=' + limit),
   setConfig: (body) =>
     req('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
-  assistants: () => req('/api/assistants').then((d) => d.assistants),
-  vapiNumbers: () => req('/api/vapi/numbers').then((d) => d.numbers),
+  assistants: (c) => req('/api/assistants?client=' + q(c)).then((d) => d.assistants),
+  vapiNumbers: (c) => req('/api/vapi/numbers?client=' + q(c)).then((d) => d.numbers),
   call: (body) =>
     req('/api/call', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
-  functions: () => req('/api/functions').then((d) => d.functions),
+  functions: (c) => req('/api/functions?client=' + q(c)).then((d) => d.functions),
   saveFunction: (body) =>
     req('/api/functions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
-  deleteFunction: (id) => req('/api/functions/' + q(id), { method: 'DELETE' }),
-  runFunction: (id) => req('/api/functions/' + q(id) + '/run', { method: 'POST' }),
+  deleteFunction: (c, id) => req('/api/functions/' + q(id) + '?client=' + q(c), { method: 'DELETE' }),
+  runFunction: (c, id) => req('/api/functions/' + q(id) + '/run?client=' + q(c), { method: 'POST' }),
 
   // El ciclo autónomo. Dos llamadas y no una porque cambian a ritmos muy distintos:
   // la cola se mueve durante una tanda, el historial de salud una vez al día. Juntarlas

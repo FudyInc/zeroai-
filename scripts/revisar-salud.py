@@ -23,6 +23,7 @@ import time
 import sys
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -136,6 +137,24 @@ def revisar() -> list:
         fallas.append("el túnel público no responde (WhatsApp entrante caído)")
     if not _ollama_responde():
         fallas.append("el motor local no contesta (WhatsApp caería a la API paga)")
+    if os.environ.get("WHATSAPP_PROVIDER", "meta").lower() == "web":
+        try:
+            from zero.whatsapp_web import bridge_request, inbox_stats
+            bridge = bridge_request("/status")
+            if bridge.get("state") != "ready":
+                fallas.append(f"puente WhatsApp Web sin conexión ({bridge.get('state') or '?'})")
+            if bridge.get("pendingInbound", 0):
+                fallas.append(f"puente WhatsApp Web: {bridge['pendingInbound']} mensajes aún no aceptados por el backend")
+            stats = inbox_stats()
+            counts = stats["counts"]
+            if counts.get("needs_review", 0):
+                fallas.append(f"WhatsApp: {counts['needs_review']} mensajes requieren revisión")
+            oldest = stats.get("oldest_unfinished")
+            if oldest and (datetime.now(timezone.utc) -
+                           datetime.fromisoformat(oldest).replace(tzinfo=timezone.utc)).total_seconds() > 300:
+                fallas.append(f"WhatsApp: {counts.get('pending', 0) + counts.get('processing', 0)} mensajes llevan más de 5 minutos sin completar")
+        except Exception as e:
+            fallas.append(f"no se pudo verificar el puente WhatsApp Web: {e}")
     fallas.extend(_corrio_en_mock())
     return fallas
 

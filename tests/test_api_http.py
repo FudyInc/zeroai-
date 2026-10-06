@@ -33,6 +33,7 @@ import tempfile
 import time
 import unittest
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -144,7 +145,18 @@ class ApiHttpTest(unittest.TestCase):
         cls.port = _free_port()
         cls.base = f"http://127.0.0.1:{cls.port}"
         repo_root = Path(__file__).resolve().parent.parent
+        cls._tmpdir = tempfile.mkdtemp()
         env = dict(os.environ)
+        env["STATE_PATH"] = os.path.join(cls._tmpdir, "state.json")
+        env["CRM_PATH"] = os.path.join(cls._tmpdir, "crm.json")
+        env["SUPABASE_URL"] = ""
+        env["SUPABASE_KEY"] = ""
+        from zero.memory import SessionMemory
+        from zero.client_integrations import secret_key
+        memory = SessionMemory(env["STATE_PATH"])
+        memory.register_client("acme", "GROWTH")
+        memory.save()
+        env[secret_key("acme", "WHATSAPP_APP_SECRET")] = cls.WHATSAPP_APP_SECRET
         # Vacío, no ausente: zero/_env.py::load_env usa os.environ.setdefault, así
         # que si la key falta del todo y existe un .env real en el repo (como en
         # producción) con AUTH_PASSWORD configurada, el subproceso la vuelve a
@@ -199,6 +211,7 @@ class ApiHttpTest(unittest.TestCase):
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait(timeout=5)
+        shutil.rmtree(getattr(cls, "_tmpdir", "") or "", ignore_errors=True)
 
     def _get(self, path: str):
         with urllib.request.urlopen(f"{self.base}{path}", timeout=5) as r:
@@ -254,7 +267,7 @@ class ApiHttpTest(unittest.TestCase):
         CRM.search() — por eso este chequeo tiene que ser sobre HTTP real, no
         sobre la función en Python (igual razón que test_clients_endpoint arriba)."""
         with self.assertRaises(urllib.error.HTTPError) as cm:
-            self._get("/api/leads/search?q=a")
+            self._get("/api/leads/search?client=acme&q=a")
         self.assertEqual(cm.exception.code, 400)
 
     def test_leads_search_shape_over_real_http(self):
@@ -265,7 +278,11 @@ class ApiHttpTest(unittest.TestCase):
         test_clients_endpoint_over_real_http: un Supabase caído/pausado degrada
         a 503 claro, nunca a un 500 crudo."""
         try:
-            status, body = self._get("/api/leads/search?q=zzz-no-deberia-matchear-nada-real")
+            _, clients_body = self._get("/api/clients")
+            if not clients_body.get("clients"):
+                self.skipTest("sin negocios registrados")
+            client = urllib.parse.quote(clients_body["clients"][0], safe="")
+            status, body = self._get(f"/api/leads/search?client={client}&q=zzz-no-deberia-matchear-nada-real")
             self.assertEqual(status, 200)
             self.assertEqual(set(body), {"results", "q", "limit"})
             self.assertEqual(body["results"], [])
@@ -363,6 +380,16 @@ class ApiHttpTest(unittest.TestCase):
         status, resp = self._post_webhook(body, signature=sig)
         self.assertEqual(status, 200)
         self.assertEqual(resp["received"], 0)   # payload vacío, pero se procesó
+
+    def test_webhook_signature_cannot_inject_another_business_phone(self):
+        body = json.dumps({"entry": [{"changes": [{"value": {
+            "metadata": {"phone_number_id": "other-business-phone"},
+            "messages": [{"from": "56911111111", "type": "text", "text": {"body": "hola"}}],
+        }}]}]}).encode()
+        sig = "sha256=" + hmac.new(self.WHATSAPP_APP_SECRET.encode(), body, hashlib.sha256).hexdigest()
+        status, response = self._post_webhook(body, signature=sig)
+        self.assertEqual(status, 200)
+        self.assertEqual(response["received"], 0)
 
 
 @unittest.skipUnless(_UVICORN_AVAILABLE, "uvicorn no instalado — este test es opcional, no núcleo")
@@ -559,7 +586,14 @@ class ApiSupabaseAuthHttpTest(unittest.TestCase):
         cls.port = _free_port()
         cls.base = f"http://127.0.0.1:{cls.port}"
         repo_root = Path(__file__).resolve().parent.parent
+        cls._tmpdir = tempfile.mkdtemp()
         env = dict(os.environ)
+        env["STATE_PATH"] = os.path.join(cls._tmpdir, "state.json")
+        env["CRM_PATH"] = os.path.join(cls._tmpdir, "crm.json")
+        from zero.memory import SessionMemory
+        memory = SessionMemory(env["STATE_PATH"])
+        memory.register_client("acme", "GROWTH")
+        memory.save()
         env["SUPABASE_JWT_SECRET"] = cls.JWT_SECRET
         env["AUTH_USERS_PATH"] = os.path.join(tempfile.mkdtemp(), "users.json")
         env["ZERO_PIPELINE_MOCK_OK"] = "1"
@@ -596,6 +630,7 @@ class ApiSupabaseAuthHttpTest(unittest.TestCase):
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait(timeout=5)
+        shutil.rmtree(cls._tmpdir, ignore_errors=True)
 
     def _get(self, path: str, token: str | None = None):
         headers = {"Authorization": f"Bearer {token}"} if token else {}
@@ -766,6 +801,10 @@ class ProgrammedFunctionsHttpTest(unittest.TestCase):
         env["ZERO_PIPELINE_MOCK_OK"] = "1"
         env["STATE_PATH"] = os.path.join(cls._tmpdir, "state.json")
         env["CRM_PATH"] = os.path.join(cls._tmpdir, "crm.json")
+        from zero.memory import SessionMemory
+        memory = SessionMemory(env["STATE_PATH"])
+        memory.register_client("acme", "GROWTH")
+        memory.save()
         # Mismos gotchas ya documentados arriba (ApiSupabaseAuthHttpTest): sin
         # esto, el subproceso puede heredar Supabase/Ollama/Anthropic reales
         # del .env del repo y dejar de ser un entorno de test aislado.
@@ -821,17 +860,17 @@ class ProgrammedFunctionsHttpTest(unittest.TestCase):
     def test_non_admin_gets_403_on_every_functions_endpoint(self):
         cro = self._jwt(role="cro")
         with self.assertRaises(urllib.error.HTTPError) as ctx:
-            self._get("/api/functions", token=cro)
+            self._get("/api/functions?client=acme", token=cro)
         self.assertEqual(ctx.exception.code, 403)
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self._send("/api/functions", {"name": "x", "code": "result=1",
                                           "lookup_scope": {"client_id": "acme"}}, token=cro)
         self.assertEqual(ctx.exception.code, 403)
         with self.assertRaises(urllib.error.HTTPError) as ctx:
-            self._delete("/api/functions/algo", token=cro)
+            self._delete("/api/functions/algo?client=acme", token=cro)
         self.assertEqual(ctx.exception.code, 403)
         with self.assertRaises(urllib.error.HTTPError) as ctx:
-            self._send("/api/functions/algo/run", {}, token=cro)
+            self._send("/api/functions/algo/run?client=acme", {}, token=cro)
         self.assertEqual(ctx.exception.code, 403)
 
     def test_admin_create_run_and_delete_lifecycle(self):
@@ -850,11 +889,11 @@ class ProgrammedFunctionsHttpTest(unittest.TestCase):
         self.assertIsNone(fn["last_run"])
         fid = fn["id"]
 
-        status, body = self._get("/api/functions", token=admin)
+        status, body = self._get("/api/functions?client=acme", token=admin)
         self.assertEqual(status, 200)
         self.assertIn(fid, {f["id"] for f in body["functions"]})
 
-        status, body = self._send(f"/api/functions/{fid}/run", {}, token=admin)
+        status, body = self._send(f"/api/functions/{fid}/run?client=acme", {}, token=admin)
         self.assertEqual(status, 200)
         self.assertEqual(set(body), {"function", "run"})
         # `actions` (el reporte de acciones pedidas) solo aparece si la corrida
@@ -865,19 +904,19 @@ class ProgrammedFunctionsHttpTest(unittest.TestCase):
         self.assertEqual(set(last_run), {"at", "ok", "result_summary", "error", "actions"})
 
         # quedó guardado de verdad — no solo en la respuesta de /run
-        status, body = self._get("/api/functions", token=admin)
+        status, body = self._get("/api/functions?client=acme", token=admin)
         saved = next(f for f in body["functions"] if f["id"] == fid)
         self.assertIsNotNone(saved["last_run"])
 
-        status, _ = self._delete(f"/api/functions/{fid}", token=admin)
+        status, _ = self._delete(f"/api/functions/{fid}?client=acme", token=admin)
         self.assertEqual(status, 200)
-        status, body = self._get("/api/functions", token=admin)
+        status, body = self._get("/api/functions?client=acme", token=admin)
         self.assertNotIn(fid, {f["id"] for f in body["functions"]})
 
     def test_run_unknown_function_is_404(self):
         admin = self._jwt(role="admin")
         with self.assertRaises(urllib.error.HTTPError) as ctx:
-            self._send("/api/functions/no-existe-nunca/run", {}, token=admin)
+            self._send("/api/functions/no-existe-nunca/run?client=acme", {}, token=admin)
         self.assertEqual(ctx.exception.code, 404)
 
     def test_disabled_function_cannot_be_run(self):
@@ -888,7 +927,7 @@ class ProgrammedFunctionsHttpTest(unittest.TestCase):
         }, token=admin)
         fid = body["function"]["id"]
         with self.assertRaises(urllib.error.HTTPError) as ctx:
-            self._send(f"/api/functions/{fid}/run", {}, token=admin)
+            self._send(f"/api/functions/{fid}/run?client=acme", {}, token=admin)
         self.assertEqual(ctx.exception.code, 409)
 
     def test_create_without_name_is_400(self):
@@ -947,7 +986,7 @@ class ProgrammedFunctionsHttpTest(unittest.TestCase):
         fid = body["function"]["id"]
         before = datetime.fromisoformat(body["function"]["next_run"])
 
-        status, run_body = self._send(f"/api/functions/{fid}/run", {}, token=admin)
+        status, run_body = self._send(f"/api/functions/{fid}/run?client=acme", {}, token=admin)
         self.assertEqual(status, 200)
         after = datetime.fromisoformat(run_body["function"]["next_run"])
         self.assertGreaterEqual(after, before)   # se recalculó desde ahora, no quedó atrás

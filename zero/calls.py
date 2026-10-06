@@ -22,9 +22,9 @@ _BASE = "https://api.vapi.ai"
 _URL = f"{_BASE}/call"
 
 
-def _curl(method: str, path: str, body: Optional[str] = None) -> Any:
+def _curl(method: str, path: str, body: Optional[str] = None, api_key: Optional[str] = None) -> Any:
     """Call the Vapi API via system curl (Cloudflare-resilient). Returns parsed JSON."""
-    key = os.environ.get("VAPI_API_KEY")
+    key = api_key or os.environ.get("VAPI_API_KEY")
     if not key:
         raise RuntimeError("Falta configurar la VAPI_API_KEY en el dashboard")
     if not shutil.which("curl"):
@@ -50,9 +50,9 @@ def _curl(method: str, path: str, body: Optional[str] = None) -> Any:
     return data
 
 
-def list_assistants() -> list:
+def list_assistants(api_key: Optional[str] = None) -> list:
     """Your Vapi assistants → [{id, name}]."""
-    data = _curl("GET", "assistant") or []
+    data = _curl("GET", "assistant", api_key=api_key) or []
     # Defensivo: si Vapi alguna vez envuelve la lista en un objeto (ej. un
     # cambio de API, un error 200 con otra forma), no reventar con
     # AttributeError iterando strings/keys de un dict — tratarlo como vacío.
@@ -62,9 +62,9 @@ def list_assistants() -> list:
             for a in data if isinstance(a, dict)]
 
 
-def list_phone_numbers() -> list:
+def list_phone_numbers(api_key: Optional[str] = None) -> list:
     """Your Vapi phone numbers → [{id, number}]."""
-    data = _curl("GET", "phone-number") or []
+    data = _curl("GET", "phone-number", api_key=api_key) or []
     if not isinstance(data, list):
         return []
     return [{"id": n.get("id"), "number": n.get("number") or n.get("name") or n.get("id")}
@@ -104,7 +104,8 @@ def _lead_variables(lead: Optional[Dict[str, Any]]) -> Dict[str, str]:
 
 def place_call(number: str, name: Optional[str] = None,
                assistant_id: Optional[str] = None, phone_number_id: Optional[str] = None,
-               lead: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+               lead: Optional[Dict[str, Any]] = None,
+               api_key: Optional[str] = None) -> Dict[str, Any]:
     """Start an outbound call. Agent/number can be chosen per call, else env defaults.
 
     `lead` es opcional: un registro del CRM para que el asistente sepa a quién
@@ -123,7 +124,7 @@ def place_call(number: str, name: Optional[str] = None,
     Una variable sin valor no se envía, así que el prompt en Vapi debe tolerar
     que falte (redáctalo de modo que la frase siga en pie sin ella)."""
     number = (number or "").strip()
-    key = os.environ.get("VAPI_API_KEY")
+    key = api_key or os.environ.get("VAPI_API_KEY")
     assistant = assistant_id or os.environ.get("VAPI_ASSISTANT_ID")
     phone_id = phone_number_id or os.environ.get("VAPI_PHONE_NUMBER_ID")
     missing = [n for n, v in (("VAPI_API_KEY", key),

@@ -118,7 +118,7 @@ class SupabaseCRM(CRM):
         (the one that replies was contacted recently) and compares by digits."""
         em = (email or "").strip().lower()
         client_filter = ("&client_id=eq." + urllib.parse.quote(str(client_id), safe="")) \
-            if client_id else ""
+            if client_id is not None else ""
         if em and "@" in em:
             q = urllib.parse.quote(em, safe="")
             rows = self._req("GET", f"{self.TABLE}?email=ilike.{q}{client_filter}&limit=1") or []
@@ -133,15 +133,16 @@ class SupabaseCRM(CRM):
                     return self._row_to_rec(row)
         return None
 
-    def search(self, q: str, limit: int = 20) -> List[Dict[str, Any]]:
-        """Cross-client search, server-side — the one query that intentionally
-        spans every account (no client_id filter), same sort as query()."""
+    def search(self, q: str, limit: int = 20, client_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Búsqueda en Postgres; puede restringirse al negocio seleccionado."""
         needle = (q or "").strip()
         if not needle:
             return []
         v = urllib.parse.quote(needle, safe="")
         path = (f"{self.TABLE}?or=(company.ilike.*{v}*,email.ilike.*{v}*,phone.ilike.*{v}*)"
                 f"&order=score.desc.nullslast,company.asc&limit={int(limit)}")
+        if client_id:
+            path += f"&client_id=eq.{urllib.parse.quote(client_id, safe='')}"
         rows = self._req("GET", path) or []
         return [self._row_to_rec(r) for r in rows]
 

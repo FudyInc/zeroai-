@@ -137,7 +137,8 @@ def notify_owner(text: str, *, kind: str = "generic",
     # canales funcionan es un precio ridículamente bajo — y el SMTP ya está conectado,
     # así que no agrega servicio ni cuenta nueva.
     intentos, salio, destino_ok, via_ok = [], False, None, []
-    for canal, destino in (("whatsapp", (os.environ.get("OWNER_WHATSAPP_TO") or "").strip()),
+    for canal, destino in (("whatsapp", (os.environ.get("OWNER_WHATSAPP_TO") or "").strip()
+                           if os.environ.get("OWNER_WHATSAPP_PAUSED") != "1" else ""),
                            ("email", _owner_email())):
         if not destino:
             intentos.append(f"{canal}: sin destinatario")

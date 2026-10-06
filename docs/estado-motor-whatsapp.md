@@ -1,8 +1,13 @@
 # Motor del agente de WhatsApp
 
-**Verificado en código local:** 2026-10-06 tras integrar `origin/main` con Meta
-como único proveedor. **Almacén de producción:** ficha ZeroAI y conexión Meta
-comprobadas el 2026-10-06. **Conversación real con este código:** pendiente.
+**Verificado en código local:** 2026-10-06 tras integrar `origin/main` y los
+cambios del checkout activo en una copia aislada. **Almacén de producción:** ficha
+ZeroAI y conexión Meta comprobadas el 2026-10-06. **Conversación real con este
+código:** pendiente.
+
+El código integrado admite Meta Cloud y sesiones WhatsApp Web asignadas por
+negocio. El envío real exige credenciales propias del negocio; la migración de
+ZeroAI desde las variables globales aún debe verificarse antes del despliegue.
 
 El webhook de Meta valida el mensaje, obtiene el ID del número receptor y, si Meta
 lo entrega, el nombre del perfil del remitente. El ID receptor determina la empresa

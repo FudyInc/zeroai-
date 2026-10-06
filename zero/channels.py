@@ -65,12 +65,13 @@ class EmailSender:
     """Real SMTP send (stdlib). Needs SMTP_HOST [, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM]."""
     name = "email"
 
-    def __init__(self) -> None:
-        self.host = os.environ["SMTP_HOST"]
-        self.port = int(os.environ.get("SMTP_PORT", "587"))
-        self.user = os.environ.get("SMTP_USER")
-        self.password = os.environ.get("SMTP_PASS")
-        self.sender = os.environ.get("SMTP_FROM") or self.user or "no-reply@localhost"
+    def __init__(self, config: Optional[Dict[str, str]] = None) -> None:
+        values = config if config is not None else os.environ
+        self.host = values["SMTP_HOST"]
+        self.port = int(values.get("SMTP_PORT") or "587")
+        self.user = values.get("SMTP_USER")
+        self.password = values.get("SMTP_PASS")
+        self.sender = values.get("SMTP_FROM") or self.user or "no-reply@localhost"
 
     @staticmethod
     def _build_message(sender: str, msg: Dict[str, Any]) -> EmailMessage:
@@ -162,13 +163,14 @@ class WhatsAppSender:
         }
 
 
-def whatsapp_status() -> Dict[str, Any]:
+def whatsapp_status(config: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     """Pings the Graph API with WHATSAPP_TOKEN/WHATSAPP_PHONE_ID to confirm the
     WhatsApp Business number is really linked (not just that the env vars exist).
     Raises RuntimeError with Meta's own message on failure (or a clear message if
     the credentials aren't configured — never a bare KeyError)."""
-    token = os.environ.get("WHATSAPP_TOKEN")
-    phone_id = os.environ.get("WHATSAPP_PHONE_ID")
+    values = config if config is not None else os.environ
+    token = values.get("WHATSAPP_TOKEN")
+    phone_id = values.get("WHATSAPP_PHONE_ID")
     if not (token and phone_id):
         raise RuntimeError("WhatsApp sin configurar: faltan WHATSAPP_TOKEN / WHATSAPP_PHONE_ID")
     q = urllib.parse.urlencode({"fields": "display_phone_number,verified_name"})
@@ -186,7 +188,21 @@ def whatsapp_status() -> Dict[str, Any]:
         raise RuntimeError(f"Meta: {msg[:200]}") from e
     except urllib.error.URLError as e:
         raise RuntimeError(f"no pude contactar a Meta: {e}") from e
-    return {"display_phone_number": d.get("display_phone_number"), "verified_name": d.get("verified_name")}
+    return {"display_phone_number": d.get("display_phone_number"),
+            "verified_name": d.get("verified_name"), "cloud_api_ready": True}
+
+
+class MissingClientSender:
+    """Falla visible cuando un negocio no tiene credenciales propias."""
+    name = "sin_integracion"
+
+    def __init__(self, channel: str, client: str) -> None:
+        self.channel = channel
+        self.client = client
+
+    def send(self, msg: Dict[str, Any]) -> Dict[str, Any]:
+        return _result(self.channel, msg.get("to"), "error",
+                       error=f"{self.channel} no está configurado para {self.client}", via=self.name)
 
 
 class Outbox:
@@ -203,11 +219,13 @@ class Outbox:
                  wa_sender_factory: Optional[Any] = None,
                  retry_attempts: Optional[int] = None,
                  retry_delay: Optional[float] = None,
-                 require_configured: bool = False) -> None:
+                 require_configured: bool = False,
+                 tenant_scope: bool = False) -> None:
         from .config import OUTBOX_RETRY_ATTEMPTS, OUTBOX_RETRY_DELAY_SECONDS
         self.real = real_senders or {}
         self.require_configured = require_configured
         self._mock = MockSender()
+        self.tenant_scope = tenant_scope
         # Builds a per-vendor WhatsApp sender from (phone_id, token) when live, so
         # each client sends from its assigned vendor's number. Cached by phone_id.
         self._wa_factory = wa_sender_factory
@@ -220,7 +238,20 @@ class Outbox:
     def live(self) -> bool:
         return bool(self.real) or self.require_configured
 
-    def _sender_for(self, channel: str, wa_creds: Optional[Any]) -> Any:
+    def _sender_for(self, channel: str, wa_creds: Optional[Any], msg: Optional[Dict[str, Any]] = None) -> Any:
+        client = (msg or {}).get("client_id")
+        if client and self.tenant_scope:
+            from .client_integrations import configured, credentials, whatsapp_provider
+            if channel == "email":
+                return (EmailSender(credentials(client, "email")) if configured(client, "email")
+                        else MissingClientSender("email", client))
+            if channel == "whatsapp":
+                if whatsapp_provider(client) == "web":
+                    from .whatsapp_web import WhatsAppWebSender
+                    return WhatsAppWebSender()  # valida cliente, número y sesión antes de enviar
+                values = credentials(client, "whatsapp")
+                return (WhatsAppSender(values["WHATSAPP_PHONE_ID"], values["WHATSAPP_TOKEN"])
+                        if configured(client, "whatsapp") else MissingClientSender("whatsapp", client))
         if not self.real and not self.require_configured:
             return self._mock                       # mock mode: never real
         if channel == "whatsapp" and wa_creds and self._wa_factory:
@@ -235,7 +266,7 @@ class Outbox:
 
     def send(self, msg: Dict[str, Any], wa_creds: Optional[Any] = None) -> Dict[str, Any]:
         channel = msg.get("channel") or "email"
-        sender = self._sender_for(channel, wa_creds)
+        sender = self._sender_for(channel, wa_creds, msg)
         if sender is None:
             res = _result(channel, msg.get("to"), "error",
                           error=f"canal {channel} sin credenciales para envío real",
@@ -273,8 +304,19 @@ def make_outbox() -> Outbox:
         not os.environ.get("SMTP_USER") or os.environ.get("SMTP_PASS")
     ):
         real["email"] = EmailSender()
-    if os.environ.get("WHATSAPP_TOKEN") and os.environ.get("WHATSAPP_PHONE_ID"):
-        real["whatsapp"] = WhatsAppSender()
-    wa_factory = lambda pid, tok: WhatsAppSender(pid, tok)  # noqa: E731
+    provider = os.environ.get("WHATSAPP_PROVIDER", "meta").lower()
+    if provider == "web":
+        if os.environ.get("WHATSAPP_WEB_BRIDGE_TOKEN"):
+            from .whatsapp_web import WhatsAppWebSender
+            real["whatsapp"] = WhatsAppWebSender()
+        wa_factory = None  # La sesión Web corresponde a un único número.
+    else:
+        if os.environ.get("WHATSAPP_TOKEN") and os.environ.get("WHATSAPP_PHONE_ID"):
+            real["whatsapp"] = WhatsAppSender()
+        wa_factory = lambda pid, tok: WhatsAppSender(pid, tok)  # noqa: E731
     # Per-vendor senders are built on demand from each vendor's credentials.
-    return Outbox(real, wa_sender_factory=wa_factory, require_configured=True)
+    # WhatsApp Web can deliver even if its HTTP acknowledgement times out.
+    # Retrying that send creates duplicate messages for the customer.
+    return Outbox(real, wa_sender_factory=wa_factory,
+                  retry_attempts=1 if provider == "web" else None,
+                  tenant_scope=True, require_configured=True)

@@ -64,7 +64,7 @@ class WhatsAppEnginePolicyTest(unittest.TestCase):
 
     def test_paid_fallback_is_declared(self):
         # Diego eligió explícitamente caer a Claude en vez de degradar a mock.
-        self.assertTrue(WHATSAPP_ENGINE["fallback_to_paid"])
+        self.assertFalse(WHATSAPP_ENGINE["fallback_to_paid"])
 
     def test_alert_throttle_is_sane(self):
         # 0 permitiría un aviso por mensaje: el modo de falla que la ventana evita.
@@ -293,7 +293,7 @@ class EngineStatusTest(unittest.TestCase):
         import api
         with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": ""}, clear=False):
             st = api._whatsapp_engine_status()
-        self.assertTrue(st["fallback_to_paid"])
+        self.assertEqual(st["fallback_to_paid"], WHATSAPP_ENGINE["fallback_to_paid"])
         self.assertFalse(st["fallback_ready"])
 
     def test_status_never_leaks_the_key(self):

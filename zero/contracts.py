@@ -113,6 +113,18 @@ class AgentResponse:
             if lifted:
                 result = lifted
 
+        # Accept alternate reply keys inside either response envelope.
+        if (agent or d.get("agent")) == "CONCIERGE" and not result.get("reply"):
+            candidate = (result.get("response") or result.get("message") or
+                         result.get("text") or d.get("response") or d.get("message"))
+            for _ in range(3):
+                if not isinstance(candidate, dict):
+                    break
+                candidate = (candidate.get("reply") or candidate.get("response") or
+                             candidate.get("message") or candidate.get("text"))
+            if isinstance(candidate, str) and candidate.strip():
+                result["reply"] = candidate.strip()
+
         status = d.get("status")
         if status not in ("done", "partial", "error"):
             status = "done" if result else "error"

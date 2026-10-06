@@ -12,7 +12,8 @@ import os
 from typing import Any, Dict, List, Optional
 
 
-def verify_meta_signature(raw_body: bytes, signature_header: Optional[str]) -> bool:
+def verify_meta_signature(raw_body: bytes, signature_header: Optional[str],
+                          secret: Optional[str] = None) -> bool:
     """True only if `raw_body` is signed by WHATSAPP_APP_SECRET, matching the
     `X-Hub-Signature-256` header Meta sends on every real webhook call.
 
@@ -26,7 +27,7 @@ def verify_meta_signature(raw_body: bytes, signature_header: Optional[str]) -> b
     No secret configured, missing header, or a mismatch — all return False;
     the caller rejects the request. `hmac.compare_digest` avoids a timing attack
     that could otherwise leak the correct signature byte by byte."""
-    secret = os.environ.get("WHATSAPP_APP_SECRET")
+    secret = secret if secret is not None else os.environ.get("WHATSAPP_APP_SECRET")
     if not secret or not signature_header or not signature_header.startswith("sha256="):
         return False
     expected = hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()

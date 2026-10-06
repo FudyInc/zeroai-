@@ -24,6 +24,10 @@ venv/
 frontend/node_modules/
 frontend/dist/
 node_modules/
+whatsapp-web-bridge/.session*/
+whatsapp-web-bridge/.wwebjs_cache*/
+whatsapp-web-bridge/*.sqlite*
+whatsapp-web-bridge/*.db*
 
 # otros
 *.mp3

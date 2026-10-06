@@ -6,6 +6,7 @@ import { CheckCheck, Send, Mail, MessageCircle, ChevronDown } from 'lucide-react
 import { api } from '../lib/api'
 import { Card, Button, Skeleton, pageState, SectionTitle, Eyebrow } from '../components/ui'
 import { cn } from '../lib/util'
+import { useApp } from '../App'
 import { rise, fade, surface, stagger } from '../lib/motion'
 
 /* La bandeja de aprobación: todo lo que los agentes redactaron solos y espera
@@ -105,10 +106,12 @@ function DraftCard({ item, onSent }) {
 }
 
 export default function Aprobar() {
+  const { client } = useApp()
   const qc = useQueryClient()
   const q = useQuery({
-    queryKey: ['pending-outreach'],
-    queryFn: () => api.pendingOutreach(),
+    queryKey: ['pending-outreach', client],
+    queryFn: () => api.pendingOutreach(client),
+    enabled: !!client,
     refetchInterval: 60000,   // llega trabajo solo mientras el panel está abierto
   })
 
@@ -119,7 +122,7 @@ export default function Aprobar() {
   if (gate) return gate
 
   const items = q.data || []
-  const refresh = () => qc.invalidateQueries({ queryKey: ['pending-outreach'] })
+  const refresh = () => qc.invalidateQueries({ queryKey: ['pending-outreach', client] })
 
   return (
     <motion.div className="space-y-5 max-w-2xl" initial="hidden" animate="show" variants={rise}>

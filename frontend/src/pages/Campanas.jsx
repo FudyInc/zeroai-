@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { DollarSign, Users, Target, Activity, Settings2, MapPin, Sparkles, TrendingUp } from 'lucide-react'
@@ -34,21 +34,6 @@ function timeAgo(iso) {
   return `hace ${years} ${years === 1 ? 'año' : 'años'}`
 }
 
-// Tendencia de 7 días — Meta no entrega series diarias por campaña, así que
-// repartimos el gasto del mes con una curva leve (ramp ascendente) para dar
-// una idea visual de evolución. Se marca como "estimado" en la UI; cuando
-// /api/campaigns entregue una serie diaria real, esto se reemplaza 1:1.
-const TREND_WEIGHTS = [0.11, 0.13, 0.12, 0.15, 0.14, 0.17, 0.18]
-function buildTrend(summary) {
-  return TREND_WEIGHTS.map((w, i) => {
-    const d = new Date(Date.now() - (6 - i) * 86400000)
-    return {
-      name: d.toLocaleDateString('es-CL', { weekday: 'short' }),
-      spent: Math.round((summary.spent_clp || 0) * w),
-    }
-  })
-}
-
 // Leads por objetivo — agregación real de las campañas actuales (sin inventar datos).
 function byObjective(campaigns) {
   const m = new Map()
@@ -61,28 +46,16 @@ function byObjective(campaigns) {
 
 export default function Campanas() {
   const { client } = useApp()
-  const qc = useQueryClient()
   const [filter, setFilter] = useState('todas')
   const [showCfg, setShowCfg] = useState(false)
   const [opt, setOpt] = useState(null)
   const [optBusy, setOptBusy] = useState(false)
-  const [syncBusy, setSyncBusy] = useState(false)
+  useEffect(() => { setShowCfg(false); setOpt(null); setFilter('todas') }, [client])
   const optimize = async () => {
     setOptBusy(true)
     try { setOpt(await api.optimizeCampaigns(client)) }
     catch (e) { toast.error('No se pudo optimizar: ' + e.message) }
     finally { setOptBusy(false) }
-  }
-  const syncLeads = async () => {
-    setSyncBusy(true)
-    try {
-      const r = await api.syncAdLeads(client)
-      toast.success(`${r.imported} leads de ads importados al CRM`)
-      qc.invalidateQueries({ queryKey: ['leads'] })
-      qc.invalidateQueries({ queryKey: ['board'] })
-      qc.invalidateQueries({ queryKey: ['kpis'] })
-    } catch (e) { toast.error('No se pudo importar: ' + e.message) }
-    finally { setSyncBusy(false) }
   }
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['campaigns', client], queryFn: () => api.campaigns(client), enabled: !!client,
@@ -99,7 +72,8 @@ export default function Campanas() {
     ),
   })
   if (gate) return gate
-  const { campaigns, summary } = data
+  const { campaigns, summary, daily_spend = [] } = data
+  const trend = daily_spend.map((d) => ({ name: new Date(`${d.date}T12:00:00`).toLocaleDateString('es-CL', { weekday: 'short' }), spent: d.spent_clp }))
   const rows = filter === 'todas' ? campaigns : campaigns.filter((c) => c.status === filter)
   const cards = [
     { l: 'Gastado (mes)', v: clp(summary.spent_clp), icon: DollarSign, bg: 'bg-champagne/35', fg: 'text-gold-deep' },
@@ -136,9 +110,6 @@ export default function Campanas() {
             {summary.source === 'live' ? 'Meta conectado' : 'Meta sin conectar'}
           </Badge>
           <Button variant="soft" onClick={() => setShowCfg((v) => !v)}><Settings2 size={15} /> Config del cliente</Button>
-          <Button variant="soft" onClick={syncLeads} disabled={syncBusy}>
-            {syncBusy ? <Spinner /> : <Users size={15} />} {syncBusy ? 'Importando…' : 'Importar leads de ads'}
-          </Button>
           <Button variant="accent" onClick={optimize} disabled={optBusy}>
             {optBusy ? <Spinner /> : <Sparkles size={15} />} {optBusy ? 'Analizando…' : 'Gestionar con Claude'}
           </Button>
@@ -156,28 +127,28 @@ export default function Campanas() {
       {summary.error && (
         <motion.div variants={fade}>
           <Card className="p-3 border-amber-200 bg-amber-50/70 text-sm text-amber-800">
-          ⚠️ Meta no respondió — mostrando datos de ejemplo. Revisa el token / la cuenta en <b>Configuración → Meta Ads</b>.
+          ⚠️ Meta no respondió. Revisa el token y la cuenta de este negocio en <b>Configuración → Meta Ads</b>.
             <div className="text-xs text-amber-700/80 mt-1 break-words">({summary.error})</div>
           </Card>
         </motion.div>
       )}
-      {showCfg && <ClientConfig client={client} onClose={() => setShowCfg(false)} />}
+      {showCfg && <ClientConfig key={client} client={client} />}
       {opt && <OptimizePanel opt={opt} onClose={() => setOpt(null)} />}
 
-      {campaigns.length > 0 && (
+      {campaigns.length > 0 && daily_spend.length > 0 && (
         <motion.div className="grid grid-cols-1 lg:grid-cols-3 gap-4" variants={stagger()} initial="hidden" animate="show">
           <motion.div className="lg:col-span-2" variants={surface}>
             <Card className="p-5 h-full">
             <div className="flex items-center justify-between mb-1">
               <SectionTitle className="flex items-center gap-2"><TrendingUp size={16} className="text-gold-deep" /> Tendencia de gasto (7 días)</SectionTitle>
-              <Badge color="#8C929B">estimado</Badge>
+              <Badge color="#16a34a">Meta Ads</Badge>
             </div>
             <div className="text-xs text-zinc-400 mb-3">
-              Proyección a partir del gasto del mes — Meta aún no entrega series diarias por campaña.
+              Gasto diario real de los últimos 7 días.
             </div>
             <div className="h-44">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={buildTrend(summary)} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+                <AreaChart data={trend} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
                   <defs>
                     <linearGradient id="spentFill" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor="#C9A45C" stopOpacity={0.35} />
@@ -190,8 +161,8 @@ export default function Campanas() {
                   <Tooltip cursor={{ stroke: '#C9A45C', strokeWidth: 1 }}
                     contentStyle={{ borderRadius: 12, border: '1px solid var(--color-zinc-200)', fontSize: 13, background: 'var(--color-zinc-50)' }}
                     labelStyle={{ color: 'var(--color-zinc-700)' }}
-                    formatter={(v) => [clp(v), 'Gasto (estimado)']} />
-                  <Area type="monotone" dataKey="spent" stroke="var(--color-gold-deep)" strokeWidth={2} strokeDasharray="4 4" fill="url(#spentFill)" />
+                    formatter={(v) => [clp(v), 'Gasto']} />
+                  <Area type="monotone" dataKey="spent" stroke="var(--color-gold-deep)" strokeWidth={2} fill="url(#spentFill)" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -226,7 +197,7 @@ export default function Campanas() {
           <img src="/logo-mark.png" alt="" className="w-12 h-12 mx-auto mb-4 grayscale opacity-25" />
           {summary.source === 'sin_datos' ? (
             <>
-              <div className="font-semibold text-zinc-500">Sin cuenta de Meta conectada</div>
+              <div className="font-semibold text-zinc-500">Sin datos de Meta para este negocio</div>
               <p className="text-sm text-zinc-400 mt-1">Conéctala en Configuración para ver campañas reales.</p>
             </>
           ) : (
@@ -251,7 +222,7 @@ export default function Campanas() {
                   <td className="px-5 py-3 text-zinc-500">{OBJ[c.objective] || c.objective}</td>
                   <td className="px-5 py-3 text-zinc-500"><span className="inline-flex items-center gap-1"><MapPin size={12} />{c.region}</span></td>
                   <td className="px-5 py-3"><Badge color={c.status === 'active' ? '#16a34a' : '#d97706'}>{c.status === 'active' ? 'Activa' : 'Pausada'}</Badge></td>
-                  <td className="px-5 py-3 tabular-nums text-zinc-500">{clp(c.budget_clp)}</td>
+                  <td className="px-5 py-3 tabular-nums text-zinc-500">{c.budget_clp == null ? '—' : `${clp(c.budget_clp)}${c.budget_period === 'daily' ? '/día' : c.budget_period === 'lifetime' ? ' total' : ''}`}</td>
                   <td className="px-5 py-3 tabular-nums">{clp(c.spent_clp)}</td>
                   <td className="px-5 py-3 tabular-nums font-semibold">{c.leads}</td>
                   <td className="px-5 py-3 tabular-nums font-semibold" style={{ color: c.cpl_clp && c.cpl_clp <= summary.good_cpl_clp ? '#16a34a' : '#d97706' }}>
@@ -335,9 +306,10 @@ function ClientConfig({ client }) {
   return (
     <Card className="p-5 space-y-3 border-champagne">
       <div className="font-semibold">Marketing de <span className="text-gold-deep">{client}</span></div>
+      <p className="text-xs text-zinc-500">La cuenta publicitaria se asigna solo a este negocio. El token correspondiente se guarda en Configuración.</p>
       <div className="grid grid-cols-2 gap-3">
         <div className="col-span-2"><label className="block text-xs text-zinc-500 mb-1">Cuenta publicitaria Meta (act_…)</label>
-          <Input value={v.ad_account} onChange={(e) => set('ad_account', e.target.value)} placeholder="act_123456789 (vacío = mock)" /></div>
+          <Input value={v.ad_account} onChange={(e) => set('ad_account', e.target.value)} placeholder="act_123456789 (vacío = sin conectar)" /></div>
         <div><label className="block text-xs text-zinc-500 mb-1">Presupuesto mensual (CLP)</label>
           <Input type="number" value={v.monthly_budget_clp} onChange={(e) => set('monthly_budget_clp', e.target.value)} /></div>
         <div><label className="block text-xs text-zinc-500 mb-1">Zonas (foco Chile)</label>

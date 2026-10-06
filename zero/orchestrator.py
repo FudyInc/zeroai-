@@ -7,6 +7,9 @@ state change, and assembles the client deliverable.
 from __future__ import annotations
 
 import json
+
+import logging
+
 import os
 import re
 import time
@@ -43,10 +46,65 @@ from .vendors import credentials_for
 # agent — because keeping promises is orchestration, not drafting.
 
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+
 _QUOTE_REQUEST_RE = re.compile(
     r"\b(precio|precios|costo|costos|cu[aá]nto|valor|cotiza\w*|presupuesto)\b",
     re.IGNORECASE,
 )
+
+_HUMAN_REQUEST_RE = re.compile(
+    r"\b(?:hablar|conversar|comunicarme|contactarme|atenderme)\s+con\s+(?:un[ao]?\s+)?(?:humano|persona|asesor[ae]?|vendedor[ae]?)\b"
+    r"|\b(?:quiero|necesito|prefiero)\s+(?:que\s+me\s+atienda\s+)?(?:un[ao]?\s+)?(?:humano|persona|asesor[ae]?)\b",
+    re.IGNORECASE,
+)
+
+
+def _same_reply(first: str, second: str) -> bool:
+    normalize = lambda value: " ".join(re.findall(r"\w+", (value or "").casefold()))
+    return bool(normalize(first) and normalize(first) == normalize(second))
+
+
+def _introduced_name(text: str) -> Optional[str]:
+    match = re.fullmatch(
+        r"(?:(?:hola|buenas)[\s,!]+)?(?:me llamo|soy)\s+([^\W\d_]{2,30})[.!?]*",
+        (text or "").strip(), re.IGNORECASE | re.UNICODE)
+    return match.group(1).capitalize() if match else None
+
+
+def _simple_greeting(text: str) -> bool:
+    value = (text or "").strip().casefold().strip(" ¡!¿?.,")
+    return (value in {"hola", "holi", "buenas", "buenos días", "buenos dias",
+                      "buenas tardes", "buenas noches"}
+            or _introduced_name(text) is not None)
+
+
+def _unreadable_whatsapp_message(text: str) -> bool:
+    value = (text or "").strip()
+    if re.fullmatch(r"\[(?:audio|ptt|image|video|sticker|document|archivo|voice)\]", value, re.IGNORECASE):
+        return True
+    # A single apparent keyboard mash with a long consonant run is not a
+    # product question. Do not apply this to longer messages or model codes.
+    return bool(re.fullmatch(r"[a-záéíóúñ]{6,}[\s\d?!.,]*", value, re.IGNORECASE)
+                and re.search(r"[bcdfghjklmnpqrstvwxyz]{5,}", value, re.IGNORECASE))
+
+
+def _asks_again_for_supplied_measurements(message: str, reply: str,
+                                           history: List[Dict[str, Any]]) -> bool:
+    lead_text = " ".join([message] + [str(turn.get("text") or "") for turn in history
+                                     if turn.get("role") == "lead"])
+    measurements = re.search(r"\b\d+(?:[.,]\d+)?\s*(?:x|por|×)\s*\d+(?:[.,]\d+)?\b"
+                             r"|\b\d+(?:[.,]\d+)?\s*(?:m|mts?|metros?)\b", lead_text, re.IGNORECASE)
+    return bool(measurements and re.search(r"\bmedidas?\b|\bmetros?\s+lineales?\b", reply, re.IGNORECASE)
+                and re.search(r"(?:\?|\b(?:dime|das|indica|necesito|envía|envia|comparte)\b)",
+                              reply, re.IGNORECASE))
+
+
+def _unverified_shipping_claim(message: str, reply: str, knowledge: str) -> bool:
+    return bool("despach" in message.casefold() and
+                "despacho requieren revisión humana" in knowledge.casefold() and
+                re.search(r"\b(?:hacemos|realizamos|tenemos|ofrecemos|despachamos|entregamos)\b"
+                          r".{0,45}\bdespacho\b", reply, re.IGNORECASE))
+
 
 
 def _has(text: str, *words: str) -> bool:
@@ -237,7 +295,23 @@ class Zero:
         # config.DEFAULT_INBOUND_CLIENT_ID en caliente (ej. para probar el
         # catch-all desactivado) se refleja de inmediato — mismo motivo que
         # WhatsAppSender._template_body importa WHATSAPP_TEMPLATE adentro.
-        from .config import DEFAULT_INBOUND_CLIENT_ID
+
+        from .config import DEFAULT_INBOUND_CLIENT_ID, DEFAULT_INBOUND_WHATSAPP_NUMBER
+        if to_phone_id:
+            from .client_integrations import credentials, whatsapp_provider
+            recipient = str(to_phone_id)
+            digits = "".join(ch for ch in recipient if ch.isdigit())
+            bound = [cid for cid in self.memory.clients
+                     if digits and digits == "".join(ch for ch in str(
+                         self.memory.get_client_agent_profile(cid).get("whatsapp_number") or "")
+                         if ch.isdigit())]
+            if bound:
+                return bound[0] if len(bound) == 1 else None
+            integrated = [cid for cid in self.memory.clients
+                          if whatsapp_provider(cid) == "meta" and
+                          credentials(cid, "whatsapp").get("WHATSAPP_PHONE_ID") == recipient]
+            if integrated:
+                return integrated[0] if len(integrated) == 1 else None
         vendors = self._vendors_for_recipient(to_phone_id)
         vendor_ids = {v.get("id") for v in vendors}
         matches = [c for c in self.memory.clients
@@ -253,9 +327,12 @@ class Zero:
             # autoriza a presentar ZeroAI en un número quizá ajeno. Solo el
             # receptor global configurado conserva el catch-all histórico.
             global_recipient = os.environ.get("WHATSAPP_PHONE_ID") or ""
-            if not global_recipient or str(to_phone_id) != global_recipient:
+            own_number = "".join(ch for ch in str(DEFAULT_INBOUND_WHATSAPP_NUMBER) if ch.isdigit())
+            if (not global_recipient or str(to_phone_id) != global_recipient) and (
+                    not own_number or "".join(ch for ch in str(to_phone_id) if ch.isdigit()) != own_number):
                 return None
         return DEFAULT_INBOUND_CLIENT_ID or None
+
 
     # --- sending (OUTREACH/TRACKER draft; the outbox delivers) ---------------
     def _deliver(self, client_id: str, lead_key: str, to: Optional[str],
@@ -269,7 +346,14 @@ class Zero:
         vendor = self.vendor_for(client_id) if client_id else {}
         if wa_creds is None and (msg.get("channel") or "") == "whatsapp" and client_id:
             wa_creds = credentials_for(vendor)
-        payload = {**msg, "to": to}
+        payload = {**msg, "to": to, "client_id": client_id}
+        if (msg.get("channel") or "") == "whatsapp" and client_id:
+            from .config import DEFAULT_INBOUND_CLIENT_ID, DEFAULT_INBOUND_WHATSAPP_NUMBER
+            profile_number = self.memory.get_client_agent_profile(client_id).get("whatsapp_number")
+            payload["client_id"] = client_id
+            payload["whatsapp_from"] = (msg.get("whatsapp_from") or profile_number or
+                                        (DEFAULT_INBOUND_WHATSAPP_NUMBER
+                                         if client_id == DEFAULT_INBOUND_CLIENT_ID else ""))
         # Un correo sin asunto sale con el default del transporte ("Hola" en
         # channels.py): en frío, desde una dirección desconocida, eso es spam.
         # Se rellena acá —el punto por el que pasa TODO envío— para que ningún
@@ -893,7 +977,8 @@ class Zero:
                         lead: Optional[Dict[str, Any]] = None,
                         channel: str = "whatsapp",
                         history: Optional[List[Dict[str, Any]]] = None,
-                        vendor: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                        vendor: Optional[Dict[str, Any]] = None,
+                        feedback: str = "") -> Dict[str, Any]:
         """Draft a reply to an inbound message using the client's business context
         (ICP + base de conocimiento + historial del diálogo). Pure drafting —
         doesn't send. Returns the full CONCIERGE result ({reply, intent}) so
@@ -923,16 +1008,30 @@ class Zero:
         # explícito (p.ej. el simulador) o recuperado de memoria por lead.
         if history is None and lead and lead.get("key") and client_id:
             history = self.memory.get_conversation(client_id, lead["key"], limit=12)
+        # El contexto de Ollama en WhatsApp es pequeño. Un prompt de 11 KB más
+        # toda la ficha del CRM hacía que Ollama recortara el mensaje entrante.
+        local_whatsapp = (getattr(getattr(self, "agents", {}).get("CONCIERGE"), "prompt_file", "") ==
+                          "concierge-whatsapp-local.md")
+        lead_context = lead or {}
+        if local_whatsapp:
+            lead_context = {key: lead_context[key] for key in ("name", "role", "company")
+                            if lead_context.get(key)}
+            knowledge = knowledge[:1600]
+            history = [{"role": turn.get("role"), "text": str(turn.get("text") or "")[:300]}
+                       for turn in (history or [])[-4:]]
         # Persona del vendedor asignado (Fernanda/Stéfano/...): solo name/tone, para
         # que CONCIERGE suene como esa persona. Nunca el token/phone_id (secretos).
         if vendor is None:
             vendor = self.vendor_for(client_id) if client_id else {}
-        persona = {"name": vendor.get("name"), "tone": vendor.get("tone")}
+        profile = self.memory.get_client_agent_profile(client_id) if client_id else {}
+        persona = {"name": vendor.get("name"),
+                   "tone": profile.get("tone") or vendor.get("tone")}
         # Presupuesto: si el mensaje pide precios de ítems del catálogo del cliente,
         # se calcula ACÁ (quotes.py, determinista) y se adjunta tras la respuesta del
         # agente — mismo patrón que project_funnel: el LLM redacta, nunca calcula.
         pricing = normalize_pricing(self.memory.get_client_pricing(client_id)) \
             if client_id else {"items": []}
+
         if client_id in QUOTE_REVIEW_REQUIRED_CLIENT_IDS and (
                 _QUOTE_REQUEST_RE.search(message) or extract_request(message, pricing)):
             # El modelo no debe improvisar un total cuando todavía falta revisar
@@ -941,27 +1040,60 @@ class Zero:
             return {"reply": ("Para preparar tu presupuesto necesito confirmar "
                               "productos, cantidades y la dirección completa de entrega. "
                               "¿Me compartes esos datos?"), "intent": "pricing"}
+        quote_mode = profile.get("quote_mode") or "automatic"
         quote = (compute_quote(pricing, extract_request(message, pricing))
-                 if pricing["items"] and client_id not in QUOTE_REVIEW_REQUIRED_CLIENT_IDS
-                 else None)
+                 if pricing["items"] and quote_mode == "automatic"
+                 and client_id not in QUOTE_REVIEW_REQUIRED_CLIENT_IDS else None)
         instructions = "Responde el mensaje entrante del lead, en su idioma, breve y útil."
+        if profile.get("instructions"):
+            instructions += (" Instrucciones de atención para este negocio: " +
+                             profile["instructions"][:1200])
         if client_id in QUOTE_REVIEW_REQUIRED_CLIENT_IDS:
             instructions += (" Esta empresa requiere revisión humana del despacho antes de "
                              "emitir un presupuesto final. No calcules ni prometas un total; "
                              "pide los detalles del pedido y la dirección completa si faltan.")
+        if client_id == "losetaschile" and channel == "whatsapp":
+            instructions += (" Para LosetasChile, primero interpreta la consulta concreta y "
+                             "responde a esa duda antes de pedir datos. Usa el historial para "
+                             "no repetir saludos, explicaciones, preguntas ni listas de medidas "
+                             "ya solicitadas. Pide solo el dato que falta. Si no logras entender "
+                             "la consulta, usa intent handoff.")
+        if feedback:
+            instructions += " Corrección obligatoria de la respuesta anterior: " + feedback[:450]
+
         if quote:
             instructions += (" Debajo de tu respuesta se adjuntará un presupuesto ya "
                              "calculado con los ítems que pidió: preséntalo en una frase "
                              "y NO repitas ni inventes montos.")
-        resp = self.dispatch("CONCIERGE", TaskPayload(
+        elif quote_mode == "manual":
+            instructions += (" Los presupuestos de este negocio requieren revisión humana. "
+                             "No entregues montos ni totales. Solo si el contacto pregunta por "
+                             "precio o presupuesto, pide los datos imprescindibles y ofrece "
+                             "cotizar con una persona.")
+        instructions += (" Si el mensaje es solo un saludo, saluda y pregunta en qué puedes "
+                         "ayudar; no presupongas que quiere cotizar ni pidas medidas.")
+        task = TaskPayload(
             agent="CONCIERGE", client_id=client_id or "", client_tier="",
             instructions=instructions,
-            data={"message": message, "lead": lead or {}, "icp": _icp_para_outreach(icp), "vendor": persona,
+            data={"message": message, "lead": lead_context, "icp": _icp_para_outreach(icp), "vendor": persona,
                   "knowledge": knowledge, "history": history or [],
                   "quote": quote or {}},
             constraints=Constraints(channels=[channel]),
-        ))
+        )
+        resp = self.dispatch("CONCIERGE", task)
         result = dict(resp.result or {})
+        if not isinstance(result.get("reply"), str) or not result["reply"].strip():
+            retry = TaskPayload(
+                agent="CONCIERGE", client_id=client_id or "", client_tier="",
+                instructions=instructions +
+                " Devuelve JSON con una clave reply que contenga una respuesta no vacía.",
+                data=task.data, constraints=task.constraints,
+            )
+            resp = self.dispatch("CONCIERGE", retry)
+            result = dict(resp.result or {})
+            if not isinstance(result.get("reply"), str) or not result["reply"].strip():
+                logging.error("CONCIERGE no produjo reply tras dos intentos (status=%s, keys=%s)",
+                              resp.status, sorted(result))
         if quote:
             reply = (result.get("reply") or "").strip()
             result["reply"] = (reply + "\n\n" if reply else "") + format_quote(quote)
@@ -1029,7 +1161,10 @@ class Zero:
     def handle_inbound(self, from_contact: str, text: str,
                        channel: str = "whatsapp",
                        to_phone_id: Optional[str] = None,
-                       profile_name: Optional[str] = None) -> Dict[str, Any]:
+
+                       profile_name: Optional[str] = None,
+                       whatsapp_chat_id: Optional[str] = None) -> Dict[str, Any]:
+
         """An inbound message arrived (e.g. a WhatsApp reply). Match it to its lead,
         close the loop (`register_reply`), then draft + send a reply with CONCIERGE.
         Reply goes from the vendor that owns `to_phone_id` (the number the lead wrote
@@ -1043,6 +1178,7 @@ class Zero:
         senders (no CRM at all, or no default configured — see
         DEFAULT_INBOUND_CLIENT_ID in config.py) fall back to the old
         "inbound_unmatched" log-and-stop."""
+
         # El número receptor define el negocio antes de buscar al contacto. Una
         # misma persona puede ser lead de varias empresas: un lookup global
         # respondería con la primera ficha encontrada, aunque haya escrito a otra.
@@ -1066,6 +1202,12 @@ class Zero:
             if matches:
                 rec = matches[0]
                 inbound_client = rec["client_id"]
+
+        if to_phone_id and not inbound_client and not rec and not self._vendors_for_recipient(to_phone_id):
+            self.memory.log("inbound_unmatched", channel=channel, sender=from_contact,
+                            destination=to_phone_id, text=(text or "")[:200])
+            self.memory.save()
+            return {"matched": False, "sender": from_contact, "reason": "unknown_destination"}
         if not rec:
             rec = (self.crm.find_by_contact(phone=from_contact, email=from_contact,
                                             client_id=inbound_client) if inbound_client else
@@ -1113,29 +1255,69 @@ class Zero:
             self.crm.save()
 
         client_id, key = rec["client_id"], rec["key"]
+        introduced_name = _introduced_name(text)
+        if introduced_name and not rec.get("name") and self.crm:
+            # Supabase find_by_contact devuelve una copia; modificarla no persiste.
+            rec = self.crm.upsert(client_id, {"key": key, "name": introduced_name})
+            self.crm.save()
+        handoff_key = whatsapp_chat_id or key
         # Reply from the number the lead wrote to (its vendor), else the client's vendor.
         inbound_vendor = self.vendor_by_phone_id(to_phone_id)
         wa_creds = credentials_for(inbound_vendor) if inbound_vendor else None
         out = self.register_reply(client_id, key, text=text, channel=channel)
+        profile = self.memory.get_client_agent_profile(client_id)
+        response_mode = profile.get("response_mode") or "automatic"
+        handoff = self.memory.get_whatsapp_handoff(client_id, handoff_key) if channel == "whatsapp" else None
+        if response_mode == "manual" or handoff:
+            self.memory.add_turn(client_id, key, "lead", text)
+            self.memory.log("inbound_manual_review", client=client_id, lead=key,
+                            channel=channel, reason="business_manual" if response_mode == "manual" else "chat_handoff")
+            self.memory.save()
+            if self.crm:
+                self.crm.log(client_id, key, "awaiting_human", "Mensaje en bandeja de WhatsApp")
+                self.crm.save()
+            return {"matched": True, "manual_review": True,
+                    "company": rec.get("company"), **out}
+
+        if channel == "whatsapp" and (_HUMAN_REQUEST_RE.search(text or "") or
+                                       _unreadable_whatsapp_message(text)):
+            self.memory.add_turn(client_id, key, "lead", text)
+            reason = ("El contacto pidió atención humana" if _HUMAN_REQUEST_RE.search(text or "") else
+                      "Mensaje no interpretable por el agente")
+            self.memory.set_whatsapp_handoff(client_id, handoff_key, reason)
+            self.memory.log("whatsapp_handoff", client=client_id, lead=key, reason=reason)
+            self.memory.save()
+            if self.crm:
+                self.crm.log(client_id, key, "awaiting_human", reason)
+                self.crm.save()
+            return {"matched": True, "manual_review": True, "intent": "handoff",
+                    "company": rec.get("company"), **out}
 
         # An offer was pending (summary / 3 examples) and the lead accepted:
         # fulfill it instead of drafting — a promise kept beats a fresh pitch.
         pending = self.memory.get_pending_offer(client_id, key)
-        if pending and accepts_offer(text):
+        # Perfiles nuevos desactivan este flujo heredado de ventas de ZeroAI.
+        # Los clientes antiguos sin perfil conservan su comportamiento.
+        offer_flow = self.memory.get_client_agent_profile(client_id).get("offer_flow", True)
+        if offer_flow and pending and accepts_offer(text):
             body = build_info_summary(self.memory.get_client_icp(client_id), rec)
             out_channel, to = pick_channel(text, rec, default_channel=channel)
             delivery = self._deliver(client_id, key, to, {
                 "channel": out_channel,
                 "subject": "Información solicitada" if out_channel == "email" else None,
                 "body": body,
+                "whatsapp_from": to_phone_id,
+                "whatsapp_chat_id": whatsapp_chat_id,
             }, wa_creds=wa_creds)
             self.memory.add_turn(client_id, key, "lead", text)
             sent = delivery.get("status") == "sent"
             if sent:
+
                 self.memory.clear_pending_offer(client_id, key)
                 self.memory.add_turn(client_id, key, "agent", body)
                 self.memory.log("offer_fulfilled", client=client_id, lead=key,
                                 kind=pending.get("kind"), channel=out_channel)
+
             else:
                 self.memory.log("offer_delivery_failed", client=client_id, lead=key,
                                 kind=pending.get("kind"), channel=out_channel,
@@ -1151,38 +1333,131 @@ class Zero:
                     "intent": "fulfill" if sent else "fulfill_failed",
                     "delivery": delivery, **out}
 
+
         # Redactar ANTES de registrar los turnos: así el historial que ve CONCIERGE
         # son solo los turnos previos (el mensaje actual viaja aparte en `message`).
+        prior_turns = self.memory.get_conversation(client_id, key, limit=8)
         res = self.converse_result(client_id, text, lead=rec, channel=channel)
+        # A teammate may take the chat while the local model is drafting. Reload
+        # persisted state before sending, so that takeover wins over the draft.
+        if channel == "whatsapp" and whatsapp_chat_id and (
+                self.memory.path is not None or type(self.memory) is not SessionMemory):
+            fresh_memory = (type(self.memory)(str(self.memory.path)) if self.memory.path is not None
+                            else type(self.memory)())
+            self.memory = fresh_memory
+            if fresh_memory.get_whatsapp_handoff(client_id, handoff_key):
+                self.memory.add_turn(client_id, key, "lead", text)
+                self.memory.log("inbound_manual_review", client=client_id, lead=key,
+                                channel=channel, reason="chat_taken_during_draft")
+                self.memory.save()
+                if self.crm:
+                    self.crm.log(client_id, key, "awaiting_human", "El equipo tomó el chat")
+                    self.crm.save()
+                return {"matched": True, "manual_review": True,
+                        "company": rec.get("company"), **out}
         reply, intent = res.get("reply") or "", res.get("intent") or "general"
         quote = res.get("quote")
+        def repetition(candidate: str) -> bool:
+            return bool(channel == "whatsapp" and client_id == "losetaschile" and
+                        (any(turn.get("role") == "agent" and _same_reply(candidate, turn.get("text"))
+                             for turn in prior_turns) or
+                         _asks_again_for_supplied_measurements(text, candidate, prior_turns)))
+        repeated = repetition(reply)
+        unsafe_shipping = (client_id == "losetaschile" and
+                           _unverified_shipping_claim(text, reply,
+                                                      self.memory.get_client_knowledge(client_id)))
+        if ((repeated and not _simple_greeting(text)) or unsafe_shipping) and intent != "handoff":
+            revised = self.converse_result(
+                client_id, text, lead=rec, channel=channel, history=prior_turns,
+                feedback="El cliente ya entregó medidas o esa respuesta ya se dio. "
+                         "Responde la pregunta nueva usando esos datos. No vuelvas a pedir medidas "
+                         "ni repitas la respuesta anterior. Si consulta por despacho, no afirmes "
+                         "disponibilidad: requiere revisión humana. Si no puedes responder, usa intent handoff.")
+            reply, intent = revised.get("reply") or "", revised.get("intent") or "general"
+            quote = revised.get("quote")
+            repeated = repetition(reply)
+            unsafe_shipping = _unverified_shipping_claim(
+                text, reply, self.memory.get_client_knowledge(client_id))
+        if repeated and _simple_greeting(text) and intent != "handoff":
+            # Un saludo nuevo no debe silenciar el chat por una respuesta anterior igual.
+            # Responder sin repetir preguntas viejas ni inventar datos del negocio.
+            reply = (f"¡Hola, {introduced_name}! ¿En qué puedo ayudarte?" if introduced_name
+                     else "¡Hola! Estoy aquí para ayudarte. ¿Qué necesitas hoy?")
+            intent, quote = "general", None
+            repeated = False
+        if channel == "whatsapp" and (intent == "handoff" or not reply.strip() or repeated or unsafe_shipping):
+            reason = ("El agente no entendió la consulta" if intent == "handoff" else
+                      "Respuesta sobre despacho requiere revisión" if unsafe_shipping else
+                      "El agente repitió una respuesta" if repeated else
+                      "El agente no pudo redactar una respuesta")
+            self.memory.add_turn(client_id, key, "lead", text)
+            if repeated and intent != "handoff" and not unsafe_shipping:
+                # A bad draft needs review, but must not disable future replies.
+                self.memory.log("whatsapp_review_required", client=client_id,
+                                lead=key, reason=reason)
+            else:
+                self.memory.set_whatsapp_handoff(client_id, handoff_key, reason)
+                self.memory.log("whatsapp_handoff", client=client_id, lead=key, reason=reason)
+            self.memory.save()
+            if self.crm:
+                self.crm.log(client_id, key, "awaiting_human", reason)
+                self.crm.save()
+            notice_delivery = None
+            if repeated:
+                notice = ("Recibí tu mensaje. Necesito revisar tu consulta antes de "
+                          "responderte bien; quedó pendiente en este chat.")
+                notice_delivery = self._deliver(
+                    client_id, key, rec.get("phone") or rec.get("email"),
+                    {"channel": channel, "subject": None, "body": notice,
+                     "whatsapp_from": to_phone_id, "whatsapp_chat_id": whatsapp_chat_id},
+                    wa_creds=wa_creds)
+                if notice_delivery["status"] == "sent":
+                    self.memory.add_turn(client_id, key, "agent", notice)
+                    self.memory.save()
+                if self.crm:
+                    self.crm.log(client_id, key,
+                                 "auto_reply_accepted" if notice_delivery["status"] == "sent"
+                                 else "auto_reply_failed", notice[:140])
+                    self.crm.save()
+            return {"matched": True, "manual_review": True, "intent": "handoff",
+                    "company": rec.get("company"),
+                    **({"delivery": notice_delivery} if notice_delivery else {}), **out}
         self.memory.add_turn(client_id, key, "lead", text)
-        sent = False
-        delivery = None
+
+        delivery = {"status": "error", "error": "El agente no produjo una respuesta"}
         if reply:
             delivery = self._deliver(client_id, key, rec.get("phone") or rec.get("email"),
-                                     {"channel": channel, "subject": None, "body": reply},
-                                     wa_creds=wa_creds)
-            sent = delivery.get("status") == "sent"
-            if sent:
+                          {"channel": channel, "subject": None, "body": reply,
+                           "whatsapp_from": to_phone_id,
+                           "whatsapp_chat_id": whatsapp_chat_id}, wa_creds=wa_creds)
+            if delivery["status"] == "sent":
+
                 self.memory.add_turn(client_id, key, "agent", reply)
             if self.crm:
                 # Un presupuesto enviado es un evento de venta, no una respuesta más:
                 # queda aparte en el historial para que un humano lo vea de un vistazo.
-                if quote and sent:
-                    self.crm.log(client_id, key, "quote_sent",
+
+                if quote:
+                    quote_event = ("quote_failed" if delivery["status"] != "sent" else
+                                   "quote_accepted" if delivery.get("via") == "whatsapp_web" else "quote_sent")
+                    self.crm.log(client_id, key, quote_event,
                                  f"presupuesto {quote['currency']} {quote['total']:,.0f} "
                                  f"({len(quote['lines'])} ítems)")
-                elif sent:
-                    self.crm.log(client_id, key, "auto_reply", reply[:140])
+                else:
+                    reply_event = ("auto_reply_failed" if delivery["status"] != "sent" else
+                                   "auto_reply_accepted" if delivery.get("via") == "whatsapp_web" else "auto_reply")
+                    self.crm.log(client_id, key, reply_event, reply[:140])
                 self.crm.save()
-        if quote and sent:
+        if quote and delivery["status"] == "sent":
+
             self.memory.log("quote", client=client_id, lead=key,
                             total=quote["total"], currency=quote["currency"],
                             items=[(l["id"], l["qty"]) for l in quote["lines"]])
         self.memory.save()
         # The reply itself made an offer → remember it; an opt-out voids any open one.
-        if intent == "info" and sent:
+
+        if offer_flow and intent == "info" and delivery["status"] == "sent":
+
             self.memory.set_pending_offer(client_id, key, intent)
             self.memory.save()
         elif intent == "optout":
@@ -1197,9 +1472,11 @@ class Zero:
             if self.crm:
                 self.crm.block(client_id, key, reason="optout")
                 self.crm.save()
+
         return {"matched": True, "company": rec.get("company"),
-                "reply": reply if sent else "", "intent": intent,
+                "reply": reply if delivery.get("status") == "sent" else "", "intent": intent,
                 "delivery": delivery, **out}
+
 
     # --- forecasting (ANALYST proposes rates; ZERO does the math) ------------
     def forecast(self, client_id: str) -> Dict[str, Any]:
@@ -1217,23 +1494,26 @@ class Zero:
             instructions="Revisa y, si corresponde, ajusta las tasas de conversión. No calcules.",
             data={"metrics": metrics, "rates": FORECAST_RATES},
         ))
-        if resp.status == "error":
-            return self._fail(client_id, "forecast", resp)
-
-        proposed = resp.result.get("rates") or {}
+        # La proyección sigue siendo útil cuando ANALYST no puede consultar su
+        # modelo (por ejemplo, saldo agotado): se usan las tasas base declaradas
+        # en config y se informa el origen en la API y el dashboard.
+        base_rates = resp.status == "error"
+        proposed = FORECAST_RATES if base_rates else (resp.result.get("rates") or {})
         projection = project_funnel(metrics["contacted"], proposed, AVG_DEAL_VALUE_CLP)
         rates_used = projection.pop("_rates_used")
         forecast = {
             "inputs": metrics,
             "assumptions": {**rates_used, "avg_deal_value_clp": AVG_DEAL_VALUE_CLP},
             "projection": projection,
-            "commentary": resp.result.get("commentary"),
+            "commentary": ("Tasas base sin ajuste: el modelo de IA no estuvo disponible."
+                           if base_rates else resp.result.get("commentary")),
         }
         self.memory.log("forecast", client=client_id,
                         pipeline_clp=projection["expected_pipeline_clp"])
         self.memory.set_stage(client_id, "delivered")
         self.memory.save()
-        return {"client_id": client_id, "forecast": forecast, "notes": resp.notes}
+        return {"client_id": client_id, "forecast": forecast, "notes": resp.notes,
+                "rate_source": "base_rates" if base_rates else "model"}
 
     def _client_metrics(self, client_id: str) -> Dict[str, Any]:
         """Aggregate this client's funnel counts from the audit log + state."""
