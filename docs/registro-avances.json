@@ -8,10 +8,10 @@
       "title": "Subtotal de bordes y esquinas sin despacho",
       "origin": "Diego pidió cotizar el pedido ya definido y confirmó $3.600 como precio final por esquinero",
       "summary": "El catálogo activo tenía el borde recto a $6.000 y no incluía la esquina. Se añadió el cálculo de 36 bordes rectos y 4 esquinas con los precios estructurados; el mensaje entrega subtotal de productos y marca despacho por cotizar, incluso si el último mensaje es una ubicación no legible.",
-      "status": "Precio del esquinero activo en almacén; código y pruebas locales, despliegue pendiente",
+      "status": "Código y catálogo activos; subtotal real por WhatsApp aún sin confirmar",
       "scope": "Agente WhatsApp y catálogo activo de LosetasChile",
-      "evidence": "Precios comprobados en almacén activo: borde recto $6.000 y esquina $3.600, IVA configurado 0%; se conservaron los otros nueve ítems. Prueba local de 36 × 6.000 + 4 × 3.600 = $230.400 sin despacho.",
-      "pending": "Desplegar el cálculo y comprobar una respuesta real de subtotal de productos."
+      "evidence": "Precios comprobados en almacén activo: borde recto $6.000 y esquina $3.600, IVA 0%; nueve ítems previos conservados. Simulación de solo lectura con historial y catálogo reales: productos $230.400 y despacho pendiente. Main 749dbcd activado en backend: /api/health OK y puente Web ready; Vercel producción quedó ready el 2026-10-07. Suite Python y build frontend aprobados.",
+      "pending": "Comprobar una nueva respuesta real del subtotal por WhatsApp; no reprocesar mensajes anteriores de entrega incierta."
     },
     {
       "id": "2026-10-07-losetas-bordes-piscina",
@@ -20,10 +20,10 @@
       "title": "Cantidad de bordes para piscina rectangular en LosetasChile",
       "origin": "Diego probó el WhatsApp real y confirmó la regla de 36 bordes rectos más 4 esquinas para piscina 6 × 3 m",
       "summary": "La primera prueba real dijo 24 piezas. Tras desplegar el cálculo determinista, una segunda pregunta con 'bordea' eludió el reconocimiento y el modelo volvió a explicar el cálculo. Se cubrió ese texto exacto y se bloquean instrucciones de cálculo al cliente; la respuesta prevista es una sola frase con 36 bordes rectos y 4 esquinas.",
-      "status": "Segunda corrección verificada en código local; despliegue pendiente",
+      "status": "Segunda corrección activa en backend; nueva respuesta real aún sin comprobar",
       "scope": "Agente WhatsApp de LosetasChile",
-      "evidence": "Diego confirmó en su teléfono ambas respuestas reales, incluida la segunda con la palabra 'bordea'; la segunda quedó registrada a las 2026-10-07 04:36 UTC. Pruebas locales con ese mensaje exacto y suite Python completa aprobadas.",
-      "pending": "Publicar la segunda corrección y comprobar otra respuesta real de 36 bordes rectos más 4 esquinas."
+      "evidence": "Diego confirmó en su teléfono ambas respuestas reales previas, incluida la segunda con 'bordea', registrada a las 2026-10-07 04:36 UTC. El fix quedó en main eaac549 y luego 749dbcd, con backend recargado, /api/health OK y puente Web ready; pruebas locales del mensaje exacto y suite Python aprobadas.",
+      "pending": "Comprobar otra respuesta real de 36 bordes rectos más 4 esquinas, sin reprocesar mensajes anteriores."
     },
     {
       "id": "2026-10-06-whatsapp-contexto-y-meta-activo",

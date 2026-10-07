@@ -1,12 +1,15 @@
 # Motor del agente de WhatsApp
 
 **Código activo y pruebas locales:** 2026-10-07. El backend reinició con
-`main` en `f40eec2` y respondió a `/api/health`; el puente Web quedó `ready`.
+`main` en `749dbcd` y respondió a `/api/health`; el puente Web quedó `ready`.
+El dashboard se publicó en Vercel producción el mismo día.
 **Almacén de producción:** ficha ZeroAI y conexión Meta comprobadas.
 **Conversación real:** Diego confirmó respuestas en el WhatsApp de LosetasChile
 el 2026-10-06 23:41 Chile, antes de la corrección del cálculo de bordes.
-Faltan una prueba real de la cantidad corregida y una conversación real de
-ZeroAI por Meta.
+El catálogo activo de LosetasChile ya incluye el esquinero; el subtotal de
+productos de un pedido 6 × 3 m se calculó con historial y precios reales en una
+simulación sin envío. Faltan una respuesta real de ese subtotal por WhatsApp y
+una conversación real de ZeroAI por Meta.
 
 El código integrado admite Meta Cloud y sesiones WhatsApp Web asignadas por
 negocio. El envío real exige credenciales propias del negocio. ZeroAI ya tiene
