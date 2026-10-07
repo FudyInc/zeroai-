@@ -1,10 +1,11 @@
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 from zero.agents import build_agents
 from zero.memory import SessionMemory
 from zero.orchestrator import Zero
-from zero.pool_border import border_count_reply
+from zero.pool_border import border_count_reply, delegates_piece_calculation
 
 
 class PoolBorderCountTest(unittest.TestCase):
@@ -103,6 +104,38 @@ class PoolBorderCountTest(unittest.TestCase):
             "¿Cuántos bordes rectos con nariz para piscina rectangular 6x3 pies?", [])
         self.assertIn("metros", reply)
         self.assertNotIn("36 bordes", reply)
+
+    def test_real_followup_with_typo_uses_previous_pool_details(self):
+        history = [
+            {"role": "lead", "text": "Es de 6x3"},
+            {"role": "lead", "text": "Borde recto con nariz"},
+            {"role": "lead", "text": "Si cuantos pastelones caben en una piscina de 6x3 rectangular?"},
+        ]
+        reply = border_count_reply(
+            "Cuantos bordea necesito entonces para es piscina?", history)
+        self.assertEqual(
+            reply, "Para tu piscina de 6 × 3 m: 36 bordes rectos de 50 cm más 4 esquinas.")
+
+    def test_calculation_instructions_are_rejected_for_quantity_question(self):
+        self.assertTrue(delegates_piece_calculation(
+            "¿Cuántos bordes para mi piscina?",
+            "Para calcular los bordes, divide el perímetro entre el largo de la pieza."))
+        self.assertFalse(delegates_piece_calculation(
+            "¿Cómo calculo el perímetro?",
+            "Divide el perímetro entre el largo de la pieza."))
+
+    def test_model_advice_is_replaced_before_customer_reply(self):
+        memory = SessionMemory(None)
+        memory.register_client("losetaschile", "STARTER")
+        zero = Zero(build_agents(mock=True), memory=memory)
+        draft = SimpleNamespace(result={
+            "reply": "Para calcular los bordes, divide el perímetro por el largo.",
+            "intent": "info"}, status="ok")
+        with mock.patch.object(zero, "dispatch", return_value=draft):
+            result = zero.converse_result(
+                "losetaschile", "¿Cuántos bords para mi piscina?", channel="whatsapp")
+        self.assertNotIn("divide", result["reply"])
+        self.assertIn("confirmas", result["reply"])
 
 
 if __name__ == "__main__":

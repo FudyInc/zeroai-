@@ -37,7 +37,7 @@ from .icp import describe_icp, is_empty, normalize_icp
 from .inbox import Inbox, MockInbox
 from .memory import SessionMemory
 from .quotes import compute_quote, extract_request, format_quote, normalize_pricing
-from .pool_border import border_count_reply
+from .pool_border import border_count_reply, delegates_piece_calculation
 from .vendors import credentials_for
 from .whatsapp_context import select_history, select_knowledge
 
@@ -1112,6 +1112,10 @@ class Zero:
             if not isinstance(result.get("reply"), str) or not result["reply"].strip():
                 logging.error("CONCIERGE no produjo reply tras dos intentos (status=%s, keys=%s)",
                               resp.status, sorted(result))
+        if (client_id == "losetaschile" and channel == "whatsapp" and
+                delegates_piece_calculation(message, result.get("reply") or "")):
+            result["reply"] = ("¿Me confirmas el modelo de borde y las medidas "
+                               "de la piscina para darte la cantidad exacta?")
         if quote:
             reply = (result.get("reply") or "").strip()
             result["reply"] = (reply + "\n\n" if reply else "") + format_quote(quote)

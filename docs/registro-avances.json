@@ -7,11 +7,11 @@
       "type": "change",
       "title": "Cantidad de bordes para piscina rectangular en LosetasChile",
       "origin": "Diego probó el WhatsApp real y confirmó la regla de 36 bordes rectos más 4 esquinas para piscina 6 × 3 m",
-      "summary": "La conversación real entró y recibió respuesta en el teléfono, pero el modelo dijo 24 piezas y explicó cómo calcularlas. Se agregó un cálculo determinista de perímetro para el borde recto con nariz de 50 cm, con respuesta breve y directa; se pide aclaración cuando faltan modelo, forma o medidas.",
-      "status": "Código de corrección activo en producción; salida corregida aún sin prueba real",
+      "summary": "La primera prueba real dijo 24 piezas. Tras desplegar el cálculo determinista, una segunda pregunta con 'bordea' eludió el reconocimiento y el modelo volvió a explicar el cálculo. Se cubrió ese texto exacto y se bloquean instrucciones de cálculo al cliente; la respuesta prevista es una sola frase con 36 bordes rectos y 4 esquinas.",
+      "status": "Segunda corrección verificada en código local; despliegue pendiente",
       "scope": "Agente WhatsApp de LosetasChile",
-      "evidence": "Conversación anterior del 2026-10-06 23:41 Chile recibida en el teléfono de Diego; suite Python completa aprobada; commit f40eec2 subido a main, backend recargado, /api/health OK y puente Web ready el 2026-10-07.",
-      "pending": "Comprobar con una nueva pregunta real que el agente responde 36 bordes rectos más 4 esquinas."
+      "evidence": "Diego confirmó en su teléfono ambas respuestas reales, incluida la segunda con la palabra 'bordea'; la segunda quedó registrada a las 2026-10-07 04:36 UTC. Pruebas locales con ese mensaje exacto y suite Python completa aprobadas.",
+      "pending": "Publicar la segunda corrección y comprobar otra respuesta real de 36 bordes rectos más 4 esquinas."
     },
     {
       "id": "2026-10-06-whatsapp-contexto-y-meta-activo",

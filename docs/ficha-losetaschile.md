@@ -17,6 +17,8 @@ La respuesta al cliente debe ser breve y dar el resultado directamente, por
 ejemplo: «Para tu piscina de 6 × 3 m: 36 bordes rectos de 50 cm más 4 esquinas».
 No debe explicar al cliente que calcule el perímetro por su cuenta.
 
-La prueba real anterior a esta corrección sí respondió por WhatsApp, pero dijo
-erróneamente 24 piezas. La regla nueva queda sujeta a otra comprobación en
-producción tras publicar el cambio.
+La primera prueba real sí respondió por WhatsApp, pero dijo erróneamente 24
+piezas. Una segunda pregunta con la palabra «bordea» eludió el primer filtro y
+el modelo volvió a explicar cómo calcular. El 2026-10-07 se añadió ese caso
+real a las pruebas y una protección para no enviar instrucciones de cálculo al
+cliente. La salida corregida queda sujeta a comprobación real tras publicarla.

@@ -12,7 +12,7 @@ from typing import Any
 
 
 _COUNT = re.compile(r"\b(?:cu[aá]nt[oa]s|cantidad)\b", re.IGNORECASE)
-_PIECES = re.compile(r"\b(?:pastelones?|bordes?|piezas?)\b", re.IGNORECASE)
+_PIECES = re.compile(r"\b(?:pastelones?|bordes?|bordea|piezas?)\b", re.IGNORECASE)
 _SIZE = re.compile(
     r"\b(\d{1,2}(?:[.,]\d)?)\s*(?:m(?:etros?)?\s*)?"
     r"(?:x|×|por)\s*(\d{1,2}(?:[.,]\d)?)\s*(?:m(?:etros?)?)?\b",
@@ -32,6 +32,21 @@ _OTHER_UNITS = re.compile(
     r"\b(?:cm|cent[ií]metros?|pies?|ft|pulgadas?|inches|yardas?|yd)\b",
     re.IGNORECASE,
 )
+_CALCULATION_ADVICE = re.compile(
+    r"\bpara calcular\b.{0,90}\b(?:divide|dividir|multiplica|suma|per[ií]metro)\b"
+    r"|\b(?:divide|divid[ae]|calcula|calcul[ae])\b.{0,90}"
+    r"\b(?:per[ií]metro|metros lineales|largo del borde)\b",
+    re.IGNORECASE,
+)
+
+
+def delegates_piece_calculation(question: str, reply: str) -> bool:
+    """Reject instructions to make the customer calculate a requested count."""
+    return bool(_COUNT.search(question) and
+                re.search(r"\b(?:piscina|bord\w*|pastel\w*|pieza\w*)\b", question,
+                          re.IGNORECASE) and
+                not re.search(r"\bc[oó]mo\b", question, re.IGNORECASE) and
+                _CALCULATION_ADVICE.search(reply))
 
 
 def border_count_reply(message: str, history: list[dict[str, Any]]) -> str | None:
