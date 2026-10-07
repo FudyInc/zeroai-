@@ -8,10 +8,10 @@
       "title": "Seguimiento del subtotal y consultas de despacho de LosetasChile",
       "origin": "Pedido de Diego de continuar los pendientes del día anterior",
       "summary": "La rama motor-whatsapp ya estaba integrada en main. El backend activo incorporó el subtotal de LosetasChile y nuevas mejoras de contexto y revisión de consultas. La revisión detectó que algunas preguntas de precios no activaban el subtotal y que el precio del despacho podía repetir un subtotal antiguo. Se corrigieron ambos casos en motor-whatsapp.",
-      "status": "Activo en backend local; push remoto y respuesta real pendientes",
+      "status": "Activo en backend y publicado en main; respuesta real pendiente",
       "scope": "Código, servicio local y documentación",
-      "evidence": "Main local avanzó a 5566e10; 27 pruebas de bordes y 1029 pruebas Python completas aprobaron. El backend reinició con PID nuevo el 2026-10-07 13:58 Chile y /api/health respondió OK. Dos intentos de git push fueron rechazados por un error interno de GitHub; origin/main seguía en 6147176.",
-      "pending": "Completar el push a GitHub y comprobar el despliegue del dashboard; observar una respuesta real de 36 bordes y 4 esquinas y el subtotal sin despacho; probar una conversación real de ZeroAI por Meta. No reenviar el mensaje de entrega incierta del 2026-10-05 sin revisar antes el chat."
+      "evidence": "Main incorporó 5566e10; 27 pruebas de bordes y 1029 pruebas Python completas aprobaron. El backend reinició con PID nuevo el 2026-10-07 13:58 Chile y /api/health respondió OK. GitHub confirmó main en 4b38bf8 tras reintento del push; Vercel informó un despliegue de producción Ready el 2026-10-07 14:02 Chile.",
+      "pending": "Observar una respuesta real de 36 bordes y 4 esquinas y el subtotal sin despacho; probar una conversación real de ZeroAI por Meta. No reenviar el mensaje de entrega incierta del 2026-10-05 sin revisar antes el chat."
     },
     {
       "id": "2026-10-07-handoff-consulta-y-contexto",
