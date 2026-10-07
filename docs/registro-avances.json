@@ -7,11 +7,11 @@
       "type": "change",
       "title": "Credenciales Meta de ZeroAI y contexto de WhatsApp",
       "origin": "Diego pidió dejar funcional el agente y conservar una base confirmada antes de nuevos cambios",
-      "summary": "El checkout activo pendiente quedó confirmado y subido. Se copiaron las credenciales Meta ya existentes a claves privadas de ZeroAI, conservando WhatsApp Web de LosetasChile; el backend se recargó. En código aislado se mejoró la recuperación de ficha e historial y se bloquean afirmaciones de cotización revisada sin evidencia.",
-      "status": "Meta y Web verificados en servicio; mejora de conversación verificada solo en código local",
+      "summary": "El checkout pendiente quedó confirmado y subido; main integró la mejora de contexto y se recargó el backend. ZeroAI usa credenciales Meta propias y LosetasChile conserva WhatsApp Web. El agente recupera datos relevantes de turnos antiguos y detiene afirmaciones de cotización revisada sin evidencia.",
+      "status": "desplegado; pruebas HTTP y puente local correctos",
       "scope": "Servicio activo y rama de integración aislada",
-      "evidence": "Backend HTTP saludable; verificación Meta y POST firmado sin mensajes aceptados; puente Web ready; 997 pruebas Python; 6/6 casos del modelo local; conversación inventada sin envío real",
-      "pending": "Publicar y activar la mejora de contexto tras revisión del caso de conversación; comprobar una conversación real sin reintentar mensajes de resultado incierto."
+      "evidence": "998 pruebas Python, 3 frontend y build OK; 6/6 casos del modelo local; backend con PID nuevo y /api/health OK; handshake Meta y POST firmado vacío OK; puente Web ready el 2026-10-06.",
+      "pending": "Comprobar una conversación real de extremo a extremo; no reintentar el mensaje de entrega incierta del 2026-10-05 sin revisar primero el chat."
     },
     {
       "id": "2026-10-06-integracion-checkout-activo",
@@ -20,10 +20,10 @@
       "title": "Integración aislada del WhatsApp activo",
       "origin": "Diego pidió proceder con los pendientes y el commit/push",
       "summary": "Se preservó intacto el checkout del servicio y se integraron en una copia el código Meta, WhatsApp Web por negocio, atención manual, CRM y bloqueo de presupuesto final de PoolEdge.",
-      "status": "verificado en código local",
+      "status": "histórico; integrado en main",
       "scope": "Checkout aislado; no desplegado",
       "evidence": "993 pruebas Python, 3 pruebas frontend y build Vite OK el 2026-10-06; verificación de variables activas: ZeroAI tiene Meta global pero no claves por negocio; cero secretos expuestos.",
-      "pending": "Migrar credenciales Meta de ZeroAI a claves por negocio, resolver los cambios locales del checkout del servicio y desplegar; después comprobar conversación real y Avances."
+      "pending": "Seguimiento actual en 2026-10-06-whatsapp-contexto-y-meta-activo."
     },
     {
       "id": "2026-10-06-integracion-main-meta",
@@ -32,10 +32,10 @@
       "title": "Integración local con main y Meta como proveedor único",
       "origin": "Pedido de Diego de continuar con los pendientes tras el push de motor-whatsapp",
       "summary": "Se integraron los cambios posteriores de main sin recuperar Twilio ni Conductor. El número Meta receptor limita la empresa; el número global solo reutiliza contactos de empresas que usan ese número. Un envío real sin credenciales falla explícitamente. El cotizador directo de PoolEdge rechaza totales sin despacho revisado.",
-      "status": "verificado en código local",
+      "status": "histórico; integrado en main",
       "scope": "Código, pruebas y compilación locales",
       "evidence": "974 pruebas Python, 3 pruebas frontend y build Vite OK el 2026-10-06; tests/test_whatsapp_company_context.py; tests/test_api_http.py; zero/channels.py",
-      "pending": "Publicar y desplegar la versión integrada tras reconciliar los cambios sin commit del checkout del backend; comprobar una conversación real."
+      "pending": "Seguimiento actual en 2026-10-06-whatsapp-contexto-y-meta-activo."
     },
     {
       "id": "2026-10-06-almacen-produccion",

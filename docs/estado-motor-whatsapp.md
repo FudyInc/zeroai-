@@ -1,14 +1,12 @@
 # Motor del agente de WhatsApp
 
-**Verificado en código local:** 2026-10-06 tras integrar `origin/main` y los
-cambios del checkout activo en una copia aislada. **Almacén de producción:** ficha
-ZeroAI y conexión Meta comprobadas el 2026-10-06. **Conversación real con este
-código:** pendiente.
+**Código activo y pruebas locales:** 2026-10-06. El backend reinició con la
+integración en `main`. **Almacén de producción:** ficha ZeroAI y conexión Meta
+comprobadas. **Conversación real con este código:** pendiente.
 
 El código integrado admite Meta Cloud y sesiones WhatsApp Web asignadas por
-negocio. El envío real exige credenciales propias del negocio; el servicio activo tiene credenciales Meta globales pero ninguna clave Meta por
-negocio para ZeroAI (comprobado el 2026-10-06, sin leer sus valores). Es necesario
-migrarlas antes de desplegar para evitar que el webhook rechace mensajes.
+negocio. El envío real exige credenciales propias del negocio. ZeroAI ya tiene
+sus claves Meta por negocio; LosetasChile conserva su sesión WhatsApp Web.
 
 El webhook de Meta valida el mensaje, obtiene el ID del número receptor y, si Meta
 lo entrega, el nombre del perfil del remitente. El ID receptor determina la empresa
@@ -27,8 +25,9 @@ completa un nombre vacío; nunca reemplaza uno ya guardado. Si no hay nombre, el
 primer saludo usa «Estimado/a».
 
 Los mensajes y respuestas enviadas quedan en la memoria por empresa y contacto.
-CONCIERGE recibe hasta 12 turnos previos para continuar la conversación. Una
-respuesta cuyo envío falló no se agrega como turno del agente, y una oferta pendiente
+CONCIERGE recupera turnos relevantes del historial completo y envía un contexto
+compacto al modelo local. Una respuesta cuyo envío falló no se agrega como turno
+del agente, y una oferta pendiente
 no se marca cumplida si falló el envío. Con `OUTBOX_LIVE=1`, la falta de
 credenciales Meta produce un error de envío, no un resultado simulado como enviado.
 
@@ -38,16 +37,11 @@ La plantilla de `docs/plantilla-presupuesto-pooledge.md` sigue pendiente de inte
 El cotizador directo `/api/quote` también rechaza el presupuesto de PoolEdge
 hasta que exista la revisión del despacho.
 
-Estas comprobaciones son del checkout local y de pruebas sin envío real. Falta
-verificar el enrutamiento y una conversación real con la versión integrada antes
-de considerarla activa para clientes. El backend en `/home/diego/zeroai` está
-activo pero conserva cambios locales sin commit; esta rama no se ha desplegado allí.
-Una lectura de solo metadatos del almacén Supabase de ese servicio encontró la ficha
-activa de ZeroAI idéntica a la versionada (3982 caracteres), número y token Meta
-configurados y el número reconocido por Graph API. PoolEdge no está registrado
-como cliente activo. El vendedor de ZeroAI conserva un ID semilla antiguo en el
-almacén; `credentials_for` lo ignora y usa el número global configurado. No se
-mostraron secretos, números ni datos de leads durante esta comprobación.
+La versión integrada está activa en el backend, pero la prueba de webhook vacío
+no confirma entrega de una conversación real. La ficha activa de ZeroAI en
+Supabase coincidió con la versionada (3982 caracteres); Graph API reconoció el
+número Meta. PoolEdge no figura como cliente activo. No se mostraron secretos,
+números ni datos de leads durante estas comprobaciones.
 
 ## Comprobación 2026-10-06
 
@@ -56,9 +50,10 @@ firmado sin mensajes respondieron correctamente. El puente Web de LosetasChile
 quedó en estado ready tras recargar el backend. Esta prueba no demuestra una
 conversación real entregada.
 
-En la rama de integración, el contexto local recupera secciones de la ficha y
+El contexto local activo recupera secciones de la ficha y
 datos del contacto de turnos antiguos dentro del límite del modelo. Una afirmación
-de cotización ya revisada sin evidencia deriva a revisión humana. Pasaron 997
+de cotización ya revisada sin evidencia deriva a revisión humana. Pasaron 998
 pruebas Python y 6/6 casos del modelo local; una conversación inventada produjo
-una respuesta sin repetir las medidas. Falta activar y verificar ese código en
-producción, sin reintentar el mensaje de entrega incierta del 2026-10-05.
+una respuesta sin repetir las medidas. El backend respondió a salud, handshake
+Meta, POST firmado vacío y estado Web ready. Falta probar una conversación real
+de extremo a extremo, sin reintentar el mensaje de entrega incierta del 2026-10-05.

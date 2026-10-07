@@ -1,7 +1,7 @@
 # Aislamiento por negocio
 
-**Verificación:** 2026-10-06, código y pruebas en un checkout aislado. El servicio
-activo aún usa otro checkout; falta desplegar y probar una conversación real.
+**Verificación:** 2026-10-06, código y pruebas integrados en main y backend
+recargado. Meta y Web respondieron a pruebas locales; falta una conversación real.
 
 PoolEdge opera el dashboard y puede alternar entre negocios. El selector de negocio
 determina las consultas y los envíos; no concede acceso a las credenciales de otro.
