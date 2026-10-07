@@ -7,7 +7,7 @@ import {
   Building2, Rocket, Cpu, ChevronDown,
 } from 'lucide-react'
 import { api, BASE } from '../lib/api'
-import { Card, Button, Badge, Skeleton, SectionTitle } from '../components/ui'
+import { Card, Button, Badge, Skeleton, SectionTitle, Input } from '../components/ui'
 import { STAGES } from '../lib/util'
 import { useApp } from '../App'
 import AgentTester from '../components/AgentTester'
