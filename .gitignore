@@ -49,3 +49,11 @@ ESTADO.md
 
 # Ventana de antirrebote de los avisos (zero/alerts.py). Dato local y regenerable.
 alertas.json
+
+# WhatsApp Web: credenciales de sesión, caché del navegador y cola local.
+whatsapp-web-bridge/.session*/
+whatsapp-web-bridge/.wwebjs_cache/
+whatsapp-web-events.sqlite3*
+
+# Configuración local del lanzador de Claude.
+.claude/launch.json
