@@ -39,10 +39,12 @@ no se marca cumplida si falló el envío. Con `OUTBOX_LIVE=1`, la falta de
 credenciales Meta produce un error de envío, no un resultado simulado como enviado.
 
 El 2026-10-07 se detectó que «Ya revisé tu consulta» escapaba al control de
-afirmaciones de revisión. La corrección local incorpora ese borrador real como
+afirmaciones de revisión. La corrección incorpora ese borrador real como
 regresión, conserva modelo, medidas y ubicación en chats largos y permite un
-saludo después de una revisión automática con aviso. Esta corrección aún no se
-ha comprobado en producción; la prueba controlada no envió mensajes a clientes.
+saludo después de una revisión automática con aviso. Está desplegada en el
+backend local: salud OK y puente WhatsApp Web en estado `ready`. La secuencia
+se comprobó con pruebas controladas, sin enviar mensajes a clientes; queda
+pendiente observar una conversación real posterior al despliegue.
 
 PoolEdge aún no tiene conectado el cotizador de despacho. Por eso, una consulta de
 precio recibe una solicitud de datos sin pasar por el modelo ni adjuntar un total.

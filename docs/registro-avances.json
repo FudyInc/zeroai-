@@ -8,10 +8,10 @@
       "title": "Revisión de consulta y contexto en chats largos",
       "origin": "Diego pidió revisar el handoff de zero-prompts y el borrador real que decía 'Ya revisé tu consulta'",
       "summary": "El filtro ahora detecta afirmaciones generadas de revisión de consulta, cotización o presupuesto. Un borrador no comprobado pasa a revisión con aviso de una sola entrega y sin bloqueo permanente del chat; un saludo posterior puede recibir respuesta. El contexto local conserva las últimas medidas, modelo y ubicación confirmadas y evita recuperar una medida antigua corregida.",
-      "status": "Verificado en código y almacén de solo lectura; despliegue pendiente",
+      "status": "Desplegado en backend local; pendiente observar conversación real posterior",
       "scope": "Motor WhatsApp de LosetasChile y selección de contexto local",
-      "evidence": "Regresión con el borrador real; pruebas controladas de aviso, saludo posterior y entrega incierta sin reenvío; 1024 pruebas Python OK. Selección de historial real en almacén: modelo, 6x3 y ubicación presentes; 7x3 antiguo excluido. El modelo local real respondió a un saludo en memoria temporal sin envío. No se envió ningún mensaje de prueba a clientes.",
-      "pending": "Integrar en main, recargar backend y comprobar salud y puente; la salida de una conversación real posterior aún no se ha probado."
+      "evidence": "Commit 6147176 en main; regresión con el borrador real; pruebas controladas de aviso, saludo posterior y entrega incierta sin reenvío; 1024 pruebas Python OK. Selección de historial real en almacén: modelo, 6x3 y ubicación presentes; 7x3 antiguo excluido. El modelo local real respondió a un saludo en memoria temporal sin envío. Backend recargado: /api/health OK y puente WhatsApp Web en estado ready. No se envió ningún mensaje de prueba a clientes.",
+      "pending": "La salida de una conversación real posterior al despliegue aún no se ha probado. No reintentar el envío incierto anterior ni enviar mensajes de prueba a clientes."
     },
     {
       "id": "2026-10-07-losetas-subtotal-productos",
