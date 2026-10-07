@@ -2,6 +2,18 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-10-06-whatsapp-contexto-y-meta-activo",
+      "date": "2026-10-06",
+      "type": "change",
+      "title": "Credenciales Meta de ZeroAI y contexto de WhatsApp",
+      "origin": "Diego pidió dejar funcional el agente y conservar una base confirmada antes de nuevos cambios",
+      "summary": "El checkout activo pendiente quedó confirmado y subido. Se copiaron las credenciales Meta ya existentes a claves privadas de ZeroAI, conservando WhatsApp Web de LosetasChile; el backend se recargó. En código aislado se mejoró la recuperación de ficha e historial y se bloquean afirmaciones de cotización revisada sin evidencia.",
+      "status": "Meta y Web verificados en servicio; mejora de conversación verificada solo en código local",
+      "scope": "Servicio activo y rama de integración aislada",
+      "evidence": "Backend HTTP saludable; verificación Meta y POST firmado sin mensajes aceptados; puente Web ready; 997 pruebas Python; 6/6 casos del modelo local; conversación inventada sin envío real",
+      "pending": "Publicar y activar la mejora de contexto tras revisión del caso de conversación; comprobar una conversación real sin reintentar mensajes de resultado incierto."
+    },
+    {
       "id": "2026-10-06-integracion-checkout-activo",
       "date": "2026-10-06",
       "type": "change",

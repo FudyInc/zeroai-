@@ -146,6 +146,15 @@ class WhatsAppHandoffTest(unittest.TestCase):
         self.assertIsNotNone(SessionMemory(self.path).get_whatsapp_handoff(
             "losetaschile", "56933333333@c.us"))
 
+    def test_unverified_quote_review_is_not_sent(self):
+        with mock.patch.object(self.zero, "converse_result", side_effect=[
+            {"reply": "Ya revisé tu cotización; está aprobada.", "intent": "pricing"},
+            {"reply": "Confirmé tu presupuesto y podemos seguir.", "intent": "pricing"},
+        ]):
+            result = self.inbound("¿Qué pasó con mi cotización?")
+        self.assertTrue(result["manual_review"])
+        self.zero._deliver.assert_not_called()
+
     def test_inbox_handoff_control_is_scoped_to_selected_business(self):
         import api
         from fastapi import HTTPException

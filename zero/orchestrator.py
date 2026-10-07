@@ -38,6 +38,7 @@ from .inbox import Inbox, MockInbox
 from .memory import SessionMemory
 from .quotes import compute_quote, extract_request, format_quote, normalize_pricing
 from .vendors import credentials_for
+from .whatsapp_context import select_history, select_knowledge
 
 # --- pending offers (the CONCIERGE promises, ZERO fulfills) -------------------
 # When the agent replies "te mando un resumen" / "¿te dejo 3 ejemplos?", that's a
@@ -103,7 +104,17 @@ def _unverified_shipping_claim(message: str, reply: str, knowledge: str) -> bool
     return bool("despach" in message.casefold() and
                 "despacho requieren revisión humana" in knowledge.casefold() and
                 re.search(r"\b(?:hacemos|realizamos|tenemos|ofrecemos|despachamos|entregamos)\b"
-                          r".{0,45}\bdespacho\b", reply, re.IGNORECASE))
+                           r".{0,45}\bdespacho\b", reply, re.IGNORECASE))
+
+
+def _unverified_quote_review_claim(reply: str) -> bool:
+    """A generated draft cannot assert that a person reviewed a quote."""
+    return bool(re.search(
+        r"\b(?:revis[eé]|verifiqu[eé]|confirm[eé]|revisad[oa]|verificad[oa]|confirmad[oa])\b"
+        r".{0,45}\b(?:cotizaci[oó]n|presupuesto)\b"
+        r"|\b(?:cotizaci[oó]n|presupuesto)\b.{0,45}"
+        r"\b(?:revisad[oa]|verificad[oa]|confirmad[oa])\b",
+        reply or "", re.IGNORECASE))
 
 
 
@@ -1003,22 +1014,24 @@ class Zero:
         icp = {"sells": _icp_completo["sells"]} if _icp_completo.get("sells") else {}
         # La ficha de la empresa cargada desde el dashboard: acotada para que un
         # documento largo no reviente el presupuesto de contexto del modelo.
-        knowledge = (self.memory.get_client_knowledge(client_id) if client_id else "")[:4000]
+        knowledge = self.memory.get_client_knowledge(client_id) if client_id else ""
+        local_whatsapp = (getattr(getattr(self, "agents", {}).get("CONCIERGE"), "prompt_file", "") ==
+                          "concierge-whatsapp-local.md")
         # Historial del diálogo (turnos previos, NO incluye `message`): pasado
         # explícito (p.ej. el simulador) o recuperado de memoria por lead.
         if history is None and lead and lead.get("key") and client_id:
-            history = self.memory.get_conversation(client_id, lead["key"], limit=12)
+            history = self.memory.get_conversation(
+                client_id, lead["key"], limit=None if local_whatsapp else 12)
         # El contexto de Ollama en WhatsApp es pequeño. Un prompt de 11 KB más
         # toda la ficha del CRM hacía que Ollama recortara el mensaje entrante.
-        local_whatsapp = (getattr(getattr(self, "agents", {}).get("CONCIERGE"), "prompt_file", "") ==
-                          "concierge-whatsapp-local.md")
         lead_context = lead or {}
         if local_whatsapp:
             lead_context = {key: lead_context[key] for key in ("name", "role", "company")
                             if lead_context.get(key)}
-            knowledge = knowledge[:1600]
-            history = [{"role": turn.get("role"), "text": str(turn.get("text") or "")[:300]}
-                       for turn in (history or [])[-4:]]
+            knowledge = select_knowledge(knowledge, message, max_chars=1600)
+            history = select_history(history or [], message, max_turns=4)
+        else:
+            knowledge = knowledge[:4000]
         # Persona del vendedor asignado (Fernanda/Stéfano/...): solo name/tone, para
         # que CONCIERGE suene como esa persona. Nunca el token/phone_id (secretos).
         if vendor is None:
@@ -1336,7 +1349,7 @@ class Zero:
 
         # Redactar ANTES de registrar los turnos: así el historial que ve CONCIERGE
         # son solo los turnos previos (el mensaje actual viaja aparte en `message`).
-        prior_turns = self.memory.get_conversation(client_id, key, limit=8)
+        prior_turns = self.memory.get_conversation(client_id, key)
         res = self.converse_result(client_id, text, lead=rec, channel=channel)
         # A teammate may take the chat while the local model is drafting. Reload
         # persisted state before sending, so that takeover wins over the draft.
@@ -1366,7 +1379,8 @@ class Zero:
         unsafe_shipping = (client_id == "losetaschile" and
                            _unverified_shipping_claim(text, reply,
                                                       self.memory.get_client_knowledge(client_id)))
-        if ((repeated and not _simple_greeting(text)) or unsafe_shipping) and intent != "handoff":
+        unsupported_review = _unverified_quote_review_claim(reply)
+        if ((repeated and not _simple_greeting(text)) or unsafe_shipping or unsupported_review) and intent != "handoff":
             revised = self.converse_result(
                 client_id, text, lead=rec, channel=channel, history=prior_turns,
                 feedback="El cliente ya entregó medidas o esa respuesta ya se dio. "
@@ -1378,6 +1392,7 @@ class Zero:
             repeated = repetition(reply)
             unsafe_shipping = _unverified_shipping_claim(
                 text, reply, self.memory.get_client_knowledge(client_id))
+            unsupported_review = _unverified_quote_review_claim(reply)
         if repeated and _simple_greeting(text) and intent != "handoff":
             # Un saludo nuevo no debe silenciar el chat por una respuesta anterior igual.
             # Responder sin repetir preguntas viejas ni inventar datos del negocio.
@@ -1385,9 +1400,11 @@ class Zero:
                      else "¡Hola! Estoy aquí para ayudarte. ¿Qué necesitas hoy?")
             intent, quote = "general", None
             repeated = False
-        if channel == "whatsapp" and (intent == "handoff" or not reply.strip() or repeated or unsafe_shipping):
+        if channel == "whatsapp" and (intent == "handoff" or not reply.strip() or repeated or
+                                      unsafe_shipping or unsupported_review):
             reason = ("El agente no entendió la consulta" if intent == "handoff" else
                       "Respuesta sobre despacho requiere revisión" if unsafe_shipping else
+                      "Presupuesto sin revisión comprobada" if unsupported_review else
                       "El agente repitió una respuesta" if repeated else
                       "El agente no pudo redactar una respuesta")
             self.memory.add_turn(client_id, key, "lead", text)

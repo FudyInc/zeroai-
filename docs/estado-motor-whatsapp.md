@@ -48,3 +48,17 @@ configurados y el número reconocido por Graph API. PoolEdge no está registrado
 como cliente activo. El vendedor de ZeroAI conserva un ID semilla antiguo en el
 almacén; `credentials_for` lo ignora y usa el número global configurado. No se
 mostraron secretos, números ni datos de leads durante esta comprobación.
+
+## Comprobación 2026-10-06
+
+El servicio activo cargó claves Meta propias de ZeroAI: el handshake y un POST
+firmado sin mensajes respondieron correctamente. El puente Web de LosetasChile
+quedó en estado ready tras recargar el backend. Esta prueba no demuestra una
+conversación real entregada.
+
+En la rama de integración, el contexto local recupera secciones de la ficha y
+datos del contacto de turnos antiguos dentro del límite del modelo. Una afirmación
+de cotización ya revisada sin evidencia deriva a revisión humana. Pasaron 997
+pruebas Python y 6/6 casos del modelo local; una conversación inventada produjo
+una respuesta sin repetir las medidas. Falta activar y verificar ese código en
+producción, sin reintentar el mensaje de entrega incierta del 2026-10-05.
