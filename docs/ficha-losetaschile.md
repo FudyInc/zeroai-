@@ -30,3 +30,10 @@ el despacho queda sin importe y se cotiza manualmente. Una ubicación compartida
 por WhatsApp Web llega como `[location]`, sin dirección legible, y no permite
 calcular ni prometer el despacho. La cotización de productos se presenta como
 subtotal separado del despacho.
+
+Verificación de código del 2026-10-07: las consultas por «precios», «cuánto
+cuestan» y «valor» usan el subtotal estructurado cuando el pedido está
+confirmado. Una pregunta específica por el precio del despacho solicita
+revisión de ese cargo sin repetir el subtotal de productos. Esta corrección
+está probada localmente; su publicación y una respuesta real corregida siguen
+pendientes.

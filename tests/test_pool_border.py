@@ -178,6 +178,61 @@ class PoolBorderCountTest(unittest.TestCase):
         dispatch.assert_not_called()
         self.assertIn("Productos: $230.400", result["reply"])
 
+    def test_plural_price_question_uses_confirmed_order(self):
+        zero = Zero(build_agents(mock=True), memory=self.priced_memory())
+        with mock.patch.object(zero, "dispatch") as dispatch:
+            result = zero.converse_result(
+                "losetaschile", "¿Cuánto cuestan los bordes?",
+                lead={"key": "test-lead"}, channel="whatsapp")
+        dispatch.assert_not_called()
+        self.assertIn("Productos: $230.400", result["reply"])
+
+    def test_shipping_price_does_not_repeat_product_subtotal(self):
+        zero = Zero(build_agents(mock=True), memory=self.priced_memory())
+        with mock.patch.object(zero, "dispatch") as dispatch:
+            result = zero.converse_result(
+                "losetaschile", "¿Cuál es el precio del despacho?",
+                lead={"key": "test-lead"}, channel="whatsapp")
+        dispatch.assert_not_called()
+        self.assertNotIn("quote", result)
+        self.assertNotIn("$230.400", result["reply"])
+        self.assertIn("revisar su valor", result["reply"])
+
+    def test_shipping_price_of_existing_order_does_not_repeat_subtotal(self):
+        zero = Zero(build_agents(mock=True), memory=self.priced_memory())
+        for question in ("¿Cuánto cuesta el despacho de los bordes?",
+                         "¿Cuál es el total del despacho?",
+                         "¿Me cotizas el despacho de mi pedido?"):
+            with self.subTest(question=question), mock.patch.object(zero, "dispatch") as dispatch:
+                result = zero.converse_result(
+                    "losetaschile", question,
+                    lead={"key": "test-lead"}, channel="whatsapp")
+                dispatch.assert_not_called()
+                self.assertNotIn("quote", result)
+                self.assertNotIn("$230.400", result["reply"])
+                self.assertIn("revisar su valor", result["reply"])
+
+    def test_product_and_shipping_request_keeps_product_subtotal_separate(self):
+        zero = Zero(build_agents(mock=True), memory=self.priced_memory())
+        for question in ("¿Precio de los bordes y del despacho?",
+                         "¿Cuánto cuesta el despacho y los bordes?"):
+            with self.subTest(question=question), mock.patch.object(zero, "dispatch") as dispatch:
+                result = zero.converse_result(
+                    "losetaschile", question,
+                    lead={"key": "test-lead"}, channel="whatsapp")
+                dispatch.assert_not_called()
+                self.assertIn("Productos: $230.400", result["reply"])
+                self.assertIn("Despacho: por cotizar", result["reply"])
+
+    def test_without_installation_keeps_requested_border_subtotal(self):
+        zero = Zero(build_agents(mock=True), memory=self.priced_memory())
+        with mock.patch.object(zero, "dispatch") as dispatch:
+            result = zero.converse_result(
+                "losetaschile", "¿Qué precio tienen los bordes rectos, sin instalación?",
+                lead={"key": "test-lead"}, channel="whatsapp")
+        dispatch.assert_not_called()
+        self.assertIn("Productos: $230.400", result["reply"])
+
     def test_long_chat_uses_confirmed_order_before_model_context_is_trimmed(self):
         memory = self.priced_memory()
         for index in range(30):
@@ -197,6 +252,8 @@ class PoolBorderCountTest(unittest.TestCase):
         self.assertFalse(wants_product_quote("¿Despachan a mi comuna?"))
         self.assertTrue(wants_product_quote("[location]"))
         self.assertTrue(wants_product_quote("Mi dirección es Avenida Central 123"))
+        self.assertFalse(wants_product_quote("¿Qué valor tiene la instalación?"))
+        self.assertFalse(wants_product_quote("¿Cuánto vale el despacho?"))
 
     def test_missing_corner_price_does_not_send_partial_subtotal(self):
         zero = Zero(build_agents(mock=True), memory=self.priced_memory(False))

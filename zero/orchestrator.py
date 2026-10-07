@@ -38,7 +38,7 @@ from .inbox import Inbox, MockInbox
 from .memory import SessionMemory
 from .quotes import compute_quote, extract_request, format_quote, normalize_pricing
 from .pool_border import (border_count_reply, border_plan, delegates_piece_calculation,
-                          format_product_quote, wants_product_quote)
+                          format_product_quote, shipping_price_request, wants_product_quote)
 from .vendors import credentials_for
 from .whatsapp_context import select_history, select_knowledge
 
@@ -1026,6 +1026,10 @@ class Zero:
             history = self.memory.get_conversation(
                 client_id, lead["key"], limit=None if local_whatsapp else 12)
         order_history = history or []
+        if (client_id == "losetaschile" and channel == "whatsapp" and
+                shipping_price_request(message)):
+            return {"reply": "El despacho se cotiza por separado. Necesito confirmar la dirección completa y revisar su valor antes de informártelo.",
+                    "intent": "pricing"}
         if (client_id == "losetaschile" and channel == "whatsapp" and
                 not wants_product_quote(message)):
             border_reply = border_count_reply(message, history or [])

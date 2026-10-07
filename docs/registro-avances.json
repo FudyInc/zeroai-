@@ -2,6 +2,18 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-10-07-seguimiento-subtotal-consultas",
+      "date": "2026-10-07",
+      "type": "change",
+      "title": "Seguimiento del subtotal y consultas de despacho de LosetasChile",
+      "origin": "Pedido de Diego de continuar los pendientes del día anterior",
+      "summary": "La rama motor-whatsapp ya estaba integrada en main. El backend activo incorporó el subtotal de LosetasChile y nuevas mejoras de contexto y revisión de consultas. La revisión detectó que algunas preguntas de precios no activaban el subtotal y que el precio del despacho podía repetir un subtotal antiguo. Se corrigieron ambos casos en motor-whatsapp.",
+      "status": "Mejora de consultas verificada solo en código local; publicación pendiente",
+      "scope": "Código, servicio local y documentación",
+      "evidence": "Git confirmó motor-whatsapp como ancestro del main anterior; systemctl mostró backend activo desde 2026-10-07 11:01 Chile en /home/diego/zeroai; /api/health respondió OK; tras integrar main 4155cc1, 27 pruebas de bordes y 1029 pruebas Python completas aprobaron en el checkout local.",
+      "pending": "Publicar la corrección adicional, comprobar una respuesta real de 36 bordes y 4 esquinas y el subtotal sin despacho; probar una conversación real de ZeroAI por Meta. No reenviar el mensaje de entrega incierta del 2026-10-05 sin revisar antes el chat."
+    },
+    {
       "id": "2026-10-07-handoff-consulta-y-contexto",
       "date": "2026-10-07",
       "type": "change",

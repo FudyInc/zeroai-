@@ -38,9 +38,40 @@ _CALCULATION_ADVICE = re.compile(
     re.IGNORECASE,
 )
 _PRICE_REQUEST = re.compile(
-    r"\b(?:precio|presupuesto|cotiz\w*|total|cu[aá]nto\s+(?:sale|cuesta|ser[ií]a))\b",
+    r"\b(?:precios?|presupuesto|cotiz\w*|total|valor|"
+    r"cu[aá]nto\s+(?:sale\w*|cuesta\w*|vale\w*|ser[ií]a\w*))\b",
     re.IGNORECASE,
 )
+_SHIPPING_PRICE = re.compile(
+    r"\b(?:precio|valor|costo|cu[aá]nto\s+(?:sale|cuesta|vale))\b"
+    r".{0,35}\b(?:despacho|env[ií]o|flete)\b"
+    r"|\b(?:despacho|env[ií]o|flete)\b.{0,35}"
+    r"\b(?:precio|valor|costo|cu[aá]nto|sale|cuesta|vale)\b",
+    re.IGNORECASE,
+)
+_DIRECT_SHIPPING_PRICE = re.compile(
+    r"\b(?:precio|valor|costo|total)\s+(?:de(?:l| la)?\s+)?(?:despacho|env[ií]o|flete)\b"
+    r"|\bcu[aá]nto\s+(?:sale|cuesta|vale)\s+(?:el|la)?\s*"
+    r"(?:despacho|env[ií]o|flete)\b"
+    r"|\bcotiz\w*\s+(?:el|la)?\s*(?:despacho|env[ií]o|flete)\b"
+    r"|\b(?:despacho|env[ií]o|flete)\b\s*,?\s*"
+    r"(?:cu[aá]nto\s+(?:sale|cuesta|vale)|qu[eé]\s+(?:precio|valor|costo))\b",
+    re.IGNORECASE,
+)
+_OTHER_QUOTED_PRODUCT = re.compile(
+    r"\b(?:adoqu[ií]n|deck|dormiente|laja|ladrillo|flor de lis|"
+    r"pastel[oó]n|borde ballena|instalaci[oó]n)\b",
+    re.IGNORECASE,
+)
+_ORDER_TOPIC = re.compile(r"\b(?:bordes?|esquinas?|productos?|pedido)\b", re.IGNORECASE)
+_MIXED_SHIPPING_AND_PRODUCTS = re.compile(
+    r"\b(?:despacho|env[ií]o|flete)\s+(?:y|,)\s+(?:(?:de(?:l| los| las)?|los|las|el|la)\s+)?"
+    r"(?:bordes?|esquinas?|productos?|pedido)\b"
+    r"|\b(?:bordes?|esquinas?|productos?|pedido)\s+(?:y|,)\s+"
+    r"(?:de(?:l| la)?\s+)?(?:despacho|env[ií]o|flete)\b",
+    re.IGNORECASE,
+)
+_WITHOUT_INSTALLATION = re.compile(r"\bsin\s+instalaci[oó]n\b", re.IGNORECASE)
 _DELIVERY_DETAIL = re.compile(
     r"^\[location\]$|^(?:mi direcci[oó]n es|la direcci[oó]n es|mi comuna es|estoy en|vivo en)\b",
     re.IGNORECASE,
@@ -111,7 +142,18 @@ def border_count_reply(message: str, history: list[dict[str, Any]]) -> str | Non
 
 def wants_product_quote(message: str) -> bool:
     """A price request or a shared delivery detail can complete a known order."""
+    if shipping_price_request(message) or _OTHER_QUOTED_PRODUCT.search(
+            _WITHOUT_INSTALLATION.sub("", message)):
+        return False
     return bool(_PRICE_REQUEST.search(message) or _DELIVERY_DETAIL.search(message.strip()))
+
+
+def shipping_price_request(message: str) -> bool:
+    """Shipping needs a separate human quote, even if an order is known."""
+    if _MIXED_SHIPPING_AND_PRODUCTS.search(message):
+        return False
+    return bool(_DIRECT_SHIPPING_PRICE.search(message) or
+                (_SHIPPING_PRICE.search(message) and not _ORDER_TOPIC.search(message)))
 
 
 def format_product_quote(plan: dict[str, Any], quote: dict[str, Any]) -> str | None:

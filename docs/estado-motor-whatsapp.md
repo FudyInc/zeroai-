@@ -11,6 +11,12 @@ productos de un pedido 6 × 3 m se calculó con historial y precios reales en un
 simulación sin envío. Faltan una respuesta real de ese subtotal por WhatsApp y
 una conversación real de ZeroAI por Meta.
 
+**Comprobación 2026-10-07:** el backend respondió a `/api/health` con el
+subtotal de productos y la segunda corrección de bordes ya en `main`. Después
+se integró `6147176`, que mejora el contexto y la revisión de consultas. La
+revisión del cotizador encontró dos consultas de precios no cubiertas; su
+corrección está solo en `motor-whatsapp`, pendiente de publicación y prueba real.
+
 El código integrado admite Meta Cloud y sesiones WhatsApp Web asignadas por
 negocio. El envío real exige credenciales propias del negocio. ZeroAI ya tiene
 sus claves Meta por negocio; LosetasChile conserva su sesión WhatsApp Web.
