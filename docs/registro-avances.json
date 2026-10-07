@@ -8,10 +8,10 @@
       "title": "Cantidad de bordes para piscina rectangular en LosetasChile",
       "origin": "Diego probó el WhatsApp real y confirmó la regla de 36 bordes rectos más 4 esquinas para piscina 6 × 3 m",
       "summary": "La conversación real entró y recibió respuesta en el teléfono, pero el modelo dijo 24 piezas y explicó cómo calcularlas. Se agregó un cálculo determinista de perímetro para el borde recto con nariz de 50 cm, con respuesta breve y directa; se pide aclaración cuando faltan modelo, forma o medidas.",
-      "status": "Corrección verificada en código local; prueba anterior del canal real confirmada por Diego",
+      "status": "Código de corrección activo en producción; salida corregida aún sin prueba real",
       "scope": "Agente WhatsApp de LosetasChile",
-      "evidence": "Conversación real del 2026-10-06 23:41 Chile y confirmación de recepción por Diego; pruebas unitarias del cálculo y ruta del orquestador",
-      "pending": "Publicar el cambio y comprobar con una nueva pregunta real que el agente responde 36 bordes rectos más 4 esquinas."
+      "evidence": "Conversación anterior del 2026-10-06 23:41 Chile recibida en el teléfono de Diego; suite Python completa aprobada; commit f40eec2 subido a main, backend recargado, /api/health OK y puente Web ready el 2026-10-07.",
+      "pending": "Comprobar con una nueva pregunta real que el agente responde 36 bordes rectos más 4 esquinas."
     },
     {
       "id": "2026-10-06-whatsapp-contexto-y-meta-activo",
@@ -23,7 +23,7 @@
       "status": "desplegado; pruebas HTTP y puente local correctos",
       "scope": "Servicio activo y rama de integración aislada",
       "evidence": "998 pruebas Python, 3 frontend y build OK; 6/6 casos del modelo local; backend con PID nuevo y /api/health OK; handshake Meta y POST firmado vacío OK; puente Web ready el 2026-10-06.",
-      "pending": "Comprobar una conversación real de extremo a extremo; no reintentar el mensaje de entrega incierta del 2026-10-05 sin revisar primero el chat."
+      "pending": "LosetasChile tuvo una conversación real comprobada el 2026-10-06; falta una conversación real de ZeroAI por Meta. No reintentar el mensaje de entrega incierta del 2026-10-05 sin revisar primero el chat."
     },
     {
       "id": "2026-10-06-integracion-checkout-activo",

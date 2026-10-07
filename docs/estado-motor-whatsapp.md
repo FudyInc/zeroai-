@@ -1,8 +1,12 @@
 # Motor del agente de WhatsApp
 
-**Código activo y pruebas locales:** 2026-10-06. El backend reinició con la
-integración en `main`. **Almacén de producción:** ficha ZeroAI y conexión Meta
-comprobadas. **Conversación real con este código:** pendiente.
+**Código activo y pruebas locales:** 2026-10-07. El backend reinició con
+`main` en `f40eec2` y respondió a `/api/health`; el puente Web quedó `ready`.
+**Almacén de producción:** ficha ZeroAI y conexión Meta comprobadas.
+**Conversación real:** Diego confirmó respuestas en el WhatsApp de LosetasChile
+el 2026-10-06 23:41 Chile, antes de la corrección del cálculo de bordes.
+Faltan una prueba real de la cantidad corregida y una conversación real de
+ZeroAI por Meta.
 
 El código integrado admite Meta Cloud y sesiones WhatsApp Web asignadas por
 negocio. El envío real exige credenciales propias del negocio. ZeroAI ya tiene
