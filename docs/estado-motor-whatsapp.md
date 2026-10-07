@@ -1,8 +1,9 @@
 # Motor del agente de WhatsApp
 
 **Código activo y pruebas locales:** 2026-10-07. El backend reinició con
-`main` en `749dbcd` y respondió a `/api/health`; el puente Web quedó `ready`.
-El dashboard se publicó en Vercel producción el mismo día.
+`main` en `5566e10` y respondió a `/api/health`. El dashboard se publicó
+antes en Vercel producción; el push de este último commit seguía pendiente
+por un error interno de GitHub al verificar este estado.
 **Almacén de producción:** ficha ZeroAI y conexión Meta comprobadas.
 **Conversación real:** Diego confirmó respuestas en el WhatsApp de LosetasChile
 el 2026-10-06 23:41 Chile, antes de la corrección del cálculo de bordes.
@@ -14,8 +15,9 @@ una conversación real de ZeroAI por Meta.
 **Comprobación 2026-10-07:** el backend respondió a `/api/health` con el
 subtotal de productos y la segunda corrección de bordes ya en `main`. Después
 se integró `6147176`, que mejora el contexto y la revisión de consultas. La
-revisión del cotizador encontró dos consultas de precios no cubiertas; su
-corrección está solo en `motor-whatsapp`, pendiente de publicación y prueba real.
+revisión del cotizador encontró dos consultas de precios no cubiertas. Su
+corrección quedó activa en el backend con `5566e10`, pendiente de push remoto
+y de prueba real.
 
 El código integrado admite Meta Cloud y sesiones WhatsApp Web asignadas por
 negocio. El envío real exige credenciales propias del negocio. ZeroAI ya tiene

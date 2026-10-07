@@ -35,5 +35,5 @@ Verificación de código del 2026-10-07: las consultas por «precios», «cuánt
 cuestan» y «valor» usan el subtotal estructurado cuando el pedido está
 confirmado. Una pregunta específica por el precio del despacho solicita
 revisión de ese cargo sin repetir el subtotal de productos. Esta corrección
-está probada localmente; su publicación y una respuesta real corregida siguen
-pendientes.
+quedó activa en el backend local con `5566e10` el 2026-10-07; el push remoto y
+una respuesta real corregida siguen pendientes.
