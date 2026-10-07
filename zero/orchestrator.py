@@ -37,7 +37,8 @@ from .icp import describe_icp, is_empty, normalize_icp
 from .inbox import Inbox, MockInbox
 from .memory import SessionMemory
 from .quotes import compute_quote, extract_request, format_quote, normalize_pricing
-from .pool_border import border_count_reply, delegates_piece_calculation
+from .pool_border import (border_count_reply, border_plan, delegates_piece_calculation,
+                          format_product_quote, wants_product_quote)
 from .vendors import credentials_for
 from .whatsapp_context import select_history, select_knowledge
 
@@ -1023,7 +1024,9 @@ class Zero:
         if history is None and lead and lead.get("key") and client_id:
             history = self.memory.get_conversation(
                 client_id, lead["key"], limit=None if local_whatsapp else 12)
-        if client_id == "losetaschile" and channel == "whatsapp":
+        order_history = history or []
+        if (client_id == "losetaschile" and channel == "whatsapp" and
+                not wants_product_quote(message)):
             border_reply = border_count_reply(message, history or [])
             if border_reply is not None:
                 return {"reply": border_reply, "intent": "info"}
@@ -1049,6 +1052,20 @@ class Zero:
         # agente — mismo patrón que project_funnel: el LLM redacta, nunca calcula.
         pricing = normalize_pricing(self.memory.get_client_pricing(client_id)) \
             if client_id else {"items": []}
+
+        if client_id == "losetaschile" and channel == "whatsapp" and wants_product_quote(message):
+            plan, clarification = border_plan(message, order_history)
+            if plan is None:
+                return {"reply": clarification, "intent": "pricing"}
+            order = [{"id": "borde-recto-nariz-50x50", "qty": plan["straight"]},
+                     {"id": "esquina-piscina-50x50", "qty": plan["corners"]}]
+            product_quote = compute_quote(pricing, order)
+            product_reply = format_product_quote(plan, product_quote or {})
+            if product_reply:
+                product_quote["shipping_pending"] = True
+                return {"reply": product_reply, "intent": "pricing", "quote": product_quote}
+            return {"reply": "Necesito confirmar el precio de ambos productos antes de darte el subtotal.",
+                    "intent": "pricing"}
 
         if client_id in QUOTE_REVIEW_REQUIRED_CLIENT_IDS and (
                 _QUOTE_REQUEST_RE.search(message) or extract_request(message, pricing)):
@@ -1464,11 +1481,18 @@ class Zero:
                 # queda aparte en el historial para que un humano lo vea de un vistazo.
 
                 if quote:
-                    quote_event = ("quote_failed" if delivery["status"] != "sent" else
-                                   "quote_accepted" if delivery.get("via") == "whatsapp_web" else "quote_sent")
-                    self.crm.log(client_id, key, quote_event,
-                                 f"presupuesto {quote['currency']} {quote['total']:,.0f} "
-                                 f"({len(quote['lines'])} ítems)")
+                    if quote.get("shipping_pending"):
+                        quote_event = ("product_subtotal_failed" if delivery["status"] != "sent" else
+                                       "product_subtotal_accepted" if delivery.get("via") == "whatsapp_web"
+                                       else "product_subtotal_sent")
+                        quote_detail = (f"productos {quote['currency']} {quote['total']:,.0f} "
+                                        f"({len(quote['lines'])} ítems); despacho pendiente")
+                    else:
+                        quote_event = ("quote_failed" if delivery["status"] != "sent" else
+                                       "quote_accepted" if delivery.get("via") == "whatsapp_web" else "quote_sent")
+                        quote_detail = (f"presupuesto {quote['currency']} {quote['total']:,.0f} "
+                                        f"({len(quote['lines'])} ítems)")
+                    self.crm.log(client_id, key, quote_event, quote_detail)
                 else:
                     reply_event = ("auto_reply_failed" if delivery["status"] != "sent" else
                                    "auto_reply_accepted" if delivery.get("via") == "whatsapp_web" else "auto_reply")

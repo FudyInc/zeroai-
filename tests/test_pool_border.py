@@ -3,12 +3,29 @@ from types import SimpleNamespace
 from unittest import mock
 
 from zero.agents import build_agents
+from zero.crm import CRM
 from zero.memory import SessionMemory
 from zero.orchestrator import Zero
-from zero.pool_border import border_count_reply, delegates_piece_calculation
+from zero.pool_border import (border_count_reply, delegates_piece_calculation,
+                              wants_product_quote)
 
 
 class PoolBorderCountTest(unittest.TestCase):
+    def priced_memory(self, include_corner=True):
+        memory = SessionMemory(None)
+        memory.register_client("losetaschile", "STARTER")
+        items = [{"id": "borde-recto-nariz-50x50", "name": "Borde recto con nariz 50x50",
+                  "unit_price": 6000, "unit": "unidad"}]
+        if include_corner:
+            items.append({"id": "esquina-piscina-50x50", "name": "Esquina piscina 50x50",
+                          "unit_price": 3600, "unit": "unidad"})
+        memory.set_client_pricing("losetaschile", {"currency": "CLP", "iva_rate": 0,
+                                                   "items": items})
+        for text in ("Mi piscina es rectangular de 6x3", "Borde recto con nariz",
+                     "Ñuñoa"):
+            memory.add_turn("losetaschile", "test-lead", "lead", text)
+        return memory
+
     def test_confirmed_six_by_three_rule(self):
         history = [
             {"role": "lead", "text": "Es rectangular de 6x3"},
@@ -136,6 +153,81 @@ class PoolBorderCountTest(unittest.TestCase):
                 "losetaschile", "¿Cuántos bords para mi piscina?", channel="whatsapp")
         self.assertNotIn("divide", result["reply"])
         self.assertIn("confirmas", result["reply"])
+
+    def test_location_completes_product_subtotal_without_shipping(self):
+        zero = Zero(build_agents(mock=True), memory=self.priced_memory())
+        with mock.patch.object(zero, "dispatch") as dispatch:
+            result = zero.converse_result(
+                "losetaschile", "[location]", lead={"key": "test-lead"},
+                channel="whatsapp")
+        dispatch.assert_not_called()
+        self.assertIn("36 bordes × $6.000 = $216.000", result["reply"])
+        self.assertIn("4 esquinas × $3.600 = $14.400", result["reply"])
+        self.assertIn("Productos: $230.400", result["reply"])
+        self.assertIn("Despacho: por cotizar", result["reply"])
+        self.assertEqual(result["quote"]["total"], 230400)
+        self.assertTrue(result["quote"]["shipping_pending"])
+        self.assertNotIn("shipping", result["quote"])
+
+    def test_price_and_quantity_question_gets_subtotal(self):
+        zero = Zero(build_agents(mock=True), memory=self.priced_memory())
+        with mock.patch.object(zero, "dispatch") as dispatch:
+            result = zero.converse_result(
+                "losetaschile", "¿Cuántos bordes y cuánto cuesta para mi piscina?",
+                lead={"key": "test-lead"}, channel="whatsapp")
+        dispatch.assert_not_called()
+        self.assertIn("Productos: $230.400", result["reply"])
+
+    def test_long_chat_uses_confirmed_order_before_model_context_is_trimmed(self):
+        memory = self.priced_memory()
+        for index in range(30):
+            memory.add_turn("losetaschile", "test-lead", "agent", f"Turno anterior {index}")
+        agents = build_agents(mock=True)
+        agents["CONCIERGE"].prompt_file = "concierge-whatsapp-local.md"
+        zero = Zero(agents, memory=memory)
+        with mock.patch.object(zero, "dispatch") as dispatch:
+            result = zero.converse_result(
+                "losetaschile", "¿Me das el presupuesto?", lead={"key": "test-lead"},
+                channel="whatsapp")
+        dispatch.assert_not_called()
+        self.assertIn("Productos: $230.400", result["reply"])
+
+    def test_delivery_questions_do_not_trigger_unsolicited_subtotal(self):
+        self.assertFalse(wants_product_quote("¿Cuál es su dirección?"))
+        self.assertFalse(wants_product_quote("¿Despachan a mi comuna?"))
+        self.assertTrue(wants_product_quote("[location]"))
+        self.assertTrue(wants_product_quote("Mi dirección es Avenida Central 123"))
+
+    def test_missing_corner_price_does_not_send_partial_subtotal(self):
+        zero = Zero(build_agents(mock=True), memory=self.priced_memory(False))
+        with mock.patch.object(zero, "dispatch") as dispatch:
+            result = zero.converse_result(
+                "losetaschile", "¿Me das el presupuesto?", lead={"key": "test-lead"},
+                channel="whatsapp")
+        dispatch.assert_not_called()
+        self.assertNotIn("quote", result)
+        self.assertNotIn("$216.000", result["reply"])
+
+    def test_location_inbound_sends_product_subtotal(self):
+        memory = self.priced_memory()
+        memory.set_client_agent_profile("losetaschile", {
+            "whatsapp_number": "56911111111", "response_mode": "automatic",
+            "quote_mode": "manual"})
+        crm = CRM(None)
+        rec = crm.upsert("losetaschile", {"phone": "56933333333", "source": "test"})
+        for text in ("Mi piscina es rectangular de 6x3", "Borde recto con nariz"):
+            memory.add_turn("losetaschile", rec["key"], "lead", text)
+        zero = Zero(build_agents(mock=True), memory=memory, crm=crm)
+        zero._deliver = mock.Mock(return_value={"status": "sent", "via": "whatsapp_web"})
+        with mock.patch.object(zero, "dispatch") as dispatch:
+            result = zero.handle_inbound(
+                "56933333333", "[location]", to_phone_id="56911111111",
+                whatsapp_chat_id="56933333333@c.us")
+        dispatch.assert_not_called()
+        self.assertEqual(result["delivery"]["status"], "sent")
+        self.assertIn("Productos: $230.400", zero._deliver.call_args.args[3]["body"])
+        self.assertIn("product_subtotal_accepted",
+                      [event["event"] for event in rec.get("history", [])])
 
 
 if __name__ == "__main__":

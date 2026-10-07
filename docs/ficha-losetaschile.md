@@ -22,3 +22,11 @@ piezas. Una segunda pregunta con la palabra «bordea» eludió el primer filtro 
 el modelo volvió a explicar cómo calcular. El 2026-10-07 se añadió ese caso
 real a las pruebas y una protección para no enviar instrucciones de cálculo al
 cliente. La salida corregida queda sujeta a comprobación real tras publicarla.
+
+El 2026-10-07 Diego confirmó el precio final unitario del esquinero y pidió
+cotizar automáticamente los productos del pedido cuando ya estén confirmados
+modelo, forma y medidas. El importe se calcula con el catálogo estructurado;
+el despacho queda sin importe y se cotiza manualmente. Una ubicación compartida
+por WhatsApp Web llega como `[location]`, sin dirección legible, y no permite
+calcular ni prometer el despacho. La cotización de productos se presenta como
+subtotal separado del despacho.

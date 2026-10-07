@@ -2,6 +2,18 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-10-07-losetas-subtotal-productos",
+      "date": "2026-10-07",
+      "type": "change",
+      "title": "Subtotal de bordes y esquinas sin despacho",
+      "origin": "Diego pidió cotizar el pedido ya definido y confirmó $3.600 como precio final por esquinero",
+      "summary": "El catálogo activo tenía el borde recto a $6.000 y no incluía la esquina. Se añadió el cálculo de 36 bordes rectos y 4 esquinas con los precios estructurados; el mensaje entrega subtotal de productos y marca despacho por cotizar, incluso si el último mensaje es una ubicación no legible.",
+      "status": "Precio del esquinero activo en almacén; código y pruebas locales, despliegue pendiente",
+      "scope": "Agente WhatsApp y catálogo activo de LosetasChile",
+      "evidence": "Precios comprobados en almacén activo: borde recto $6.000 y esquina $3.600, IVA configurado 0%; se conservaron los otros nueve ítems. Prueba local de 36 × 6.000 + 4 × 3.600 = $230.400 sin despacho.",
+      "pending": "Desplegar el cálculo y comprobar una respuesta real de subtotal de productos."
+    },
+    {
       "id": "2026-10-07-losetas-bordes-piscina",
       "date": "2026-10-07",
       "type": "change",

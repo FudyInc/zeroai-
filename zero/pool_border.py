@@ -1,8 +1,7 @@
-"""Verified piece count for LosetasChile rectangular pool borders.
+"""Verified item quantities for LosetasChile rectangular pool borders.
 
-This is a quantity estimate, not a price quote. The business rule was
-confirmed by its owner on 2026-10-07: straight 50 cm borders cover the full
-perimeter and four corner pieces are added separately.
+The business rule was confirmed by its owner on 2026-10-07: straight 50 cm
+borders cover the full perimeter and four corner pieces are added separately.
 """
 from __future__ import annotations
 
@@ -38,6 +37,14 @@ _CALCULATION_ADVICE = re.compile(
     r"\b(?:per[ií]metro|metros lineales|largo del borde)\b",
     re.IGNORECASE,
 )
+_PRICE_REQUEST = re.compile(
+    r"\b(?:precio|presupuesto|cotiz\w*|total|cu[aá]nto\s+(?:sale|cuesta|ser[ií]a))\b",
+    re.IGNORECASE,
+)
+_DELIVERY_DETAIL = re.compile(
+    r"^\[location\]$|^(?:mi direcci[oó]n es|la direcci[oó]n es|mi comuna es|estoy en|vivo en)\b",
+    re.IGNORECASE,
+)
 
 
 def delegates_piece_calculation(question: str, reply: str) -> bool:
@@ -49,48 +56,77 @@ def delegates_piece_calculation(question: str, reply: str) -> bool:
                 _CALCULATION_ADVICE.search(reply))
 
 
-def border_count_reply(message: str, history: list[dict[str, Any]]) -> str | None:
-    """Answer a rectangular pool piece-count question only from known inputs."""
-    if not (_COUNT.search(message) and _PIECES.search(message)):
-        return None
+def border_plan(message: str, history: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, str]:
+    """Return confirmed quantities or the one missing detail to ask for."""
     lead_texts = [str(turn.get("text") or "") for turn in history
                   if turn.get("role") == "lead"]
     if re.search(r"\b(?:terraza|interior|fondo|piso)\b", message, re.IGNORECASE):
-        return "¿Te refieres al borde recto con nariz de la piscina o a otro producto?"
+        return None, "¿Te refieres al borde recto con nariz de la piscina o a otro producto?"
     latest_first = [message, *reversed(lead_texts)]
     product = next((text for text in latest_first if
                     _REJECT_PRODUCT.search(text) or _OTHER_PRODUCT.search(text) or
                     _PRODUCT.search(text)), None)
     if product and (_REJECT_PRODUCT.search(product) or _OTHER_PRODUCT.search(product)):
-        return "¿Te refieres al borde recto con nariz de la piscina o a otro producto?"
+        return None, "¿Te refieres al borde recto con nariz de la piscina o a otro producto?"
     if product is None:
-        return ("¿Qué modelo de borde o pastelón quieres usar? Con ese dato "
-                "puedo calcular las piezas para el perímetro.")
+        return None, "¿Qué modelo de borde o pastelón quieres usar?"
     shape = next((text for text in latest_first if _OTHER_SHAPE.search(text) or
                   re.search(r"\bno\s+(?:es\s+)?rectangular\b", text, re.IGNORECASE) or
                   _RECTANGULAR.search(text)), None)
     if shape and (_OTHER_SHAPE.search(shape) or
                   re.search(r"\bno\s+(?:es\s+)?rectangular\b", shape, re.IGNORECASE)):
-        return "Esa fórmula es solo para piscinas rectangulares; necesito revisar la forma."
+        return None, "Necesito revisar la forma de esa piscina antes de calcular las piezas."
     if shape is None:
-        return "¿La piscina es rectangular? Así calculo el perímetro correctamente."
+        return None, "¿La piscina es rectangular?"
     dimensions = None
     for text in [message, *reversed(lead_texts)]:
         match = _SIZE.search(text)
         if match and _OTHER_UNITS.search(text):
-            return "¿Las medidas de la piscina están en metros?"
+            return None, "¿Las medidas de la piscina están en metros?"
         if match:
             dimensions = tuple(Decimal(value.replace(",", "."))
                                for value in match.groups())
             break
     if dimensions is None:
-        return "¿Cuánto mide cada lado de la piscina rectangular?"
+        return None, "¿Cuánto mide cada lado de la piscina rectangular?"
     width, length = dimensions
     if (min(dimensions) <= 0 or max(dimensions) > 50 or
             any((side * 2) % 1 for side in dimensions)):
-        return ("Para esa medida necesito confirmar cómo se resolverán los cortes "
-                "antes de darte una cantidad de piezas.")
+        return None, "Necesito confirmar los cortes antes de darte una cantidad."
     perimeter = 2 * (width + length)
     straight = int(perimeter * 2)
-    return (f"Para tu piscina de {width:g} × {length:g} m: "
-            f"{straight} bordes rectos de 50 cm más 4 esquinas.")
+    return {"width": width, "length": length, "straight": straight, "corners": 4}, ""
+
+
+def border_count_reply(message: str, history: list[dict[str, Any]]) -> str | None:
+    """Answer a rectangular pool piece-count question only from known inputs."""
+    if not (_COUNT.search(message) and _PIECES.search(message)):
+        return None
+    plan, clarification = border_plan(message, history)
+    if plan is None:
+        return clarification
+    return (f"Para tu piscina de {plan['width']:g} × {plan['length']:g} m: "
+            f"{plan['straight']} bordes rectos de 50 cm más 4 esquinas.")
+
+
+def wants_product_quote(message: str) -> bool:
+    """A price request or a shared delivery detail can complete a known order."""
+    return bool(_PRICE_REQUEST.search(message) or _DELIVERY_DETAIL.search(message.strip()))
+
+
+def format_product_quote(plan: dict[str, Any], quote: dict[str, Any]) -> str | None:
+    """Present only the product subtotal; shipping has no verified price."""
+    lines = {line["id"]: line for line in quote.get("lines", [])}
+    straight = lines.get("borde-recto-nariz-50x50")
+    corners = lines.get("esquina-piscina-50x50")
+    if (quote.get("currency") != "CLP" or quote.get("iva_rate") != 0 or
+            quote.get("unmatched") or not straight or not corners or
+            straight["qty"] != plan["straight"] or corners["qty"] != plan["corners"]):
+        return None
+    money = lambda value: "$" + f"{round(value):,}".replace(",", ".")
+    return (f"Para tu piscina de {plan['width']:g} × {plan['length']:g} m: "
+            f"{straight['qty']} bordes × {money(straight['unit_price'])} = "
+            f"{money(straight['subtotal'])}; "
+            f"{corners['qty']} esquinas × {money(corners['unit_price'])} = "
+            f"{money(corners['subtotal'])}. "
+            f"Productos: {money(quote['total'])}. Despacho: por cotizar.")
