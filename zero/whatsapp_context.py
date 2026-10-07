@@ -102,28 +102,69 @@ def select_knowledge(knowledge: str, question: str, max_chars: int = 1600) -> st
 
 def select_history(turns: List[Dict[str, Any]], question: str,
                    max_turns: int = 4) -> List[Dict[str, str]]:
-    """Keep the latest exchange and recall relevant older user statements."""
+    """Keep the latest exchange and the last confirmed order facts."""
     turns = turns or []
     if len(turns) <= max_turns:
         chosen = turns
     else:
-        recent = set(range(len(turns) - 2, len(turns)))
+        recent_count = min(2, max_turns)
+        recent = set(range(len(turns) - recent_count, len(turns)))
         query = _terms(question)
+        older_leads = [i for i in range(len(turns) - recent_count)
+                       if turns[i].get("role") == "lead"]
+
+        def measurement(index: int) -> bool:
+            return bool(re.search(
+                r"\b\d+(?:[.,]\d+)?\s*(?:x|×|por)\s*\d+(?:[.,]\d+)?\b"
+                r"|\b\d+(?:[.,]\d+)?\s*(?:m2|m²|metros?|mts?|cm)\b",
+                str(turns[index].get("text") or ""), re.IGNORECASE))
+
+        def model(index: int) -> bool:
+            return bool(re.search(
+                r"\b(?:borde\s+(?:recto|ballena)|"
+                r"pastel[oó]n(?:es)?\s+(?:sol|adoqu[ií]n|laja|ladrillo)|"
+                r"esquina\s+piscina|deck\s+madera)\b",
+                str(turns[index].get("text") or ""), re.IGNORECASE))
+
+        def location(index: int) -> bool:
+            content = str(turns[index].get("text") or "")
+            if re.search(
+                r"\b(?:estoy|estamos|vivo|queda|est[aá]|ubicad[oa]s?)\s+en\s+\w+"
+                r"|\b(?:comuna|direcci[oó]n)\s+(?:es|de|en)\b",
+                content, re.IGNORECASE):
+                return True
+            if (index > 0 and turns[index - 1].get("role") == "agent" and
+                    re.search(r"\b(?:comuna|direcci[oó]n|ubicaci[oó]n)\b",
+                              str(turns[index - 1].get("text") or ""), re.IGNORECASE) and
+                    re.fullmatch(r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ\s-]{2,40}", content.strip()) and
+                    content.strip().casefold() not in {"hola", "gracias", "sí", "si", "no"}):
+                return True
+            return False
+
+        selected = set(recent)
+        facts = (measurement, location, model)
+        latest_facts = {predicate: next((i for i in reversed(older_leads)
+                                         if predicate(i)), None)
+                        for predicate in facts}
+        for predicate in facts:
+            if len(selected) >= max_turns:
+                break
+            latest = latest_facts[predicate]
+            if latest is not None:
+                selected.add(latest)
+
         def rank(index: int) -> tuple[int, int, int]:
             content = str(turns[index].get("text") or "")
-            measurement = bool(re.search(
-                r"\b\d+(?:[.,]\d+)?\s*(?:m2|m²|metros?|mts?|cm|[x×]\s*\d+|por\s+\d+)",
-                content, re.IGNORECASE))
-            location = bool(re.search(
-                r"\b(?:estoy|estamos|queda|est[aá]|ubicad[oa]s?)\s+en\s+\w+"
-                r"|\b(?:comuna|direcci[oó]n)\s+(?:es|de|en)\b",
-                content, re.IGNORECASE))
-            return (len(query & _terms(content)) * 3 + int(measurement) + int(location),
-                    int(measurement) + int(location), index)
-        older = sorted((i for i in range(len(turns) - 2)
-                        if turns[i].get("role") == "lead"),
-                       key=rank, reverse=True)
-        chosen = [turns[i] for i in sorted(recent | set(older[:max_turns - 2]))]
+            fact = int(measurement(index)) + int(location(index)) + int(model(index))
+            return (len(query & _terms(content)) * 3 + fact, fact, index)
+        for index in sorted(older_leads, key=rank, reverse=True):
+            if len(selected) >= max_turns:
+                break
+            if any(latest is not None and index != latest and predicate(index)
+                   for predicate, latest in latest_facts.items()):
+                continue
+            selected.add(index)
+        chosen = [turns[i] for i in sorted(selected)]
     return [{"role": str(turn.get("role") or ""),
              "text": str(turn.get("text") or "")[:300]}
             for turn in chosen]

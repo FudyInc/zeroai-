@@ -43,6 +43,27 @@ class WhatsAppContextTest(unittest.TestCase):
         self.assertIn("7 por 3", visible)
         self.assertIn("Maipú", visible)
 
+    def test_realistic_long_chat_keeps_latest_model_size_and_location(self):
+        turns = [
+            {"role": "lead", "text": "Mi piscina mide 7x3 rectangular"},
+            {"role": "agent", "text": "¿Qué modelo te interesa?"},
+            {"role": "lead", "text": "Es de 6x3 rectangular"},
+            {"role": "lead", "text": "Borde recto con nariz"},
+            {"role": "agent", "text": "¿En qué comuna estás?"},
+            {"role": "lead", "text": "Ñuñoa"},
+        ]
+        turns += [{"role": "agent", "text": f"Conversación intermedia {i}"}
+                  for i in range(20)]
+        turns += [{"role": "agent", "text": "Te escucho"},
+                  {"role": "lead", "text": "¿Podemos continuar?"}]
+        chosen = select_history(turns, "¿Podemos continuar?", 6)
+        visible = " ".join(turn["text"] for turn in chosen)
+        self.assertIn("6x3 rectangular", visible)
+        self.assertNotIn("7x3", visible)
+        self.assertIn("Borde recto con nariz", visible)
+        self.assertIn("Ñuñoa", visible)
+        self.assertLessEqual(len(chosen), 6)
+
     def test_orchestrator_fetches_old_turn_before_compacting_for_local_model(self):
         memory = SessionMemory(None)
         memory.register_client("losetaschile", "STARTER")
@@ -58,6 +79,28 @@ class WhatsAppContextTest(unittest.TestCase):
                                  lead={"key": "lead-1"})
         history = dispatch.call_args.args[1].data["history"]
         self.assertTrue(any("7 por 3" in turn["text"] for turn in history))
+
+    def test_local_model_receives_three_order_facts_after_long_chat(self):
+        memory = SessionMemory(None)
+        memory.register_client("losetaschile", "STARTER")
+        for role, text in [
+            ("lead", "Es de 6x3 rectangular"),
+            ("lead", "Borde recto con nariz"),
+            ("agent", "¿En qué comuna estás?"),
+            ("lead", "Ñuñoa"),
+        ]:
+            memory.add_turn("losetaschile", "lead-1", role, text)
+        for number in range(20):
+            memory.add_turn("losetaschile", "lead-1", "agent", f"Turno {number}")
+        agent = mock.Mock(prompt_file="concierge-whatsapp-local.md")
+        zero = Zero({"CONCIERGE": agent}, memory=memory)
+        answer = AgentResponse("test", "CONCIERGE", "done", {"reply": "Cuéntame tu duda."})
+        with mock.patch.object(zero, "dispatch", return_value=answer) as dispatch:
+            zero.converse_result("losetaschile", "Hola, ¿seguimos?", lead={"key": "lead-1"})
+        visible = " ".join(turn["text"] for turn in dispatch.call_args.args[1].data["history"])
+        self.assertIn("6x3 rectangular", visible)
+        self.assertIn("Borde recto con nariz", visible)
+        self.assertIn("Ñuñoa", visible)
 
 
 if __name__ == "__main__":

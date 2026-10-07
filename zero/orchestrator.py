@@ -110,11 +110,12 @@ def _unverified_shipping_claim(message: str, reply: str, knowledge: str) -> bool
 
 
 def _unverified_quote_review_claim(reply: str) -> bool:
-    """A generated draft cannot assert that a person reviewed a quote."""
+    """A generated draft cannot assert that a person reviewed a customer case."""
     return bool(re.search(
-        r"\b(?:revis[eé]|verifiqu[eé]|confirm[eé]|revisad[oa]|verificad[oa]|confirmad[oa])\b"
-        r".{0,45}\b(?:cotizaci[oó]n|presupuesto)\b"
-        r"|\b(?:cotizaci[oó]n|presupuesto)\b.{0,45}"
+        r"\b(?:revis[eé]|revisamos|verifiqu[eé]|verificamos|confirm[eé]|confirmamos|"
+        r"revisad[oa]|verificad[oa]|confirmad[oa])\b"
+        r".{0,45}\b(?:consulta|cotizaci[oó]n|presupuesto)\b"
+        r"|\b(?:consulta|cotizaci[oó]n|presupuesto)\b.{0,45}"
         r"\b(?:revisad[oa]|verificad[oa]|confirmad[oa])\b",
         reply or "", re.IGNORECASE))
 
@@ -1037,7 +1038,7 @@ class Zero:
             lead_context = {key: lead_context[key] for key in ("name", "role", "company")
                             if lead_context.get(key)}
             knowledge = select_knowledge(knowledge, message, max_chars=1600)
-            history = select_history(history or [], message, max_turns=4)
+            history = select_history(history or [], message, max_turns=6)
         else:
             knowledge = knowledge[:4000]
         # Persona del vendedor asignado (Fernanda/Stéfano/...): solo name/tone, para
@@ -1411,8 +1412,10 @@ class Zero:
                 client_id, text, lead=rec, channel=channel, history=prior_turns,
                 feedback="El cliente ya entregó medidas o esa respuesta ya se dio. "
                          "Responde la pregunta nueva usando esos datos. No vuelvas a pedir medidas "
-                         "ni repitas la respuesta anterior. Si consulta por despacho, no afirmes "
-                         "disponibilidad: requiere revisión humana. Si no puedes responder, usa intent handoff.")
+                         "ni repitas la respuesta anterior. No afirmes que revisaste una consulta, "
+                         "cotización o presupuesto sin evidencia. Si consulta por despacho, no "
+                         "afirmes disponibilidad: requiere revisión humana. Si no puedes responder, "
+                         "usa intent handoff.")
             reply, intent = revised.get("reply") or "", revised.get("intent") or "general"
             quote = revised.get("quote")
             repeated = repetition(reply)
@@ -1430,41 +1433,37 @@ class Zero:
                                       unsafe_shipping or unsupported_review):
             reason = ("El agente no entendió la consulta" if intent == "handoff" else
                       "Respuesta sobre despacho requiere revisión" if unsafe_shipping else
-                      "Presupuesto sin revisión comprobada" if unsupported_review else
+                      "Revisión de consulta no comprobada" if unsupported_review else
                       "El agente repitió una respuesta" if repeated else
                       "El agente no pudo redactar una respuesta")
             self.memory.add_turn(client_id, key, "lead", text)
-            if repeated and intent != "handoff" and not unsafe_shipping:
-                # A bad draft needs review, but must not disable future replies.
-                self.memory.log("whatsapp_review_required", client=client_id,
-                                lead=key, reason=reason)
-            else:
-                self.memory.set_whatsapp_handoff(client_id, handoff_key, reason)
-                self.memory.log("whatsapp_handoff", client=client_id, lead=key, reason=reason)
+            # A generated draft can require human review for this message
+            # without taking over the chat forever. Explicit human requests
+            # and unreadable attachments are handled earlier and remain handoffs.
+            self.memory.log("whatsapp_review_required", client=client_id,
+                            lead=key, reason=reason)
             self.memory.save()
             if self.crm:
                 self.crm.log(client_id, key, "awaiting_human", reason)
                 self.crm.save()
-            notice_delivery = None
-            if repeated:
-                notice = ("Recibí tu mensaje. Necesito revisar tu consulta antes de "
-                          "responderte bien; quedó pendiente en este chat.")
-                notice_delivery = self._deliver(
-                    client_id, key, rec.get("phone") or rec.get("email"),
-                    {"channel": channel, "subject": None, "body": notice,
-                     "whatsapp_from": to_phone_id, "whatsapp_chat_id": whatsapp_chat_id},
-                    wa_creds=wa_creds)
-                if notice_delivery["status"] == "sent":
-                    self.memory.add_turn(client_id, key, "agent", notice)
-                    self.memory.save()
-                if self.crm:
-                    self.crm.log(client_id, key,
-                                 "auto_reply_accepted" if notice_delivery["status"] == "sent"
-                                 else "auto_reply_failed", notice[:140])
-                    self.crm.save()
+            notice = ("Recibí tu mensaje. Necesito revisar tu consulta antes de "
+                      "responderte bien; quedó pendiente en este chat.")
+            notice_delivery = self._deliver(
+                client_id, key, rec.get("phone") or rec.get("email"),
+                {"channel": channel, "subject": None, "body": notice,
+                 "whatsapp_from": to_phone_id, "whatsapp_chat_id": whatsapp_chat_id},
+                wa_creds=wa_creds)
+            if notice_delivery["status"] == "sent":
+                self.memory.add_turn(client_id, key, "agent", notice)
+                self.memory.save()
+            if self.crm:
+                self.crm.log(client_id, key,
+                             "auto_reply_accepted" if notice_delivery["status"] == "sent"
+                             else "auto_reply_failed", notice[:140])
+                self.crm.save()
             return {"matched": True, "manual_review": True, "intent": "handoff",
                     "company": rec.get("company"),
-                    **({"delivery": notice_delivery} if notice_delivery else {}), **out}
+                    "delivery": notice_delivery, **out}
         self.memory.add_turn(client_id, key, "lead", text)
 
         delivery = {"status": "error", "error": "El agente no produjo una respuesta"}
