@@ -2,6 +2,18 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-10-07-losetas-bordes-piscina",
+      "date": "2026-10-07",
+      "type": "change",
+      "title": "Cantidad de bordes para piscina rectangular en LosetasChile",
+      "origin": "Diego probó el WhatsApp real y confirmó la regla de 36 bordes rectos más 4 esquinas para piscina 6 × 3 m",
+      "summary": "La conversación real entró y recibió respuesta en el teléfono, pero el modelo dijo 24 piezas y explicó cómo calcularlas. Se agregó un cálculo determinista de perímetro para el borde recto con nariz de 50 cm, con respuesta breve y directa; se pide aclaración cuando faltan modelo, forma o medidas.",
+      "status": "Corrección verificada en código local; prueba anterior del canal real confirmada por Diego",
+      "scope": "Agente WhatsApp de LosetasChile",
+      "evidence": "Conversación real del 2026-10-06 23:41 Chile y confirmación de recepción por Diego; pruebas unitarias del cálculo y ruta del orquestador",
+      "pending": "Publicar el cambio y comprobar con una nueva pregunta real que el agente responde 36 bordes rectos más 4 esquinas."
+    },
+    {
       "id": "2026-10-06-whatsapp-contexto-y-meta-activo",
       "date": "2026-10-06",
       "type": "change",

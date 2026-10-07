@@ -37,6 +37,7 @@ from .icp import describe_icp, is_empty, normalize_icp
 from .inbox import Inbox, MockInbox
 from .memory import SessionMemory
 from .quotes import compute_quote, extract_request, format_quote, normalize_pricing
+from .pool_border import border_count_reply
 from .vendors import credentials_for
 from .whatsapp_context import select_history, select_knowledge
 
@@ -1022,6 +1023,10 @@ class Zero:
         if history is None and lead and lead.get("key") and client_id:
             history = self.memory.get_conversation(
                 client_id, lead["key"], limit=None if local_whatsapp else 12)
+        if client_id == "losetaschile" and channel == "whatsapp":
+            border_reply = border_count_reply(message, history or [])
+            if border_reply is not None:
+                return {"reply": border_reply, "intent": "info"}
         # El contexto de Ollama en WhatsApp es pequeño. Un prompt de 11 KB más
         # toda la ficha del CRM hacía que Ollama recortara el mensaje entrante.
         lead_context = lead or {}
