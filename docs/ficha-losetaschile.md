@@ -71,3 +71,7 @@ técnico sin datos de clientes fue aceptado y apareció en el grupo. Falta
 comprobar el recorrido real de imagen, elección de color y presupuesto con un
 mensaje nuevo de prueba. El código aún no está publicado en GitHub ni Vercel.
 Diego confirmó el 2026-10-08 que recibió la prueba técnica en el grupo.
+El primer mensaje de prueba del cliente no obtuvo respuesta porque el chat
+conservaba una pausa de automatización anterior. Esa pausa se liberó y se
+verificó; no se reprocesó el mensaje anterior. El recorrido completo continúa
+pendiente de un mensaje nuevo con medidas.

@@ -2,6 +2,18 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-10-08-losetas-prueba-chat-pausado",
+      "date": "2026-10-08",
+      "type": "incident",
+      "title": "Primer mensaje de prueba sin respuesta por pausa previa del chat",
+      "origin": "Diego informó que su nuevo mensaje al WhatsApp de LosetasChile no recibió respuesta",
+      "summary": "El puente registró el mensaje entrante, pero el chat de prueba tenía una pausa de automatización creada por una consulta anterior que el agente no pudo interpretar. Se liberó únicamente la pausa de ese chat; el mensaje anterior no se reprocesó para evitar duplicados.",
+      "status": "Causa comprobada y pausa del chat de prueba liberada; nuevo recorrido real pendiente",
+      "scope": "Bandeja WhatsApp Web de LosetasChile y estado de la conversación de prueba",
+      "evidence": "Evento entrante marcado completado sin respuesta saliente; estado de handoff previo comprobado en el almacén activo; cambio por la ruta de handoff y lectura posterior confirmaron ausencia de pausa el 2026-10-08. No se enviaron mensajes adicionales ni se modificaron otros chats.",
+      "pending": "Diego debe enviar un mensaje nuevo con las medidas completas para verificar imagen de colores, elección y presupuesto interno."
+    },
+    {
       "id": "2026-10-08-losetas-colores-presupuesto-manual",
       "date": "2026-10-08",
       "type": "change",
