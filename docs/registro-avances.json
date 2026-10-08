@@ -8,10 +8,10 @@
       "title": "Encuesta simple para dirección o ubicación de entrega",
       "origin": "Diego pidió un elemento como encuesta debajo del mensaje de despacho y luego solicitó diseñarlo lo más simple posible para el cliente",
       "summary": "Se preparó una encuesta de elección única con «Compartir ubicación» y «Escribir dirección». El voto produce una instrucción breve; la ubicación o la dirección se entregan después por WhatsApp. El texto inicial también permite responder directamente. Los botones interactivos no se usan porque la biblioteca los marca obsoletos.",
-      "status": "Preparado en código local; pendiente de integración y prueba real en WhatsApp",
+      "status": "Activo en backend local; visualización y voto real pendientes",
       "scope": "Agente y puente WhatsApp Web de LosetasChile",
-      "evidence": "Documentación oficial de whatsapp-web.js 1.34.7 confirma Poll, elección única y vote_update; 62 pruebas dirigidas y node --check aprobados durante la preparación el 2026-10-08.",
-      "pending": "Completar revisión, suite e integración en backend local. Probar que la encuesta aparezca debajo del mensaje y que cada voto produzca la instrucción correcta sin duplicar envíos. Si vote_update no funciona en la cuenta real, conservar la respuesta directa por texto o ubicación."
+      "evidence": "Documentación oficial de whatsapp-web.js 1.34.7 confirma Poll, elección única y vote_update. Revisión detectó que el votante llega como objeto; se corrigió y se probó con objeto _serialized. Suite completa de 1065 pruebas, prueba Node, node --check, JSON y git diff --check aprobados el 2026-10-08. Main local incorporó efac647; backend reiniciado con /api/health OK, puente LosetasChile ready y simulación de solo lectura con ficha activa produjo mensaje y señal de encuesta.",
+      "pending": "Probar en WhatsApp real que la encuesta aparezca debajo del mensaje y que cada voto produzca la instrucción correcta sin duplicar envíos. Si vote_update no funciona en la cuenta real, conservar la respuesta directa por texto o ubicación. No se publicó en GitHub ni Vercel."
     },
     {
       "id": "2026-10-08-losetas-despacho-ubicacion",
