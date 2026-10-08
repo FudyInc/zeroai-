@@ -2,7 +2,8 @@
 import unittest
 from unittest import mock
 
-from zero.whatsapp_web import parse_message, send_catalog_image, send_group_text
+from zero.whatsapp_web import (parse_message, send_catalog_image,
+                               send_delivery_poll, send_group_text)
 
 
 class WhatsAppWebCatalogTest(unittest.TestCase):
@@ -49,6 +50,20 @@ class WhatsAppWebCatalogTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "no coincide"):
             send_group_text("losetaschile", "56987654321", "123456789@g.us", "Pedido")
         self.assertEqual(bridge.call_count, 1)
+
+    @mock.patch("zero.whatsapp_web.bridge_request")
+    def test_delivery_poll_uses_verified_losetas_account(self, bridge):
+        bridge.side_effect = [{"state": "ready", "account": "56987654321"},
+                              {"id": "poll-1", "ack": 0}]
+        result = send_delivery_poll("losetaschile", "56987654321", "56912345678",
+                                    "56912345678@c.us")
+        self.assertEqual(result["status"], "sent")
+        self.assertEqual(bridge.call_args.args[0], "/send-delivery-poll")
+        bridge.reset_mock()
+        with self.assertRaises(ValueError):
+            send_delivery_poll("otro", "56987654321", "56912345678",
+                               "56912345678@c.us")
+        bridge.assert_not_called()
 
 
 if __name__ == "__main__":

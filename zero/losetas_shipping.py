@@ -12,10 +12,19 @@ _SHIPPING_TOPIC = re.compile(
 
 SHIPPING_COVERAGE_REPLY = (
     "Sí, hacemos despachos en Santiago y revisamos envíos a zonas cercanas "
-    "a la Región Metropolitana. Para cotizar el flete, puedes escribir tu "
-    "dirección o compartir tu ubicación actual desde 📎/+ → Ubicación. "
-    "El equipo confirmará cobertura y valor."
+    "a la Región Metropolitana. ¿Dónde sería la entrega? Puedes escribir "
+    "tu dirección o compartir tu ubicación aquí; el equipo confirmará cobertura y valor."
 )
+SHIPPING_PRICE_REPLY = (
+    "El despacho se cotiza por separado. ¿Dónde sería la entrega? "
+    "Puedes escribir tu dirección o compartir tu ubicación aquí; "
+    "el equipo verificará la ruta y el valor del flete."
+)
+DELIVERY_POLL_QUESTION = "¿Cómo prefieres indicar el lugar de entrega?"
+DELIVERY_POLL_LOCATION = "📍 Compartir ubicación"
+DELIVERY_POLL_ADDRESS = "✍️ Escribir dirección"
+DELIVERY_LOCATION_PROMPT = "Toca 📎 o + → Ubicación → Enviar ubicación actual para el despacho."
+DELIVERY_ADDRESS_PROMPT = "Escríbeme calle, número y comuna de entrega."
 
 _SHARED_LOCATION = re.compile(
     r"^\[location\]\s+(https://www\.google\.com/maps\?q=[-\d.]+,[-\d.]+)$",
@@ -28,7 +37,8 @@ _WRITTEN_ADDRESS = re.compile(
     re.IGNORECASE,
 )
 _DELIVERY_PROMPT = re.compile(r"\b(?:direcci[oó]n|ubicaci[oó]n|comuna|sector)\b", re.IGNORECASE)
-_SHIPPING_PROMPT = re.compile(r"\b(?:despach\w*|flete\w*|env[ií]o\w*|cobertura)\b", re.IGNORECASE)
+_SHIPPING_PROMPT = re.compile(
+    r"\b(?:despach\w*|flete\w*|env[ií]o\w*|cobertura|entrega)\b", re.IGNORECASE)
 _NON_ADDRESS = {"hola", "gracias", "sí", "si", "no", "gris", "beige", "rojo",
                 "blanco", "crema", "amarillo", "anaranjado"}
 
@@ -39,6 +49,16 @@ def shipping_coverage_request(message: str) -> bool:
     if _WRITTEN_ADDRESS.match(content):
         return False
     return bool(_SHIPPING_TOPIC.search(content))
+
+
+def delivery_poll_choice_response(message: str) -> str | None:
+    """One short instruction after a customer chooses a poll option."""
+    choice = (message or "").strip()
+    if choice == DELIVERY_POLL_LOCATION:
+        return DELIVERY_LOCATION_PROMPT
+    if choice == DELIVERY_POLL_ADDRESS:
+        return DELIVERY_ADDRESS_PROMPT
+    return None
 
 
 def shipping_delivery_followup(message: str, history: list[dict]) -> bool:

@@ -369,6 +369,24 @@ def send_catalog_image(client_id: str, expected_account: str, to: str,
     return result
 
 
+def send_delivery_poll(client_id: str, expected_account: str, to: str,
+                       chat_id: str) -> Dict[str, Any]:
+    """Send the fixed one-choice delivery poll to a verified LosetasChile chat."""
+    if client_id != "losetaschile":
+        raise ValueError("Encuesta de despacho disponible solo para LosetasChile")
+    number = "".join(c for c in str(to or "") if c.isdigit())
+    if not 8 <= len(number) <= 15 or not re.fullmatch(r"\d{8,20}@(c\.us|lid)", chat_id or ""):
+        raise ValueError("Destinatario de encuesta inválido")
+    if chat_id.endswith("@c.us") and chat_id.split("@", 1)[0] != number:
+        raise ValueError("El chat no coincide con el destinatario")
+    _verified_account(client_id, expected_account)
+    result = bridge_request("/send-delivery-poll", {"to": number, "chat_id": chat_id},
+                            client_id=client_id)
+    if not result.get("id") or result.get("ack") == -1:
+        raise RuntimeError("Encuesta sin confirmación; revisar el chat antes de reintentar")
+    return {"status": "sent", **result}
+
+
 class WhatsAppWebSender:
     name = "whatsapp_web"
 

@@ -4,8 +4,9 @@ const http = require('node:http')
 const crypto = require('node:crypto')
 const fs = require('node:fs')
 const path = require('node:path')
-const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js')
+const { Client, LocalAuth, MessageMedia, Poll } = require('whatsapp-web.js')
 const QRCode = require('qrcode')
+const { serializedVoterId } = require('./delivery-poll')
 
 const host = '127.0.0.1'
 const port = Number(process.env.WHATSAPP_WEB_BRIDGE_PORT || 8810)
@@ -36,6 +37,9 @@ const catalogImages = new Set([
   'extension-borde-piscina-50x50.jpeg',
 ])
 const catalogDir = path.resolve(__dirname, '../frontend/public/catalog/losetaschile')
+const deliveryPollQuestion = '¿Cómo prefieres indicar el lugar de entrega?'
+const deliveryPollLocation = '📍 Compartir ubicación'
+const deliveryPollAddress = '✍️ Escribir dirección'
 function loadPending() {
   try { return new Map(JSON.parse(fs.readFileSync(pendingFile, 'utf8')).map(item => [item.id, item])) }
   catch (err) {
@@ -166,12 +170,15 @@ async function drainPending() {
   } finally { draining = false }
 }
 
-async function queueMessage(msg) {
-  const payload = await normalizeMessage(msg)
+function queuePayload(payload) {
   if (!payload || !payload.id || pending.has(payload.id)) return
   pending.set(payload.id, payload)
   savePending()
   void drainPending()
+}
+
+async function queueMessage(msg) {
+  queuePayload(await normalizeMessage(msg))
 }
 
 client.on('message', msg => {
@@ -180,6 +187,42 @@ client.on('message', msg => {
   recentEvents.unshift({ at: new Date().toISOString(), sender_kind: senderId.split('@')[1] || '', type: msg.type || '', from_me: !!msg.fromMe })
   recentEvents.length = Math.min(recentEvents.length, 10)
   void queueMessage(msg).catch(err => { lastError = `Cola entrante: ${err.message}`; console.error(lastError) })
+})
+
+client.on('vote_update', vote => {
+  void (async () => {
+    if (clientId !== 'losetaschile') return
+    const poll = vote.parentMessage
+    const chatId = poll?.to?._serialized || String(poll?.to || '')
+    const voterId = serializedVoterId(vote.voter)
+    const selected = vote.selectedOptions || []
+    const choice = selected.length === 1 ? selected[0]?.name : null
+    const pollId = messageId(poll)
+    if (!poll?.fromMe || poll.type !== 'poll_creation' ||
+        poll.pollName !== deliveryPollQuestion || !pollId ||
+        !/^\d{8,20}@(c\.us|lid)$/.test(chatId) ||
+        !/^\d{8,20}@(c\.us|lid)$/.test(voterId) ||
+        ![deliveryPollLocation, deliveryPollAddress].includes(choice)) return
+    const options = (poll.pollOptions || []).map(option => option.name)
+    if (options.length !== 2 || !options.includes(deliveryPollLocation) ||
+        !options.includes(deliveryPollAddress)) return
+    const syntheticId = 'delivery-poll:' + crypto.createHash('sha256')
+      .update(JSON.stringify([pollId, voterId, choice])).digest('hex')
+    const payload = await normalizeMessage({
+      id: { _serialized: syntheticId }, from: voterId, fromMe: false,
+      type: 'chat', body: choice,
+      getContact: () => client.getContactById(voterId),
+    })
+    if (!payload) return
+    if (chatId.endsWith('@c.us') && payload.from !== chatId.split('@')[0]) return
+    if (chatId.endsWith('@lid') && voterId !== chatId) {
+      const matches = await client.getContactLidAndPhone(chatId)
+      const chatPhone = matches?.[0]?.pn?.split('@')[0]
+      if (!chatPhone || payload.from !== chatPhone) return
+    }
+    payload.chat_id = chatId
+    queuePayload(payload)
+  })().catch(err => { lastError = `Voto de encuesta: ${err.message}`; console.error(lastError) })
 })
 
 function respond(res, status, body) {
@@ -257,10 +300,11 @@ async function sendAndConfirm(chatId, content, options, matchesCreated, expected
       confirmed = await client.pupPage.evaluate((id, kind, body, since) => {
         const chat = window.require('WAWebCollections').Chat.getModelsArray()
           .find(item => item.id?._serialized === id)
-        const message = (chat?.msgs?.getModelsArray?.() || [])
-          .find(item => item.id?.fromMe && item.type === kind &&
-            (kind === 'image' ? item.caption : item.body) === body &&
-            (item.t || 0) >= since)
+          const message = (chat?.msgs?.getModelsArray?.() || [])
+            .find(item => item.id?.fromMe && item.type === kind &&
+              (kind === 'image' ? item.caption :
+                kind === 'poll_creation' ? (item.pollName || item.body) : item.body) === body &&
+              (item.t || 0) >= since)
         const rawId = message?.id?._serialized || message?.id?.toString?.()
         return rawId && rawId !== '[object Object]'
           ? { id: rawId, ack: message.ack ?? null } : null
@@ -415,7 +459,8 @@ const server = http.createServer(async (req, res) => {
       return respond(res, 502, { error: lastError })
     }
   }
-  if (req.method === 'POST' && (req.url === '/send-group' || req.url === '/send-catalog-image')) {
+  if (req.method === 'POST' && (req.url === '/send-group' || req.url === '/send-catalog-image' ||
+                                req.url === '/send-delivery-poll')) {
     if (state !== 'ready') return respond(res, 503, { error: 'WhatsApp Web is not ready' })
     let raw = ''
     for await (const chunk of req) {
@@ -436,6 +481,23 @@ const server = http.createServer(async (req, res) => {
           message.type === 'chat' && message.body === text, 'chat', text)
         return result ? respond(res, 200, result)
           : respond(res, 502, { error: 'Group send outcome uncertain; review chat before retry' })
+      }
+      if (req.url === '/send-delivery-poll') {
+        if (clientId !== 'losetaschile') return respond(res, 403, { error: 'poll not allowed for this account' })
+        const number = String(body.to || '').replace(/\D/g, '')
+        const chatId = String(body.chat_id || `${number}@c.us`)
+        if (!/^\d{8,15}$/.test(number) || !/^\d{8,20}@(c\.us|lid)$/.test(chatId) ||
+            (chatId.endsWith('@c.us') && chatId.split('@')[0] !== number)) {
+          return respond(res, 400, { error: 'invalid poll recipient' })
+        }
+        const poll = new Poll(deliveryPollQuestion,
+          [deliveryPollLocation, deliveryPollAddress], { allowMultipleAnswers: false })
+        const result = await sendAndConfirm(chatId, poll, {}, message =>
+          message.type === 'poll_creation' &&
+          (message.pollName === deliveryPollQuestion || message.body === deliveryPollQuestion),
+        'poll_creation', deliveryPollQuestion)
+        return result ? respond(res, 200, result)
+          : respond(res, 502, { error: 'Poll send outcome uncertain; review chat before retry' })
       }
       const number = String(body.to || '').replace(/\D/g, '')
       const chatId = String(body.chat_id || `${number}@c.us`)

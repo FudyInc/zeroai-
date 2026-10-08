@@ -6,7 +6,9 @@ from unittest import mock
 from zero.agents import build_agents
 from zero.crm import CRM
 from zero.losetas_color import color_question
-from zero.losetas_shipping import (SHIPPING_COVERAGE_REPLY, delivery_detail,
+from zero.losetas_shipping import (DELIVERY_ADDRESS_PROMPT, DELIVERY_LOCATION_PROMPT,
+                                   DELIVERY_POLL_ADDRESS, DELIVERY_POLL_LOCATION,
+                                   SHIPPING_COVERAGE_REPLY, delivery_detail,
                                    shipping_delivery_followup)
 from zero.memory import SessionMemory
 from zero.orchestrator import Zero
@@ -289,7 +291,8 @@ class PoolBorderCountTest(unittest.TestCase):
         dispatch.assert_not_called()
         self.assertNotIn("quote", result)
         self.assertNotIn("$230.400", result["reply"])
-        self.assertIn("comparte tu ubicación actual", result["reply"])
+        self.assertIn("compartir tu ubicación", result["reply"])
+        self.assertTrue(result["delivery_poll"])
 
     def test_shipping_coverage_questions_use_one_verified_reply(self):
         zero = Zero(build_agents(mock=True), memory=self.priced_memory())
@@ -301,7 +304,20 @@ class PoolBorderCountTest(unittest.TestCase):
                     channel="whatsapp")
                 dispatch.assert_not_called()
                 self.assertEqual(result["reply"], SHIPPING_COVERAGE_REPLY)
+                self.assertTrue(result["delivery_poll"])
                 self.assertNotIn("quote", result)
+
+    def test_poll_choice_gets_one_short_instruction(self):
+        zero = Zero(build_agents(mock=True), memory=self.priced_memory())
+        for choice, expected in ((DELIVERY_POLL_LOCATION, DELIVERY_LOCATION_PROMPT),
+                                 (DELIVERY_POLL_ADDRESS, DELIVERY_ADDRESS_PROMPT)):
+            with self.subTest(choice=choice), mock.patch.object(zero, "dispatch") as dispatch:
+                result = zero.converse_result(
+                    "losetaschile", choice, lead={"key": "test-lead"},
+                    channel="whatsapp")
+                dispatch.assert_not_called()
+                self.assertEqual(result["reply"], expected)
+                self.assertNotIn("delivery_poll", result)
 
     def test_shared_location_is_in_internal_quote(self):
         zero = Zero(build_agents(mock=True), memory=self.priced_memory())
@@ -323,6 +339,8 @@ class PoolBorderCountTest(unittest.TestCase):
         self.assertEqual(delivery_detail("Av. Central 123", history),
                          "Destino indicado: Av. Central 123")
         self.assertFalse(shipping_delivery_followup("gris", history))
+        self.assertTrue(shipping_delivery_followup(
+            "Los Andes", [{"role": "agent", "text": DELIVERY_LOCATION_PROMPT}]))
 
     def test_shipping_price_of_existing_order_does_not_repeat_subtotal(self):
         zero = Zero(build_agents(mock=True), memory=self.priced_memory())
@@ -336,7 +354,7 @@ class PoolBorderCountTest(unittest.TestCase):
                 dispatch.assert_not_called()
                 self.assertNotIn("quote", result)
                 self.assertNotIn("$230.400", result["reply"])
-                self.assertIn("comparte tu ubicación actual", result["reply"])
+                self.assertIn("compartir tu ubicación", result["reply"])
 
     def test_product_and_shipping_request_keeps_product_subtotal_separate(self):
         zero = Zero(build_agents(mock=True), memory=self.priced_memory())

@@ -39,7 +39,8 @@ from .inbox import Inbox, MockInbox
 from .losetas_color import (COLOR_CATALOG_IMAGE_PATH, color_preference,
                             color_question, latest_color_preference)
 from .losetas_budget import format_internal_budget
-from .losetas_shipping import (SHIPPING_COVERAGE_REPLY, delivery_detail,
+from .losetas_shipping import (SHIPPING_COVERAGE_REPLY, SHIPPING_PRICE_REPLY,
+                               delivery_detail, delivery_poll_choice_response,
                                shipping_coverage_request, shipping_delivery_followup)
 from .memory import SessionMemory
 from .quotes import compute_quote, extract_request, format_quote, normalize_pricing
@@ -1036,15 +1037,20 @@ class Zero:
             history = self.memory.get_conversation(
                 client_id, lead["key"], limit=None if local_whatsapp else 12)
         order_history = history or []
+        if client_id == "losetaschile" and channel == "whatsapp":
+            choice_reply = delivery_poll_choice_response(message)
+            if choice_reply:
+                return {"reply": choice_reply, "intent": "info"}
         if (client_id == "losetaschile" and channel == "whatsapp" and
                 shipping_price_request(message)):
-            return {"reply": "El despacho se cotiza por separado. Escríbeme la dirección completa o comparte tu ubicación actual desde 📎/+ → Ubicación; el equipo verificará la ruta y el valor del flete.",
-                    "intent": "pricing"}
+            return {"reply": SHIPPING_PRICE_REPLY, "intent": "pricing",
+                    "delivery_poll": True}
         if (client_id == "losetaschile" and channel == "whatsapp" and
                 shipping_coverage_request(message) and
                 not wants_product_quote(message) and
                 not wants_border_budget(message)):
-            return {"reply": SHIPPING_COVERAGE_REPLY, "intent": "info"}
+            return {"reply": SHIPPING_COVERAGE_REPLY, "intent": "info",
+                    "delivery_poll": True}
         # El contexto de Ollama en WhatsApp es pequeño. Un prompt de 11 KB más
         # toda la ficha del CRM hacía que Ollama recortara el mensaje entrante.
         lead_context = lead or {}
@@ -1511,7 +1517,7 @@ class Zero:
                     "intent": "pricing", "company": rec.get("company"),
                     "delivery": delivery, "customer_ack": customer_ack, **out}
         def repetition(candidate: str) -> bool:
-            if candidate == SHIPPING_COVERAGE_REPLY:
+            if candidate in (SHIPPING_COVERAGE_REPLY, SHIPPING_PRICE_REPLY):
                 return False
             return bool(channel == "whatsapp" and client_id == "losetaschile" and
                         (any(turn.get("role") == "agent" and _same_reply(candidate, turn.get("text"))
@@ -1587,6 +1593,7 @@ class Zero:
         self.memory.add_turn(client_id, key, "lead", text)
 
         delivery = {"status": "error", "error": "El agente no produjo una respuesta"}
+        poll_delivery = None
         if reply:
             if client_id == "losetaschile" and channel == "whatsapp" and res.get("media_asset"):
                 if not whatsapp_chat_id or not to_phone_id:
@@ -1611,6 +1618,17 @@ class Zero:
             if delivery["status"] == "sent":
 
                 self.memory.add_turn(client_id, key, "agent", reply)
+                if (client_id == "losetaschile" and channel == "whatsapp" and
+                        res.get("delivery_poll") and whatsapp_chat_id and to_phone_id):
+                    try:
+                        from .whatsapp_web import send_delivery_poll
+                        poll_delivery = send_delivery_poll(
+                            client_id, to_phone_id, rec.get("phone") or from_contact,
+                            whatsapp_chat_id)
+                    except (RuntimeError, ValueError) as exc:
+                        poll_delivery = {"status": "error", "error": str(exc)}
+                    self.memory.log("delivery_poll", client=client_id, lead=key,
+                                    status=poll_delivery.get("status", "sent"))
             if self.crm:
                 # Un presupuesto enviado es un evento de venta, no una respuesta más:
                 # queda aparte en el historial para que un humano lo vea de un vistazo.
@@ -1660,7 +1678,7 @@ class Zero:
 
         return {"matched": True, "company": rec.get("company"),
                 "reply": reply if delivery.get("status") == "sent" else "", "intent": intent,
-                "delivery": delivery, **out}
+                "delivery": delivery, "poll_delivery": poll_delivery, **out}
 
 
     # --- forecasting (ANALYST proposes rates; ZERO does the math) ------------

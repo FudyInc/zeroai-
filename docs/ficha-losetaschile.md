@@ -144,3 +144,21 @@ pasaron el 2026-10-08. El commit `c20c6cc` quedó en `main` local, el backend
 reinició con `/api/health` correcto y el puente de LosetasChile reportó
 `ready`. Falta probar una ubicación entrante nueva en WhatsApp real; la
 ubicación compartida previamente no se reprocesó.
+
+## Encuesta para indicar entrega — verificado en código local el 2026-10-08
+
+Para una consulta por cobertura o precio de despacho, el mensaje ofrece
+escribir la dirección o compartir ubicación directamente. Si el envío de ese
+mensaje se confirma, el puente prepara debajo una encuesta de una sola
+elección: «📍 Compartir ubicación» o «✍️ Escribir dirección». Al seleccionar,
+el agente responde con una sola instrucción: abrir `📎/+ → Ubicación → Enviar
+ubicación actual`, o escribir calle, número y comuna. El voto **no** comparte
+la ubicación por sí mismo. La opción directa del texto permanece disponible
+si el envío de la encuesta o su evento de voto no se confirma.
+
+La biblioteca `whatsapp-web.js` 1.34.7 documenta encuestas y el evento
+`vote_update`; los botones interactivos siguen obsoletos. El puente limita
+esta encuesta a la cuenta de LosetasChile, valida el chat individual y solo
+deriva votos de la encuesta de entrega emitida por esa cuenta. La recepción
+real del voto y la visualización de la encuesta siguen pendientes de una
+prueba nueva en WhatsApp; no se ha enviado una encuesta real todavía.

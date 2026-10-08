@@ -7,7 +7,8 @@ from unittest import mock
 from zero.agents import build_agents
 from zero.crm import CRM
 from zero.memory import SessionMemory
-from zero.losetas_shipping import SHIPPING_COVERAGE_REPLY
+from zero.losetas_shipping import (DELIVERY_LOCATION_PROMPT, DELIVERY_POLL_LOCATION,
+                                   SHIPPING_COVERAGE_REPLY)
 from zero.orchestrator import Zero, _unverified_quote_review_claim
 
 
@@ -138,19 +139,40 @@ class WhatsAppHandoffTest(unittest.TestCase):
     def test_verified_shipping_coverage_is_sent_without_handoff(self):
         self.memory.set_client_knowledge(
             "losetaschile", "Cotizaciones y despacho requieren revisión humana.")
-        result = self.inbound("¿Despachan a Los Andes?")
+        with mock.patch("zero.whatsapp_web.send_delivery_poll", return_value={
+                "status": "sent", "id": "poll-1"}) as send_poll:
+            result = self.inbound("¿Despachan a Los Andes?")
         self.assertFalse(result.get("manual_review", False))
         self.assertEqual(self.zero._deliver.call_args.args[3]["body"],
                          SHIPPING_COVERAGE_REPLY)
+        self.assertEqual(result["poll_delivery"]["id"], "poll-1")
+        send_poll.assert_called_once()
 
     def test_second_coverage_question_remains_answerable(self):
         self.memory.set_client_knowledge(
             "losetaschile", "Cotizaciones y despacho requieren revisión humana.")
-        first = self.inbound("¿Tienen despachos?")
-        second = self.inbound("¿Despachan a Los Andes?")
+        with mock.patch("zero.whatsapp_web.send_delivery_poll", return_value={
+                "status": "sent", "id": "poll-1"}):
+            first = self.inbound("¿Tienen despachos?")
+            second = self.inbound("¿Despachan a Los Andes?")
         self.assertFalse(first.get("manual_review", False))
         self.assertFalse(second.get("manual_review", False))
         self.assertEqual(self.zero._deliver.call_count, 2)
+
+    def test_poll_failure_keeps_text_answer_and_direct_location_option(self):
+        with mock.patch("zero.whatsapp_web.send_delivery_poll",
+                        side_effect=RuntimeError("resultado incierto")):
+            result = self.inbound("¿Hacen despachos?")
+        self.assertFalse(result.get("manual_review", False))
+        self.assertEqual(result["delivery"]["status"], "sent")
+        self.assertEqual(result["poll_delivery"]["status"], "error")
+        self.assertIn("compartir tu ubicación aquí", result["reply"])
+
+    def test_poll_choice_gets_one_instruction_without_new_poll(self):
+        result = self.inbound(DELIVERY_POLL_LOCATION)
+        self.assertFalse(result.get("manual_review", False))
+        self.assertEqual(result["reply"], DELIVERY_LOCATION_PROMPT)
+        self.assertIsNone(result["poll_delivery"])
 
     def test_human_takeover_during_draft_prevents_send(self):
         def draft(*args, **kwargs):
