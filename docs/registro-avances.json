@@ -8,10 +8,10 @@
       "title": "Mensaje estándar de despacho y captura de ubicación para el flete",
       "origin": "Diego pidió responder de forma consistente las consultas de despacho, fijó una tarifa provisional de $2.000 CLP por km desde un enlace de mapa y propuso pedir dirección o ubicación actual desde WhatsApp",
       "summary": "Se preparó una respuesta de cobertura para Santiago y revisión de destinos cercanos a la RM. El origen del flete se resolvió como Los Granados 029, La Pintana; la tarifa se guardó como política y el cálculo solo acepta km por ruta verificados. El borrador interno muestra tarifa y ubicación del cliente si la comparte. WhatsApp Web no admite botones interactivos confiables en la biblioteca instalada; se ofrecen ambas opciones mediante texto.",
-      "status": "Preparado en código local; no activado en el backend ni probado en WhatsApp real",
+      "status": "Activo en backend local; respuestas simuladas con ficha activa; nueva ubicación real pendiente",
       "scope": "Agente WhatsApp Web de LosetasChile, presupuesto interno y puente de ubicaciones",
-      "evidence": "El enlace de Google Maps redirigió a Los Granados 029, La Pintana; documentación oficial de whatsapp-web.js 1.34.7 marca Buttons como deprecated y permite recibir Message.location. 59 pruebas dirigidas, node --check y git diff --check aprobados el 2026-10-08.",
-      "pending": "Aclarar si los km se cobran solo de ida o ida y vuelta, si la tarifa se informa al cliente y si Los Andes tiene cobertura confirmada. Completar revisión y suite, integrar en backend local y probar una ubicación entrante nueva sin reabrir el evento anterior. Ordenar después el diseño del presupuesto con los casos recogidos."
+      "evidence": "El enlace de Google Maps redirigió a Los Granados 029, La Pintana; documentación oficial de whatsapp-web.js 1.34.7 marca Buttons como deprecated y permite recibir Message.location. Revisión de flujo corrigió respuestas de comuna/calle, repetición de cobertura y acuse de ubicación. Suite completa de 1061 pruebas, node --check, JSON y git diff --check aprobados el 2026-10-08. Main local incorporó c20c6cc; backend reiniciado con /api/health OK y puente LosetasChile ready; simulación con ficha activa respondió cobertura y precio sin enviar mensajes.",
+      "pending": "Aclarar si los km se cobran solo de ida o ida y vuelta, si la tarifa se informa al cliente y si Los Andes tiene cobertura confirmada. Probar una ubicación entrante nueva en WhatsApp real sin reabrir el evento anterior. Ordenar después el diseño del presupuesto con los casos recogidos. No se publicó en GitHub ni Vercel."
     },
     {
       "id": "2026-10-08-losetas-acuse-color",

@@ -112,7 +112,7 @@ confirmación al chat de prueba existente y WhatsApp mostró acuse 2; el
 subtotal siguió ausente del chat del cliente. Falta observar este acuse en un
 pedido nuevo procesado íntegramente por el flujo automático.
 
-## Consultas de despacho y ubicación — verificado en código local el 2026-10-08
+## Consultas de despacho y ubicación — activo en backend local el 2026-10-08
 
 Diego indicó que se hacen despachos en Santiago y se revisan destinos cercanos
 a la Región Metropolitana. Para preguntas de cobertura, incluida «¿despachan
@@ -136,6 +136,11 @@ Los botones interactivos de la biblioteca WhatsApp Web instalada están
 obsoletos. El mensaje usa las dos opciones en texto. El puente ahora convierte
 un mensaje de ubicación de WhatsApp en un enlace de mapa con coordenadas para
 que se conserve en el borrador interno junto al pedido; antes solo pasaba
-`[location]`. Esto se probó en código y sintaxis, no todavía en un mensaje
-entrante real con el puente reiniciado. La ubicación compartida previamente
-no se reprocesó.
+`[location]`. También se reconocen respuestas como «Los Andes» o una calle
+después de pedir el destino. Una ubicación que actualice el borrador genera
+un acuse de datos de entrega sin repetir el color. La suite de 1061 pruebas,
+la sintaxis del puente y la simulación de solo lectura con la ficha activa
+pasaron el 2026-10-08. El commit `c20c6cc` quedó en `main` local, el backend
+reinició con `/api/health` correcto y el puente de LosetasChile reportó
+`ready`. Falta probar una ubicación entrante nueva en WhatsApp real; la
+ubicación compartida previamente no se reprocesó.
