@@ -14,9 +14,22 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any, Dict, List, Optional
 
-from .config import IVA_RATE
+from .config import IVA_RATE, LOSETASCHILE_FLETE_CLP_PER_KM
+
+
+def compute_losetas_shipping_cost(route_km: Any) -> int | None:
+    """Calculate CLP only from a verified route distance supplied by a person."""
+    try:
+        km = Decimal(str(route_km))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    if not km.is_finite() or km <= 0:
+        return None
+    return int((km * LOSETASCHILE_FLETE_CLP_PER_KM).quantize(
+        Decimal("1"), rounding=ROUND_HALF_UP))
 
 # La lista de precios de un cliente (la carga el dashboard, vive en memory):
 # {"currency": "CLP", "iva_rate": 0.19, "items": [

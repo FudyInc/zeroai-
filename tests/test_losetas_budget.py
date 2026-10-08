@@ -1,6 +1,7 @@
 import unittest
 
 from zero.losetas_budget import format_internal_budget
+from zero.quotes import compute_losetas_shipping_cost
 
 
 class LosetasBudgetTest(unittest.TestCase):
@@ -31,6 +32,22 @@ class LosetasBudgetTest(unittest.TestCase):
     def test_missing_number_blocks_budget(self):
         self.assertIsNone(format_internal_budget(self.quote, profile_name="Ana",
                                                  phone="", tone="rojo"))
+
+    def test_route_distance_calculates_freight_in_internal_budget(self):
+        self.quote["shipping_route_km"] = 12.5
+        self.quote["delivery_detail"] = (
+            "Ubicación compartida: https://www.google.com/maps?q=-33.610397,-70.643376")
+        message = format_internal_budget(self.quote, profile_name="", phone="56912345678",
+                                         tone="gris")
+        self.assertIn("Despacho: $25.000 (12.5 km × $2.000/km)", message)
+        self.assertIn("Los Granados 029, La Pintana", message)
+        self.assertIn(self.quote["delivery_detail"], message)
+
+    def test_invalid_route_distance_never_calculates_freight(self):
+        for km in (None, "", "nan", "inf", -2, 0):
+            with self.subTest(km=km):
+                self.assertIsNone(compute_losetas_shipping_cost(km))
+        self.assertEqual(compute_losetas_shipping_cost("12.5"), 25000)
 
 
 if __name__ == "__main__":

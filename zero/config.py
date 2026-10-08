@@ -51,6 +51,11 @@ DEFAULT_INBOUND_WHATSAPP_NUMBER = os.environ.get("DEFAULT_INBOUND_WHATSAPP_NUMBE
 # solo suma productos e IVA; no debe enviar ese subtotal como presupuesto final.
 QUOTE_REVIEW_REQUIRED_CLIENT_IDS = frozenset({"pooledge"})
 
+# Tarifa provisional confirmada por Diego el 2026-10-08. La distancia debe ser
+# por ruta y estar verificada antes de incluir un importe de flete.
+LOSETASCHILE_FLETE_ORIGIN = "Los Granados 029, La Pintana"
+LOSETASCHILE_FLETE_CLP_PER_KM = 2000
+
 # --- Acciones que una función programada puede PEDIR --------------------------
 # Una función sandboxeada nunca actúa por sí misma: corre con --network=none y
 # sin credenciales (zero/sandbox.py), así que lo único que puede hacer es

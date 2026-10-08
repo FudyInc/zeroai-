@@ -7,6 +7,7 @@ from unittest import mock
 from zero.agents import build_agents
 from zero.crm import CRM
 from zero.memory import SessionMemory
+from zero.losetas_shipping import SHIPPING_COVERAGE_REPLY
 from zero.orchestrator import Zero, _unverified_quote_review_claim
 
 
@@ -133,6 +134,23 @@ class WhatsAppHandoffTest(unittest.TestCase):
         self.assertTrue(result["manual_review"])
         self.assertEqual(result["delivery"]["status"], "sent")
         self.assertNotIn("Hacemos despacho", self.zero._deliver.call_args.args[3]["body"])
+
+    def test_verified_shipping_coverage_is_sent_without_handoff(self):
+        self.memory.set_client_knowledge(
+            "losetaschile", "Cotizaciones y despacho requieren revisión humana.")
+        result = self.inbound("¿Despachan a Los Andes?")
+        self.assertFalse(result.get("manual_review", False))
+        self.assertEqual(self.zero._deliver.call_args.args[3]["body"],
+                         SHIPPING_COVERAGE_REPLY)
+
+    def test_second_coverage_question_remains_answerable(self):
+        self.memory.set_client_knowledge(
+            "losetaschile", "Cotizaciones y despacho requieren revisión humana.")
+        first = self.inbound("¿Tienen despachos?")
+        second = self.inbound("¿Despachan a Los Andes?")
+        self.assertFalse(first.get("manual_review", False))
+        self.assertFalse(second.get("manual_review", False))
+        self.assertEqual(self.zero._deliver.call_count, 2)
 
     def test_human_takeover_during_draft_prevents_send(self):
         def draft(*args, **kwargs):

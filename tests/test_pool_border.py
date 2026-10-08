@@ -6,6 +6,8 @@ from unittest import mock
 from zero.agents import build_agents
 from zero.crm import CRM
 from zero.losetas_color import color_question
+from zero.losetas_shipping import (SHIPPING_COVERAGE_REPLY, delivery_detail,
+                                   shipping_delivery_followup)
 from zero.memory import SessionMemory
 from zero.orchestrator import Zero
 from zero.pool_border import (border_plan, delegates_piece_calculation,
@@ -287,7 +289,40 @@ class PoolBorderCountTest(unittest.TestCase):
         dispatch.assert_not_called()
         self.assertNotIn("quote", result)
         self.assertNotIn("$230.400", result["reply"])
-        self.assertIn("revisar su valor", result["reply"])
+        self.assertIn("comparte tu ubicación actual", result["reply"])
+
+    def test_shipping_coverage_questions_use_one_verified_reply(self):
+        zero = Zero(build_agents(mock=True), memory=self.priced_memory())
+        for question in ("¿Tienen despachos?", "¿Despachan a Los Andes?",
+                         "¿Hacen envíos a regiones?", "¿Hay flete a mi comuna?"):
+            with self.subTest(question=question), mock.patch.object(zero, "dispatch") as dispatch:
+                result = zero.converse_result(
+                    "losetaschile", question, lead={"key": "test-lead"},
+                    channel="whatsapp")
+                dispatch.assert_not_called()
+                self.assertEqual(result["reply"], SHIPPING_COVERAGE_REPLY)
+                self.assertNotIn("quote", result)
+
+    def test_shared_location_is_in_internal_quote(self):
+        zero = Zero(build_agents(mock=True), memory=self.priced_memory())
+        location = "[location] https://www.google.com/maps?q=-33.610397,-70.643376"
+        with mock.patch.object(zero, "dispatch") as dispatch:
+            result = zero.converse_result(
+                "losetaschile", location, lead={"key": "test-lead"},
+                channel="whatsapp")
+        dispatch.assert_not_called()
+        self.assertEqual(result["quote"]["delivery_detail"],
+                         "Ubicación compartida: https://www.google.com/maps?q=-33.610397,-70.643376")
+
+    def test_delivery_prompt_accepts_city_and_written_address(self):
+        history = [{"role": "agent", "text": SHIPPING_COVERAGE_REPLY}]
+        self.assertTrue(shipping_delivery_followup("Los Andes", history))
+        self.assertEqual(delivery_detail("Los Andes", history), "Destino indicado: Los Andes")
+        self.assertEqual(delivery_detail("Mi comuna es La Florida", []),
+                         "Dirección indicada: La Florida")
+        self.assertEqual(delivery_detail("Av. Central 123", history),
+                         "Destino indicado: Av. Central 123")
+        self.assertFalse(shipping_delivery_followup("gris", history))
 
     def test_shipping_price_of_existing_order_does_not_repeat_subtotal(self):
         zero = Zero(build_agents(mock=True), memory=self.priced_memory())
@@ -301,7 +336,7 @@ class PoolBorderCountTest(unittest.TestCase):
                 dispatch.assert_not_called()
                 self.assertNotIn("quote", result)
                 self.assertNotIn("$230.400", result["reply"])
-                self.assertIn("revisar su valor", result["reply"])
+                self.assertIn("comparte tu ubicación actual", result["reply"])
 
     def test_product_and_shipping_request_keeps_product_subtotal_separate(self):
         zero = Zero(build_agents(mock=True), memory=self.priced_memory())
@@ -382,7 +417,7 @@ class PoolBorderCountTest(unittest.TestCase):
         self.assertTrue(result["manual_review"])
         self.assertEqual(result["customer_ack"]["id"], "ack-1")
         acknowledgment = zero._deliver.call_args.args[3]["body"]
-        self.assertIn("color beige", acknowledgment)
+        self.assertIn("datos de entrega", acknowledgment)
         self.assertNotIn("$", acknowledgment)
         self.assertEqual(send_group.call_args.args[:3],
                          ("losetaschile", "56911111111", "123456789@g.us"))

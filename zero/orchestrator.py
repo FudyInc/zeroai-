@@ -39,12 +39,14 @@ from .inbox import Inbox, MockInbox
 from .losetas_color import (COLOR_CATALOG_IMAGE_PATH, color_preference,
                             color_question, latest_color_preference)
 from .losetas_budget import format_internal_budget
+from .losetas_shipping import (SHIPPING_COVERAGE_REPLY, delivery_detail,
+                               shipping_coverage_request, shipping_delivery_followup)
 from .memory import SessionMemory
 from .quotes import compute_quote, extract_request, format_quote, normalize_pricing
 from .pool_border import (border_plan, delegates_piece_calculation,
                           format_product_quote, shipping_price_request,
                           measurement_followup, unquoted_piece_count,
-                          wants_border_budget)
+                          wants_border_budget, wants_product_quote)
 from .vendors import credentials_for
 from .whatsapp_context import select_history, select_knowledge
 
@@ -109,6 +111,8 @@ def _asks_again_for_supplied_measurements(message: str, reply: str,
 
 
 def _unverified_shipping_claim(message: str, reply: str, knowledge: str) -> bool:
+    if reply == SHIPPING_COVERAGE_REPLY:
+        return False
     return bool("despach" in message.casefold() and
                 "despacho requieren revisión humana" in knowledge.casefold() and
                 re.search(r"\b(?:hacemos|realizamos|tenemos|ofrecemos|despachamos|entregamos)\b"
@@ -1034,8 +1038,13 @@ class Zero:
         order_history = history or []
         if (client_id == "losetaschile" and channel == "whatsapp" and
                 shipping_price_request(message)):
-            return {"reply": "El despacho se cotiza por separado. Necesito confirmar la dirección completa y revisar su valor antes de informártelo.",
+            return {"reply": "El despacho se cotiza por separado. Escríbeme la dirección completa o comparte tu ubicación actual desde 📎/+ → Ubicación; el equipo verificará la ruta y el valor del flete.",
                     "intent": "pricing"}
+        if (client_id == "losetaschile" and channel == "whatsapp" and
+                shipping_coverage_request(message) and
+                not wants_product_quote(message) and
+                not wants_border_budget(message)):
+            return {"reply": SHIPPING_COVERAGE_REPLY, "intent": "info"}
         # El contexto de Ollama en WhatsApp es pequeño. Un prompt de 11 KB más
         # toda la ficha del CRM hacía que Ollama recortara el mensaje entrante.
         lead_context = lead or {}
@@ -1064,9 +1073,13 @@ class Zero:
             if client_id == "losetaschile" and channel == "whatsapp" else None
         if (client_id == "losetaschile" and channel == "whatsapp" and
                 (wants_border_budget(message) or measurement_followup(
-                    message, order_history) or color_preference(message, order_history))):
+                    message, order_history) or color_preference(message, order_history) or
+                 shipping_delivery_followup(message, order_history))):
             plan, clarification = border_plan(message, order_history)
             if plan is None:
+                if shipping_delivery_followup(message, order_history):
+                    return {"reply": "Gracias, recibí los datos de entrega. El equipo revisará cobertura y flete.",
+                            "intent": "info"}
                 return {"reply": clarification, "intent": "pricing"}
             if not selected_tone:
                 return {"reply": color_question(), "intent": "qualification",
@@ -1077,6 +1090,7 @@ class Zero:
             product_reply = format_product_quote(plan, product_quote or {})
             if product_reply:
                 product_quote["shipping_pending"] = True
+                product_quote["delivery_detail"] = delivery_detail(message, order_history)
                 return {"reply": product_reply, "intent": "pricing", "quote": product_quote,
                         "selected_tone": selected_tone}
             return {"reply": "Necesito confirmar el precio de ambos productos antes de darte el subtotal.",
@@ -1456,8 +1470,13 @@ class Zero:
             customer_ack = None
             if delivery["status"] == "accepted":
                 tone = res.get("selected_tone")
-                acknowledgment = (f"Gracias, anoté el color {tone}. " if tone else
-                                  "Gracias, recibí los datos de tu pedido. ") + (
+                if color_preference(text, prior_turns):
+                    thanks = f"Gracias, anoté el color {tone}. "
+                elif shipping_delivery_followup(text, prior_turns):
+                    thanks = "Gracias, recibí los datos de entrega. "
+                else:
+                    thanks = "Gracias, recibí los datos de tu pedido. "
+                acknowledgment = thanks + (
                     "Tu presupuesto está pendiente de revisión por nuestro equipo; "
                     "te responderemos por este chat.")
                 try:
@@ -1492,6 +1511,8 @@ class Zero:
                     "intent": "pricing", "company": rec.get("company"),
                     "delivery": delivery, "customer_ack": customer_ack, **out}
         def repetition(candidate: str) -> bool:
+            if candidate == SHIPPING_COVERAGE_REPLY:
+                return False
             return bool(channel == "whatsapp" and client_id == "losetaschile" and
                         (any(turn.get("role") == "agent" and _same_reply(candidate, turn.get("text"))
                              for turn in prior_turns) or

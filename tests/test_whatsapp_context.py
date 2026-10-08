@@ -73,9 +73,9 @@ class WhatsAppContextTest(unittest.TestCase):
             memory.add_turn("losetaschile", "lead-1", "agent", f"Turno {number}")
         agent = mock.Mock(prompt_file="concierge-whatsapp-local.md")
         zero = Zero({"CONCIERGE": agent}, memory=memory)
-        answer = AgentResponse("test", "CONCIERGE", "done", {"reply": "Revisamos el despacho."})
+        answer = AgentResponse("test", "CONCIERGE", "done", {"reply": "Revisamos las opciones."})
         with mock.patch.object(zero, "dispatch", return_value=answer) as dispatch:
-            zero.converse_result("losetaschile", "Mi piscina de 7 por 3, ¿despachan?",
+            zero.converse_result("losetaschile", "Mi piscina de 7 por 3, ¿qué materiales tienen?",
                                  lead={"key": "lead-1"})
         history = dispatch.call_args.args[1].data["history"]
         self.assertTrue(any("7 por 3" in turn["text"] for turn in history))

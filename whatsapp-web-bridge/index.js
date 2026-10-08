@@ -112,7 +112,15 @@ async function normalizeMessage(msg) {
       lastError = 'No se pudo resolver el teléfono del remitente'
       return null
     }
-    const body = msg.type === 'chat' ? msg.body : `[${msg.type || 'mensaje'}]`
+    let body = msg.type === 'chat' ? msg.body : `[${msg.type || 'mensaje'}]`
+    if (msg.type === 'location') {
+      const lat = msg.location?.latitude
+      const lon = msg.location?.longitude
+      if (typeof lat === 'number' && typeof lon === 'number' &&
+          Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
+        body = `[location] https://www.google.com/maps?q=${lat.toFixed(6)},${lon.toFixed(6)}`
+      }
+    }
     let contact = null
     try { contact = await msg.getContact() } catch (_) { /* Nombre opcional. */ }
     const profileName = String(contact?.pushname || msg?._data?.notifyName || '')

@@ -111,3 +111,31 @@ que el grupo acepte el presupuesto, sin importes ni líneas. Se envió una sola
 confirmación al chat de prueba existente y WhatsApp mostró acuse 2; el
 subtotal siguió ausente del chat del cliente. Falta observar este acuse en un
 pedido nuevo procesado íntegramente por el flujo automático.
+
+## Consultas de despacho y ubicación — verificado en código local el 2026-10-08
+
+Diego indicó que se hacen despachos en Santiago y se revisan destinos cercanos
+a la Región Metropolitana. Para preguntas de cobertura, incluida «¿despachan
+a Los Andes?», el código prepara una respuesta estándar: informa la cobertura
+de Santiago, ofrece revisar destinos cercanos y pide dirección escrita o
+ubicación actual compartida desde WhatsApp. No confirma Los Andes sin revisión.
+Las preguntas por el **precio** del flete mantienen una respuesta aparte que
+solicita dirección completa y revisión; los pedidos de productos con flete no
+pierden su cotización estructurada.
+
+Diego fijó de forma provisional **$2.000 CLP por km** desde
+`Los Granados 029, La Pintana`, ubicación resuelta desde el enlace que entregó.
+La tarifa vive en `zero/config.py` y el cálculo exacto en `zero/quotes.py`.
+Solo se calcula un importe si una persona aporta distancia por ruta comprobada;
+el presupuesto interno muestra origen y tarifa, pero mantiene el flete pendiente
+si faltan km. Está pendiente aclarar si se cobra solo ida o ida y vuelta y si
+la tarifa se comunica al cliente antes de la revisión. No existe todavía un
+servicio de rutas conectado al agente.
+
+Los botones interactivos de la biblioteca WhatsApp Web instalada están
+obsoletos. El mensaje usa las dos opciones en texto. El puente ahora convierte
+un mensaje de ubicación de WhatsApp en un enlace de mapa con coordenadas para
+que se conserve en el borrador interno junto al pedido; antes solo pasaba
+`[location]`. Esto se probó en código y sintaxis, no todavía en un mensaje
+entrante real con el puente reiniciado. La ubicación compartida previamente
+no se reprocesó.

@@ -101,7 +101,8 @@ _MIXED_SHIPPING_AND_PRODUCTS = re.compile(
 )
 _WITHOUT_INSTALLATION = re.compile(r"\bsin\s+instalaci[oó]n\b", re.IGNORECASE)
 _DELIVERY_DETAIL = re.compile(
-    r"^\[location\]$|^(?:mi direcci[oó]n es|la direcci[oó]n es|mi comuna es|estoy en|vivo en)\b",
+    r"^\[location\](?:\s+https://www\.google\.com/maps\?q=[-\d.]+,[-\d.]+)?$"
+    r"|^(?:mi direcci[oó]n es|la direcci[oó]n es|mi comuna es|estoy en|vivo en)\b",
     re.IGNORECASE,
 )
 
