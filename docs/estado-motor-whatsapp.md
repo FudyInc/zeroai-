@@ -12,15 +12,17 @@ simulación sin envío. El 2026-10-07 se observó un subtotal real por WhatsApp
 tras «Okay el presupuesto»; lo calculó el código activo, no Qwen 3. Falta una
 conversación real de ZeroAI por Meta.
 
-**Flujo de LosetasChile preparado localmente 2026-10-08:** la imagen entregada
-por Diego muestra siete colores etiquetados. El agente la enviará por WhatsApp
-Web, recogerá el color elegido y preparará un presupuesto interno con nombre de
-perfil opcional y número obligatorio. Ese presupuesto no se enviará
-automáticamente al cliente. La ruta de grupo falla de forma segura si no hay
-grupo de revisión configurado o verificado. Diego creará un grupo nuevo para
-revisar presupuestos; el grupo existente «Losetas Diego» no se usará para eso.
-Pruebas locales y sintaxis del puente correctas; faltan grupo, integración del
-checkout activo, despliegue y prueba real de imagen y aceptación por el grupo.
+**Flujo de LosetasChile activo en el backend local 2026-10-08:** la imagen
+entregada por Diego muestra siete colores etiquetados. El agente puede enviarla
+por WhatsApp Web, recoger el color elegido y preparar un presupuesto interno
+con nombre de perfil opcional y número obligatorio. Ese presupuesto no se envía
+automáticamente al cliente. Diego creó «Presuouesto losetas ia»; se verificó
+como grupo separado de «Losetas Diego» en la cuenta Web asignada. Se configuró
+como destino en el servicio local y se confirmó un mensaje técnico aceptado y
+visible en el grupo, sin datos de clientes. Pasaron 1048 pruebas Python y la
+revisión de sintaxis del puente. Falta comprobar el recorrido real de imagen,
+elección de color y presupuesto con un mensaje nuevo desde el teléfono de Diego.
+El cambio aún no se publicó en GitHub ni en Vercel.
 
 **Prueba temporal de Qwen 3 2026-10-07:** el backend WhatsApp usó Qwen 3 de
 14B durante una prueba desde el teléfono de Diego. Se observó un saludo y una

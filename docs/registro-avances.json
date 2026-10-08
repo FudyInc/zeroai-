@@ -8,10 +8,10 @@
       "title": "Gama de colores y presupuesto para revisión humana en LosetasChile",
       "origin": "Diego pidió preguntar el color, enviar la imagen del catálogo y dirigir el presupuesto con nombre de perfil opcional y número obligatorio a un grupo de revisión separado",
       "summary": "Se incorporó la imagen entregada por Diego con siete colores etiquetados y se preparó en código local el envío de imagen y la pregunta de color. El presupuesto estructurado incluye nombre de perfil si existe, número, color, líneas y total de productos; no se envía automáticamente al cliente. Diego confirmó que el color no cambia el precio y creó «Presuouesto losetas ia» como grupo de revisión distinto de «Losetas Diego».",
-      "status": "Implementado y probado en checkout local; grupo nuevo verificado en cuenta Web; despliegue pendiente",
+      "status": "Activo en backend local; mensaje técnico al grupo comprobado; recorrido real del cliente pendiente",
       "scope": "Agente WhatsApp Web de LosetasChile, catálogo visual, borrador interno y documentación",
-      "evidence": "Imagen proporcionada por Diego y revisada el 2026-10-08 (JPEG 738 × 1600); catálogo activo consultado en solo lectura; el puente Web activo mostró «Presuouesto losetas ia» y «Losetas Diego» como grupos distintos; pruebas locales de imagen, color, nombre/número y no envío al cliente; suite completa de 1048 pruebas Python aprobada, sintaxis del puente y git diff --check aprobados.",
-      "pending": "Configurar el grupo verificado, integrar el checkout activo, desplegar y probar envíos reales de imagen y presupuesto al grupo. Confirmar disponibilidad de cada color antes de prometer stock."
+      "evidence": "Imagen proporcionada por Diego y revisada el 2026-10-08 (JPEG 738 × 1600); catálogo activo consultado en solo lectura; el puente Web activo mostró «Presuouesto losetas ia» y «Losetas Diego» como grupos distintos; main local incorporó bc37b65 y el backend reinició con /api/health OK y puente ready; un mensaje técnico sin datos de clientes fue aceptado y apareció en el grupo; pruebas locales de imagen, color, nombre/número y no envío al cliente, suite completa de 1048 pruebas Python, sintaxis del puente y git diff --check aprobados.",
+      "pending": "Comprobar con un mensaje nuevo el envío real de la imagen, elección de color y presupuesto al grupo sin subtotal automático al cliente. No se publicó en GitHub ni Vercel. Confirmar disponibilidad de cada color antes de prometer stock."
     },
     {
       "id": "2026-10-07-prueba-real-qwen3-temporal",

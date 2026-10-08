@@ -66,5 +66,7 @@ cotizar. Se dirige a un grupo de revisión separado y una persona decide el
 envío al cliente. El grupo «Losetas Diego» visto en la cuenta no es el destino
 de presupuestos. Diego creó «Presuouesto losetas ia», y el 2026-10-08 se
 verificó que aparece como grupo distinto en la cuenta Web de LosetasChile.
-Falta configurar ese destino en el servicio, desplegar el flujo y comprobar
-un envío real. El código y las pruebas de este flujo son locales.
+El destino quedó configurado en el backend local el 2026-10-08. Un mensaje
+técnico sin datos de clientes fue aceptado y apareció en el grupo. Falta
+comprobar el recorrido real de imagen, elección de color y presupuesto con un
+mensaje nuevo de prueba. El código aún no está publicado en GitHub ni Vercel.
