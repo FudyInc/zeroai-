@@ -262,6 +262,31 @@ async function sendAndConfirm(chatId, content, options, matchesCreated, expected
   } finally { client.off('message_create', onCreated) }
 }
 
+async function prepareMediaSend() {
+  // whatsapp-web.js spreads MediaData into the outgoing Msg. Its private
+  // __x_id can replace the Msg ID and make image sends fail before creation.
+  // Preserve that field for MediaData, but keep it out of the object spread.
+  // See wwebjs/whatsapp-web.js#201922. Reapply after a Web page reload.
+  await client.pupPage.evaluate(() => {
+    const api = window.WWebJS
+    if (api?.__zeroMediaIdPatch) return
+    if (typeof api?.processMediaData !== 'function') {
+      throw new Error('WhatsApp Web media processor unavailable')
+    }
+    const original = api.processMediaData
+    api.processMediaData = async function (...args) {
+      const mediaData = await original.apply(this, args)
+      const id = Object.getOwnPropertyDescriptor(mediaData, '__x_id')
+      if (id?.enumerable) {
+        if (!id.configurable) throw new Error('WhatsApp Web media ID cannot be isolated')
+        Object.defineProperty(mediaData, '__x_id', { ...id, enumerable: false })
+      }
+      return mediaData
+    }
+    api.__zeroMediaIdPatch = true
+  })
+}
+
 const server = http.createServer(async (req, res) => {
   if (req.headers.authorization !== `Bearer ${secret}`) return respond(res, 401, { error: 'unauthorized' })
   const url = new URL(req.url, 'http://127.0.0.1')
@@ -414,6 +439,7 @@ const server = http.createServer(async (req, res) => {
       }
       const imagePath = path.resolve(catalogDir, image)
       const media = MessageMedia.fromFilePath(imagePath)
+      await prepareMediaSend()
       const result = await sendAndConfirm(chatId, media, { caption }, message =>
         message.type === 'image' && message.body === caption, 'image', caption)
       return result ? respond(res, 200, result)
