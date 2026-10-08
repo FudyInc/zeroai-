@@ -1444,12 +1444,32 @@ class Zero:
                     group_result = send_group_text(client_id, to_phone_id, group_id,
                                                    internal_budget)
                     signatures[key] = signature
+                    # Keep the group-send dedupe durable before sending the
+                    # separate customer acknowledgment.
+                    self.memory.save()
                     delivery = {"status": "accepted", "via": "whatsapp_web_group",
                                 "id": group_result["id"], "ack": group_result.get("ack")}
                 except (RuntimeError, ValueError) as exc:
                     # A send with an uncertain outcome must be reviewed in the
                     # group before any manual retry. Never send the budget to the lead.
                     delivery = {"status": "error", "error": str(exc)}
+            customer_ack = None
+            if delivery["status"] == "accepted":
+                tone = res.get("selected_tone")
+                acknowledgment = (f"Gracias, anoté el color {tone}. " if tone else
+                                  "Gracias, recibí los datos de tu pedido. ") + (
+                    "Tu presupuesto está pendiente de revisión por nuestro equipo; "
+                    "te responderemos por este chat.")
+                try:
+                    customer_ack = self._deliver(
+                        client_id, key, rec.get("phone") or from_contact,
+                        {"channel": channel, "subject": None, "body": acknowledgment,
+                         "whatsapp_from": to_phone_id, "whatsapp_chat_id": whatsapp_chat_id},
+                        wa_creds=wa_creds)
+                except (RuntimeError, ValueError) as exc:
+                    customer_ack = {"status": "error", "error": str(exc)}
+                if customer_ack["status"] == "sent":
+                    self.memory.add_turn(client_id, key, "agent", acknowledgment)
             self.memory.log("internal_budget_review", client=client_id, lead=key,
                             status=delivery["status"], total=quote.get("total"))
             self.memory.save()
@@ -1458,10 +1478,19 @@ class Zero:
                              "Presupuesto aceptado por WhatsApp Web; revisar en grupo" if
                              delivery["status"] == "accepted" else
                              "Presupuesto interno pendiente de revisión del envío")
+                if customer_ack:
+                    self.crm.log(client_id, key,
+                                 "auto_reply_accepted" if customer_ack["status"] == "sent"
+                                 else "auto_reply_failed", acknowledgment[:140])
                 self.crm.save()
+            if customer_ack and customer_ack["status"] != "sent":
+                # The budget is already in the group, but the lead may not have
+                # received this acknowledgment. Keep the event for human review.
+                delivery = {"status": "error", "error": customer_ack.get("error") or
+                            "No se confirmó el aviso al cliente"}
             return {"matched": True, "manual_review": delivery["status"] == "accepted",
                     "intent": "pricing", "company": rec.get("company"),
-                    "delivery": delivery, **out}
+                    "delivery": delivery, "customer_ack": customer_ack, **out}
         def repetition(candidate: str) -> bool:
             return bool(channel == "whatsapp" and client_id == "losetaschile" and
                         (any(turn.get("role") == "agent" and _same_reply(candidate, turn.get("text"))

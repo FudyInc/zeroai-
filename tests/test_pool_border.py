@@ -368,7 +368,8 @@ class PoolBorderCountTest(unittest.TestCase):
         memory.add_turn("losetaschile", rec["key"], "agent", color_question())
         memory.add_turn("losetaschile", rec["key"], "lead", "beige")
         zero = Zero(build_agents(mock=True), memory=memory, crm=crm)
-        zero._deliver = mock.Mock()
+        zero._deliver = mock.Mock(return_value={"status": "sent", "via": "whatsapp_web",
+                                                "id": "ack-1"})
         with mock.patch.object(zero, "dispatch") as dispatch, \
                 mock.patch("zero.whatsapp_web.send_group_text",
                            return_value={"id": "internal-1", "ack": 0}) as send_group, \
@@ -379,7 +380,10 @@ class PoolBorderCountTest(unittest.TestCase):
         dispatch.assert_not_called()
         self.assertEqual(result["delivery"]["status"], "accepted")
         self.assertTrue(result["manual_review"])
-        zero._deliver.assert_not_called()
+        self.assertEqual(result["customer_ack"]["id"], "ack-1")
+        acknowledgment = zero._deliver.call_args.args[3]["body"]
+        self.assertIn("color beige", acknowledgment)
+        self.assertNotIn("$", acknowledgment)
         self.assertEqual(send_group.call_args.args[:3],
                          ("losetaschile", "56911111111", "123456789@g.us"))
         internal = send_group.call_args.args[3]
@@ -396,7 +400,8 @@ class PoolBorderCountTest(unittest.TestCase):
         for turn in memory.get_conversation("losetaschile", "test-lead"):
             memory.add_turn("losetaschile", rec["key"], turn["role"], turn["text"])
         zero = Zero(build_agents(mock=True), memory=memory, crm=crm)
-        zero._deliver = mock.Mock()
+        zero._deliver = mock.Mock(return_value={"status": "sent", "via": "whatsapp_web",
+                                                "id": "ack-1"})
         with mock.patch.dict(os.environ, {"LOSETASCHILE_REVIEW_GROUP_ID": ""}):
             result = zero.handle_inbound(
                 "56933333333", "Necesito pastelones", to_phone_id="56911111111",
@@ -404,6 +409,28 @@ class PoolBorderCountTest(unittest.TestCase):
         self.assertEqual(result["delivery"]["status"], "error")
         self.assertFalse(result["manual_review"])
         zero._deliver.assert_not_called()
+
+    def test_ack_failure_flags_review_after_group_accepts_budget(self):
+        memory = self.priced_memory()
+        memory.set_client_agent_profile("losetaschile", {
+            "whatsapp_number": "56911111111", "response_mode": "automatic"})
+        crm = CRM(None)
+        rec = crm.upsert("losetaschile", {"phone": "56933333333", "source": "test"})
+        for turn in memory.get_conversation("losetaschile", "test-lead"):
+            memory.add_turn("losetaschile", rec["key"], turn["role"], turn["text"])
+        zero = Zero(build_agents(mock=True), memory=memory, crm=crm)
+        zero._deliver = mock.Mock(return_value={"status": "error", "error": "outcome uncertain"})
+        with mock.patch("zero.whatsapp_web.send_group_text",
+                        return_value={"id": "group-1", "ack": 0}) as send_group, \
+                mock.patch.dict(os.environ, {"LOSETASCHILE_REVIEW_GROUP_ID": "123456789@g.us"}):
+            result = zero.handle_inbound(
+                "56933333333", "Necesito pastelones", to_phone_id="56911111111",
+                whatsapp_chat_id="56933333333@c.us")
+        self.assertEqual(send_group.call_count, 1)
+        self.assertEqual(result["delivery"]["status"], "error")
+        self.assertFalse(result["manual_review"])
+        self.assertNotIn("$", zero._deliver.call_args.args[3]["body"])
+        self.assertTrue(memory.clients["losetaschile"]["internal_budget_signatures"])
 
     def test_color_image_then_choice_routes_budget_only_to_group(self):
         memory = self.priced_memory(include_tone=False)
@@ -414,7 +441,8 @@ class PoolBorderCountTest(unittest.TestCase):
         for turn in memory.get_conversation("losetaschile", "test-lead"):
             memory.add_turn("losetaschile", rec["key"], turn["role"], turn["text"])
         zero = Zero(build_agents(mock=True), memory=memory, crm=crm)
-        zero._deliver = mock.Mock()
+        zero._deliver = mock.Mock(return_value={"status": "sent", "via": "whatsapp_web",
+                                                "id": "ack-1"})
         with mock.patch("zero.whatsapp_web.send_catalog_image",
                         return_value={"id": "image-1", "ack": 0}) as send_image, \
                 mock.patch("zero.whatsapp_web.send_group_text",
@@ -430,9 +458,11 @@ class PoolBorderCountTest(unittest.TestCase):
         self.assertIn("gama-bordes-piscina.jpeg", send_image.call_args.args)
         self.assertEqual(second["delivery"]["id"], "group-1")
         self.assertTrue(second["manual_review"])
+        self.assertEqual(second["customer_ack"]["id"], "ack-1")
+        self.assertIn("color beige", zero._deliver.call_args.args[3]["body"])
+        self.assertNotIn("$", zero._deliver.call_args.args[3]["body"])
         self.assertIn("Color indicado por cliente: beige", send_group.call_args.args[3])
         self.assertIn("Cliente: Diego\nNúmero: +56933333333", send_group.call_args.args[3])
-        zero._deliver.assert_not_called()
 
 
 if __name__ == "__main__":
