@@ -2,6 +2,18 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-10-08-losetas-medidas-qwen3",
+      "date": "2026-10-08",
+      "type": "decision",
+      "title": "Medidas al inicio y Qwen 3 como modelo de WhatsApp",
+      "origin": "Diego pidió consultar temprano el largo y ancho de la piscina cuando falten, y sustituir Qwen 2.5 por Qwen 3 en el bot tras preferir su razonamiento en la prueba real",
+      "summary": "El flujo de bordes pregunta por largo y ancho en metros antes del modelo si faltan medidas; una respuesta posterior con medidas continúa el pedido. Se preparó Qwen 3 de 14B como modelo propio de WhatsApp para conservar Qwen 2.5 en los otros agentes.",
+      "status": "Implementado y probado en checkout local; activación del servicio pendiente",
+      "scope": "Agente de LosetasChile y configuración del modelo del canal WhatsApp",
+      "evidence": "Qwen 3 ya estaba instalado localmente; prueba real temporal anterior con redacción preferida por Diego y mayor latencia; pruebas de pregunta inicial, respuesta con medidas, aislamiento del modelo y suite de 1053 pruebas Python aprobadas el 2026-10-08.",
+      "pending": "Integrar en el backend activo, configurar WHATSAPP_MODEL=qwen3:14b solo para WhatsApp, reiniciar y comprobar el estado real. Luego repetir el recorrido de cliente: medidas, imagen de color y presupuesto solo al grupo."
+    },
+    {
       "id": "2026-10-08-losetas-prueba-chat-pausado",
       "date": "2026-10-08",
       "type": "incident",

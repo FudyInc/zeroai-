@@ -1046,6 +1046,14 @@ def _agents_best(source=None):
     raise _sin_motor("Esta operación")
 
 
+def _whatsapp_local_model() -> str:
+    """Choose the WhatsApp model without changing other local-agent workloads."""
+    from zero.config import WHATSAPP_ENGINE
+    return ((os.environ.get("WHATSAPP_MODEL") or "").strip() or
+            (os.environ.get("LOCAL_MODEL") or "").strip() or
+            WHATSAPP_ENGINE["model"])
+
+
 def _agents_whatsapp(source=None):
     """El cerebro que contesta un WhatsApp entrante: modelo LOCAL, a propósito.
 
@@ -1061,9 +1069,8 @@ def _agents_whatsapp(source=None):
     from zero.config import WHATSAPP_ENGINE
     from zero.backends import FallbackBackend, LocalBackend
 
-    # El entorno puede pisar el modelo/URL (una máquina con otro modelo cargado),
-    # pero la decisión de correr local es de la política, no del entorno.
-    model = (os.environ.get("LOCAL_MODEL") or "").strip() or WHATSAPP_ENGINE["model"]
+    # WHATSAPP_MODEL cambia solo este canal; LOCAL_MODEL conserva el resto.
+    model = _whatsapp_local_model()
     url = (os.environ.get("LOCAL_MODEL_URL") or "").strip() or WHATSAPP_ENGINE["base_url"]
 
     paid = None
@@ -1102,7 +1109,7 @@ def _whatsapp_engine_status():
     """
     from zero.config import WHATSAPP_ENGINE
 
-    model = (os.environ.get("LOCAL_MODEL") or "").strip() or WHATSAPP_ENGINE["model"]
+    model = _whatsapp_local_model()
     url = (os.environ.get("LOCAL_MODEL_URL") or "").strip() or WHATSAPP_ENGINE["base_url"]
     # "declarado" es la política; "listo" es si el suplente se puede construir de
     # verdad (hay key). Separados a propósito: un respaldo declarado pero sin key

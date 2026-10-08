@@ -43,7 +43,8 @@ from .memory import SessionMemory
 from .quotes import compute_quote, extract_request, format_quote, normalize_pricing
 from .pool_border import (border_plan, delegates_piece_calculation,
                           format_product_quote, shipping_price_request,
-                          unquoted_piece_count, wants_border_budget)
+                          measurement_followup, unquoted_piece_count,
+                          wants_border_budget)
 from .vendors import credentials_for
 from .whatsapp_context import select_history, select_knowledge
 
@@ -1062,7 +1063,8 @@ class Zero:
                          latest_color_preference(order_history)) \
             if client_id == "losetaschile" and channel == "whatsapp" else None
         if (client_id == "losetaschile" and channel == "whatsapp" and
-                (wants_border_budget(message) or color_preference(message, order_history))):
+                (wants_border_budget(message) or measurement_followup(
+                    message, order_history) or color_preference(message, order_history))):
             plan, clarification = border_plan(message, order_history)
             if plan is None:
                 return {"reply": clarification, "intent": "pricing"}

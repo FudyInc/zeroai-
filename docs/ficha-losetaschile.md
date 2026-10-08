@@ -75,3 +75,12 @@ El primer mensaje de prueba del cliente no obtuvo respuesta porque el chat
 conservaba una pausa de automatización anterior. Esa pausa se liberó y se
 verificó; no se reprocesó el mensaje anterior. El recorrido completo continúa
 pendiente de un mensaje nuevo con medidas.
+
+## Medidas al inicio — verificado en código local el 2026-10-08
+
+Diego pidió que, cuando una consulta por bordes de piscina no incluya medidas,
+el bot pregunte pronto por el largo y ancho en metros. El flujo determinista
+ahora hace esa pregunta antes de pedir el modelo del borde; si el cliente ya
+dio las medidas, no las vuelve a solicitar. Una respuesta posterior como
+«6x3 m» continúa el pedido hacia la confirmación de modelo, forma y color.
+El presupuesto sigue dirigido solo al grupo interno para revisión manual.

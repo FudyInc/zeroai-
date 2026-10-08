@@ -237,6 +237,15 @@ class TheCageTest(unittest.TestCase):
         self.assertIsInstance(backend, FallbackBackend)
         self.assertIsInstance(backend.primary, LocalBackend)
 
+    def test_whatsapp_model_override_does_not_change_other_local_agents(self):
+        import api
+        with mock.patch.dict(os.environ, {"WHATSAPP_MODEL": "qwen3:14b",
+                                       "LOCAL_MODEL": "qwen2.5:14b"}, clear=False):
+            agents, _ = api._agents_whatsapp()
+            other_agents, _ = api._agents_best()
+        self.assertEqual(agents["CONCIERGE"].backend.primary.model, "qwen3:14b")
+        self.assertEqual(other_agents["CONCIERGE"].backend.model, "qwen2.5:14b")
+
     def test_inbound_whatsapp_does_not_use_agents_best(self):
         """El camino de un WhatsApp entrante NO puede pasar por _agents_best.
 
@@ -277,16 +286,25 @@ class EngineStatusTest(unittest.TestCase):
 
     def test_status_matches_the_policy(self):
         import api
-        with mock.patch.dict(os.environ, {"LOCAL_MODEL": "", "LOCAL_MODEL_URL": ""}, clear=False):
+        with mock.patch.dict(os.environ, {"WHATSAPP_MODEL": "", "LOCAL_MODEL": "",
+                                       "LOCAL_MODEL_URL": ""}, clear=False):
             st = api._whatsapp_engine_status()
         self.assertEqual(st["model"], WHATSAPP_ENGINE["model"])
         self.assertEqual(st["base_url"], WHATSAPP_ENGINE["base_url"])
 
     def test_status_honors_the_env_override(self):
         import api
-        with mock.patch.dict(os.environ, {"LOCAL_MODEL": "otro:7b"}, clear=False):
+        with mock.patch.dict(os.environ, {"WHATSAPP_MODEL": "",
+                                       "LOCAL_MODEL": "otro:7b"}, clear=False):
             st = api._whatsapp_engine_status()
         self.assertEqual(st["model"], "otro:7b")
+
+    def test_status_honors_whatsapp_specific_override_first(self):
+        import api
+        with mock.patch.dict(os.environ, {"WHATSAPP_MODEL": "qwen3:14b",
+                                       "LOCAL_MODEL": "qwen2.5:14b"}, clear=False):
+            st = api._whatsapp_engine_status()
+        self.assertEqual(st["model"], "qwen3:14b")
 
     def test_declared_fallback_without_a_key_is_not_ready(self):
         """Un respaldo declarado pero sin key NO puede mostrarse como listo."""

@@ -9,7 +9,8 @@ from zero.losetas_color import color_question
 from zero.memory import SessionMemory
 from zero.orchestrator import Zero
 from zero.pool_border import (border_plan, delegates_piece_calculation,
-                              unquoted_piece_count, wants_border_budget,
+                              measurement_followup, unquoted_piece_count,
+                              wants_border_budget,
                               wants_product_quote)
 
 
@@ -76,6 +77,34 @@ class PoolBorderCountTest(unittest.TestCase):
     def test_pool_border_request_triggers_color_flow(self):
         self.assertTrue(wants_border_budget("Necesito bordes de piscina"))
         self.assertTrue(wants_border_budget("Busco bordes para mi piscina"))
+
+    def test_pool_order_asks_measurements_before_model(self):
+        plan, question = border_plan("Necesito bordes de piscina", [])
+        self.assertIsNone(plan)
+        self.assertIn("medidas de tu piscina", question)
+        self.assertIn("largo y ancho en metros", question)
+        self.assertNotIn("modelo", question)
+
+    def test_measurement_answer_continues_without_model(self):
+        memory = self.priced_memory(include_tone=False)
+        memory.clients["losetaschile"]["conversations"]["test-lead"] = [
+            {"role": "lead", "text": "Necesito bordes de piscina rectangular"},
+            {"role": "lead", "text": "Borde recto con nariz"},
+            {"role": "agent", "text": "¿Cuáles son las medidas de tu piscina? Necesito largo y ancho en metros."},
+        ]
+        zero = Zero(build_agents(mock=True), memory=memory)
+        with mock.patch.object(zero, "dispatch") as dispatch:
+            result = zero.converse_result("losetaschile", "6x3 m",
+                                          lead={"key": "test-lead"}, channel="whatsapp")
+        dispatch.assert_not_called()
+        self.assertIn("¿Cuál prefieres?", result["reply"])
+        self.assertIn("media_asset", result)
+
+    def test_measurements_already_supplied_are_not_requested_again(self):
+        plan, question = border_plan("Necesito bordes de piscina rectangular de 6x3 m", [])
+        self.assertIsNone(plan)
+        self.assertIn("modelo", question)
+        self.assertNotIn("medidas", question)
 
     def test_unknown_product_asks_instead_of_guessing(self):
         plan, clarification = border_plan("¿Cuántos pastelones para piscina 6x3?", [])

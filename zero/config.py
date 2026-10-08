@@ -133,7 +133,7 @@ OUTBOX_RETRY_DELAY_SECONDS = 1.0
 # ~4096 caracteres; este tope es más chico a propósito, con margen.
 MAX_INBOUND_MESSAGE_CHARS = 2000
 
-# --- Motor de WhatsApp (2026-08-21) -------------------------------------------
+# --- Motor de WhatsApp (actualizado 2026-10-08) -------------------------------
 # QUÉ CEREBRO contesta un WhatsApp entrante. Es el único frente del producto que
 # corre con modelo LOCAL a propósito; el resto (dashboard, scheduler, funciones)
 # no cambia de motor por esto.
@@ -141,8 +141,9 @@ MAX_INBOUND_MESSAGE_CHARS = 2000
 # El porqué: WhatsApp es conversación de alto volumen y baja dificultad —
 # responder dudas de un lead con la ficha del vendor delante. Un modelo local
 # lo hace bien y su costo marginal es CERO, mientras que la API paga cobra por
-# cada mensaje de cada lead, para siempre. Medido en esta máquina (2026-08-21):
-# qwen2.5:14b-instruct-q4_K_M en la RTX 5060 Ti da ~40 tokens/s, 100% en GPU.
+# cada mensaje de cada lead, para siempre. Diego prefirió la redacción de
+# Qwen 3 en la prueba real del 2026-10-07. La muestra fue pequeña y Qwen 3
+# tardó más; el cotizador de productos sigue siendo determinista.
 #
 # La jaula es deliberada: el modelo local se limita a este canal. No se extiende
 # a otros agentes sin una decisión explícita — decisión de Diego, 2026-08-21.
@@ -151,7 +152,7 @@ MAX_INBOUND_MESSAGE_CHARS = 2000
 # pago existe porque un Ollama caído no debe dejar a un lead sin respuesta;
 # es un respaldo, no el camino normal.
 WHATSAPP_ENGINE = {
-    "model": "qwen2.5:14b-instruct-q4_K_M",   # el que ya está cargado en VRAM
+    "model": "qwen3:14b",                   # decisión de Diego, 2026-10-08
     "base_url": "http://localhost:11434/v1",  # Ollama, endpoint OpenAI-compatible
     "fallback_to_paid": False,                # política cero gasto: nunca Anthropic
 }

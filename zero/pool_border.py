@@ -21,6 +21,11 @@ _POOL_BORDER_REQUEST = re.compile(
     r"\bbordes?\s+(?:de|para)\s+(?:la|mi|una)?\s*piscina\b",
     re.IGNORECASE,
 )
+_MEASUREMENT_QUESTION_MARKER = "medidas de tu piscina"
+_MEASUREMENT_QUESTION = (
+    "¿Cuáles son las medidas de tu piscina? "
+    "Necesito largo y ancho en metros (por ejemplo, 6 × 3 m)."
+)
 _SIZE = re.compile(
     r"\b(\d{1,2}(?:[.,]\d)?)\s*(?:m(?:etros?)?\s*)?"
     r"(?:x|×|por)\s*(\d{1,2}(?:[.,]\d)?)\s*(?:m(?:etros?)?)?\b",
@@ -115,6 +120,15 @@ def unquoted_piece_count(reply: str, quote: dict[str, Any] | None) -> bool:
     return bool(not quote and _UNQUOTED_PIECE_COUNT.search(reply or ""))
 
 
+def measurement_followup(message: str, history: list[dict[str, Any]]) -> bool:
+    """Continue a pool order when the lead answers the measurements question."""
+    for turn in reversed(history):
+        if turn.get("role") == "agent":
+            return (_MEASUREMENT_QUESTION_MARKER in str(turn.get("text") or "").lower()
+                    and bool(_SIZE.search(message)))
+    return False
+
+
 def border_plan(message: str, history: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, str]:
     """Return confirmed quantities or the one missing detail to ask for."""
     lead_texts = [str(turn.get("text") or "") for turn in history
@@ -122,6 +136,21 @@ def border_plan(message: str, history: list[dict[str, Any]]) -> tuple[dict[str, 
     if re.search(r"\b(?:terraza|interior|fondo|piso)\b", message, re.IGNORECASE):
         return None, "¿Te refieres al borde recto con nariz de la piscina o a otro producto?"
     latest_first = [message, *reversed(lead_texts)]
+    dimensions = None
+    for text in latest_first:
+        for match in _SIZE.finditer(text):
+            if _ITEM_SIZE_PREFIX.search(text[max(0, match.start() - 35):match.start()]):
+                continue
+            if _OTHER_UNITS.search(text[match.end():match.end() + 18]):
+                return None, "¿Las medidas de la piscina están en metros?"
+            dimensions = tuple(Decimal(value.replace(",", "."))
+                               for value in match.groups())
+            break
+        if dimensions is not None:
+            break
+    if dimensions is None and any(re.search(r"\bpiscina\b", text, re.IGNORECASE)
+                                  for text in latest_first):
+        return None, _MEASUREMENT_QUESTION
     product = next((text for text in latest_first if
                     _REJECT_PRODUCT.search(text) or _OTHER_PRODUCT.search(text) or
                     _PRODUCT.search(text)), None)
@@ -137,20 +166,8 @@ def border_plan(message: str, history: list[dict[str, Any]]) -> tuple[dict[str, 
         return None, "Necesito revisar la forma de esa piscina antes de calcular las piezas."
     if shape is None:
         return None, "¿La piscina es rectangular?"
-    dimensions = None
-    for text in [message, *reversed(lead_texts)]:
-        for match in _SIZE.finditer(text):
-            if _ITEM_SIZE_PREFIX.search(text[max(0, match.start() - 35):match.start()]):
-                continue
-            if _OTHER_UNITS.search(text[match.end():match.end() + 18]):
-                return None, "¿Las medidas de la piscina están en metros?"
-            dimensions = tuple(Decimal(value.replace(",", "."))
-                               for value in match.groups())
-            break
-        if dimensions is not None:
-            break
     if dimensions is None:
-        return None, "¿Cuánto mide cada lado de la piscina rectangular?"
+        return None, _MEASUREMENT_QUESTION
     width, length = dimensions
     if (min(dimensions) <= 0 or max(dimensions) > 50 or
             any((side * 2) % 1 for side in dimensions)):
