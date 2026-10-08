@@ -233,3 +233,9 @@ imágenes versionadas y texto; la biblioteca instalada no expone una operación
 estable para leer o compartir el catálogo Business directamente. WhatsApp
 ofrece un enlace de catálogo generado desde la cuenta Business. Queda pendiente
 recibir y verificar ese enlace antes de incorporarlo a la respuesta automática.
+El 2026-10-08 se activaron en el backend local las correcciones de lista,
+medidas, pago, descuento y «llegan a <destino>» después de que terminaran los
+eventos pendientes de Stefano. `/api/health` respondió bien, el puente quedó
+`ready` y una simulación con precios del almacén activo devolvió cuatro bordes
+y la esquina sin repreguntar medidas. Aún falta una pregunta real nueva para
+verificar esa salida en WhatsApp.
