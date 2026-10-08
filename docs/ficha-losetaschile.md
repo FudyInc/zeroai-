@@ -253,9 +253,17 @@ La respuesta local preparada para «¿qué modelos hay?» enumera los bordes que
 figuran en la lista de precios activa y añade el enlace exacto al catálogo de
 WhatsApp. Si la lista estructurada queda vacía, comparte igualmente el enlace
 sin inventar nombres ni precios. El mensaje viaja como texto por el puente
-existente, sin un mecanismo nuevo de WhatsApp. Falta integrar el cambio en el
-backend local y probar que el enlace se abre desde el chat del cliente.
+existente, sin un mecanismo nuevo de WhatsApp. Falta probar que el enlace se
+abre desde el chat del cliente.
 Una consulta inicial genérica por «modelos» recibe el enlace y pregunta qué
 producto busca; si pregunta por bordes o ya habla de piscina, se incluye la
 lista de bordes con precio registrado. También se reconocen «¿qué bordes
 tienen?» y «¿tienen otros bordes?».
+
+El commit `8731ba8` quedó activo en el backend local el 2026-10-08. Tras el
+reinicio, `/api/health` respondió bien y el puente informó `ready`. La
+simulación con el almacén activo comprobó tres casos sin enviar mensajes:
+pregunta por modelos tras mencionar piscina, pregunta genérica al abrir chat
+y pregunta directa por bordes. Los tres incluyen el enlace correcto. Sigue
+pendiente recibir una pregunta real nueva y verificar la apertura del catálogo
+en el teléfono del cliente. No se publicó en GitHub ni Vercel.

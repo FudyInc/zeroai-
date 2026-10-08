@@ -8,10 +8,10 @@
       "title": "Compartir catálogo de WhatsApp al preguntar por modelos",
       "origin": "Diego aportó el enlace exacto del catálogo que creó en WhatsApp Business tras observar que Stefano no lo recibía",
       "summary": "La respuesta de modelos añade el enlace del catálogo real junto a los nombres de bordes de la lista de precios activa. Si no hay modelos con precio estructurado, envía solo el enlace y pregunta cuál interesa, sin inventar detalles.",
-      "status": "Preparado en código local; integración y prueba real pendientes",
+      "status": "Activo en backend local; prueba real pendiente",
       "scope": "Atención de modelos de LosetasChile en WhatsApp Web",
-      "evidence": "El número del enlace coincide con la configuración activa de LosetasChile; la URL respondió HTTP 200 y terminó en www.whatsapp.com. El contenido visual de productos dentro de la app no fue inspeccionable desde el servidor.",
-      "pending": "Completar pruebas y revisión, integrar en backend local, pedir una pregunta nueva por modelos y comprobar que el enlace abra el catálogo correcto en el WhatsApp del cliente. No publicado en GitHub ni Vercel."
+      "evidence": "El número del enlace coincide con la configuración activa de LosetasChile; la URL respondió HTTP 200 y terminó en www.whatsapp.com. Suite de 1073 pruebas Python, 2 Node y revisión aprobadas. Main local incorporó 8731ba8; backend reinició con /api/health OK y puente ready. Simulación con precios activos incluyó el enlace en consulta con contexto de piscina, primer mensaje genérico y consulta directa por bordes. El contenido visual del catálogo dentro de la app no fue inspeccionable desde el servidor.",
+      "pending": "Pedir una pregunta nueva por modelos y comprobar que el enlace abra el catálogo correcto en el WhatsApp del cliente. No publicado en GitHub ni Vercel."
     },
     {
       "id": "2026-10-08-losetas-modelos-stefano-segunda-prueba",
