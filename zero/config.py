@@ -55,6 +55,8 @@ QUOTE_REVIEW_REQUIRED_CLIENT_IDS = frozenset({"pooledge"})
 # por ruta y estar verificada antes de incluir un importe de flete.
 LOSETASCHILE_FLETE_ORIGIN = "Los Granados 029, La Pintana"
 LOSETASCHILE_FLETE_CLP_PER_KM = 2000
+# Enlace copiado por Diego del catálogo de WhatsApp Business el 2026-10-08.
+LOSETASCHILE_WHATSAPP_CATALOG_URL = "https://wa.me/c/56964537891"
 
 # --- Acciones que una función programada puede PEDIR --------------------------
 # Una función sandboxeada nunca actúa por sí misma: corre con --network=none y

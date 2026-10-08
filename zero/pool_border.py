@@ -9,6 +9,8 @@ import re
 from decimal import Decimal
 from typing import Any
 
+from .config import LOSETASCHILE_WHATSAPP_CATALOG_URL
+
 
 _COUNT = re.compile(r"\b(?:cu[aá]nt[oa]s|cantidad)\b", re.IGNORECASE)
 _PIECES = re.compile(r"\b(?:pastelones?|bordes?|bordea|piezas?)\b", re.IGNORECASE)
@@ -28,7 +30,9 @@ _MEASUREMENT_QUESTION = (
 )
 _MODEL_QUESTION = re.compile(
     r"\b(?:qu[eé]|cu[aá]les?)\s+(?:modelos?|tipos?)\b|"
-    r"\b(?:modelos?|tipos?)\s+(?:hay|tienen|disponibles?)\b",
+    r"\b(?:modelos?|tipos?)\s+(?:hay|tienen|disponibles?)\b|"
+    r"\b(?:qu[eé]|cu[aá]les?)\s+bordes?\b|"
+    r"\b(?:tienen|hay)\s+(?:otros?\s+)?bordes?\b",
     re.IGNORECASE,
 )
 _POOL_MEASUREMENTS = re.compile(
@@ -150,23 +154,27 @@ def pool_border_models_reply(message: str, history: list[dict[str, Any]],
     """List current priced border models in a pool conversation, without quoting."""
     if not _MODEL_QUESTION.search(message or ""):
         return None
-    if re.search(r"\b(?:pastelones?|adoquines?|lajas?|ladrillos?|deck|dormientes?)\b",
+    if re.search(r"\b(?:pastelones?|adoquines?|lajas?|ladrillos?|deck|dormientes?|"
+                 r"pago|despacho|flete|env[ií]o)\b",
                  message, re.IGNORECASE):
         return None
     lead_text = " ".join(str(turn.get("text") or "") for turn in history
                          if turn.get("role") == "lead")
     context = normalize_pool_border_terms(f"{lead_text} {message}")
     if not re.search(r"\b(?:piscinas?|bordes?)\b", context, re.IGNORECASE):
-        return None
+        return ("Puedes ver nuestros modelos en el catálogo de WhatsApp: "
+                f"{LOSETASCHILE_WHATSAPP_CATALOG_URL} ¿Qué producto buscas?")
     models = [str(item["name"]).strip() for item in pricing.get("items", [])
               if str(item.get("id") or "").startswith("borde-") and item.get("name")]
     if not models:
-        return "Voy a confirmar los modelos de borde disponibles con el equipo."
+        return ("Puedes ver nuestros modelos en el catálogo de WhatsApp: "
+                f"{LOSETASCHILE_WHATSAPP_CATALOG_URL} ¿Cuál te interesa?")
     corner = any(str(item.get("id") or "").startswith("esquina-piscina")
                  for item in pricing.get("items", []))
     return ("En la lista de precios figuran estos bordes: " + "; ".join(models) + "." +
             (" También figura la esquina para piscina." if corner else "") +
-            " ¿Cuál modelo te interesa?")
+            f" Mira el catálogo de WhatsApp: {LOSETASCHILE_WHATSAPP_CATALOG_URL} "
+            "¿Cuál modelo te interesa?")
 
 
 def pool_measurement_message(message: str) -> bool:

@@ -2,6 +2,18 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-10-08-losetas-enlace-catalogo-whatsapp",
+      "date": "2026-10-08",
+      "type": "change",
+      "title": "Compartir catálogo de WhatsApp al preguntar por modelos",
+      "origin": "Diego aportó el enlace exacto del catálogo que creó en WhatsApp Business tras observar que Stefano no lo recibía",
+      "summary": "La respuesta de modelos añade el enlace del catálogo real junto a los nombres de bordes de la lista de precios activa. Si no hay modelos con precio estructurado, envía solo el enlace y pregunta cuál interesa, sin inventar detalles.",
+      "status": "Preparado en código local; integración y prueba real pendientes",
+      "scope": "Atención de modelos de LosetasChile en WhatsApp Web",
+      "evidence": "El número del enlace coincide con la configuración activa de LosetasChile; la URL respondió HTTP 200 y terminó en www.whatsapp.com. El contenido visual de productos dentro de la app no fue inspeccionable desde el servidor.",
+      "pending": "Completar pruebas y revisión, integrar en backend local, pedir una pregunta nueva por modelos y comprobar que el enlace abra el catálogo correcto en el WhatsApp del cliente. No publicado en GitHub ni Vercel."
+    },
+    {
       "id": "2026-10-08-losetas-modelos-stefano-segunda-prueba",
       "date": "2026-10-08",
       "type": "incident",

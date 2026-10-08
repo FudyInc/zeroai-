@@ -239,3 +239,23 @@ eventos pendientes de Stefano. `/api/health` respondió bien, el puente quedó
 `ready` y una simulación con precios del almacén activo devolvió cuatro bordes
 y la esquina sin repreguntar medidas. Aún falta una pregunta real nueva para
 verificar esa salida en WhatsApp.
+
+## Enlace al catálogo de WhatsApp — verificado el 2026-10-08
+
+Diego compartió `https://wa.me/c/56964537891` como enlace del catálogo que
+creó en WhatsApp Business. El número del enlace coincide con el número activo
+configurado para LosetasChile; una petición de comprobación obtuvo HTTP 200 y
+terminó en `www.whatsapp.com`. No se pudo inspeccionar desde el servidor el
+contenido visual del catálogo dentro de la app, por lo que la presencia de
+cada foto o producto específico allí sigue pendiente de comprobación real.
+
+La respuesta local preparada para «¿qué modelos hay?» enumera los bordes que
+figuran en la lista de precios activa y añade el enlace exacto al catálogo de
+WhatsApp. Si la lista estructurada queda vacía, comparte igualmente el enlace
+sin inventar nombres ni precios. El mensaje viaja como texto por el puente
+existente, sin un mecanismo nuevo de WhatsApp. Falta integrar el cambio en el
+backend local y probar que el enlace se abre desde el chat del cliente.
+Una consulta inicial genérica por «modelos» recibe el enlace y pregunta qué
+producto busca; si pregunta por bordes o ya habla de piscina, se incluye la
+lista de bordes con precio registrado. También se reconocen «¿qué bordes
+tienen?» y «¿tienen otros bordes?».

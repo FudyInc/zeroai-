@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from zero.agents import build_agents
+from zero.config import LOSETASCHILE_WHATSAPP_CATALOG_URL
 from zero.crm import CRM
 from zero.losetas_color import color_question
 from zero.losetas_shipping import (DELIVERY_ADDRESS_PROMPT, DELIVERY_LOCATION_PROMPT,
@@ -125,10 +126,24 @@ class PoolBorderCountTest(unittest.TestCase):
         self.assertIn("Borde recto con nariz 50x50", result["reply"])
         self.assertIn("Borde ballena 50x40", result["reply"])
         self.assertIn("¿Cuál modelo te interesa?", result["reply"])
+        self.assertIn(LOSETASCHILE_WHATSAPP_CATALOG_URL, result["reply"])
         self.assertNotIn("medidas de tu piscina", result["reply"])
         self.assertNotIn("$", result["reply"])
-        self.assertIsNone(pool_border_models_reply("¿Qué modelos hay?", [],
+        first_contact = pool_border_models_reply("¿Qué modelos hay?", [], {"items": []})
+        self.assertIn(LOSETASCHILE_WHATSAPP_CATALOG_URL, first_contact)
+        self.assertIn("¿Qué producto buscas?", first_contact)
+        self.assertIsNone(pool_border_models_reply("¿Qué modelos de pago hay?", [],
                                                   {"items": []}))
+        no_priced_models = pool_border_models_reply(
+            "¿Qué modelos hay?", [{"role": "lead", "text": "Necesito bordes de piscina"}],
+            {"items": []})
+        self.assertIn(LOSETASCHILE_WHATSAPP_CATALOG_URL, no_priced_models)
+        self.assertNotIn("precio", no_priced_models)
+        other_borders = pool_border_models_reply(
+            "¿Qué bordes tienen?", [], {"items": [
+                {"id": "borde-ballena-50x40", "name": "Borde ballena 50x40"}]})
+        self.assertIn("Borde ballena 50x40", other_borders)
+        self.assertIn(LOSETASCHILE_WHATSAPP_CATALOG_URL, other_borders)
         self.assertIsNone(pool_border_models_reply(
             "¿Qué modelos de pastelones hay?",
             [{"role": "lead", "text": "Necesito bordes para piscina"}],
@@ -167,6 +182,10 @@ class PoolBorderCountTest(unittest.TestCase):
         self.assertEqual(second["delivery"]["status"], "sent")
         self.assertIn("Borde recto con nariz", first["reply"])
         self.assertIn("Borde recto con nariz", second["reply"])
+        self.assertIn(LOSETASCHILE_WHATSAPP_CATALOG_URL, first["reply"])
+        self.assertIn(LOSETASCHILE_WHATSAPP_CATALOG_URL, second["reply"])
+        self.assertIn(LOSETASCHILE_WHATSAPP_CATALOG_URL,
+                      zero._deliver.call_args.args[3]["body"])
         self.assertNotIn("Necesito revisar", second["reply"])
 
     def test_outlier_pool_measurements_are_confirmed_before_other_questions(self):
