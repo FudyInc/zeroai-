@@ -9,7 +9,7 @@ from zero.losetas_color import color_question
 from zero.losetas_shipping import (DELIVERY_ADDRESS_PROMPT, DELIVERY_LOCATION_PROMPT,
                                    DELIVERY_POLL_ADDRESS, DELIVERY_POLL_LOCATION,
                                    SHIPPING_COVERAGE_REPLY, delivery_detail,
-                                   shipping_delivery_followup)
+                                   shipping_delivery_followup, shipping_coverage_request)
 from zero.memory import SessionMemory
 from zero.orchestrator import Zero
 from zero.pool_border import (border_plan, delegates_piece_calculation,
@@ -124,7 +124,8 @@ class PoolBorderCountTest(unittest.TestCase):
         dispatch.assert_not_called()
         self.assertIn("Borde recto con nariz 50x50", result["reply"])
         self.assertIn("Borde ballena 50x40", result["reply"])
-        self.assertIn("medidas de tu piscina", result["reply"])
+        self.assertIn("¿Cuál modelo te interesa?", result["reply"])
+        self.assertNotIn("medidas de tu piscina", result["reply"])
         self.assertNotIn("$", result["reply"])
         self.assertIsNone(pool_border_models_reply("¿Qué modelos hay?", [],
                                                   {"items": []}))
@@ -140,6 +141,52 @@ class PoolBorderCountTest(unittest.TestCase):
                                           lead={"key": "new-lead"}, channel="whatsapp")
         dispatch.assert_not_called()
         self.assertEqual(result["reply"], "¡Hola! ¿En qué puedo ayudarte?")
+
+    def test_stefano_repeated_model_question_reaches_customer(self):
+        memory = self.priced_memory(include_tone=False)
+        memory.set_client_agent_profile("losetaschile", {
+            "whatsapp_number": "56911111111", "response_mode": "automatic"})
+        crm = CRM(None)
+        rec = crm.upsert("losetaschile", {"phone": "56933333333", "source": "test"})
+        for role, text in (("lead", "necesito pordes para mi piscina"),
+                           ("agent", "¿Cuáles son las medidas de tu piscina?"),
+                           ("lead", "mi piscina mide 10 x 200 metros")):
+            memory.add_turn("losetaschile", rec["key"], role, text)
+        zero = Zero(build_agents(mock=True), memory=memory, crm=crm)
+        zero._deliver = mock.Mock(return_value={"status": "sent", "via": "whatsapp_web",
+                                                "id": "reply-1"})
+        with mock.patch.object(zero, "dispatch") as dispatch:
+            first = zero.handle_inbound("56933333333", "que modelos hay?",
+                                        to_phone_id="56911111111",
+                                        whatsapp_chat_id="56933333333@c.us")
+            second = zero.handle_inbound("56933333333", "que modelos tienen?",
+                                         to_phone_id="56911111111",
+                                         whatsapp_chat_id="56933333333@c.us")
+        dispatch.assert_not_called()
+        self.assertEqual(first["delivery"]["status"], "sent")
+        self.assertEqual(second["delivery"]["status"], "sent")
+        self.assertIn("Borde recto con nariz", first["reply"])
+        self.assertIn("Borde recto con nariz", second["reply"])
+        self.assertNotIn("Necesito revisar", second["reply"])
+
+    def test_outlier_pool_measurements_are_confirmed_before_other_questions(self):
+        zero = Zero(build_agents(mock=True), memory=self.priced_memory(include_tone=False))
+        with mock.patch.object(zero, "dispatch") as dispatch:
+            result = zero.converse_result("losetaschile", "mi piscina mide 10 x 200 metros",
+                                          lead={"key": "new-lead"}, channel="whatsapp")
+        dispatch.assert_not_called()
+        self.assertIn("confirmar el largo y ancho", result["reply"])
+        self.assertNotIn("modelo", result["reply"])
+
+    def test_unverified_payment_and_discount_are_not_invented(self):
+        zero = Zero(build_agents(mock=True), memory=self.priced_memory(include_tone=False))
+        for question, expected in (("como se paga?", "formas de pago"),
+                                   ("tienen algun descuento?", "descuento confirmado")):
+            with self.subTest(question=question), mock.patch.object(zero, "dispatch") as dispatch:
+                result = zero.converse_result("losetaschile", question,
+                                              lead={"key": "new-lead"}, channel="whatsapp")
+                dispatch.assert_not_called()
+                self.assertIn(expected, result["reply"])
 
     def test_pool_order_asks_measurements_before_model(self):
         plan, question = border_plan("Necesito bordes de piscina", [])
@@ -354,7 +401,8 @@ class PoolBorderCountTest(unittest.TestCase):
     def test_shipping_coverage_questions_use_one_verified_reply(self):
         zero = Zero(build_agents(mock=True), memory=self.priced_memory())
         for question in ("¿Tienen despachos?", "¿Despachan a Los Andes?",
-                         "¿Hacen envíos a regiones?", "¿Hay flete a mi comuna?"):
+                         "¿Hacen envíos a regiones?", "¿Hay flete a mi comuna?",
+                         "le llegan a arika?"):
             with self.subTest(question=question), mock.patch.object(zero, "dispatch") as dispatch:
                 result = zero.converse_result(
                     "losetaschile", question, lead={"key": "test-lead"},
@@ -363,6 +411,7 @@ class PoolBorderCountTest(unittest.TestCase):
                 self.assertEqual(result["reply"], SHIPPING_COVERAGE_REPLY)
                 self.assertTrue(result["delivery_poll"])
                 self.assertNotIn("quote", result)
+        self.assertFalse(shipping_coverage_request("¿Llegan los bordes dañados?"))
 
     def test_poll_choice_gets_one_short_instruction(self):
         zero = Zero(build_agents(mock=True), memory=self.priced_memory())

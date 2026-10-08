@@ -208,3 +208,28 @@ los demás modelos. El commit `b5dd240` quedó activo en el backend local el
 2026-10-08: `/api/health` respondió bien y el puente de LosetasChile informó
 `ready`. Las respuestas corregidas todavía requieren una prueba real nueva;
 esto no confirma publicación en GitHub ni Vercel.
+
+## Modelos y preguntas posteriores de Stefano — revisión del 2026-10-08
+
+En el chat real, Stefano indicó «mi piscina mide 10 x 200 metros» y volvió a
+preguntar dos veces qué modelos había. El agente respondió dos veces con un
+aviso genérico de revisión: la respuesta de modelos incluía otra pregunta por
+medidas ya dadas y el control de repeticiones la descartó. Antes, la medida
+de 200 m no entraba al detector de pares de dimensiones y llegó al modelo,
+que pidió varios datos juntos. El código preparado responde la lista de
+modelos sin repetir medidas, permite responderla otra vez si el cliente la
+reitera y pide confirmar dimensiones fuera del rango de cálculo. Un número
+fuera de rango no se corrige automáticamente.
+
+Stefano preguntó además por pago, descuento y entregas a Cerro Navia y Arica.
+La ficha activa del almacén local no contiene medios de pago ni descuentos
+confirmados; el agente debe explicitar que faltan por confirmar. «Llegan a
+<destino>» se trata como cobertura de despacho, sin afirmar cobertura para
+Arica. Las respuestas reales posteriores a estos cambios siguen pendientes.
+
+Diego informó que creó catálogos en WhatsApp Business y quiere compartirlos
+con el cliente ante preguntas por modelos. El puente actual puede enviar
+imágenes versionadas y texto; la biblioteca instalada no expone una operación
+estable para leer o compartir el catálogo Business directamente. WhatsApp
+ofrece un enlace de catálogo generado desde la cuenta Business. Queda pendiente
+recibir y verificar ese enlace antes de incorporarlo a la respuesta automática.

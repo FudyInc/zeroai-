@@ -48,7 +48,7 @@ from .pool_border import (border_plan, delegates_piece_calculation,
                           format_product_quote, shipping_price_request,
                           measurement_followup, unquoted_piece_count,
                           wants_border_budget, wants_product_quote,
-                          pool_border_models_reply)
+                          pool_border_models_reply, pool_measurement_message)
 from .vendors import credentials_for
 from .whatsapp_context import select_history, select_knowledge
 
@@ -1081,13 +1081,24 @@ class Zero:
         if client_id == "losetaschile" and channel == "whatsapp":
             models_reply = pool_border_models_reply(message, order_history, pricing)
             if models_reply:
-                return {"reply": models_reply, "intent": "info"}
+                return {"reply": models_reply, "intent": "catalog"}
+
+        if client_id == "losetaschile" and channel == "whatsapp":
+            if re.search(r"\b(?:c[oó]mo\s+(?:se\s+)?paga|formas?\s+de\s+pago|"
+                         r"medios?\s+de\s+pago)\b", message, re.IGNORECASE):
+                return {"reply": ("Las formas de pago aún no están confirmadas en este chat. "
+                                  "El equipo te las indicará antes de cerrar el pedido."),
+                        "intent": "info"}
+            if re.search(r"\bdescuentos?\b", message, re.IGNORECASE):
+                return {"reply": ("No tengo un descuento confirmado para este pedido. "
+                                  "Debe confirmarse antes de incluirlo en el presupuesto."),
+                        "intent": "info"}
 
         selected_tone = (color_preference(message, order_history) or
                          latest_color_preference(order_history)) \
             if client_id == "losetaschile" and channel == "whatsapp" else None
         if (client_id == "losetaschile" and channel == "whatsapp" and
-                (wants_border_budget(message) or measurement_followup(
+                (wants_border_budget(message) or pool_measurement_message(message) or measurement_followup(
                     message, order_history) or color_preference(message, order_history) or
                  shipping_delivery_followup(message, order_history))):
             plan, clarification = border_plan(message, order_history)
@@ -1526,7 +1537,7 @@ class Zero:
                     "intent": "pricing", "company": rec.get("company"),
                     "delivery": delivery, "customer_ack": customer_ack, **out}
         def repetition(candidate: str) -> bool:
-            if candidate in (SHIPPING_COVERAGE_REPLY, SHIPPING_PRICE_REPLY):
+            if candidate in (SHIPPING_COVERAGE_REPLY, SHIPPING_PRICE_REPLY) or intent == "catalog":
                 return False
             return bool(channel == "whatsapp" and client_id == "losetaschile" and
                         (any(turn.get("role") == "agent" and _same_reply(candidate, turn.get("text"))

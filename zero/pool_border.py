@@ -31,9 +31,14 @@ _MODEL_QUESTION = re.compile(
     r"\b(?:modelos?|tipos?)\s+(?:hay|tienen|disponibles?)\b",
     re.IGNORECASE,
 )
+_POOL_MEASUREMENTS = re.compile(
+    r"\b(?:mi|la|nuestra|una)\s+piscina\b.{0,55}\b(?:mide|medidas?|tiene)\b"
+    r"|\b(?:mide|medidas?)\b.{0,55}\bpiscina\b",
+    re.IGNORECASE,
+)
 _SIZE = re.compile(
-    r"\b(\d{1,2}(?:[.,]\d)?)\s*(?:m(?:etros?)?\s*)?"
-    r"(?:x|×|por)\s*(\d{1,2}(?:[.,]\d)?)\s*(?:m(?:etros?)?)?\b",
+    r"\b(\d{1,3}(?:[.,]\d)?)\s*(?:m(?:etros?)?\s*)?"
+    r"(?:x|×|por)\s*(\d{1,3}(?:[.,]\d)?)\s*(?:m(?:etros?)?)?\b",
     re.IGNORECASE,
 )
 _ITEM_SIZE_PREFIX = re.compile(
@@ -161,7 +166,12 @@ def pool_border_models_reply(message: str, history: list[dict[str, Any]],
                  for item in pricing.get("items", []))
     return ("En la lista de precios figuran estos bordes: " + "; ".join(models) + "." +
             (" También figura la esquina para piscina." if corner else "") +
-            " ¿Cuáles son las medidas de tu piscina (largo × ancho en metros)?")
+            " ¿Cuál modelo te interesa?")
+
+
+def pool_measurement_message(message: str) -> bool:
+    """Recognize a pool size even when an earlier reply broke the question flow."""
+    return bool(_POOL_MEASUREMENTS.search(message or "") and _SIZE.search(message or ""))
 
 
 def delegates_piece_calculation(question: str, reply: str) -> bool:
@@ -210,6 +220,9 @@ def border_plan(message: str, history: list[dict[str, Any]]) -> tuple[dict[str, 
     if dimensions is None and any(re.search(r"\bpiscina\b", text, re.IGNORECASE)
                                   for text in latest_first):
         return None, _MEASUREMENT_QUESTION
+    if dimensions is not None and (min(dimensions) <= 0 or max(dimensions) > 50):
+        return None, ("Las medidas indicadas necesitan confirmación. "
+                      "¿Puedes confirmar el largo y ancho de tu piscina en metros?")
     product = next((text for text in latest_first if
                     _REJECT_PRODUCT.search(text) or _OTHER_PRODUCT.search(text) or
                     _PRODUCT.search(text)), None)
@@ -228,8 +241,7 @@ def border_plan(message: str, history: list[dict[str, Any]]) -> tuple[dict[str, 
     if dimensions is None:
         return None, _MEASUREMENT_QUESTION
     width, length = dimensions
-    if (min(dimensions) <= 0 or max(dimensions) > 50 or
-            any((side * 2) % 1 for side in dimensions)):
+    if any((side * 2) % 1 for side in dimensions):
         return None, "Necesito confirmar los cortes antes de darte una cantidad."
     perimeter = 2 * (width + length)
     straight = int(perimeter * 2)

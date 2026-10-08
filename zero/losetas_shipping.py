@@ -6,7 +6,7 @@ import re
 
 _SHIPPING_TOPIC = re.compile(
     r"\b(?:despach\w*|flete\w*|env[ií]o\w*|env[ií]an|enviamos|"
-    r"entrega\w*)\b",
+    r"entrega\w*)\b|\bllegan\s+(?:a|hasta)\s+\S+",
     re.IGNORECASE,
 )
 

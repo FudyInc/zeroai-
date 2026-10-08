@@ -2,6 +2,18 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-10-08-losetas-modelos-stefano-segunda-prueba",
+      "date": "2026-10-08",
+      "type": "incident",
+      "title": "Lista de modelos descartada tras medidas atípicas",
+      "origin": "Diego informó que el agente seguía respondiendo incongruencias a Stefano y no compartía el catálogo",
+      "summary": "En la segunda prueba real, dos preguntas por modelos recibieron un aviso genérico porque la respuesta de catálogo pedía otra vez las medidas 10 x 200 m y el control de repetición la descartó. Se preparó una lista repetible sin repreguntar medidas, confirmación de medidas fuera de rango y respuestas prudentes sobre pago/descuento; las consultas «llegan a <destino>» entran en cobertura de despacho. Diego informó que ya creó catálogos en WhatsApp Business.",
+      "status": "Correcciones en código local; enlace de catálogo y prueba real pendientes",
+      "scope": "Atención de LosetasChile en WhatsApp Web",
+      "evidence": "Chat real y eventos locales del 2026-10-08; la ficha activa no contenía medios de pago ni descuentos. Pruebas dirigidas reprodujeron y corrigieron el descarte de la lista. Documentación oficial de WhatsApp indica que el enlace de catálogo se copia desde la cuenta Business.",
+      "pending": "Recibir y verificar el enlace del catálogo creado por Diego, integrar y probar su envío; completar revisión y suite, activar correcciones en backend local y comprobar nueva conversación real. No se publicó en GitHub ni Vercel."
+    },
+    {
       "id": "2026-10-08-losetas-chat-stefano",
       "date": "2026-10-08",
       "type": "incident",
