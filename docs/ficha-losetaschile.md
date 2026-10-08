@@ -204,4 +204,7 @@ recto, la esquina y una extensión, pero no tiene imágenes de los bordes
 ballena. La lista puede cambiar en el almacén y se consulta en cada respuesta.
 El cálculo automático de piezas sigue verificado solo para borde recto con
 nariz de 50 cm y piscina rectangular; no se prometen cantidades ni stock de
-los demás modelos. La corrección aún requiere integración y prueba real nueva.
+los demás modelos. El commit `b5dd240` quedó activo en el backend local el
+2026-10-08: `/api/health` respondió bien y el puente de LosetasChile informó
+`ready`. Las respuestas corregidas todavía requieren una prueba real nueva;
+esto no confirma publicación en GitHub ni Vercel.
