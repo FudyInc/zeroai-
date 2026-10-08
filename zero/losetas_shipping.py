@@ -40,7 +40,17 @@ _DELIVERY_PROMPT = re.compile(r"\b(?:direcci[oó]n|ubicaci[oó]n|comuna|sector)\
 _SHIPPING_PROMPT = re.compile(
     r"\b(?:despach\w*|flete\w*|env[ií]o\w*|cobertura|entrega)\b", re.IGNORECASE)
 _NON_ADDRESS = {"hola", "gracias", "sí", "si", "no", "gris", "beige", "rojo",
-                "blanco", "crema", "amarillo", "anaranjado"}
+                "blanco", "crema", "amarillo", "anaranjado", "ok", "listo", "perfecto"}
+_OTHER_REQUEST = re.compile(
+    r"[¿?]|\b(?:qu[eé]|cu[aá]l(?:es)?|c[oó]mo|cu[aá]nto|d[oó]nde|"
+    r"modelos?|bordes?|pordes?|piscinas?|pastelones?|precios?|"
+    r"tienen|hay|necesito|quiero|busco|cotiz\w*)\b",
+    re.IGNORECASE,
+)
+_MIXED_PRODUCT_PROMPT = re.compile(
+    r"\b(?:modelos?|medidas?|esquinas?|piezas?|bordes?|pastelones?)\b",
+    re.IGNORECASE,
+)
 
 
 def shipping_coverage_request(message: str) -> bool:
@@ -64,13 +74,19 @@ def delivery_poll_choice_response(message: str) -> str | None:
 def shipping_delivery_followup(message: str, history: list[dict]) -> bool:
     """Recognize a short destination sent after the agent asks for delivery details."""
     content = " ".join((message or "").split())
-    if _LOCATION_MARKER.match(content) or _WRITTEN_ADDRESS.match(content):
+    if _LOCATION_MARKER.match(content):
         return True
-    if not history or len(content) < 3 or len(content) > 200 or content.casefold() in _NON_ADDRESS:
+    if _WRITTEN_ADDRESS.match(content):
+        return not _OTHER_REQUEST.search(content)
+    content = content.strip(" ¿?")
+    if (not history or len(content) < 3 or len(content) > 200 or
+            content.casefold() in _NON_ADDRESS or _OTHER_REQUEST.search(content) or
+            (len(content.split()) > 6 and not re.search(r"\d", content))):
         return False
     previous = history[-1]
     prompt = str(previous.get("text") or "") if previous.get("role") == "agent" else ""
-    return bool(_DELIVERY_PROMPT.search(prompt) and _SHIPPING_PROMPT.search(prompt))
+    return bool(_DELIVERY_PROMPT.search(prompt) and _SHIPPING_PROMPT.search(prompt) and
+                not _MIXED_PRODUCT_PROMPT.search(prompt))
 
 
 def delivery_detail(message: str, history: list[dict]) -> str | None:
@@ -86,7 +102,7 @@ def delivery_detail(message: str, history: list[dict]) -> str | None:
         if found:
             return f"Ubicación compartida: {found.group(1)}"
         found = _WRITTEN_ADDRESS.match(content)
-        if found:
+        if found and not _OTHER_REQUEST.search(content):
             return f"Dirección indicada: {found.group(1)[:200]}"
         if shipping_delivery_followup(content, turns[:index]):
             return f"Destino indicado: {content[:200]}"

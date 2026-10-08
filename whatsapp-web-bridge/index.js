@@ -7,6 +7,7 @@ const path = require('node:path')
 const { Client, LocalAuth, MessageMedia, Poll } = require('whatsapp-web.js')
 const QRCode = require('qrcode')
 const { serializedVoterId } = require('./delivery-poll')
+const { isCustomerMessageType } = require('./customer-message')
 
 const host = '127.0.0.1'
 const port = Number(process.env.WHATSAPP_WEB_BRIDGE_PORT || 8810)
@@ -102,6 +103,7 @@ async function forward(message) {
 async function normalizeMessage(msg) {
   const senderId = String(msg.from || '')
   if (msg.fromMe || (!senderId.endsWith('@c.us') && !senderId.endsWith('@lid'))) return null
+  if (!isCustomerMessageType(msg.type)) return null
   try {
     let from = senderId.endsWith('@c.us') ? senderId.split('@')[0] : null
     if (!from) {

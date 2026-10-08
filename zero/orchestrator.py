@@ -47,7 +47,8 @@ from .quotes import compute_quote, extract_request, format_quote, normalize_pric
 from .pool_border import (border_plan, delegates_piece_calculation,
                           format_product_quote, shipping_price_request,
                           measurement_followup, unquoted_piece_count,
-                          wants_border_budget, wants_product_quote)
+                          wants_border_budget, wants_product_quote,
+                          pool_border_models_reply)
 from .vendors import credentials_for
 from .whatsapp_context import select_history, select_knowledge
 
@@ -85,7 +86,8 @@ def _introduced_name(text: str) -> Optional[str]:
 
 def _simple_greeting(text: str) -> bool:
     value = (text or "").strip().casefold().strip(" ¡!¿?.,")
-    return (value in {"hola", "holi", "buenas", "buenos días", "buenos dias",
+    return (value in {"hola", "holi", "buenas", "hola buenas", "hola buen día",
+                      "hola buen dia", "buenos días", "buenos dias",
                       "buenas tardes", "buenas noches"}
             or _introduced_name(text) is not None)
 
@@ -1037,6 +1039,8 @@ class Zero:
             history = self.memory.get_conversation(
                 client_id, lead["key"], limit=None if local_whatsapp else 12)
         order_history = history or []
+        if client_id == "losetaschile" and channel == "whatsapp" and _simple_greeting(message):
+            return {"reply": "¡Hola! ¿En qué puedo ayudarte?", "intent": "general"}
         if client_id == "losetaschile" and channel == "whatsapp":
             choice_reply = delivery_poll_choice_response(message)
             if choice_reply:
@@ -1073,6 +1077,11 @@ class Zero:
         # agente — mismo patrón que project_funnel: el LLM redacta, nunca calcula.
         pricing = normalize_pricing(self.memory.get_client_pricing(client_id)) \
             if client_id else {"items": []}
+
+        if client_id == "losetaschile" and channel == "whatsapp":
+            models_reply = pool_border_models_reply(message, order_history, pricing)
+            if models_reply:
+                return {"reply": models_reply, "intent": "info"}
 
         selected_tone = (color_preference(message, order_history) or
                          latest_color_preference(order_history)) \

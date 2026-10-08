@@ -26,6 +26,11 @@ _MEASUREMENT_QUESTION = (
     "¿Cuáles son las medidas de tu piscina? "
     "Necesito largo y ancho en metros (por ejemplo, 6 × 3 m)."
 )
+_MODEL_QUESTION = re.compile(
+    r"\b(?:qu[eé]|cu[aá]les?)\s+(?:modelos?|tipos?)\b|"
+    r"\b(?:modelos?|tipos?)\s+(?:hay|tienen|disponibles?)\b",
+    re.IGNORECASE,
+)
 _SIZE = re.compile(
     r"\b(\d{1,2}(?:[.,]\d)?)\s*(?:m(?:etros?)?\s*)?"
     r"(?:x|×|por)\s*(\d{1,2}(?:[.,]\d)?)\s*(?:m(?:etros?)?)?\b",
@@ -107,6 +112,58 @@ _DELIVERY_DETAIL = re.compile(
 )
 
 
+def _one_edit_away(value: str, target: str) -> bool:
+    """Recognize one dropped, added or substituted letter in a product word."""
+    if abs(len(value) - len(target)) > 1:
+        return False
+    if len(value) == len(target):
+        return sum(left != right for left, right in zip(value, target)) == 1
+    shorter, longer = sorted((value, target), key=len)
+    return any(shorter == longer[:skip] + longer[skip + 1:]
+               for skip in range(len(longer)))
+
+
+def normalize_pool_border_terms(message: str) -> str:
+    """Correct a single typo in 'borde(s)' when the lead mentions a pool."""
+    if not re.search(r"\bpiscinas?\b", message or "", re.IGNORECASE):
+        return message or ""
+
+    def correct(match: re.Match[str]) -> str:
+        word = match.group()
+        folded = word.casefold()
+        if folded in {"borde", "bordes"}:
+            return word
+        if _one_edit_away(folded, "bordes") or _one_edit_away(folded, "borde"):
+            return "bordes"
+        return word
+
+    return re.sub(r"\b[a-záéíóúñ]{4,8}\b", correct, message, flags=re.IGNORECASE)
+
+
+def pool_border_models_reply(message: str, history: list[dict[str, Any]],
+                             pricing: dict[str, Any]) -> str | None:
+    """List current priced border models in a pool conversation, without quoting."""
+    if not _MODEL_QUESTION.search(message or ""):
+        return None
+    if re.search(r"\b(?:pastelones?|adoquines?|lajas?|ladrillos?|deck|dormientes?)\b",
+                 message, re.IGNORECASE):
+        return None
+    lead_text = " ".join(str(turn.get("text") or "") for turn in history
+                         if turn.get("role") == "lead")
+    context = normalize_pool_border_terms(f"{lead_text} {message}")
+    if not re.search(r"\b(?:piscinas?|bordes?)\b", context, re.IGNORECASE):
+        return None
+    models = [str(item["name"]).strip() for item in pricing.get("items", [])
+              if str(item.get("id") or "").startswith("borde-") and item.get("name")]
+    if not models:
+        return "Voy a confirmar los modelos de borde disponibles con el equipo."
+    corner = any(str(item.get("id") or "").startswith("esquina-piscina")
+                 for item in pricing.get("items", []))
+    return ("En la lista de precios figuran estos bordes: " + "; ".join(models) + "." +
+            (" También figura la esquina para piscina." if corner else "") +
+            " ¿Cuáles son las medidas de tu piscina (largo × ancho en metros)?")
+
+
 def delegates_piece_calculation(question: str, reply: str) -> bool:
     """Reject instructions to make the customer calculate a requested count."""
     return bool(_COUNT.search(question) and
@@ -132,7 +189,8 @@ def measurement_followup(message: str, history: list[dict[str, Any]]) -> bool:
 
 def border_plan(message: str, history: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, str]:
     """Return confirmed quantities or the one missing detail to ask for."""
-    lead_texts = [str(turn.get("text") or "") for turn in history
+    message = normalize_pool_border_terms(message)
+    lead_texts = [normalize_pool_border_terms(str(turn.get("text") or "")) for turn in history
                   if turn.get("role") == "lead"]
     if re.search(r"\b(?:terraza|interior|fondo|piso)\b", message, re.IGNORECASE):
         return None, "¿Te refieres al borde recto con nariz de la piscina o a otro producto?"
@@ -180,6 +238,7 @@ def border_plan(message: str, history: list[dict[str, Any]]) -> tuple[dict[str, 
 
 def wants_border_budget(message: str) -> bool:
     """Use the structured budget for a confirmed pool-border order."""
+    message = normalize_pool_border_terms(message)
     if _REJECT_PASTELON.search(message):
         return False
     if wants_product_quote(message) or (_COUNT.search(message) and _PIECES.search(message)):

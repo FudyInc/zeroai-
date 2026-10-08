@@ -2,6 +2,30 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-10-08-losetas-chat-stefano",
+      "date": "2026-10-08",
+      "type": "incident",
+      "title": "Fallos observados en la conversación de Stefano",
+      "origin": "Diego pidió analizar la conversación real de Stefano después de probar con otro número",
+      "summary": "La revisión del chat encontró una notificación técnica enviada al agente, dos saludos similares, una consulta con «pordes» que cayó al modelo y demoró cerca de un minuto, y una pregunta por modelos clasificada erróneamente como dirección. Se prepararon filtro de tipos entrantes, saludo inmediato, reconocimiento de la falta, clasificación más estricta del destino y respuesta de modelos desde el catálogo de precios activo.",
+      "status": "Corregido en código local; pendiente de integración y nueva prueba real",
+      "scope": "Puente WhatsApp Web y atención de LosetasChile",
+      "evidence": "Chat real y eventos locales del 2026-10-08; almacén activo mostró cuatro modelos de borde; pruebas dirigidas Python y Node aprobadas. El mensaje saliente «.» no tiene origen atribuido con certeza.",
+      "pending": "Completar suite y revisión, integrar en backend local, comprobar saludo, falta de ortografía y modelos en conversación nueva. Verificar por separado el origen del mensaje «.» si vuelve a aparecer."
+    },
+    {
+      "id": "2026-10-08-losetas-typo-pordes",
+      "date": "2026-10-08",
+      "type": "change",
+      "title": "Reconocer «pordes» como bordes de piscina",
+      "origin": "Diego probó con otro número, informó falta de respuesta y luego señaló que el bot debía reconocer «pordes»",
+      "summary": "El mensaje real entró, pero la falta de una letra evitó el flujo determinista y el modelo pidió varios datos juntos después de cerca de un minuto. Se preparó normalización acotada a una edición en borde/bordes cuando se menciona piscina; el flujo responde pidiendo primero largo y ancho.",
+      "status": "Corregido en código local; pendiente de integración y nueva prueba real",
+      "scope": "Agente de bordes de piscina de LosetasChile y reconocimiento de mensajes entrantes",
+      "evidence": "Evento real con «necesito pordes para mi piscina» completado; chat Web mostró respuesta saliente cerca de un minuto después que solicitaba modelo, medidas, esquinas y comuna. Prueba dirigida comprobó que pordes/bordez/bodes ahora preguntan solo largo y ancho sin llamar al modelo.",
+      "pending": "Completar revisión y suite, integrar en backend local y probar un mensaje nuevo con la falta de ortografía. No reprocesar el evento anterior."
+    },
+    {
       "id": "2026-10-08-losetas-encuesta-entrega",
       "date": "2026-10-08",
       "type": "change",

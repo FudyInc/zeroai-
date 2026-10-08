@@ -167,3 +167,41 @@ activa pasaron el 2026-10-08. El commit `efac647` quedó en `main` local; el
 backend reinició con `/api/health` correcto y el puente reportó `ready`.
 La recepción real del voto y la visualización de la encuesta siguen pendientes
 de una prueba nueva en WhatsApp; no se ha enviado una encuesta real todavía.
+
+## Faltas simples en «bordes» — verificado en código local el 2026-10-08
+
+En una prueba desde otro número, el cliente escribió «necesito pordes para mi
+piscina». El puente recibió el mensaje y el evento se completó, pero la
+respuesta demoró cerca de un minuto porque la falta de ortografía evitó el
+flujo determinista y la consulta llegó al modelo. El agente pidió modelo,
+medidas, esquinas y comuna juntos. Diego indicó que debe entender esa falta y
+seguir con la pregunta inicial de medidas.
+
+El flujo local ahora corrige una letra agregada, omitida o sustituida en
+«borde»/«bordes» cuando el mensaje menciona piscina. «pordes», «bordez» y
+«bodes» se enrutan al flujo de piscina; si faltan medidas, la respuesta pide
+solo largo y ancho en metros. El texto original del cliente permanece en el
+historial. La prueba real posterior a este cambio sigue pendiente.
+
+## Conversación de Stefano — análisis del 2026-10-08
+
+La conversación real desde otro número mostró una notificación técnica de
+WhatsApp que llegó al agente como entrada de cliente, dos saludos casi iguales,
+una consulta «necesito pordes para mi piscina» que tardó cerca de un minuto y
+pidió cuatro datos juntos, y «¿qué modelos hay?» respondida erróneamente como
+si fuera una dirección de entrega. No se pudo atribuir con certeza el mensaje
+saliente «.» que también aparece al inicio del chat.
+
+El código local ahora excluye tipos de notificación del puente antes de crear
+un evento, responde saludos simples sin esperar al modelo, acota la detección
+de dirección para no clasificar preguntas de producto como destino y reconoce
+«pordes» en contexto de piscina. La pregunta por modelos de borde en una
+conversación de piscina usa los nombres del catálogo de precios activo. En la
+revisión del almacén local figuraban borde recto con nariz 50x50, borde
+ballena 50x40, borde ballena curvo 23x40 y borde ballena nariz 50x50; también
+figura esquina piscina 50x50. La ficha visual versionada incluye fotos del
+recto, la esquina y una extensión, pero no tiene imágenes de los bordes
+ballena. La lista puede cambiar en el almacén y se consulta en cada respuesta.
+El cálculo automático de piezas sigue verificado solo para borde recto con
+nariz de 50 cm y piscina rectangular; no se prometen cantidades ni stock de
+los demás modelos. La corrección aún requiere integración y prueba real nueva.
