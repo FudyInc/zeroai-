@@ -251,7 +251,8 @@ async function sendAndConfirm(chatId, content, options, matchesCreated, expected
           .find(item => item.id?._serialized === id)
         const message = (chat?.msgs?.getModelsArray?.() || [])
           .find(item => item.id?.fromMe && item.type === kind &&
-            item.body === body && (item.t || 0) >= since)
+            (kind === 'image' ? item.caption : item.body) === body &&
+            (item.t || 0) >= since)
         const rawId = message?.id?._serialized || message?.id?.toString?.()
         return rawId && rawId !== '[object Object]'
           ? { id: rawId, ack: message.ack ?? null } : null
@@ -441,7 +442,8 @@ const server = http.createServer(async (req, res) => {
       const media = MessageMedia.fromFilePath(imagePath)
       await prepareMediaSend()
       const result = await sendAndConfirm(chatId, media, { caption }, message =>
-        message.type === 'image' && message.body === caption, 'image', caption)
+        message.type === 'image' && (message.caption === caption ||
+          message._data?.caption === caption), 'image', caption)
       return result ? respond(res, 200, result)
         : respond(res, 502, { error: 'Image send outcome uncertain; review chat before retry' })
     } catch (err) {
