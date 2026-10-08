@@ -61,6 +61,17 @@ observó subtotal automático. Falta comprobar la pregunta por medidas ausentes
 desde un chat sin historial y un envío nuevo de imagen con confirmación del
 puente sin intervención manual.
 
+**Acuse de color 2026-10-08:** Diego reportó que no recibió mensaje tras
+responder «gris». El silencio era el comportamiento anterior: el presupuesto
+solo se mandaba al grupo. El backend local ahora envía una confirmación breve
+del color después de la aceptación por el grupo, sin mostrar importe alguno.
+Si ese acuse falla, el evento queda para revisión; la firma del presupuesto
+ya está guardada y evita un segundo envío al grupo. Una sola confirmación del
+caso existente se entregó al chat de prueba con acuse 2 y quedó registrada en
+la memoria activa. El subtotal continuó ausente del chat del cliente. La suite
+Python completa aprobó 1054 pruebas. Falta ver el nuevo acuse automático en un
+pedido posterior.
+
 **Prueba temporal de Qwen 3 2026-10-07:** el backend WhatsApp usó Qwen 3 de
 14B durante una prueba desde el teléfono de Diego. Se observó un saludo y una
 respuesta de subtotal; el subtotal vino del cotizador activo y no mide la

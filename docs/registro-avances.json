@@ -2,6 +2,18 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-10-08-losetas-acuse-color",
+      "date": "2026-10-08",
+      "type": "change",
+      "title": "Confirmación al cliente tras enviar presupuesto a revisión",
+      "origin": "Diego informó que el bot no respondió en su chat después de indicar el color gris",
+      "summary": "El presupuesto de gris ya estaba visible en el grupo interno y no había respuesta al cliente porque el flujo anterior guardaba silencio. El backend local ahora envía un acuse breve del color solo después de que el grupo acepte el presupuesto, sin precio ni subtotal. Si el acuse falla, deja el evento para revisión y conserva la deduplicación del presupuesto. Se envió una sola confirmación al chat de prueba existente.",
+      "status": "Cambio activo en backend local; acuse del caso existente entregado; siguiente caso automático pendiente",
+      "scope": "Conversación WhatsApp Web de LosetasChile y presupuesto interno",
+      "evidence": "Evento real «gris» completado; presupuesto previo visible en «Presuouesto losetas ia» y subtotal ausente del chat del cliente. Main local incorporó eece455, backend reiniciado con /api/health OK y puente ready; acuse sin importe apareció una sola vez en el chat con ack 2 y se registró en memoria/CRM. Suite de 1054 pruebas Python aprobada el 2026-10-08.",
+      "pending": "Comprobar en un pedido nuevo que el acuse se envíe automáticamente después del presupuesto al grupo. El envío del presupuesto al cliente sigue siendo manual; no se publicó en GitHub ni Vercel."
+    },
+    {
       "id": "2026-10-08-losetas-imagen-media-web",
       "date": "2026-10-08",
       "type": "incident",

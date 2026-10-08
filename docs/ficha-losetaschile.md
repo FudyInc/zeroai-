@@ -103,3 +103,11 @@ losetas ia»: nombre de perfil encima del número, 36 bordes, 4 esquinas,
 color gris y total de productos $230.400, con despacho por cotizar. El chat del
 cliente no mostró el subtotal. El envío del presupuesto al cliente sigue a
 cargo de una persona.
+
+Diego observó que, tras elegir «gris», el bot no respondió en su chat: el
+flujo anterior guardaba silencio mientras el presupuesto iba al grupo. El
+2026-10-08 se activó un acuse breve que confirma el color **solo después** de
+que el grupo acepte el presupuesto, sin importes ni líneas. Se envió una sola
+confirmación al chat de prueba existente y WhatsApp mostró acuse 2; el
+subtotal siguió ausente del chat del cliente. Falta observar este acuse en un
+pedido nuevo procesado íntegramente por el flujo automático.
