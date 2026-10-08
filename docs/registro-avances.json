@@ -2,16 +2,28 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-10-08-losetas-imagen-media-web",
+      "date": "2026-10-08",
+      "type": "incident",
+      "title": "Imagen de colores entregada tras corregir el puente WhatsApp Web",
+      "origin": "Diego informó que el bot no contestó a la prueba real de bordes de piscina",
+      "summary": "El agente preparó la imagen, pero whatsapp-web.js falló por una colisión del ID interno del archivo multimedia con el mensaje. Se corrigió el puente sin instalar dependencias. Una reanudación controlada creó una sola imagen con acuse 2; la confirmación se ajustó para buscar la descripción en caption. La pregunta de color quedó registrada tras comprobar la entrega, sin reenviar la imagen. Diego confirmó la imagen y respondió gris; el presupuesto llegó al grupo interno y no al chat del cliente.",
+      "status": "Imagen y presupuesto interno verificados en WhatsApp real; corrección de confirmación pendiente de un envío nuevo",
+      "scope": "Puente WhatsApp Web y conversación de prueba de LosetasChile",
+      "evidence": "Dos eventos reales quedaron en needs_review con el mismo error de media; antes de reanudar no había imagen saliente en el chat; el fallo coincide con https://github.com/wwebjs/whatsapp-web.js/issues/201922; main local incorporó c0e4318 y a77bfed; /api/health OK y puente ready; el chat Web mostró una imagen saliente con caption exacta, ID válido y ack 2; Diego confirmó recepción y respondió gris; el evento de color quedó completado y el grupo mostró presupuesto con nombre encima de número, 36 bordes, 4 esquinas, gris, $230.400 en productos y despacho pendiente; no apareció subtotal en el chat del cliente. No se registraron identificadores ni datos personales del contacto.",
+      "pending": "Verificar con un envío nuevo que el puente informe confirmación de imagen sin resultado incierto. El presupuesto continúa bajo revisión y envío manual; comprobar la pregunta por medidas ausentes desde un chat nuevo."
+    },
+    {
       "id": "2026-10-08-losetas-medidas-qwen3",
       "date": "2026-10-08",
       "type": "decision",
       "title": "Medidas al inicio y Qwen 3 como modelo de WhatsApp",
       "origin": "Diego pidió consultar temprano el largo y ancho de la piscina cuando falten, y sustituir Qwen 2.5 por Qwen 3 en el bot tras preferir su razonamiento en la prueba real",
       "summary": "El flujo de bordes pregunta por largo y ancho en metros antes del modelo si faltan medidas; una respuesta posterior con medidas continúa el pedido. Se preparó Qwen 3 de 14B como modelo propio de WhatsApp para conservar Qwen 2.5 en los otros agentes.",
-      "status": "Activo en backend local; conversación nueva de extremo a extremo pendiente",
+      "status": "Activo en backend local; imagen y presupuesto al grupo probados en WhatsApp real; pregunta por medidas faltantes aún sin prueba real",
       "scope": "Agente de LosetasChile y configuración del modelo del canal WhatsApp",
       "evidence": "Qwen 3 ya estaba instalado localmente; prueba real temporal anterior con redacción preferida por Diego y mayor latencia; main local incorporó 40ae616, se configuró WHATSAPP_MODEL=qwen3:14b y se reinició el backend con /api/health OK y puente Web ready; la configuración cargada seleccionó Qwen 3 solo para WhatsApp y ollama ps lo mostró al 100% en GPU; simulación sin envío respondió con Qwen 3 y otra pidió largo y ancho cuando faltaban; pruebas de flujo, aislamiento del modelo y suite de 1053 pruebas Python aprobadas el 2026-10-08.",
-      "pending": "Repetir el recorrido real desde el cliente: pregunta de medidas, imagen de color y presupuesto solo al grupo; evaluar la latencia de Qwen 3 en mensajes nuevos. No se publicó en GitHub ni Vercel."
+      "pending": "Probar desde un chat sin medidas la pregunta inicial y evaluar la latencia de Qwen 3 en mensajes que sí requieran redacción del modelo. No se publicó en GitHub ni Vercel."
     },
     {
       "id": "2026-10-08-losetas-prueba-chat-pausado",
@@ -32,10 +44,10 @@
       "title": "Gama de colores y presupuesto para revisión humana en LosetasChile",
       "origin": "Diego pidió preguntar el color, enviar la imagen del catálogo y dirigir el presupuesto con nombre de perfil opcional y número obligatorio a un grupo de revisión separado",
       "summary": "Se incorporó la imagen entregada por Diego con siete colores etiquetados y se preparó en código local el envío de imagen y la pregunta de color. El presupuesto estructurado incluye nombre de perfil si existe, número, color, líneas y total de productos; no se envía automáticamente al cliente. Diego confirmó que el color no cambia el precio y creó «Presuouesto losetas ia» como grupo de revisión distinto de «Losetas Diego».",
-      "status": "Activo en backend local; mensaje técnico al grupo comprobado; recorrido real del cliente pendiente",
+      "status": "Activo en backend local; imagen y presupuesto para revisión comprobados en WhatsApp real",
       "scope": "Agente WhatsApp Web de LosetasChile, catálogo visual, borrador interno y documentación",
       "evidence": "Imagen proporcionada por Diego y revisada el 2026-10-08 (JPEG 738 × 1600); catálogo activo consultado en solo lectura; el puente Web activo mostró «Presuouesto losetas ia» y «Losetas Diego» como grupos distintos; main local incorporó bc37b65 y el backend reinició con /api/health OK y puente ready; un mensaje técnico sin datos de clientes fue aceptado y apareció en el grupo, y Diego confirmó su recepción; pruebas locales de imagen, color, nombre/número y no envío al cliente, suite completa de 1048 pruebas Python, sintaxis del puente y git diff --check aprobados.",
-      "pending": "Comprobar con un mensaje nuevo el envío real de la imagen, elección de color y presupuesto al grupo sin subtotal automático al cliente. No se publicó en GitHub ni Vercel. Confirmar disponibilidad de cada color antes de prometer stock."
+      "pending": "Mantener envío del presupuesto al cliente bajo control manual; confirmar disponibilidad de cada color antes de prometer stock. Probar una imagen nueva con confirmación automática del puente. No se publicó en GitHub ni Vercel."
     },
     {
       "id": "2026-10-07-prueba-real-qwen3-temporal",

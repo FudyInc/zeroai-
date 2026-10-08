@@ -41,7 +41,25 @@ para mantener Qwen 2.5 en los otros agentes. El servicio reinició con
 respuesta de Qwen 3 y otra preguntó por medidas cuando faltaban. Pasaron 1053
 pruebas Python. La muestra previa fue pequeña y Qwen 3 tardó más (la nueva
 simulación demoró unos 24 s). Falta verificar un mensaje nuevo de extremo a
-extremo por WhatsApp. Estos ajustes no se han publicado en GitHub ni Vercel.
+extremo por WhatsApp para la pregunta de medidas ausentes. Estos ajustes no se
+han publicado en GitHub ni Vercel.
+
+**Prueba real de imagen 2026-10-08:** la consulta de bordes 6 × 3 llegó al
+backend, pero `whatsapp-web.js` falló al construir la imagen por una colisión
+de su ID interno de medios con el del mensaje. Coincide con el reporte
+<https://github.com/wwebjs/whatsapp-web.js/issues/201922>. Se aisló ese campo
+en el puente. Una reanudación manual, tras comprobar que no había imagen en el
+chat, creó una imagen con descripción correcta; WhatsApp mostró acuse 2. El
+puente la marcó incierta porque comparaba la descripción con `body`; se cambió
+la confirmación para usar `caption`. Se comprobó la imagen entregada, se
+registró la pregunta de color en la conversación y se cerró solo el último
+evento. No se envió una copia adicional. Diego confirmó la imagen y respondió
+«gris». El evento quedó completado; el presupuesto fue visible en «Presuouesto
+losetas ia» con nombre sobre número, 36 bordes, 4 esquinas, color gris, total
+de productos $230.400 y despacho por cotizar. En el chat del cliente no se
+observó subtotal automático. Falta comprobar la pregunta por medidas ausentes
+desde un chat sin historial y un envío nuevo de imagen con confirmación del
+puente sin intervención manual.
 
 **Prueba temporal de Qwen 3 2026-10-07:** el backend WhatsApp usó Qwen 3 de
 14B durante una prueba desde el teléfono de Diego. Se observó un saludo y una

@@ -73,8 +73,8 @@ mensaje nuevo de prueba. El código aún no está publicado en GitHub ni Vercel.
 Diego confirmó el 2026-10-08 que recibió la prueba técnica en el grupo.
 El primer mensaje de prueba del cliente no obtuvo respuesta porque el chat
 conservaba una pausa de automatización anterior. Esa pausa se liberó y se
-verificó; no se reprocesó el mensaje anterior. El recorrido completo continúa
-pendiente de un mensaje nuevo con medidas.
+verificó; no se reprocesó el mensaje anterior. La prueba posterior se describe
+más abajo.
 
 ## Medidas al inicio — activo en backend local el 2026-10-08
 
@@ -85,4 +85,21 @@ dio las medidas, no las vuelve a solicitar. Una respuesta posterior como
 «6x3 m» continúa el pedido hacia la confirmación de modelo, forma y color.
 El presupuesto sigue dirigido solo al grupo interno para revisión manual.
 Una simulación con la configuración activa preguntó por largo y ancho cuando
-faltaban medidas; la conversación real después de este cambio sigue pendiente.
+faltaban medidas. Una prueba real posterior entregó las medidas en el mensaje
+inicial; falta comprobar la pregunta por medidas faltantes desde un chat nuevo.
+
+## Imagen de colores por WhatsApp — verificado el 2026-10-08
+
+El mensaje real con piscina rectangular de 6 × 3 llegó al agente, pero el
+primer envío de la imagen falló por una incompatibilidad de `whatsapp-web.js`
+con el identificador interno de archivos multimedia. Se ajustó el puente sin
+cambiar la dependencia. En una reanudación controlada, WhatsApp confirmó la
+imagen con acuse 2; el puente había informado resultado incierto porque buscó
+el texto en el cuerpo de la imagen en lugar de su descripción. Se corrigió
+también esa comprobación. La imagen no se reenvió: se registró la pregunta de
+color tras verificar la entrega. Diego confirmó la recepción y respondió
+«gris». El evento se completó y el presupuesto apareció solo en «Presuouesto
+losetas ia»: nombre de perfil encima del número, 36 bordes, 4 esquinas,
+color gris y total de productos $230.400, con despacho por cotizar. El chat del
+cliente no mostró el subtotal. El envío del presupuesto al cliente sigue a
+cargo de una persona.
