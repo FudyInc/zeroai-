@@ -23,6 +23,7 @@ visible en el grupo, sin datos de clientes. Pasaron 1048 pruebas Python y la
 revisión de sintaxis del puente. Falta comprobar el recorrido real de imagen,
 elección de color y presupuesto con un mensaje nuevo desde el teléfono de Diego.
 El cambio aún no se publicó en GitHub ni en Vercel.
+Diego confirmó después que la prueba técnica llegó al grupo correcto.
 
 **Prueba temporal de Qwen 3 2026-10-07:** el backend WhatsApp usó Qwen 3 de
 14B durante una prueba desde el teléfono de Diego. Se observó un saludo y una

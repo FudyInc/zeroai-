@@ -70,3 +70,4 @@ El destino quedó configurado en el backend local el 2026-10-08. Un mensaje
 técnico sin datos de clientes fue aceptado y apareció en el grupo. Falta
 comprobar el recorrido real de imagen, elección de color y presupuesto con un
 mensaje nuevo de prueba. El código aún no está publicado en GitHub ni Vercel.
+Diego confirmó el 2026-10-08 que recibió la prueba técnica en el grupo.
