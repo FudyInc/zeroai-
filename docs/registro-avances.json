@@ -8,10 +8,10 @@
       "title": "Medidas al inicio y Qwen 3 como modelo de WhatsApp",
       "origin": "Diego pidió consultar temprano el largo y ancho de la piscina cuando falten, y sustituir Qwen 2.5 por Qwen 3 en el bot tras preferir su razonamiento en la prueba real",
       "summary": "El flujo de bordes pregunta por largo y ancho en metros antes del modelo si faltan medidas; una respuesta posterior con medidas continúa el pedido. Se preparó Qwen 3 de 14B como modelo propio de WhatsApp para conservar Qwen 2.5 en los otros agentes.",
-      "status": "Implementado y probado en checkout local; activación del servicio pendiente",
+      "status": "Activo en backend local; conversación nueva de extremo a extremo pendiente",
       "scope": "Agente de LosetasChile y configuración del modelo del canal WhatsApp",
-      "evidence": "Qwen 3 ya estaba instalado localmente; prueba real temporal anterior con redacción preferida por Diego y mayor latencia; pruebas de pregunta inicial, respuesta con medidas, aislamiento del modelo y suite de 1053 pruebas Python aprobadas el 2026-10-08.",
-      "pending": "Integrar en el backend activo, configurar WHATSAPP_MODEL=qwen3:14b solo para WhatsApp, reiniciar y comprobar el estado real. Luego repetir el recorrido de cliente: medidas, imagen de color y presupuesto solo al grupo."
+      "evidence": "Qwen 3 ya estaba instalado localmente; prueba real temporal anterior con redacción preferida por Diego y mayor latencia; main local incorporó 40ae616, se configuró WHATSAPP_MODEL=qwen3:14b y se reinició el backend con /api/health OK y puente Web ready; la configuración cargada seleccionó Qwen 3 solo para WhatsApp y ollama ps lo mostró al 100% en GPU; simulación sin envío respondió con Qwen 3 y otra pidió largo y ancho cuando faltaban; pruebas de flujo, aislamiento del modelo y suite de 1053 pruebas Python aprobadas el 2026-10-08.",
+      "pending": "Repetir el recorrido real desde el cliente: pregunta de medidas, imagen de color y presupuesto solo al grupo; evaluar la latencia de Qwen 3 en mensajes nuevos. No se publicó en GitHub ni Vercel."
     },
     {
       "id": "2026-10-08-losetas-prueba-chat-pausado",

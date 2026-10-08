@@ -30,14 +30,18 @@ anterior no interpretable. No se envió respuesta. La pausa de ese chat de
 prueba se liberó y se comprobó el estado nuevo el 2026-10-08; el mensaje
 anterior no se reprocesó. Falta un mensaje nuevo con las medidas completas.
 
-**Ajustes locales del 2026-10-08, pendientes de activar:** las consultas por
+**Ajustes activos en el backend local el 2026-10-08:** las consultas por
 bordes de piscina sin largo y ancho preguntan primero por las medidas en
 metros. La respuesta a esa pregunta continúa el flujo sin depender del modelo.
 Diego prefirió Qwen 3 de 14B tras la prueba temporal y pidió dejarlo como
 modelo habitual de WhatsApp. Se añadió una configuración específica del canal
-para mantener el modelo de los otros agentes; la muestra previa fue pequeña y
-Qwen 3 tardó más. Pasaron 1053 pruebas Python. Falta activar el servicio y
-comprobar que el bot indique Qwen 3 como modelo real.
+para mantener Qwen 2.5 en los otros agentes. El servicio reinició con
+`WHATSAPP_MODEL=qwen3:14b`, `/api/health` respondió OK, el puente Web quedó
+`ready` y `ollama ps` mostró Qwen 3 en GPU. Una simulación sin envío devolvió
+respuesta de Qwen 3 y otra preguntó por medidas cuando faltaban. Pasaron 1053
+pruebas Python. La muestra previa fue pequeña y Qwen 3 tardó más (la nueva
+simulación demoró unos 24 s). Falta verificar un mensaje nuevo de extremo a
+extremo por WhatsApp. Estos ajustes no se han publicado en GitHub ni Vercel.
 
 **Prueba temporal de Qwen 3 2026-10-07:** el backend WhatsApp usó Qwen 3 de
 14B durante una prueba desde el teléfono de Diego. Se observó un saludo y una
