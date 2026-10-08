@@ -8,8 +8,44 @@ Vercel informó un despliegue de producción `Ready` el mismo día.
 el 2026-10-06 23:41 Chile, antes de la corrección del cálculo de bordes.
 El catálogo activo de LosetasChile ya incluye el esquinero; el subtotal de
 productos de un pedido 6 × 3 m se calculó con historial y precios reales en una
-simulación sin envío. Faltan una respuesta real de ese subtotal por WhatsApp y
-una conversación real de ZeroAI por Meta.
+simulación sin envío. El 2026-10-07 se observó un subtotal real por WhatsApp
+tras «Okay el presupuesto»; lo calculó el código activo, no Qwen 3. Falta una
+conversación real de ZeroAI por Meta.
+
+**Flujo de LosetasChile preparado localmente 2026-10-08:** la imagen entregada
+por Diego muestra siete colores etiquetados. El agente la enviará por WhatsApp
+Web, recogerá el color elegido y preparará un presupuesto interno con nombre de
+perfil opcional y número obligatorio. Ese presupuesto no se enviará
+automáticamente al cliente. La ruta de grupo falla de forma segura si no hay
+grupo de revisión configurado o verificado. Diego creará un grupo nuevo para
+revisar presupuestos; el grupo existente «Losetas Diego» no se usará para eso.
+Pruebas locales y sintaxis del puente correctas; faltan grupo, integración del
+checkout activo, despliegue y prueba real de imagen y aceptación por el grupo.
+
+**Prueba temporal de Qwen 3 2026-10-07:** el backend WhatsApp usó Qwen 3 de
+14B durante una prueba desde el teléfono de Diego. Se observó un saludo y una
+respuesta de subtotal; el subtotal vino del cotizador activo y no mide la
+calidad del modelo. Se restauró Qwen 2.5; `/api/health` y el puente Web
+respondieron correctamente. El resto de agentes mantuvo su modelo.
+
+**Evaluación de modelo local 2026-10-07:** el servicio sigue configurado con
+`qwen2.5:14b-instruct-q4_K_M`. La máquina tiene una RTX 5060 Ti de 16 GB.
+Se descargó `qwen3:14b` para una comparación local sin mensajes a clientes ni
+cambio del backend. Con la ficha versionada de ZeroAI en memoria temporal,
+ambos respondieron cuatro consultas comerciales sin cifras o garantías
+inventadas. Qwen 2.5 tardó 2,3–9,6 s por consulta; Qwen 3 tardó 5,6–19,5 s
+con razonamiento y 5,5–12 s sin él. La muestra es pequeña y no prueba una
+mejora general. El modelo activo volvió a quedar cargado en GPU. Para evaluar
+un modelo de mayor tamaño en esta máquina hace falta considerar más VRAM;
+queda pendiente una comparación representativa antes de cambiar producción.
+
+**Incidente 2026-10-07:** una conversación real de LosetasChile respondió
+«alrededor de 18 pastelones» a «Necesito pastelones». Esa frase no pedía un
+cálculo y llegó al LLM. Diego precisó que, con el pedido ya confirmado, el
+motor debe guardar las cantidades y enviar el presupuesto con total, sin
+explicar las piezas en una frase suelta. La corrección local usa el cotizador
+estructurado y deriva cifras no respaldadas del modelo a revisión. Queda
+pendiente su publicación y comprobación en una conversación nueva.
 
 **Comprobación 2026-10-07:** el backend respondió a `/api/health` con el
 subtotal de productos y la segunda corrección de bordes ya en `main`. Después

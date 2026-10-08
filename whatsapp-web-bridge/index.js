@@ -4,7 +4,7 @@ const http = require('node:http')
 const crypto = require('node:crypto')
 const fs = require('node:fs')
 const path = require('node:path')
-const { Client, LocalAuth } = require('whatsapp-web.js')
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js')
 const QRCode = require('qrcode')
 
 const host = '127.0.0.1'
@@ -26,6 +26,16 @@ const recentEvents = []
 const sessionDir = path.resolve(process.env.WHATSAPP_WEB_SESSION_DIR || path.join(__dirname, '.session'))
 const pendingFile = path.resolve(process.env.WHATSAPP_WEB_PENDING_FILE || path.join(sessionDir, 'inbound-pending.json'))
 const clientId = process.env.WHATSAPP_WEB_CLIENT_ID || ''
+const catalogImages = new Set([
+  'gama-bordes-piscina.jpeg',
+  'borde-recto-nariz-50x50.png', 'ladrillo-cruzado-40x40.jpeg',
+  'sol-40x40.jpeg', 'sol-rustico-40x40.jpeg', 'flor-de-lis-40x40.jpeg',
+  'adoquin-40x40.jpeg', 'laja-espanola-40x40.jpeg',
+  'dormiente-1-16x40.jpeg', 'dormiente-2-16x40.jpeg',
+  'deck-50x50.jpeg', 'esquina-piscina-50x50.jpeg',
+  'extension-borde-piscina-50x50.jpeg',
+])
+const catalogDir = path.resolve(__dirname, '../frontend/public/catalog/losetaschile')
 function loadPending() {
   try { return new Map(JSON.parse(fs.readFileSync(pendingFile, 'utf8')).map(item => [item.id, item])) }
   catch (err) {
@@ -103,10 +113,16 @@ async function normalizeMessage(msg) {
       return null
     }
     const body = msg.type === 'chat' ? msg.body : `[${msg.type || 'mensaje'}]`
+    let contact = null
+    try { contact = await msg.getContact() } catch (_) { /* Nombre opcional. */ }
+    const profileName = String(contact?.pushname || msg?._data?.notifyName || '')
+      .replace(/\s+/g, ' ').trim().slice(0, 80)
     const messageId = msg.id?._serialized || msg.id
-    return { id: clientId ? `${clientId}:${messageId}` : messageId,
+    const payload = { id: clientId ? `${clientId}:${messageId}` : messageId,
       from, chat_id: senderId, text: body,
       to_phone_id: account || client.info?.wid?.user || '' }
+    if (/\p{L}/u.test(profileName)) payload.profile_name = profileName
+    return payload
   } catch (err) {
     lastError = `Mensaje entrante: ${err.message}`
     console.error(lastError)
@@ -207,6 +223,43 @@ async function selectedChat(id) {
 function messageId(message) {
   const id = message?.id?._serialized || message?.id?.toString?.()
   return typeof id === 'string' && id !== '[object Object]' ? id : null
+}
+
+async function sendAndConfirm(chatId, content, options, matchesCreated, expectedType, expectedBody) {
+  let confirmCreated
+  const created = new Promise(resolve => { confirmCreated = resolve })
+  const onCreated = message => {
+    const destination = message.to?._serialized || String(message.to || '')
+    const id = messageId(message)
+    if (message.fromMe && destination === chatId && id && matchesCreated(message)) {
+      confirmCreated({ id, ack: message.ack ?? null })
+    }
+  }
+  client.on('message_create', onCreated)
+  try {
+    const startedAt = Math.floor(Date.now() / 1000)
+    const sent = await client.sendMessage(chatId, content, {
+      sendSeen: false, waitUntilMsgSent: true, ...options,
+    })
+    const sentId = messageId(sent)
+    let confirmed = sentId ? { id: sentId, ack: sent.ack ?? null } : await Promise.race([
+      created, new Promise(resolve => setTimeout(() => resolve(null), 3000)),
+    ])
+    if (!confirmed?.id) {
+      confirmed = await client.pupPage.evaluate((id, kind, body, since) => {
+        const chat = window.require('WAWebCollections').Chat.getModelsArray()
+          .find(item => item.id?._serialized === id)
+        const message = (chat?.msgs?.getModelsArray?.() || [])
+          .find(item => item.id?.fromMe && item.type === kind &&
+            item.body === body && (item.t || 0) >= since)
+        const rawId = message?.id?._serialized || message?.id?.toString?.()
+        return rawId && rawId !== '[object Object]'
+          ? { id: rawId, ack: message.ack ?? null } : null
+      }, chatId, expectedType, expectedBody, startedAt)
+    }
+    if (!confirmed?.id) return null // Outcome unknown. Never retry automatically.
+    return confirmed
+  } finally { client.off('message_create', onCreated) }
 }
 
 const server = http.createServer(async (req, res) => {
@@ -326,6 +379,48 @@ const server = http.createServer(async (req, res) => {
     } catch (err) {
       lastError = `Replay: ${err.message}`
       return respond(res, 502, { error: lastError })
+    }
+  }
+  if (req.method === 'POST' && (req.url === '/send-group' || req.url === '/send-catalog-image')) {
+    if (state !== 'ready') return respond(res, 503, { error: 'WhatsApp Web is not ready' })
+    let raw = ''
+    for await (const chunk of req) {
+      raw += chunk
+      if (raw.length > 20000) return respond(res, 413, { error: 'too large' })
+    }
+    try {
+      const body = JSON.parse(raw)
+      if (req.url === '/send-group') {
+        const groupId = String(body.group_id || '')
+        const text = String(body.text || '').trim()
+        if (!/^[0-9-]{8,40}@g\.us$/.test(groupId) || !text || text.length > 4096) {
+          return respond(res, 400, { error: 'invalid group or text' })
+        }
+        const group = await selectedChat(groupId)
+        if (!group?.isGroup) return respond(res, 404, { error: 'group not found on this account' })
+        const result = await sendAndConfirm(groupId, text, {}, message =>
+          message.type === 'chat' && message.body === text, 'chat', text)
+        return result ? respond(res, 200, result)
+          : respond(res, 502, { error: 'Group send outcome uncertain; review chat before retry' })
+      }
+      const number = String(body.to || '').replace(/\D/g, '')
+      const chatId = String(body.chat_id || `${number}@c.us`)
+      const image = String(body.image || '')
+      const caption = String(body.caption || '').trim()
+      if (!/^\d{8,15}$/.test(number) || !/^\d{8,20}@(c\.us|lid)$/.test(chatId) ||
+          (chatId.endsWith('@c.us') && chatId.split('@')[0] !== number) ||
+          !catalogImages.has(image) || !caption || caption.length > 1024) {
+        return respond(res, 400, { error: 'invalid recipient, catalog image or caption' })
+      }
+      const imagePath = path.resolve(catalogDir, image)
+      const media = MessageMedia.fromFilePath(imagePath)
+      const result = await sendAndConfirm(chatId, media, { caption }, message =>
+        message.type === 'image' && message.body === caption, 'image', caption)
+      return result ? respond(res, 200, result)
+        : respond(res, 502, { error: 'Image send outcome uncertain; review chat before retry' })
+    } catch (err) {
+      lastError = err.message
+      return respond(res, 502, { error: `WhatsApp Web send failed: ${err.message}` })
     }
   }
   if (req.method !== 'POST' || req.url !== '/send') return respond(res, 404, { error: 'not found' })

@@ -12,11 +12,26 @@ from typing import Any
 
 _COUNT = re.compile(r"\b(?:cu[aá]nt[oa]s|cantidad)\b", re.IGNORECASE)
 _PIECES = re.compile(r"\b(?:pastelones?|bordes?|bordea|piezas?)\b", re.IGNORECASE)
+_GENERIC_PASTELON_REQUEST = re.compile(
+    r"\b(?:necesito|quiero|busco|me interesan)\b.{0,100}\bpastelones?\b",
+    re.IGNORECASE,
+)
+_POOL_BORDER_REQUEST = re.compile(
+    r"\b(?:necesito|quiero|busco|me interesan)\b.{0,100}"
+    r"\bbordes?\s+(?:de|para)\s+(?:la|mi|una)?\s*piscina\b",
+    re.IGNORECASE,
+)
 _SIZE = re.compile(
     r"\b(\d{1,2}(?:[.,]\d)?)\s*(?:m(?:etros?)?\s*)?"
     r"(?:x|×|por)\s*(\d{1,2}(?:[.,]\d)?)\s*(?:m(?:etros?)?)?\b",
     re.IGNORECASE,
 )
+_ITEM_SIZE_PREFIX = re.compile(
+    r"\b(?:pastelones?|esquinas?|bordes?(?:\s+rectos?(?:\s+con\s+nariz)?)?)"
+    r"\s+(?:de\s+)?$", re.IGNORECASE)
+_REJECT_PASTELON = re.compile(
+    r"\b(?:ya\s+)?no\s+(?:quiero|necesito|busco)\s+"
+    r"(?:(?:los|unos?|algunos)\s+)?pastelones?\b", re.IGNORECASE)
 _PRODUCT = re.compile(r"\bbordes? rectos?(?: con nariz)?\b", re.IGNORECASE)
 _OTHER_PRODUCT = re.compile(
     r"\bbordes? ballena\b|\bpastel[oó]n(?:es)?\s+(?:sol|adoqu[ií]n|laja|ladrillo)\b"
@@ -35,6 +50,14 @@ _CALCULATION_ADVICE = re.compile(
     r"\bpara calcular\b.{0,90}\b(?:divide|dividir|multiplica|suma|per[ií]metro)\b"
     r"|\b(?:divide|divid[ae]|calcula|calcul[ae])\b.{0,90}"
     r"\b(?:per[ií]metro|metros lineales|largo del borde)\b",
+    re.IGNORECASE,
+)
+_UNQUOTED_PIECE_COUNT = re.compile(
+    r"\b(?:\d{1,4}|un(?:o|a|os|as)?|dos|tres|cuatro|cinco|seis|siete|"
+    r"ocho|nueve|diez|once|doce|trece|catorce|quince|diecis[eé]is|"
+    r"diecisiete|dieciocho|diecinueve|veinte|veinti\w+|treinta(?:\s+y\s+\w+)?|"
+    r"cuarenta(?:\s+y\s+\w+)?|cincuenta|cien|ciento)\s+"
+    r"(?:pastelones?|bordes?|esquinas?|piezas?|unidades?)\b",
     re.IGNORECASE,
 )
 _PRICE_REQUEST = re.compile(
@@ -87,6 +110,11 @@ def delegates_piece_calculation(question: str, reply: str) -> bool:
                 _CALCULATION_ADVICE.search(reply))
 
 
+def unquoted_piece_count(reply: str, quote: dict[str, Any] | None) -> bool:
+    """Keep model-generated quantities out of replies without a structured budget."""
+    return bool(not quote and _UNQUOTED_PIECE_COUNT.search(reply or ""))
+
+
 def border_plan(message: str, history: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, str]:
     """Return confirmed quantities or the one missing detail to ask for."""
     lead_texts = [str(turn.get("text") or "") for turn in history
@@ -111,12 +139,15 @@ def border_plan(message: str, history: list[dict[str, Any]]) -> tuple[dict[str, 
         return None, "¿La piscina es rectangular?"
     dimensions = None
     for text in [message, *reversed(lead_texts)]:
-        match = _SIZE.search(text)
-        if match and _OTHER_UNITS.search(text):
-            return None, "¿Las medidas de la piscina están en metros?"
-        if match:
+        for match in _SIZE.finditer(text):
+            if _ITEM_SIZE_PREFIX.search(text[max(0, match.start() - 35):match.start()]):
+                continue
+            if _OTHER_UNITS.search(text[match.end():match.end() + 18]):
+                return None, "¿Las medidas de la piscina están en metros?"
             dimensions = tuple(Decimal(value.replace(",", "."))
                                for value in match.groups())
+            break
+        if dimensions is not None:
             break
     if dimensions is None:
         return None, "¿Cuánto mide cada lado de la piscina rectangular?"
@@ -129,15 +160,18 @@ def border_plan(message: str, history: list[dict[str, Any]]) -> tuple[dict[str, 
     return {"width": width, "length": length, "straight": straight, "corners": 4}, ""
 
 
-def border_count_reply(message: str, history: list[dict[str, Any]]) -> str | None:
-    """Answer a rectangular pool piece-count question only from known inputs."""
-    if not (_COUNT.search(message) and _PIECES.search(message)):
-        return None
-    plan, clarification = border_plan(message, history)
-    if plan is None:
-        return clarification
-    return (f"Para tu piscina de {plan['width']:g} × {plan['length']:g} m: "
-            f"{plan['straight']} bordes rectos de 50 cm más 4 esquinas.")
+def wants_border_budget(message: str) -> bool:
+    """Use the structured budget for a confirmed pool-border order."""
+    if _REJECT_PASTELON.search(message):
+        return False
+    if wants_product_quote(message) or (_COUNT.search(message) and _PIECES.search(message)):
+        return True
+    if (re.search(r"\b(?:no\s+(?:necesito|quiero|busco)|modelo|terraza|interior|fondo|piso)\b",
+                  message, re.IGNORECASE) or
+            _PRODUCT.search(message) or _OTHER_PRODUCT.search(message)):
+        return False
+    return bool(_GENERIC_PASTELON_REQUEST.search(message) or
+                _POOL_BORDER_REQUEST.search(message))
 
 
 def wants_product_quote(message: str) -> bool:
@@ -166,9 +200,10 @@ def format_product_quote(plan: dict[str, Any], quote: dict[str, Any]) -> str | N
             straight["qty"] != plan["straight"] or corners["qty"] != plan["corners"]):
         return None
     money = lambda value: "$" + f"{round(value):,}".replace(",", ".")
-    return (f"Para tu piscina de {plan['width']:g} × {plan['length']:g} m: "
-            f"{straight['qty']} bordes × {money(straight['unit_price'])} = "
-            f"{money(straight['subtotal'])}; "
-            f"{corners['qty']} esquinas × {money(corners['unit_price'])} = "
-            f"{money(corners['subtotal'])}. "
-            f"Productos: {money(quote['total'])}. Despacho: por cotizar.")
+    return ("📋 *Presupuesto de productos*\n"
+            f"• Borde recto con nariz 50x50: {straight['qty']} × "
+            f"{money(straight['unit_price'])} = {money(straight['subtotal'])}\n"
+            f"• Esquina piscina 50x50: {corners['qty']} × "
+            f"{money(corners['unit_price'])} = {money(corners['subtotal'])}\n"
+            f"*Total productos: {money(quote['total'])}*\n"
+            "Despacho: por cotizar.")
