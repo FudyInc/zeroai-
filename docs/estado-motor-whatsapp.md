@@ -1,5 +1,31 @@
 # Motor del agente de WhatsApp
 
+**Saludo por hora y gate de respuesta activados 2026-10-14:** el trabajo del
+worktree `motor-whatsapp` quedó versionado en cuatro commits sobre `0fdb494`.
+Al comparar con el backend activo apareció una brecha: desde el 2026-10-11 solo
+se habían copiado los parches del catálogo, así que el saludo según la hora de
+Chile, el gate `check_reply`, la ubicación de LosetasChile como dato de despacho
+y la recuperación de seguimiento seguían sin correr en producción, tal como
+decían sus propias notas de «código local».
+
+La activación se hizo por fusión de tres vías, no por copia: el checkout activo
+tenía trabajo propio sin commitear en `import_ad_leads` —deduplicación de Meta
+Lead Ads por `meta_lead_id`— que una copia del archivo habría borrado. El único
+conflicto real era el import de `whatsapp_greeting`. La fusión se validó en una
+copia aislada del checkout activo con 1114 pruebas en verde; el estado
+commiteado del worktree pasó 1104 pruebas Python, dos pruebas Node del PDF y
+una de la recuperación. El backend reinició a PID 317056 con salud OK y el
+puente quedó `ready` con la cuenta de LosetasChile. Desde el código activo se
+comprobaron los cuatro tramos del saludo, la corrección de un saludo
+incongruente, las dos grafías informales de catálogo, tres frases que no
+autorizan envío inmediato, el gate ante respuesta vacía y el formato en
+párrafos. La suite no se corrió dentro del checkout activo porque ahí están
+`state.json`, `crm.json` y las credenciales de Supabase. No se envió ningún
+mensaje de prueba. Falta una conversación real que muestre el saludo según la
+hora y la apertura de ambos PDF en el teléfono. El checkout activo conserva un
+`tests/test_visual_catalog.py` sin versionar que importa un símbolo ya
+inexistente: es el único error de su suite.
+
 **Solicitudes reales de catálogo con escritura informal — corrección local 2026-10-14:**
 Dos mensajes nuevos, «Catalogo bordes» y «Cagalogo de pastelones», quedaron
 completados en la cola local, pero no activaron la ruta de PDF. Diego reportó

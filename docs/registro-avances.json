@@ -2,6 +2,18 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-10-14-commit-y-activacion-saludo-gate",
+      "date": "2026-10-14",
+      "type": "change",
+      "title": "Versionar el motor WhatsApp y activar el saludo por hora y el gate de respuesta",
+      "origin": "Diego pidió retomar y cerrar lo que quedaba sin commitear",
+      "summary": "El trabajo acumulado en el worktree motor-whatsapp quedó en cuatro commits: fotos y material recibido, puente con PDF por categoría y recuperación de entrantes, núcleo con ruteo de catálogo, saludo por hora de Chile, gate check_reply, formato de respuesta y entradas Meta, y la documentación. La comparación con el backend activo mostró que el saludo por hora, el gate, la ubicación de LosetasChile como dato de despacho y la recuperación de seguimiento nunca se habían activado: solo se habían copiado los parches del catálogo. Se activaron por fusión de tres vías, no por copia, porque el checkout activo tenía trabajo propio sin commitear en import_ad_leads que una copia habría borrado.",
+      "status": "Commiteado en motor-whatsapp y activo en el backend local; entrega real pendiente",
+      "scope": "Worktree motor-whatsapp y checkout activo /home/diego/zeroai",
+      "evidence": "Commits 56a7bb7, f511f5e, a9820a1 y 401c4b9 sobre 0fdb494, árbol limpio; 1104 pruebas Python y git diff --check OK en el estado commiteado; test-catalog-document.js 2/2 y test-recovery.js OK. La fusión se validó en una copia aislada del checkout activo con los archivos ya superpuestos: 1114 pruebas OK. El único conflicto real de orchestrator.py era el import de whatsapp_greeting; en test_whatsapp_handoff.py se conservaron las aserciones de ambos lados. El trabajo Meta Ads del activo (crm.py, metaads.py, api.py y sus pruebas) no se tocó y seen_meta_ids sigue presente. Respaldo de los 17 archivos reemplazados en /tmp/activacion-motor-IbkNvT. El backend pasó de PID 203 a 317056, quedó active y /api/health respondió OK; el puente reinició a PID 317078, /status autenticado devolvió ready con la cuenta 56964537891. Desde el código del checkout activo se comprobó el saludo en los cuatro tramos horarios, la corrección de un saludo incongruente, las dos grafías informales de catálogo, tres frases sin permiso de envío inmediato, el gate ante reply vacío e intent accept, y el formato en párrafos. La suite no se corrió dentro del checkout activo: ahí viven state.json, crm.json y las credenciales de Supabase. No se envió ningún mensaje de prueba.",
+      "pending": "Comprobar en una conversación real el saludo según la hora y la entrega y apertura de ambos PDF en el teléfono. El checkout activo tiene tests/test_visual_catalog.py sin versionar que importa LOSETASCHILE_VISUAL_CATALOGS, símbolo ya inexistente: es el único error de su suite y conviene eliminarlo. El trabajo Meta Ads de ese checkout sigue sin commitear en su rama. No se publicó en GitHub ni Vercel ni se comprobó despliegue remoto."
+    },
+    {
       "id": "2026-10-14-catalogos-escritura-informal-dashboard",
       "date": "2026-10-14",
       "type": "incident",
