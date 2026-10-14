@@ -1,5 +1,123 @@
 # Motor del agente de WhatsApp
 
+**Solicitudes reales de catálogo con escritura informal — corrección local 2026-10-14:**
+Dos mensajes nuevos, «Catalogo bordes» y «Cagalogo de pastelones», quedaron
+completados en la cola local, pero no activaron la ruta de PDF. Diego reportó
+una respuesta que mencionaba el dashboard. Se añadió una prueba de regresión
+con ambas frases y se ajustó la detección de categoría; una petición pospuesta
+o una pregunta de disponibilidad sigue sin enviar el documento. La corrección
+se cargó en el backend local activo el 2026-10-14 con respaldo en `/tmp`; el
+servicio reinició y respondió salud OK. Falta una prueba nueva de entrega y
+apertura en el teléfono.
+
+**Catálogos PDF separados de LosetasChile — verificación local 2026-10-14:**
+Una petición explícita por el catálogo de bordes o pastelones prepara un PDF
+distinto de una página y lo envía como un solo documento por WhatsApp Web.
+La petición genérica de «Catálogo» conserva el enlace general. Flor de lis queda
+fuera por confirmación de Diego y Adoquín se omite mientras no se confirme su
+vigencia. Los archivos no son fichas nativas seleccionables ni colecciones de
+WhatsApp Business. Si el envío queda incierto, se revisa el chat antes de
+reintentar. El código del generador y del puente coincide con el checkout del
+backend local; la API respondió `/api/health` OK y pasaron 1102 pruebas Python
+y dos pruebas Node de la plantilla del PDF el 2026-10-14. La consulta autenticada del estado del
+puente devolvió 401 desde este checkout, por lo que su estado actual no quedó
+revalidado en esta comprobación. Falta verificar recepción y apertura de ambos
+PDF en el teléfono; no se comprobó despliegue remoto.
+
+**Catálogo en español y recuperación 2026-10-13 (backend local activo):**
+Diego confirmó que recibió el enlace del catálogo tras recuperar manualmente un
+mensaje «catalogo» que el puente Web no había registrado mientras estuvo más de
+diez minutos en `connecting`. El servicio reinició y el puente volvió a `ready`.
+El agente ahora responde a una petición explícita con dos líneas:
+`Catálogo` y el enlace de WhatsApp, sin texto comercial adicional. El envío pide
+suprimir la vista previa para evitar la tarjeta «View Zero's catalog on
+WhatsApp», cuyo idioma controla WhatsApp. El 2026-10-13 a las 12:54 Chile se
+envió una prueba al mismo chat confirmado: el puente aceptó el mensaje y
+después registró `ack=3`; falta que Diego confirme la apariencia en su teléfono.
+
+El puente reinicia su conexión si queda 120 segundos sin estar listo y, al
+reconectar, revisa los mensajes entrantes individuales visibles en la caché de
+los últimos 30 minutos. Evita reencolar mensajes anteriores a una salida en el
+chat; el almacén de eventos del backend deduplica IDs. Esta recuperación no
+garantiza rescatar mensajes fuera de la caché ni sustituye una prueba real de
+una desconexión nueva. Se separaron los procesos Node y Chromium para limpiar
+ambos antes de reiniciar. Pasaron 1098 pruebas Python, tres pruebas Node,
+comprobación de sintaxis y `git diff --check`; el backend local respondió OK,
+el puente quedó `ready` con la cuenta de LosetasChile y cola entrante vacía.
+Una foto enviada como imagen común no ofrece selección de productos; el
+catálogo nativo de WhatsApp sí permite abrir y elegir artículos. El puente
+actual envía texto, enlace e imágenes, pero no implementa el envío automático
+de fichas de producto nativas. Esto queda pendiente si Diego lo solicita.
+
+**Histórico: catálogo sin signos y respuestas legibles 2026-10-12:**
+La prueba reciente «Catalogo» llegó al puente, pero la regla exigía un signo de
+pregunta o más palabras y el modelo respondió con otro texto. Ahora esa palabra
+sola, con o sin tilde, activa únicamente el enlace del catálogo. Las peticiones
+que posponen el envío («pero no ahora», «no me lo mandes hasta mañana») siguen
+sin dispararlo. Las respuestas normales de LosetasChile separan las oraciones
+en párrafos cortos cuando el texto es largo y completan la puntuación final;
+los enlaces solos y mensajes con estructura previa se conservan. El prompt
+también pide frases breves y párrafos claros. El puente permite consultar el
+estado `ack` de cada mensaje en la API autenticada. En el chat reciente examinado,
+las salidas tienen `ack=3` (leído en WhatsApp Web), pero Diego aún no confirmó
+que ese sea el chat de su prueba: falta identificarlo con las últimas cuatro
+cifras y texto exacto. Pasaron 1097 pruebas completas y 75 dirigidas, más la
+revisión de sintaxis Node y del parche. El backend local reinició a las 16:48
+Chile (PID 52380); API OK y puente Web `ready`, sin entradas pendientes ni error.
+Una entrega al teléfono de la prueba correcta sigue pendiente de confirmación.
+
+**Histórico: catálogo solo enlace 2026-10-12:**
+Diego probó el parche anterior y recibió una respuesta demasiado larga. Una
+solicitud explícita de catálogo de LosetasChile ahora produce solo
+`https://wa.me/c/56964537891`, sin saludo, lista de modelos, pregunta,
+cotización, imagen ni encuesta. Rige también cuando el mensaje combina catálogo
+con despacho o presupuesto; esas otras consultas pueden seguir en mensajes
+posteriores. «¿Qué modelos hay?» conserva la respuesta de modelos si no pide el
+catálogo explícitamente. La detección omite negativas y menciones que no piden
+el enlace; una oferta pendiente no sustituye la petición por un resumen largo.
+Pasaron 53 pruebas dirigidas y la suite completa de 1094 pruebas. El parche se
+aplicó en `/home/diego/zeroai`; el proceso reinició a las 16:38 Chile, la API
+respondió OK y el puente Web quedó `ready` sin errores. Falta una prueba en el
+teléfono de la respuesta reducida.
+
+**Diagnóstico de la falta de respuesta 2026-10-12:** antes de la corrección,
+«¿tienen catálogo?» y «¿me mandas el catálogo?» no activaban el enlace. El
+primer parche se cargó en el backend local a las 16:15 Chile; salud y puente Web
+quedaron bien. Diego confirmó después que sí recibió una respuesta, pero era
+demasiado larga. Los cuatro eventos revisados antes no eran el mensaje que
+quería investigar. Supabase activo mostró modo automático y cero pausas de
+atención humana para LosetasChile; el chat exacto sigue sin identificar.
+
+**Saludo según hora de Chile 2026-10-11 (código local):** WhatsApp usa la zona
+`America/Santiago` para elegir «Buenos días» entre 05:00 y 11:59, «Buenas
+tardes» entre 12:00 y 19:59 y «Buenas noches» entre 20:00 y 04:59. Si el
+contacto escribe «buenas tardes» de noche, el agente responde «buenas noches».
+Los saludos simples y la respuesta de recuperación usan la misma regla; el
+modelo recibe el saludo calculado y se corrige un saludo inicial incongruente.
+Esto describe la hora del mensaje, no el horario de atención del negocio.
+La suite local de 1091 pruebas aprobó el cambio. Prueba en servicio activo y
+conversación real pendientes.
+
+**Control de respuestas y entradas 2026-10-11 (código local):** el motor local
+revisa el texto generado antes de adjuntar un presupuesto calculado. Ante un
+texto inválido reintenta una vez; si persiste, deriva ese mensaje a revisión y
+envía el aviso habitual en vez del borrador. La entrada Meta conserva el título
+visible de selecciones de botones y listas; otros adjuntos sin texto legible se
+derivan a revisión. Las ubicaciones de LosetasChile mantienen su flujo de
+presupuesto con coordenadas válidas; las ubicaciones Meta incompletas y las de
+otras empresas se derivan a una persona. La suite local de 1086 pruebas aprobó
+este recorrido. Prueba real con
+modelo, ficha activa y transporte WhatsApp pendiente; no hay despliegue
+verificado de estos cambios.
+
+**Auditoría de comprensión 2026-10-11 (código local):** la selección de la ficha
+para el modelo local separa cada oferta de una lista y usa el último intercambio
+al resolver preguntas de seguimiento, sin desplazar un tema nuevo. «Flete» se relaciona con la
+política de despacho. La ficha ZeroAI versionada se comparó con el almacén
+local: no hay ficha activa en ese `state.json`; no se cargó ni se modificó el
+almacén. Suite local de 1078 pruebas aprobada. Falta verificar respuestas con el
+modelo en una conversación real y comprobar la ficha activa de producción.
+
 **Código activo y pruebas locales:** 2026-10-07. El backend reinició con
 `main` en `5566e10` y respondió a `/api/health`. GitHub recibió el código y
 Vercel informó un despliegue de producción `Ready` el mismo día.
@@ -150,6 +268,28 @@ no confirma entrega de una conversación real. La ficha activa de ZeroAI en
 Supabase coincidió con la versionada (3982 caracteres); Graph API reconoció el
 número Meta. PoolEdge no figura como cliente activo. No se mostraron secretos,
 números ni datos de leads durante estas comprobaciones.
+
+### Catálogos visuales LosetasChile — 2026-10-13
+
+La solicitud explícita de bordes o pastelones se enruta a un PDF distinto
+por categoría, con fotos originales y nombres y precios estructurados.
+Cada PDF ocupa una página y se envía como un solo documento de WhatsApp.
+El de bordes reúne las tres fotos iniciales y dos fotos propias nuevas para
+Borde ballena 50×40 ($5.500 por unidad confirmado en el almacén activo):
+una instalación y un detalle del material. El de pastelones reúne seis fotos.
+La extensión sin precio estructurado queda por confirmar. La carpeta recibida
+quedó archivada en `entregables/fotos-losetas-recibidas-2026-10-13/`.
+La generación local y la suite se comprobaron el 2026-10-13. Las fotos de
+Borde ballena se activaron en el backend local el 2026-10-14, con salud OK y
+puente Web de LosetasChile listo. La entrega en el teléfono del cliente aún
+no se ha comprobado.
+
+El 2026-10-14 se ajustó el orden de la tarjeta de Borde ballena: foto de la
+pieza, seguida de la piscina instalada. Los precios de ambos catálogos se
+muestran bajo el nombre, en negrita y con «x unidad». La vista previa de
+bordes y los dos PDF de una página se comprobaron localmente. El formato nuevo
+se activó en el backend local: salud OK y puente LosetasChile ready. La entrega
+en WhatsApp sigue pendiente de comprobación real.
 
 ## Comprobación 2026-10-06
 

@@ -267,3 +267,109 @@ pregunta por modelos tras mencionar piscina, pregunta genérica al abrir chat
 y pregunta directa por bordes. Los tres incluyen el enlace correcto. Sigue
 pendiente recibir una pregunta real nueva y verificar la apertura del catálogo
 en el teléfono del cliente. No se publicó en GitHub ni Vercel.
+
+## Dos colecciones del catálogo — propuesta verificada el 2026-10-13
+
+Diego quiere mostrar «Catálogo Bordes de Piscina» y «Catálogo Pastelones» con
+imágenes de portada distintas: borde recto con nariz y laja española,
+respectivamente. La ayuda oficial de WhatsApp Business describe un catálogo
+de la empresa con varias colecciones. Estas agrupan productos seleccionables;
+falta comprobar en esta cuenta cómo se comparte una colección individual. La opción nativa sería
+crear esas dos colecciones dentro del catálogo existente.
+
+La guía de creación permite nombrar la colección, elegir y ordenar sus
+artículos, pero no documenta una portada personalizada por colección. No se
+debe prometer que las dos fotos aparezcan como portadas configurables sin
+comprobarlo en la aplicación. Las fichas visuales existen en el repositorio:
+laja española 40×40 y borde recto con nariz 50×50. La PNG del borde contiene
+una superposición visible «16 of 25» sobre el título; Diego indicó el
+2026-10-13 que se use esa imagen actual. El catálogo de precios activo registra
+el borde recto y un precio compartido para pastelones 40×40; no hay precio
+individual de laja española.
+
+Diego indicó que puede cargar las imágenes él mismo. No se crearon colecciones
+en WhatsApp Business ni se comprobó si esta cuenta permite compartir cada
+colección mediante un enlace propio.
+El puente actual envía el enlace general y fotos individuales, sin operación
+para crear o enviar una colección nativa automáticamente. Falta confirmar la
+presentación real de las colecciones y sus imágenes en la cuenta antes de
+cambiar al agente. Si WhatsApp no permite fijar la portada, el agente podría
+enviar la imagen elegida como mensaje visual junto con el acceso verificado a
+la colección, siempre que este acceso exista.
+
+**Preparación del 2026-10-13:** se extrajeron y agruparon imágenes en
+`entregables/catalogos-whatsapp-losetaschile/`, con un ZIP para bordes y otro
+para pastelones. La propuesta inicial contenía ocho modelos 40×40 únicos. El
+2026-10-13 Diego confirmó que **Flor de lis no está vigente**: se excluyó del
+manifiesto, del ZIP de carga y del catálogo mostrado por el frontend. La
+selección preparada queda en siete modelos: Laja española, Ladrillo cruzado,
+Sol, Sol rústico, Adoquín, Gregioriano y Octagonal Piedra. Los últimos dos se
+extrajeron del catálogo conectado que se veía en WhatsApp Web; los otros cinco
+proceden de las fichas versionadas. La imagen fuente histórica de Flor de lis
+permanece archivada, pero no debe publicarse ni enviarse como producto vigente.
+La lista completa visible del catálogo conectado tenía seis modelos 40×40
+únicos: Sol, Ladrillo cruzado, Sol rústico, Laja española, Gregioriano y
+Octagonal Piedra. Adoquín no figuraba ahí, y tampoco el borde recto con nariz;
+se debe comprobar su vigencia y agregarlos antes de poder incluirlos en
+colecciones nativas. Flor de lis queda descartada. No se modificó el catálogo
+conectado.
+
+La cuenta muestra «This is a connected catalog» en WhatsApp Web. La ayuda
+oficial de WhatsApp indica que Web solo permite ver un catálogo de Meta
+conectado; se administra en la aplicación WhatsApp Business del teléfono.
+Por eso los ZIP son una preparación para la carga, no dos colecciones ya
+publicadas. Falta crear y comprobar las colecciones en esa cuenta antes de
+enviar enlaces individuales a colecciones nativas desde el agente.
+
+**Secuencia visual anterior, reemplazada el 2026-10-13:** por indicación
+de Diego, el agente distingue una solicitud explícita del catálogo de bordes
+de otra de pastelones. El primero enviaría tres fotos, empezando por el borde
+recto con nariz; el segundo, seis, empezando por laja española. Cada primera
+foto lleva el título de su catálogo y las siguientes llevan el nombre del
+modelo. No se incluyen precios ni se afirma disponibilidad. Adoquín queda
+fuera del envío automático hasta confirmar vigencia; Flor de lis queda fuera
+por no vigente. La petición genérica «Catálogo» conserva el enlace general.
+El código se cargó puntualmente en el backend activo; salud y puente Web de
+LosetasChile respondieron bien. Aún falta una prueba real de entrega completa
+en el teléfono y no se comprobó publicación remota. Esto no crea colecciones
+nativas. Si un envío parcial queda incierto, se debe revisar el chat antes de
+reintentar. Las colecciones nativas siguen pendientes si se quiere selección
+de artículos dentro de WhatsApp.
+
+**Actualización verificada el 2026-10-13:** Diego pidió evitar varios mensajes
+por catálogo y mostrar nombre y precio, dejando las dimensiones dentro de las
+imágenes originales. Se preparó un PDF de una página por categoría, que agrupa
+las tres fotos iniciales de bordes o las seis de pastelones en un solo archivo
+para abrir desde el chat. Diego compartió el 2026-10-13 una carpeta de fotos:
+el PDF de bordes ahora añade una tarjeta de **Borde ballena 50×40** con dos
+fotos propias, una piscina instalada y un detalle de la pieza, y el precio
+estructurado confirmado de **$5.500 por unidad**. Se archivó la carpeta
+recibida en `entregables/fotos-losetas-recibidas-2026-10-13/`.
+Los precios se leen del catálogo estructurado al generar cada
+archivo: borde recto $6.000, esquina $3.600 y pastelones 40×40 $1.600 por
+unidad, verificados en el almacén activo el 2026-10-13. La extensión queda
+con «Precio por confirmar» porque no consta un precio estructurado. Flor de lis
+y Adoquín no aparecen. La petición genérica «Catálogo» sigue compartiendo el
+enlace general. La generación local produjo dos PDF válidos de una página;
+el parche quedó activo en el backend local. Las fotos de Borde ballena se
+activaron allí el 2026-10-14; salud OK y puente Web de LosetasChile listo.
+La entrega real y su presentación en el teléfono siguen pendientes de prueba.
+No se comprobó despliegue remoto.
+
+**Presentación ajustada el 2026-10-14:** Diego pidió mostrar primero la foto
+de la pieza Borde ballena y después la piscina instalada. En ambos PDF, el
+precio calculable queda debajo del nombre en negrita y se indica
+«$… x unidad». La extensión sin precio conserva «Precio por confirmar».
+La vista previa de bordes y la generación de ambos PDF de una página se
+comprobaron localmente. El formato nuevo quedó activo en el backend local el
+2026-10-14; salud OK y puente Web de LosetasChile listo. La recepción real
+sigue pendiente.
+
+**Incidente comprobado el 2026-10-14:** «Catalogo bordes» y «Cagalogo de
+pastelones» no activaron el PDF en el código que atiende WhatsApp y llegaron a
+la respuesta libre del agente. Se corrigió en este repositorio la selección de
+categoría para esas frases, con una prueba de regresión que también evita el
+envío cuando el cliente dice «pero no ahora», «mañana» o «todavía», y cuando
+solo pregunta si hay catálogo. La corrección se cargó en el backend local el
+2026-10-14; el servicio reinició y respondió salud OK. Falta verificar el
+resultado en el teléfono.

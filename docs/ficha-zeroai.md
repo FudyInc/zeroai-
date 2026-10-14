@@ -6,8 +6,10 @@ los servicios de ZeroAI por WhatsApp. Se carga en `memory.set_client_knowledge`
 
 - **Editar acá, no solo en el dashboard.** El dashboard escribe en `state.json`, que es
   local y gitignorado: si se pierde, esto la reconstruye.
-- **Límite duro: 4000 caracteres.** `orchestrator.reply_to_inbound` la corta ahí
-  (`[:4000]`). Lo que se pase de esa marca no llega al modelo.
+- **Límite duro: 4000 caracteres.** `scripts/cargar_empresa.py` rechaza una ficha
+  mayor. Verificado en código el 2026-10-11: el motor local selecciona hasta
+  1600 caracteres pertinentes a cada consulta y al intercambio reciente; la
+  ruta no local recorta a 4000 caracteres.
 - **Sin montos.** Los precios de los planes NO van acá a propósito: el prompt de
   CONCIERGE prohíbe que el agente escriba cifras (los presupuestos los calcula
   `quotes.py`, determinista). Una cifra en la ficha es una invitación a romper esa regla.
