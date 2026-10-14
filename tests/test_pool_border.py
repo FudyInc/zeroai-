@@ -4,7 +4,8 @@ from types import SimpleNamespace
 from unittest import mock
 
 from zero.agents import build_agents
-from zero.config import LOSETASCHILE_WHATSAPP_CATALOG_URL
+from zero.config import (LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE,
+                         LOSETASCHILE_WHATSAPP_CATALOG_URL)
 from zero.crm import CRM
 from zero.losetas_color import color_question
 from zero.losetas_shipping import (DELIVERY_ADDRESS_PROMPT, DELIVERY_LOCATION_PROMPT,
@@ -19,6 +20,7 @@ from zero.pool_border import (border_plan, delegates_piece_calculation,
                               unquoted_piece_count,
                               wants_border_budget,
                               wants_product_quote)
+from zero.whatsapp_inbound import parse_inbound as parse_meta
 
 
 class PoolBorderCountTest(unittest.TestCase):
@@ -122,7 +124,24 @@ class PoolBorderCountTest(unittest.TestCase):
         with mock.patch.object(zero, "dispatch") as dispatch:
             result = zero.converse_result("losetaschile", "¿Qué modelos hay?",
                                           lead={"key": "test-lead"}, channel="whatsapp")
+            catalog_result = zero.converse_result(
+                "losetaschile", "¿Me mandas el catálogo?",
+                lead={"key": "test-lead"}, channel="whatsapp")
         dispatch.assert_not_called()
+        self.assertEqual(catalog_result["intent"], "catalog")
+        self.assertEqual(catalog_result["reply"], LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE)
+        mixed_result = zero.converse_result(
+            "losetaschile", "¿Tienen catálogo y hacen despacho?",
+            lead={"key": "test-lead"}, channel="whatsapp")
+        self.assertEqual(mixed_result["reply"], LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE)
+        self.assertNotIn("delivery_poll", mixed_result)
+        quote_result = zero.converse_result(
+            "losetaschile", "Quisiera cotizar bordes de piscina, ¿tienes catálogo?",
+            lead={"key": "test-lead"}, channel="whatsapp")
+        self.assertEqual(quote_result["intent"], "catalog")
+        self.assertEqual(quote_result["reply"], "Catálogo Bordes de Piscina")
+        self.assertEqual(quote_result["catalog_document"]["category"], "bordes")
+        self.assertNotIn("quote", quote_result)
         self.assertIn("Borde recto con nariz 50x50", result["reply"])
         self.assertIn("Borde ballena 50x40", result["reply"])
         self.assertIn("¿Cuál modelo te interesa?", result["reply"])
@@ -144,18 +163,121 @@ class PoolBorderCountTest(unittest.TestCase):
                 {"id": "borde-ballena-50x40", "name": "Borde ballena 50x40"}]})
         self.assertIn("Borde ballena 50x40", other_borders)
         self.assertIn(LOSETASCHILE_WHATSAPP_CATALOG_URL, other_borders)
+        for request in ("¿Tienen catálogo?", "¿Me mandas el catálogo?",
+                        "Catalogo", "Catálogo", "catálogo!",
+                        "Me puedes mandar el catálogo de bordes",
+                        "Podrías mandarme el catálogo de bordes",
+                        "Envíame el catálogo de bordes de piscina",
+                        "Solo envía el catálogo",
+                        "No me mandes precios, solo el catálogo por favor",
+                        "No me mandes presupuesto, mándame el catálogo",
+                        "Todavía no me mandes presupuesto; envíame el catálogo",
+                        "Quisiera cotizar bordes de piscina, ¿tienes catalogo?"):
+            with self.subTest(request=request):
+                catalog_reply = pool_border_models_reply(request, [], {"items": [
+                    {"id": "borde-ballena-50x40", "name": "Borde ballena 50x40"}]})
+                self.assertEqual(catalog_reply, LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE)
+        for mention in ("Ya vi el catálogo, quiero cotizar", "Ya vi el catálogo?",
+                        "¿Está actualizado el catálogo?", "¿Ese es su catálogo?",
+                        "No quiero ver el catálogo", "No me mandes el catálogo",
+                        "No me mandes catálogos por favor",
+                        "No quiero catálogos por favor",
+                        "¿Tienen catálogo? No me mandes nada todavía",
+                        "¿Tienen catálogo? Solo quería saber, no me envíes el enlace",
+                        "Quiero ver el catálogo pero todavía no lo mandes",
+                        "Envíame el catálogo, pero no ahora",
+                        "Quiero ver el catálogo, pero no me lo mandes hasta mañana",
+                        "No me mandes catálogo, ¿qué modelos hay?"):
+            with self.subTest(mention=mention):
+                self.assertIsNone(pool_border_models_reply(mention, [], {"items": []}))
         self.assertIsNone(pool_border_models_reply(
             "¿Qué modelos de pastelones hay?",
             [{"role": "lead", "text": "Necesito bordes para piscina"}],
             {"items": [{"id": "borde-ballena-50x40", "name": "Borde ballena 50x40"}]}))
 
+    def test_category_catalogs_route_to_separate_documents(self):
+        zero = Zero(build_agents(mock=True), memory=self.priced_memory())
+        borders = zero.converse_result("losetaschile", "Envíame el catálogo de bordes",
+                                       channel="whatsapp")
+        pavers = zero.converse_result("losetaschile", "Catálogo de pastelones",
+                                      channel="whatsapp")
+        generic = zero.converse_result("losetaschile", "Catálogo", channel="whatsapp")
+        self.assertEqual(borders["reply"], "Catálogo Bordes de Piscina")
+        self.assertEqual(pavers["reply"], "Catálogo Pastelones")
+        self.assertEqual(borders["catalog_document"]["category"], "bordes")
+        self.assertEqual(pavers["catalog_document"]["category"], "pastelones")
+        self.assertEqual(borders["catalog_document"]["pricing"]["items"][0]["unit_price"], 6000)
+        self.assertEqual(generic["reply"], LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE)
+        self.assertNotIn("catalog_document", generic)
+        postponed = zero.converse_result(
+            "losetaschile", "Envíame el catálogo de bordes, pero no ahora",
+            channel="whatsapp")
+        self.assertNotIn("catalog_document", postponed)
+
+    def test_recent_catalog_messages_route_to_documents_despite_typo(self):
+        zero = Zero(build_agents(mock=True), memory=self.priced_memory())
+        for message, category in (("Catalogo bordes", "bordes"),
+                                  ("Cagalogo de pastelones", "pastelones")):
+            with self.subTest(message=message):
+                result = zero.converse_result("losetaschile", message,
+                                              channel="whatsapp")
+                self.assertEqual(result["catalog_document"]["category"], category)
+        postponed = zero.converse_result(
+            "losetaschile", "Cagalogo de pastelones, pero no ahora",
+            channel="whatsapp")
+        self.assertNotIn("catalog_document", postponed)
+
+    def test_category_catalog_waits_when_customer_postpones_or_only_asks_availability(self):
+        zero = Zero(build_agents(mock=True), memory=self.priced_memory())
+        for message in ("Mándame el catálogo de bordes mañana",
+                        "¿Tienen catálogo de bordes? No me lo envíen todavía",
+                        "No tienen catálogo de bordes, ¿verdad?"):
+            with self.subTest(message=message):
+                result = zero.converse_result("losetaschile", message,
+                                              channel="whatsapp")
+                self.assertNotIn("catalog_document", result)
+
+    def test_category_catalog_uncertain_document_result_stops_without_text(self):
+        memory = self.priced_memory()
+        memory.set_client_agent_profile("losetaschile", {
+            "whatsapp_number": "56911111111", "response_mode": "automatic"})
+        zero = Zero(build_agents(mock=True), memory=memory, crm=CRM(None))
+        zero._deliver = mock.Mock()
+        with mock.patch("zero.whatsapp_web.send_catalog_document",
+                        side_effect=RuntimeError("resultado incierto")) as send_document:
+            result = zero.handle_inbound(
+                "56933333333", "Envíame el catálogo de bordes",
+                to_phone_id="56911111111", whatsapp_chat_id="56933333333@c.us")
+        send_document.assert_called_once()
+        zero._deliver.assert_not_called()
+        self.assertEqual(result["delivery"]["status"], "error")
+        self.assertIn("resultado incierto", result["delivery"]["error"])
+
+    def test_category_catalog_sends_one_document_without_text_reply(self):
+        memory = self.priced_memory()
+        memory.set_client_agent_profile("losetaschile", {
+            "whatsapp_number": "56911111111", "response_mode": "automatic"})
+        zero = Zero(build_agents(mock=True), memory=memory, crm=CRM(None))
+        zero._deliver = mock.Mock()
+        with mock.patch("zero.whatsapp_web.send_catalog_document",
+                        return_value={"id": "catalog-1", "ack": 0}) as send_document:
+            result = zero.handle_inbound(
+                "56933333333", "Envíame el catálogo de pastelones",
+                to_phone_id="56911111111", whatsapp_chat_id="56933333333@c.us")
+        send_document.assert_called_once()
+        zero._deliver.assert_not_called()
+        self.assertEqual(result["delivery"]["status"], "sent")
+        self.assertEqual(result["delivery"]["id"], "catalog-1")
+        self.assertEqual(send_document.call_args.args[3], "pastelones")
+
     def test_simple_greeting_does_not_dispatch_model(self):
         zero = Zero(build_agents(mock=True), memory=self.priced_memory())
-        with mock.patch.object(zero, "dispatch") as dispatch:
+        with mock.patch("zero.orchestrator.whatsapp_greeting", return_value="Buenas noches"), \
+             mock.patch.object(zero, "dispatch") as dispatch:
             result = zero.converse_result("losetaschile", "hola buenas",
                                           lead={"key": "new-lead"}, channel="whatsapp")
         dispatch.assert_not_called()
-        self.assertEqual(result["reply"], "¡Hola! ¿En qué puedo ayudarte?")
+        self.assertEqual(result["reply"], "¡Buenas noches! ¿En qué puedo ayudarte?")
 
     def test_stefano_repeated_model_question_reaches_customer(self):
         memory = self.priced_memory(include_tone=False)
@@ -183,10 +305,60 @@ class PoolBorderCountTest(unittest.TestCase):
         self.assertIn("Borde recto con nariz", first["reply"])
         self.assertIn("Borde recto con nariz", second["reply"])
         self.assertIn(LOSETASCHILE_WHATSAPP_CATALOG_URL, first["reply"])
+        self.assertIn("\n\n", first["reply"])
         self.assertIn(LOSETASCHILE_WHATSAPP_CATALOG_URL, second["reply"])
         self.assertIn(LOSETASCHILE_WHATSAPP_CATALOG_URL,
                       zero._deliver.call_args.args[3]["body"])
         self.assertNotIn("Necesito revisar", second["reply"])
+
+    def test_repeated_catalog_request_sends_only_link(self):
+        for question in ("Catalogo", "¿Tienen catálogo y hacen despacho?",
+                         "¿Cuánto cuesta el despacho y tienen catálogo?"):
+            with self.subTest(question=question):
+                memory = self.priced_memory(include_tone=False)
+                memory.set_client_agent_profile("losetaschile", {
+                    "whatsapp_number": "56911111111", "response_mode": "automatic"})
+                crm = CRM(None)
+                crm.upsert("losetaschile", {"phone": "56933333333", "source": "test"})
+                zero = Zero(build_agents(mock=True), memory=memory, crm=crm)
+                zero._deliver = mock.Mock(return_value={
+                    "status": "sent", "via": "whatsapp_web", "id": "reply-1"})
+                with mock.patch("zero.whatsapp_web.send_delivery_poll") as send_poll, \
+                     mock.patch.object(zero, "dispatch") as dispatch:
+                    first = zero.handle_inbound(
+                        "56933333333", question, to_phone_id="56911111111",
+                        whatsapp_chat_id="56933333333@c.us")
+                    second = zero.handle_inbound(
+                        "56933333333", question, to_phone_id="56911111111",
+                        whatsapp_chat_id="56933333333@c.us")
+                dispatch.assert_not_called()
+                send_poll.assert_not_called()
+                for result in (first, second):
+                    self.assertEqual(result["delivery"]["status"], "sent")
+                    self.assertEqual(result["reply"], LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE)
+                    self.assertFalse(result.get("manual_review", False))
+
+    def test_catalog_request_wins_over_pending_offer(self):
+        memory = self.priced_memory(include_tone=False)
+        memory.set_client_agent_profile("losetaschile", {
+            "whatsapp_number": "56911111111", "response_mode": "automatic",
+            "offer_flow": True})
+        crm = CRM(None)
+        rec = crm.upsert("losetaschile", {"phone": "56933333333", "source": "test"})
+        memory.set_pending_offer("losetaschile", rec["key"], "summary")
+        zero = Zero(build_agents(mock=True), memory=memory, crm=crm)
+        zero._deliver = mock.Mock(return_value={
+            "status": "sent", "via": "whatsapp_web", "id": "reply-1"})
+        with mock.patch.object(zero, "dispatch") as dispatch:
+            result = zero.handle_inbound(
+                "56933333333", "Sí, me mandas el catálogo?",
+                to_phone_id="56911111111", whatsapp_chat_id="56933333333@c.us")
+        dispatch.assert_not_called()
+        self.assertEqual(result["intent"], "catalog")
+        self.assertEqual(result["reply"], LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE)
+        self.assertEqual(zero._deliver.call_args.args[3]["body"],
+                         LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE)
+        self.assertIsNotNone(memory.get_pending_offer("losetaschile", rec["key"]))
 
     def test_outlier_pool_measurements_are_confirmed_before_other_questions(self):
         zero = Zero(build_agents(mock=True), memory=self.priced_memory(include_tone=False))
@@ -562,12 +734,19 @@ class PoolBorderCountTest(unittest.TestCase):
         zero = Zero(build_agents(mock=True), memory=memory, crm=crm)
         zero._deliver = mock.Mock(return_value={"status": "sent", "via": "whatsapp_web",
                                                 "id": "ack-1"})
+        meta = {"entry": [{"changes": [{"value": {
+            "metadata": {"phone_number_id": "56911111111"},
+            "messages": [{"from": "56933333333", "type": "location",
+                          "location": {"latitude": -33.610397,
+                                       "longitude": -70.643376}}],
+        }}]}]}
+        inbound = parse_meta(meta)[0]
         with mock.patch.object(zero, "dispatch") as dispatch, \
                 mock.patch("zero.whatsapp_web.send_group_text",
                            return_value={"id": "internal-1", "ack": 0}) as send_group, \
                 mock.patch.dict(os.environ, {"LOSETASCHILE_REVIEW_GROUP_ID": "123456789@g.us"}):
             result = zero.handle_inbound(
-                "56933333333", "[location]", to_phone_id="56911111111",
+                inbound["from"], inbound["text"], to_phone_id=inbound["to_phone_id"],
                 profile_name="Diego", whatsapp_chat_id="56933333333@c.us")
         dispatch.assert_not_called()
         self.assertEqual(result["delivery"]["status"], "accepted")
@@ -581,6 +760,7 @@ class PoolBorderCountTest(unittest.TestCase):
         internal = send_group.call_args.args[3]
         self.assertIn("Cliente: Diego\nNúmero: +56933333333", internal)
         self.assertIn("Color indicado por cliente: beige", internal)
+        self.assertIn("https://www.google.com/maps?q=-33.610397,-70.643376", internal)
         self.assertIn("*Total productos: $230.400*", internal)
 
     def test_budget_with_no_group_is_held_and_not_sent_to_customer(self):
@@ -601,6 +781,33 @@ class PoolBorderCountTest(unittest.TestCase):
         self.assertEqual(result["delivery"]["status"], "error")
         self.assertFalse(result["manual_review"])
         zero._deliver.assert_not_called()
+
+    def test_catalog_request_sends_only_link_without_budget(self):
+        memory = self.priced_memory()
+        memory.set_client_agent_profile("losetaschile", {
+            "whatsapp_number": "56911111111", "response_mode": "automatic"})
+        crm = CRM(None)
+        rec = crm.upsert("losetaschile", {"phone": "56933333333", "source": "test"})
+        for text in ("Mi piscina es rectangular de 6x3", "Borde recto con nariz"):
+            memory.add_turn("losetaschile", rec["key"], "lead", text)
+        memory.add_turn("losetaschile", rec["key"], "agent", color_question())
+        memory.add_turn("losetaschile", rec["key"], "lead", "beige")
+        zero = Zero(build_agents(mock=True), memory=memory, crm=crm)
+        zero._deliver = mock.Mock(return_value={
+            "status": "sent", "via": "whatsapp_web", "id": "ack-1"})
+        with mock.patch("zero.whatsapp_web.send_group_text") as send_group, \
+             mock.patch.dict(os.environ, {"LOSETASCHILE_REVIEW_GROUP_ID": "123456789@g.us"}), \
+             mock.patch.object(zero, "dispatch") as dispatch:
+            result = zero.handle_inbound(
+                "56933333333", "Me mandas el catálogo y el presupuesto?",
+                to_phone_id="56911111111", whatsapp_chat_id="56933333333@c.us")
+        dispatch.assert_not_called()
+        send_group.assert_not_called()
+        self.assertEqual(result["delivery"]["status"], "sent")
+        self.assertEqual(result["reply"], LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE)
+        self.assertEqual(zero._deliver.call_args.args[3]["body"],
+                         LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE)
+        self.assertNotIn("customer_ack", result)
 
     def test_ack_failure_flags_review_after_group_accepts_budget(self):
         memory = self.priced_memory()

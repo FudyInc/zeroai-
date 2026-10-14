@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 # El catálogo de intenciones del contrato (ver prompts/concierge.md).
 INTENTS = {"explain", "pricing", "meeting", "disclose", "optout",
-           "objection", "trust", "info", "general"}
+           "objection", "trust", "info", "general", "accept", "handoff"}
 
 # Tope de largo. WhatsApp corta en 4096 y el prompt pide 1-3 frases; 1500 deja margen
 # para una respuesta larga legítima sin dejar pasar un muro de texto.
@@ -39,7 +39,7 @@ _NIEGA_IA = re.compile(r"no soy (una |un )?(ia|i\.a\.|bot|robot|inteligencia art
 
 # Nombres internos de agentes y etiquetas de bot: delatan el mecanismo a un lead real.
 _ETIQUETA_INTERNA = re.compile(r"\b(concierge|outreach|prospector|qualifier|tracker|"
-                               r"analyst|mediabuyer|asistente virtual)\b", re.IGNORECASE)
+                               r"analyst|mediabuyer)\b", re.IGNORECASE)
 
 
 def check_reply(result: Dict[str, Any],
@@ -53,8 +53,10 @@ def check_reply(result: Dict[str, Any],
     nombre— que hubo que arreglar dos veces, en CONCIERGE y en OUTREACH.
     """
     fallas: List[str] = []
-    reply = (result.get("reply") or "").strip()
-    intent = (result.get("intent") or "").strip()
+    reply = result.get("reply")
+    reply = reply.strip() if isinstance(reply, str) else ""
+    intent = result.get("intent")
+    intent = intent.strip() if isinstance(intent, str) else ""
 
     if not reply:
         # Sin texto no hay nada más que revisar, y es la falla más grave: el lead

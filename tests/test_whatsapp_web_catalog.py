@@ -2,11 +2,28 @@
 import unittest
 from unittest import mock
 
-from zero.whatsapp_web import (parse_message, send_catalog_image,
-                               send_delivery_poll, send_group_text)
+from zero.config import LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE
+from zero.whatsapp_web import (parse_message, send_catalog_document, send_catalog_image,
+                               send_delivery_poll, send_group_text,
+                               WhatsAppWebSender)
 
 
 class WhatsAppWebCatalogTest(unittest.TestCase):
+    @mock.patch("zero.whatsapp_web.bridge_request")
+    def test_catalog_text_disables_link_preview(self, bridge):
+        bridge.side_effect = [{"state": "ready", "account": "56987654321"},
+                              {"id": "message-1", "ack": 0}]
+        result = WhatsAppWebSender().send({
+            "client_id": "losetaschile", "whatsapp_from": "56987654321",
+            "to": "56912345678", "body": LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE,
+            "whatsapp_chat_id": "56912345678@c.us",
+        })
+        self.assertEqual(result["status"], "sent")
+        self.assertEqual(bridge.call_args.args[0], "/send")
+        self.assertEqual(bridge.call_args.args[1]["text"],
+                         LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE)
+        self.assertIs(bridge.call_args.args[1]["link_preview"], False)
+
     def test_profile_name_is_optional_and_requires_letters(self):
         base = {"id": "event", "from": "56912345678", "to_phone_id": "56987654321",
                 "chat_id": "56912345678@c.us", "text": "Hola"}
@@ -50,6 +67,25 @@ class WhatsAppWebCatalogTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "no coincide"):
             send_group_text("losetaschile", "56987654321", "123456789@g.us", "Pedido")
         self.assertEqual(bridge.call_count, 1)
+
+    @mock.patch("zero.whatsapp_web.bridge_request")
+    def test_document_send_uses_structured_prices_and_verifies_account(self, bridge):
+        pricing = {"items": [
+            {"id": "borde-ballena-50x40", "unit_price": 5500},
+            {"id": "borde-recto-nariz-50x50", "unit_price": 6000},
+        ]}
+        bridge.side_effect = [{"state": "ready", "account": "56987654321"},
+                              {"id": "document-1", "ack": 0}]
+        result = send_catalog_document("losetaschile", "56987654321", "56912345678",
+                                       "bordes", pricing, chat_id="56912345678@c.us")
+        self.assertEqual(result["id"], "document-1")
+        self.assertEqual(bridge.call_args.args[0], "/send-catalog-document")
+        self.assertEqual(bridge.call_args.args[1]["prices"]["borde-ballena-50x40"], 5500)
+        bridge.reset_mock()
+        with self.assertRaises(ValueError):
+            send_catalog_document("losetaschile", "56987654321", "56912345678",
+                                  "otros", pricing)
+        bridge.assert_not_called()
 
     @mock.patch("zero.whatsapp_web.bridge_request")
     def test_delivery_poll_uses_verified_losetas_account(self, bridge):

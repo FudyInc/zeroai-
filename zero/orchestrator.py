@@ -21,6 +21,8 @@ from .config import (
     ACTIVE_MARKET_REGIONS,
     AVG_DEAL_VALUE_CLP,
     DEFAULT_VENDOR_ID,
+    LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE,
+    LOSETASCHILE_WHATSAPP_CATALOG_URL,
     FORECAST_RATES,
     MAX_INBOUND_MESSAGE_CHARS,
     QUOTE_REVIEW_REQUIRED_CLIENT_IDS,
@@ -33,6 +35,7 @@ from .config import (
     tier_config,
 )
 from .channels import Outbox
+from .agent_rules import check_reply
 from .contracts import AgentResponse, Constraints, Lead, TaskPayload
 from .icp import describe_icp, is_empty, normalize_icp
 from .inbox import Inbox, MockInbox
@@ -44,13 +47,16 @@ from .losetas_shipping import (SHIPPING_COVERAGE_REPLY, SHIPPING_PRICE_REPLY,
                                shipping_coverage_request, shipping_delivery_followup)
 from .memory import SessionMemory
 from .quotes import compute_quote, extract_request, format_quote, normalize_pricing
-from .pool_border import (border_plan, delegates_piece_calculation,
+from .pool_border import (border_plan, catalog_requested, visual_catalog_category,
+                          delegates_piece_calculation,
                           format_product_quote, shipping_price_request,
                           measurement_followup, unquoted_piece_count,
                           wants_border_budget, wants_product_quote,
                           pool_border_models_reply, pool_measurement_message)
 from .vendors import credentials_for
 from .whatsapp_context import select_history, select_knowledge
+from .whatsapp_format import format_whatsapp_reply
+from .whatsapp_greeting import align_opening_greeting, whatsapp_greeting
 
 # --- pending offers (the CONCIERGE promises, ZERO fulfills) -------------------
 # When the agent replies "te mando un resumen" / "¿te dejo 3 ejemplos?", that's a
@@ -88,13 +94,18 @@ def _simple_greeting(text: str) -> bool:
     value = (text or "").strip().casefold().strip(" ¡!¿?.,")
     return (value in {"hola", "holi", "buenas", "hola buenas", "hola buen día",
                       "hola buen dia", "buenos días", "buenos dias",
-                      "buenas tardes", "buenas noches"}
+                      "buen día", "buen dia", "buenas tardes", "buenas noches"}
             or _introduced_name(text) is not None)
 
 
-def _unreadable_whatsapp_message(text: str) -> bool:
+def _unreadable_whatsapp_message(text: str, client_id: str = "") -> bool:
     value = (text or "").strip()
-    if re.fullmatch(r"\[(?:audio|ptt|image|video|sticker|document|archivo|voice)\]", value, re.IGNORECASE):
+    # Both Meta and the Web bridge use bracketed placeholders for attachments.
+    # LosetasChile handles a location as delivery data in its quote flow.
+    if re.fullmatch(r"\[location\](?:\s+https://www\.google\.com/maps\?q=[-\d.]+,[-\d.]+)?",
+                    value, re.IGNORECASE):
+        return client_id != "losetaschile"
+    if re.fullmatch(r"\[[a-z_]+\]", value, re.IGNORECASE):
         return True
     # A single apparent keyboard mash with a long consonant run is not a
     # product question. Do not apply this to longer messages or model codes.
@@ -1039,12 +1050,24 @@ class Zero:
             history = self.memory.get_conversation(
                 client_id, lead["key"], limit=None if local_whatsapp else 12)
         order_history = history or []
+        greeting = whatsapp_greeting() if channel == "whatsapp" else ""
         if client_id == "losetaschile" and channel == "whatsapp" and _simple_greeting(message):
-            return {"reply": "¡Hola! ¿En qué puedo ayudarte?", "intent": "general"}
+            introduced = _introduced_name(message)
+            salutation = f"¡{greeting}, {introduced}!" if introduced else f"¡{greeting}!"
+            return {"reply": f"{salutation} ¿En qué puedo ayudarte?", "intent": "general"}
         if client_id == "losetaschile" and channel == "whatsapp":
             choice_reply = delivery_poll_choice_response(message)
             if choice_reply:
                 return {"reply": choice_reply, "intent": "info"}
+            visual_category = visual_catalog_category(message)
+            if visual_category:
+                title = ("Catálogo Bordes de Piscina" if visual_category == "bordes"
+                         else "Catálogo Pastelones")
+                pricing = normalize_pricing(self.memory.get_client_pricing(client_id))
+                return {"reply": title, "intent": "catalog",
+                        "catalog_document": {"category": visual_category, "pricing": pricing}}
+            if catalog_requested(message):
+                return {"reply": LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE, "intent": "catalog"}
         if (client_id == "losetaschile" and channel == "whatsapp" and
                 shipping_price_request(message)):
             return {"reply": SHIPPING_PRICE_REPLY, "intent": "pricing",
@@ -1061,7 +1084,17 @@ class Zero:
         if local_whatsapp:
             lead_context = {key: lead_context[key] for key in ("name", "role", "company")
                             if lead_context.get(key)}
-            knowledge = select_knowledge(knowledge, message, max_chars=1600)
+            # Short follow-ups often name no product or policy. Use the latest
+            # exchange only to find matching sections of the same knowledge sheet.
+            followup = (bool(re.search(r"\b(?:eso|esto|ese|esa|aquello)\b", message, re.I)) or
+                        bool(re.match(r"^\s*[¿¡]?\s*y\b", message, re.I)) or
+                        bool(re.fullmatch(r"\s*[¿]?\s*cu[aá]nto\s+(?:sale|cuesta)\s*[?]?\s*",
+                                          message, re.I)))
+            retrieval_query = message
+            if followup:
+                retrieval_query += " " + " ".join(
+                    str(turn.get("text") or "")[:180] for turn in (history or [])[-2:])
+            knowledge = select_knowledge(knowledge, retrieval_query, max_chars=1600)
             history = select_history(history or [], message, max_turns=6)
         else:
             knowledge = knowledge[:4000]
@@ -1150,6 +1183,10 @@ class Zero:
                              "la consulta, usa intent handoff.")
         if feedback:
             instructions += " Corrección obligatoria de la respuesta anterior: " + feedback[:450]
+        if greeting:
+            instructions += (" Si saludas, usa exactamente '" + greeting +
+                             "' según la hora de Chile, aunque el contacto use otro saludo. "
+                             "No afirmes por eso que el negocio esté abierto.")
 
         if quote:
             instructions += (" Debajo de tu respuesta se adjuntará un presupuesto ya "
@@ -1167,27 +1204,41 @@ class Zero:
             instructions=instructions,
             data={"message": message, "lead": lead_context, "icp": _icp_para_outreach(icp), "vendor": persona,
                   "knowledge": knowledge, "history": history or [],
-                  "quote": quote or {}},
+                  "quote": quote or {}, "greeting": greeting},
             constraints=Constraints(channels=[channel]),
         )
         resp = self.dispatch("CONCIERGE", task)
         result = dict(resp.result or {})
-        if not isinstance(result.get("reply"), str) or not result["reply"].strip():
+        failures = (check_reply(result) if local_whatsapp and channel == "whatsapp" else
+                    ["respuesta vacía"] if not isinstance(result.get("reply"), str) or
+                    not result["reply"].strip() else [])
+        if failures:
             retry = TaskPayload(
                 agent="CONCIERGE", client_id=client_id or "", client_tier="",
                 instructions=instructions +
-                " Devuelve JSON con una clave reply que contenga una respuesta no vacía.",
+                " Corrige la respuesta anterior: " + "; ".join(failures)[:350] +
+                ". Devuelve JSON con reply no vacío e intent válido, sin cifras inventadas.",
                 data=task.data, constraints=task.constraints,
             )
             resp = self.dispatch("CONCIERGE", retry)
             result = dict(resp.result or {})
-            if not isinstance(result.get("reply"), str) or not result["reply"].strip():
-                logging.error("CONCIERGE no produjo reply tras dos intentos (status=%s, keys=%s)",
-                              resp.status, sorted(result))
+            failures = (check_reply(result) if local_whatsapp and channel == "whatsapp" else
+                        ["respuesta vacía"] if not isinstance(result.get("reply"), str) or
+                        not result["reply"].strip() else [])
+            if failures:
+                logging.error("CONCIERGE no produjo respuesta válida tras dos intentos "
+                              "(status=%s, keys=%s, fallas=%s)",
+                              resp.status, sorted(result), len(failures))
+                return {"reply": "", "intent": "handoff"}
         if (client_id == "losetaschile" and channel == "whatsapp" and
                 delegates_piece_calculation(message, result.get("reply") or "")):
             result["reply"] = ("¿Me confirmas el modelo de borde y las medidas "
                                "de la piscina para darte la cantidad exacta?")
+        if greeting and isinstance(result.get("reply"), str):
+            result["reply"] = align_opening_greeting(result["reply"], greeting)
+            if _simple_greeting(message) and not result["reply"].lstrip(" ¡!").casefold().startswith(
+                    greeting.casefold()):
+                result["reply"] = f"¡{greeting}! " + result["reply"].lstrip()
         if quote:
             reply = (result.get("reply") or "").strip()
             result["reply"] = (reply + "\n\n" if reply else "") + format_quote(quote)
@@ -1380,7 +1431,7 @@ class Zero:
                     "company": rec.get("company"), **out}
 
         if channel == "whatsapp" and (_HUMAN_REQUEST_RE.search(text or "") or
-                                       _unreadable_whatsapp_message(text)):
+                                       _unreadable_whatsapp_message(text, client_id)):
             self.memory.add_turn(client_id, key, "lead", text)
             reason = ("El contacto pidió atención humana" if _HUMAN_REQUEST_RE.search(text or "") else
                       "Mensaje no interpretable por el agente")
@@ -1399,7 +1450,9 @@ class Zero:
         # Perfiles nuevos desactivan este flujo heredado de ventas de ZeroAI.
         # Los clientes antiguos sin perfil conservan su comportamiento.
         offer_flow = self.memory.get_client_agent_profile(client_id).get("offer_flow", True)
-        if offer_flow and pending and accepts_offer(text):
+        if (offer_flow and pending and accepts_offer(text) and not
+                (client_id == "losetaschile" and channel == "whatsapp" and
+                 catalog_requested(text))):
             body = build_info_summary(self.memory.get_client_icp(client_id), rec)
             out_channel, to = pick_channel(text, rec, default_channel=channel)
             delivery = self._deliver(client_id, key, to, {
@@ -1570,10 +1623,13 @@ class Zero:
         if repeated and _simple_greeting(text) and intent != "handoff":
             # Un saludo nuevo no debe silenciar el chat por una respuesta anterior igual.
             # Responder sin repetir preguntas viejas ni inventar datos del negocio.
-            reply = (f"¡Hola, {introduced_name}! ¿En qué puedo ayudarte?" if introduced_name
-                     else "¡Hola! Estoy aquí para ayudarte. ¿Qué necesitas hoy?")
+            greeting = whatsapp_greeting()
+            reply = (f"¡{greeting}, {introduced_name}! ¿En qué puedo ayudarte?" if introduced_name
+                     else f"¡{greeting}! Estoy aquí para ayudarte. ¿Qué necesitas hoy?")
             intent, quote = "general", None
             repeated = False
+        if client_id == "losetaschile" and channel == "whatsapp" and reply:
+            reply = format_whatsapp_reply(reply)
         if channel == "whatsapp" and (intent == "handoff" or not reply.strip() or repeated or
                                       unsafe_shipping or unsupported_review or unsupported_count):
             reason = ("El agente no entendió la consulta" if intent == "handoff" else
@@ -1615,7 +1671,22 @@ class Zero:
         delivery = {"status": "error", "error": "El agente no produjo una respuesta"}
         poll_delivery = None
         if reply:
-            if client_id == "losetaschile" and channel == "whatsapp" and res.get("media_asset"):
+            if client_id == "losetaschile" and channel == "whatsapp" and res.get("catalog_document"):
+                if not whatsapp_chat_id or not to_phone_id:
+                    delivery = {"status": "error", "error": "Falta chat Web para enviar catálogo visual"}
+                else:
+                    from .whatsapp_web import send_catalog_document
+                    try:
+                        document = res["catalog_document"]
+                        sent = send_catalog_document(
+                            client_id, to_phone_id, rec.get("phone") or from_contact,
+                            document["category"], document["pricing"],
+                            chat_id=whatsapp_chat_id)
+                        delivery = {"status": "sent", "via": "whatsapp_web",
+                                    "id": sent["id"], "ack": sent.get("ack")}
+                    except (RuntimeError, ValueError) as exc:
+                        delivery = {"status": "error", "error": str(exc)}
+            elif client_id == "losetaschile" and channel == "whatsapp" and res.get("media_asset"):
                 if not whatsapp_chat_id or not to_phone_id:
                     delivery = {"status": "error", "error": "Falta chat Web para enviar imagen"}
                 else:

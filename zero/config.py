@@ -46,6 +46,14 @@ DEFAULT_INBOUND_CLIENT_ID = os.environ.get("DEFAULT_INBOUND_CLIENT_ID", "zeroai"
 # de demostración 1111 en Fernanda; no se debe usar ese dato para enrutar.
 DEFAULT_INBOUND_WHATSAPP_NUMBER = os.environ.get("DEFAULT_INBOUND_WHATSAPP_NUMBER", "56964537891")
 
+# Saludo de WhatsApp según la hora local de los negocios atendidos en Chile.
+# Los límites pertenecen a la política; el cálculo usa ZoneInfo para respetar
+# los cambios de horario de verano/invierno.
+WHATSAPP_TIME_ZONE = "America/Santiago"
+WHATSAPP_MORNING_START_HOUR = 5
+WHATSAPP_AFTERNOON_START_HOUR = 12
+WHATSAPP_EVENING_START_HOUR = 20
+
 # PoolEdge requiere dirección completa y despacho revisado por una persona antes
 # de emitir un total final (ficha confirmada el 2026-09-29). El cotizador genérico
 # solo suma productos e IVA; no debe enviar ese subtotal como presupuesto final.
@@ -57,7 +65,9 @@ LOSETASCHILE_FLETE_ORIGIN = "Los Granados 029, La Pintana"
 LOSETASCHILE_FLETE_CLP_PER_KM = 2000
 # Enlace copiado por Diego del catálogo de WhatsApp Business el 2026-10-08.
 LOSETASCHILE_WHATSAPP_CATALOG_URL = "https://wa.me/c/56964537891"
-
+LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE = (
+    "Catálogo\n" + LOSETASCHILE_WHATSAPP_CATALOG_URL
+)
 # --- Acciones que una función programada puede PEDIR --------------------------
 # Una función sandboxeada nunca actúa por sí misma: corre con --network=none y
 # sin credenciales (zero/sandbox.py), así que lo único que puede hacer es

@@ -9,7 +9,8 @@ import re
 from decimal import Decimal
 from typing import Any
 
-from .config import LOSETASCHILE_WHATSAPP_CATALOG_URL
+from .config import (LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE,
+                     LOSETASCHILE_WHATSAPP_CATALOG_URL)
 
 
 _COUNT = re.compile(r"\b(?:cu[aá]nt[oa]s|cantidad)\b", re.IGNORECASE)
@@ -33,6 +34,41 @@ _MODEL_QUESTION = re.compile(
     r"\b(?:modelos?|tipos?)\s+(?:hay|tienen|disponibles?)\b|"
     r"\b(?:qu[eé]|cu[aá]les?)\s+bordes?\b|"
     r"\b(?:tienen|hay)\s+(?:otros?\s+)?bordes?\b",
+    re.IGNORECASE,
+)
+_CATALOG_REQUEST = re.compile(
+    r"\b(?:tien(?:e|es|en)|hay)\s+(?:(?:un|el|alg[uú]n)\s+)?cat[aá]logos?\b|"
+    r"\b(?:solo\s+)?(?:env[ií]a|manda|pasa|comparte|muestra)\s+"
+    r"(?:el\s+)?cat[aá]logos?\b|"
+    r"\bsolo\s+(?:el\s+)?cat[aá]logos?\b|"
+    r"\b(?:env[ií]ame|m[aá]ndame|p[aá]same|comp[aá]rteme|mu[eé]strame|"
+    r"me\s+(?:env[ií]as|mandas|pasas|compartes|muestras)|"
+    r"me\s+(?:puedes|podr[ií]as?)\s+(?:mandar|enviar|pasar|compartir|mostrar)|"
+    r"(?:puedes|podr[ií]as?)\s+(?:mandarme|enviarme|pasarme|compartirme|mostrarme)|"
+    r"(?:quiero|quisiera|puedo|podr[ií]a)\s+(?:ver|recibir|revisar))"
+    r"\b.{0,60}\b(?:(?:el|un)\s+)?cat[aá]logos?\b|"
+    r"^\s*¿?\s*(?:el\s+)?cat[aá]logos?\s*(?:[?!.]|por\s+favor[.!]?)?\s*$",
+    re.IGNORECASE,
+)
+_CATALOG_NEGATION = re.compile(
+    r"\b(?:no|sin)\s+(?:(?:quiero|quisiera)\s+ver\s+|"
+    r"me\s+(?:mandes|env[ií]es|pases|compartas)\s+|"
+    r"(?:quiero|necesito)\s+)?(?:el\s+)?cat[aá]logos?\b"
+    r"|\bno\s+(?:tienen|tiene|hay)\s+"
+    r"(?:(?:un|el|alg[uú]n)\s+)?cat[aá]logos?\b",
+    re.IGNORECASE,
+)
+_CATALOG_SEND_NEGATION = re.compile(
+    r"\bno\s+me\s+(?:mandes|env[ií]es|pases|compartas)\s+"
+    r"(?:(?:el|un)\s+)?(?:cat[aá]logos?|enlace|link|nada)\b|"
+    r"\bcat[aá]logos?\b.{0,60}\b(?:pero\s+)?no\s+ahora\b|"
+    r"\bcat[aá]logos?\b.{0,60}\b(?:pero\s+)?no\s+me\s+lo\s+"
+    r"(?:mandes|env[ií]es|pases|compartas)\b|"
+    r"\b(?:todav[ií]a|a[uú]n)\s+no\s+(?:lo\s+)?"
+    r"(?:mandes|env[ií]es|pases|compartas)\b|"
+    r"\bmejor\s+(?:despu[eé]s|m[aá]s\s+tarde)\b"
+    r"|\bcat[aá]logos?\b.{0,80}\b(?:ma[nñ]ana|m[aá]s\s+tarde|despu[eé]s)\b"
+    r"|\bno\s+me\s+lo\s+(?:manden|env[ií]en|pasen|compartan)\b",
     re.IGNORECASE,
 )
 _POOL_MEASUREMENTS = re.compile(
@@ -152,7 +188,11 @@ def normalize_pool_border_terms(message: str) -> str:
 def pool_border_models_reply(message: str, history: list[dict[str, Any]],
                              pricing: dict[str, Any]) -> str | None:
     """List current priced border models in a pool conversation, without quoting."""
-    if not _MODEL_QUESTION.search(message or ""):
+    if catalog_requested(message):
+        return LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE
+    if (_CATALOG_NEGATION.search(message or "") or
+            _CATALOG_SEND_NEGATION.search(message or "") or
+            not _MODEL_QUESTION.search(message or "")):
         return None
     if re.search(r"\b(?:pastelones?|adoquines?|lajas?|ladrillos?|deck|dormientes?|"
                  r"pago|despacho|flete|env[ií]o)\b",
@@ -175,6 +215,30 @@ def pool_border_models_reply(message: str, history: list[dict[str, Any]],
             (" También figura la esquina para piscina." if corner else "") +
             f" Mira el catálogo de WhatsApp: {LOSETASCHILE_WHATSAPP_CATALOG_URL} "
             "¿Cuál modelo te interesa?")
+
+
+def catalog_requested(message: str) -> bool:
+    """Whether the lead explicitly asks to see the WhatsApp catalog."""
+    return bool(_CATALOG_REQUEST.search(message or "") and
+                not _CATALOG_NEGATION.search(message or "") and
+                not _CATALOG_SEND_NEGATION.search(message or ""))
+
+
+def visual_catalog_category(message: str) -> str | None:
+    """Category requested explicitly for the LosetasChile photo catalog."""
+    value = message or ""
+    if not (catalog_requested(value) or re.search(
+            r"^\s*¿?\s*(?:cat[aá]logo|cagalogo)\s+(?:de\s+)?"
+            r"(?:bordes?|pastelones?)\s*[?!.]?\s*$", value,
+            re.IGNORECASE)):
+        return None
+    if _CATALOG_NEGATION.search(value) or _CATALOG_SEND_NEGATION.search(value):
+        return None
+    borders = bool(re.search(r"\bbordes?\b", value, re.IGNORECASE))
+    pavers = bool(re.search(r"\bpastelones?\b", value, re.IGNORECASE))
+    if borders == pavers:
+        return None
+    return "bordes" if borders else "pastelones"
 
 
 def pool_measurement_message(message: str) -> bool:

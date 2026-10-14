@@ -357,7 +357,7 @@ class IcpLeakTest(unittest.TestCase):
                "buyer_roles": ["dueño"], "regions": ["RM"],
                "context": "Buscamos empresas de mudanzas para ofrecerles el servicio"}
         z, capturado = self._zero_con_icp(icp)
-        z.converse_result("zeroai", "hola", lead={"name": "Marcela"}, history=[])
+        z.converse_result("zeroai", "¿Qué venden?", lead={"name": "Marcela"}, history=[])
 
         visto = capturado["data"]["icp"]
         self.assertEqual(visto, {"sells": "leads B2B"})
@@ -368,7 +368,7 @@ class IcpLeakTest(unittest.TestCase):
 
     def test_an_empty_icp_stays_empty(self):
         z, capturado = self._zero_con_icp({})
-        z.converse_result("zeroai", "hola", lead={}, history=[])
+        z.converse_result("zeroai", "¿Qué venden?", lead={}, history=[])
         self.assertEqual(capturado["data"]["icp"], {})
 
 
