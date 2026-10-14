@@ -1,11 +1,16 @@
 """Selección por búsqueda: sin red, sin credenciales reales ni escrituras al CRM."""
 import os
 import unittest
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from fastapi import BackgroundTasks, HTTPException
 from pydantic import ValidationError
 import api
 from zero import runs
+
+
+# Llamada directa al handler: sin auth no hay state.auth (sin alcance).
+REQUEST = SimpleNamespace(state=SimpleNamespace(auth=None))
 
 
 class PipelineProvider(unittest.TestCase):
@@ -33,7 +38,7 @@ class PipelineProvider(unittest.TestCase):
         with patch.object(api, 'make_crm') as crm, patch.object(api, '_agents_best') as fallback:
             for provider in ['openai', 'anthropic', 'qwen']:
                 req = api.RunRequest(client='test', query='test', provider=provider)
-                for endpoint in [lambda: api.start_pipeline(req, BackgroundTasks()), lambda: api.run_pipeline(req)]:
+                for endpoint in [lambda: api.start_pipeline(req, BackgroundTasks(), REQUEST), lambda: api.run_pipeline(req)]:
                     with self.assertRaises(HTTPException) as error:
                         endpoint()
                     self.assertEqual(error.exception.status_code, 503)
@@ -62,8 +67,8 @@ class PipelineProvider(unittest.TestCase):
         first, second = object(), object()
         with patch.object(api, '_pipeline_agents', side_effect=[(first, 'live'), (second, 'live')]) as select, patch.object(api, 'make_crm'), patch.object(api, 'make_memory'), patch.object(api, 'make_outbox'), patch.object(api, 'Zero') as zero:
             zero.return_value.run_pipeline.return_value = {'summary': {}}
-            api.start_pipeline(api.RunRequest(client='test', query='one', provider='openai'), tasks)
-            api.start_pipeline(api.RunRequest(client='test', query='two', provider='qwen'), tasks)
+            api.start_pipeline(api.RunRequest(client='test', query='one', provider='openai'), tasks, REQUEST)
+            api.start_pipeline(api.RunRequest(client='test', query='two', provider='qwen'), tasks, REQUEST)
             for task in tasks.tasks:
                 task.func()
             self.assertEqual(select.call_count, 2)

@@ -11,7 +11,7 @@ const DEBOUNCE_MS = 300
    el texto no matchea ninguna página/cliente conocido— busca leads del
    cliente seleccionado vía GET /api/leads/search (debounced). Mismo patrón
    visual que el resto de los modales (backdrop + spring). */
-export default function CommandPalette({ open, onClose, pages, clients, currentClient, onNavigate, onSelectClient, onOpenLead }) {
+export default function CommandPalette({ open, onClose, pages, clients, currentClient, onNavigate, onSelectClient, onOpenLead, scoped = false }) {
   const [q, setQ] = useState('')
   const [active, setActive] = useState(0)
   const [leadResults, setLeadResults] = useState([])
@@ -31,11 +31,11 @@ export default function CommandPalette({ open, onClose, pages, clients, currentC
     const pageItems = pages
       .filter((p) => !needle || p.label.toLowerCase().includes(needle))
       .map((p) => ({ kind: 'page', key: 'p:' + p.path, label: p.label, path: p.path }))
-    const clientItems = (clients || [])
+    const clientItems = scoped ? [] : (clients || [])
       .filter((c) => !needle || c.toLowerCase().includes(needle))
       .map((c) => ({ kind: 'client', key: 'c:' + c, label: c }))
     return [...pageItems, ...clientItems]
-  }, [q, pages, clients])
+  }, [q, pages, clients, scoped])
 
   // Solo se busca un lead cross-cliente cuando el texto no matchea nada
   // conocido — evita un fetch de más cuando ya hay una página/cliente a mano.
@@ -99,7 +99,7 @@ export default function CommandPalette({ open, onClose, pages, clients, currentC
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 onKeyDown={onKeyDown}
-                placeholder="Ir a una página, cambiar de cliente o buscar un lead…"
+                placeholder={scoped ? 'Ir a una página o buscar un lead…' : 'Ir a una página, cambiar de cliente o buscar un lead…'}
                 className="flex-1 py-3.5 text-sm outline-none placeholder:text-zinc-400"
               />
               {leadSearching
@@ -133,7 +133,7 @@ export default function CommandPalette({ open, onClose, pages, clients, currentC
                   {item.kind === 'client' && item.label === currentClient && (
                     <span className="text-[10px] font-semibold text-gold-deep bg-champagne/40 px-1.5 py-0.5 rounded-full shrink-0">actual</span>
                   )}
-                  {item.kind === 'lead' && (
+                  {item.kind === 'lead' && !scoped && (
                     <span className="text-[10px] font-semibold text-pewter bg-pewter/10 px-1.5 py-0.5 rounded-full shrink-0 capitalize">{item.clientId}</span>
                   )}
                   {i === active && <CornerDownLeft size={13} className="text-zinc-300 shrink-0" />}

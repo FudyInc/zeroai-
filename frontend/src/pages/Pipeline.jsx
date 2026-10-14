@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
@@ -10,17 +10,33 @@ import { useApp } from '../App'
 import { NoClient } from './Dashboard'
 import { rise, fade, surface, stagger, staggerDense } from '../lib/motion'
 import LeadRoute from '../components/LeadRoute'
+import PipelineRun from '../components/PipelineRun'
 
 const DENSITY = [{ value: 'comodo', label: 'Cómodo' }, { value: 'compacto', label: 'Compacto' }]
 
 export default function Pipeline() {
-  const { client, openLead } = useApp()
+  const { client, openLead, runId, setRunId, scoped } = useApp()
   const qc = useQueryClient()
   const { data: board, isLoading, error, refetch } = useQuery({ queryKey: ['board', client], queryFn: () => api.board(client), enabled: !!client })
   const drag = useRef(null)           // { key, from }
   const [over, setOver] = useState(null)
   const [dense, setDense] = useState('comodo')
   const compact = dense === 'compacto'
+
+  /* El operador no pasa por Leads: tras "Buscar leads" aterriza acá, así que el avance de
+     la corrida se muestra acá (mismo panel que Leads) y, tras un F5, se reengancha con la
+     corrida viva de su cliente. Los demás roles siguen viéndolo en Leads. */
+  useEffect(() => {
+    if (!scoped || runId || !client) return
+    let vivo = true
+    api.pipelineRuns(10)
+      .then((rs) => {
+        const activa = rs.find((r) => r.estado === 'corriendo' && r.cliente === client)
+        if (vivo && activa) setRunId?.(activa.run)
+      })
+      .catch(() => { /* sin corridas que recordar: no hay nada que reenganchar */ })
+    return () => { vivo = false }
+  }, [client, scoped])   // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!client) return <NoClient />
 
@@ -47,6 +63,11 @@ export default function Pipeline() {
 
   return (
     <motion.div initial="hidden" animate="show" variants={rise}>
+      {scoped && runId && (
+        <div className="mb-4">
+          <PipelineRun runId={runId} onFin={() => qc.invalidateQueries({ queryKey: ['board'] })} />
+        </div>
+      )}
       <motion.div className="flex items-center justify-between gap-3 mb-4" variants={fade}>
         <div className="text-xs text-zinc-400">Arrastra una tarjeta entre columnas para cambiar su etapa — o usa el menú. Tócala para ver el detalle.</div>
         <Segmented options={DENSITY} value={dense} onChange={setDense} />

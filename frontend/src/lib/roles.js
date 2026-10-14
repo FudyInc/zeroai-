@@ -25,12 +25,17 @@
 //     borradores que dejaron las corridas automáticas; revisar y enviar
 //     outreach ya es trabajo de esos tres roles (mismo criterio que el
 //     POST /api/leads/{key}/send que ya tenían).
-//   - Preferencias (2026-07-23): TODOS los roles — es personal (tema, por
-//     ahora), 100% cliente/localStorage, nada sensible ni de la agencia.
+//   - "operador" (Stefano): rol con alcance por cliente — SOLO Pipeline (más el
+//     modal "Buscar leads", que no es página). Ve únicamente los clientes que
+//     Diego le asigna en Equipo; la barrera real es el backend (404 fuera de
+//     alcance), esto evita mostrarle o pedirle nada de otros clientes.
+//   - Preferencias (2026-07-23): cro/cto/cco (y admin) — es personal (tema, por
+//     ahora), 100% cliente/localStorage, nada sensible ni de la agencia. El
+//     "operador" NO la tiene (decisión de Diego: solo Pipeline por ahora).
 export const PAGE_ROLES = {
   '/': ['cro', 'cto', 'cco'],
   '/leads': ['cto'],
-  '/pipeline': ['cro', 'cto', 'cco'],
+  '/pipeline': ['cro', 'cto', 'cco', 'operador'],
   '/forecast': ['cro', 'cto'],
   '/vender': ['cro', 'cco'],
   '/campanas': ['cro', 'cco'],
@@ -61,4 +66,12 @@ export function canSeePage(path, role, authEnabled) {
 
 // Solo para mostrar — el rol real (permisos) sigue siendo "admin"/"cro"/"cto"
 // en todo el backend; esto es la etiqueta que ve el humano en el sidebar.
-export const ROLE_LABELS = { admin: 'CEO', cro: 'CRO', cto: 'CTO', cco: 'CCO' }
+export const ROLE_LABELS = { admin: 'CEO', cro: 'CRO', cto: 'CTO', cco: 'CCO', operador: 'Operador' }
+
+// Roles que solo operan sobre los clientes que se les asignaron. Para ellos la UI
+// no lista, sugiere ni deja escribir clientes fuera de su alcance.
+export const SCOPED_ROLES = ['operador']
+export const isScoped = (role) => SCOPED_ROLES.includes(role)
+
+// Dónde aterriza cada rol: el operador no ve el Dashboard (muestra todos los clientes).
+export const homePath = (role) => (isScoped(role) ? '/pipeline' : '/')

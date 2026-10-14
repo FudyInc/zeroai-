@@ -61,6 +61,43 @@ class GateTest(unittest.TestCase):
         self.assertFalse(ok)
         self.assertTrue(any("exclusión" in f for f in fails))
 
+    def test_contact_blackout_is_per_client(self):
+        lead = _lead()
+        self.z.memory.mark_contacted("a", lead.key())
+        ok_a, fails = self.z.validate_lead(lead, exclusions=[], client_id="a")
+        ok_b, _ = self.z.validate_lead(lead, exclusions=[], client_id="b")
+        self.assertFalse(ok_a)
+        self.assertTrue(any(str(RECONTACT_BLACKOUT_DAYS) in f for f in fails))
+        self.assertTrue(ok_b)
+
+    def test_legacy_contact_entry_blocks_every_client(self):
+        lead = _lead()
+        self.z.memory.contacted[lead.key()] = _now()   # forma antigua, sin cliente
+        for client in ("a", "b"):
+            ok, _ = self.z.validate_lead(lead, exclusions=[], client_id=client)
+            self.assertFalse(ok, client)
+
+    def test_legacy_contact_expires_and_new_per_client_entry_survives_roundtrip(self):
+        lead = _lead()
+        old = (datetime.now(timezone.utc) - timedelta(days=RECONTACT_BLACKOUT_DAYS + 1)).isoformat()
+        self.z.memory.contacted[lead.key()] = old
+        self.assertTrue(self.z.validate_lead(lead, exclusions=[], client_id="a")[0])
+        self.z.memory.mark_contacted("a", lead.key())
+        m2 = SessionMemory(None)
+        m2._restore(self.z.memory.snapshot())
+        self.assertIn(lead.key(), m2.contacted)              # el estado antiguo no se migra ni se pierde
+        self.assertIsNotNone(m2.last_contacted("a", lead.key()))
+        self.assertEqual(m2.contacted_by_client["a"].keys(), {lead.key()})
+        z2 = Zero(build_agents(mock=True), memory=m2)
+        self.assertFalse(z2.validate_lead(lead, exclusions=[], client_id="a")[0])
+        self.assertTrue(z2.validate_lead(lead, exclusions=[], client_id="b")[0])
+
+    def test_old_snapshot_without_new_field_loads(self):
+        m = SessionMemory(None)
+        m._restore({"contacted": {"x@y.cl": _now()}})
+        self.assertEqual(m.contacted_by_client, {})
+        self.assertIsNotNone(m.last_contacted("any", "x@y.cl"))
+
     def test_recent_contact_fails(self):
         lead = _lead()
         self.z.memory.contacted[lead.key()] = _now()   # contacted just now
@@ -804,7 +841,8 @@ class MemoryPersistenceTest(unittest.TestCase):
         m.register_client("acme", "GROWTH")
         m.set_client_icp("acme", {"sells": "pallets"})
         m.set_agent_status("CONCIERGE", "done")
-        m.mark_contacted("ceo@acme.cl")
+        m.mark_contacted("acme", "ceo@acme.cl")
+        m.contacted["viejo@x.cl"] = _now()                  # forma antigua (sin cliente)
         m.add_used_email("ceo@acme.cl")
         m.open_sequence("acme", {"email": "ceo@acme.cl", "company": "Acme"})
         m.set_pending_offer("acme", "ceo@acme.cl", "info")
@@ -2436,6 +2474,45 @@ class SupabaseAdminApiTest(unittest.TestCase):
         put_call = m.call_args_list[1][0][0]
         sent_body = _json.loads(put_call.data.decode("utf-8"))
         self.assertNotIn("role", sent_body["app_metadata"])
+
+    def test_list_users_exposes_clients_only_from_app_metadata(self):
+        from unittest import mock
+        body = {"users": [
+            {"id": "u1", "email": "op@zeroai.cl", "user_metadata": {"clients": ["x"]},
+             "app_metadata": {"role": "operador", "clients": ["Augustar Seguros", "", 3]}},
+            {"id": "u2", "email": "b@zeroai.cl", "user_metadata": {}, "app_metadata": {"clients": "acme"}},
+        ]}
+        with mock.patch("zero.auth.urllib.request.urlopen", return_value=self._mock_response(body)):
+            users = self.auth.list_supabase_users()
+        self.assertEqual(users[0]["clients"], ["Augustar Seguros"])
+        self.assertEqual(users[1]["clients"], [])
+
+    def test_set_user_clients_preserves_role_and_other_keys(self):
+        import json as _json
+        from unittest import mock
+        get_resp = self._mock_response({"id": "u2", "app_metadata": {"role": "operador", "otra": "x"}})
+        put_resp = self._mock_response({"id": "u2"})
+        with mock.patch("zero.auth.urllib.request.urlopen", side_effect=[get_resp, put_resp]) as m:
+            ok = self.auth.set_user_clients("u2", ["Augustar Seguros"])
+        self.assertTrue(ok)
+        sent = _json.loads(m.call_args_list[1][0][0].data.decode("utf-8"))
+        self.assertEqual(sent["app_metadata"],
+                         {"role": "operador", "otra": "x", "clients": ["Augustar Seguros"]})
+
+    def test_set_user_clients_empty_removes_key(self):
+        import json as _json
+        from unittest import mock
+        get_resp = self._mock_response({"id": "u2", "app_metadata": {"role": "operador", "clients": ["a"]}})
+        put_resp = self._mock_response({"id": "u2"})
+        with mock.patch("zero.auth.urllib.request.urlopen", side_effect=[get_resp, put_resp]) as m:
+            self.auth.set_user_clients("u2", [])
+        sent = _json.loads(m.call_args_list[1][0][0].data.decode("utf-8"))
+        self.assertEqual(sent["app_metadata"], {"role": "operador"})
+
+    def test_set_user_clients_network_failure_returns_false(self):
+        from unittest import mock
+        with mock.patch("zero.auth.urllib.request.urlopen", side_effect=OSError("red caída")):
+            self.assertFalse(self.auth.set_user_clients("u2", ["a"]))
 
     def test_set_user_role_network_failure_returns_false(self):
         from unittest import mock

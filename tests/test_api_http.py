@@ -114,14 +114,19 @@ def _b64url(data: bytes) -> str:
 
 def _make_supabase_jwt(secret: str, *, email: str = "test@zeroai.cl",
                        role: str | None = "admin", exp_delta: int = 3600,
-                       full_name: str | None = None) -> str:
+                       full_name: str | None = None, clients=None,
+                       user_clients=None) -> str:
     """Arma un JWT con la misma forma/firma que produce Supabase Auth (HS256,
     base64url, app_metadata.role, user_metadata.full_name) — sin pyjwt, para
     probar zero/auth.py y el auth_guard de api.py sin depender de una cuenta
     real de Supabase."""
     header = {"alg": "HS256", "typ": "JWT"}
     app_metadata = {"role": role} if role is not None else {}
+    if clients is not None:
+        app_metadata["clients"] = clients
     user_metadata = {"full_name": full_name} if full_name is not None else {}
+    if user_clients is not None:   # trampa: NO debe contar para el alcance
+        user_metadata["clients"] = user_clients
     payload = {"email": email, "exp": int(time.time()) + exp_delta,
               "app_metadata": app_metadata, "user_metadata": user_metadata}
     header_b64 = _b64url(json.dumps(header).encode())
@@ -1547,6 +1552,256 @@ class PipelineEnVivoHttpTest(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self._get("/api/pipeline/runs", token=self._jwt(role="cco"))
         self.assertEqual(ctx.exception.code, 403)
+
+
+class OperadorAislamientoHttpTest(unittest.TestCase):
+    """Rol "operador": acotado a app_metadata.clients, sin poder ni inferir que
+    existen otros clientes. Subproceso propio con DOS clientes sembrados
+    ("Augustar Seguros", con espacio, y "acme"), cada uno con un lead, todo en
+    un tempdir y con Supabase/motores vaciados (nunca ausentes: load_env() los
+    repondría desde el .env real)."""
+
+    JWT_SECRET = "jwt-secret-para-el-operador"
+    PROPIO = "Augustar Seguros"
+    AJENO = "acme"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.port = _free_port()
+        cls.base = f"http://127.0.0.1:{cls.port}"
+        repo_root = Path(__file__).resolve().parent.parent
+        cls._tmpdir = tempfile.mkdtemp()
+        env = dict(os.environ)
+        env["STATE_PATH"] = os.path.join(cls._tmpdir, "state.json")
+        env["CRM_PATH"] = os.path.join(cls._tmpdir, "crm.json")
+        from zero.crm import CRM
+        from zero.memory import SessionMemory
+        memory = SessionMemory(env["STATE_PATH"])
+        memory.register_client(cls.PROPIO, "STARTER")
+        memory.register_client(cls.AJENO, "GROWTH")
+        memory.save()
+        crm = CRM(env["CRM_PATH"])
+        crm.upsert(cls.PROPIO, {"company": "Propia SA", "email": "a@propia.cl"})
+        crm.upsert(cls.AJENO, {"company": "Ajena SA", "email": "a@ajena.cl"})
+        crm.save()
+        env["SUPABASE_JWT_SECRET"] = cls.JWT_SECRET
+        env["AUTH_USERS_PATH"] = os.path.join(cls._tmpdir, "users.json")
+        env["ZERO_PIPELINE_MOCK_OK"] = "1"
+        env["DISCOVER"] = "none"
+        for k in ("SUPABASE_URL", "SUPABASE_KEY", "LOCAL_MODEL", "ANTHROPIC_API_KEY",
+                  "OPENAI_API_KEY"):
+            env[k] = ""
+        cls.proc = _start_and_wait(
+            [sys.executable, "-m", "uvicorn", "api:app", "--port", str(cls.port),
+             "--log-level", "warning"],
+            str(repo_root), env, cls.base,
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        proc = getattr(cls, "proc", None)
+        if proc is not None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+        shutil.rmtree(getattr(cls, "_tmpdir", "") or "", ignore_errors=True)
+
+    def _tok(self, **kw) -> str:
+        kw.setdefault("role", "operador")
+        kw.setdefault("clients", [self.PROPIO])
+        return _make_supabase_jwt(self.JWT_SECRET, **kw)
+
+    def _call(self, method: str, path: str, token: str | None = None, body=None):
+        """(status, json) sin lanzar: los 4xx también son lo que se prueba."""
+        headers = {"Authorization": f"Bearer {token or self._tok()}"}
+        data = None
+        if body is not None:
+            data = json.dumps(body).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        req = urllib.request.Request(f"{self.base}{path}", data=data, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                return r.status, json.loads(r.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read().decode("utf-8"))
+
+    @staticmethod
+    def _q(client: str) -> str:
+        return urllib.parse.quote(client)
+
+    def test_rutas_propias_dan_200(self):
+        q = self._q(self.PROPIO)
+        key = "a@propia.cl"
+        for path in (f"/api/board?client={q}", f"/api/leads?client={q}",
+                     f"/api/leads/pending?client={q}", f"/api/leads/search?q=Propia&client={q}",
+                     f"/api/leads/{key}?client={q}", f"/api/icp?client={q}",
+                     f"/api/conversation?client={q}&lead={key}", "/api/pipeline/runs"):
+            self.assertEqual(self._call("GET", path)[0], 200, path)
+        status, body = self._call("POST", f"/api/leads/{key}/stage?client={q}", body={"stage": "contacted"})
+        self.assertEqual((status, body["stage"]), (200, "contacted"))
+        self.assertEqual(self._call("POST", f"/api/leads/{key}/reply?client={q}", body={"text": "hola"})[0], 200)
+
+    def test_clients_y_auth_status_solo_muestran_su_alcance(self):
+        status, body = self._call("GET", "/api/clients")
+        self.assertEqual((status, body), (200, {"clients": [self.PROPIO]}))
+        status, body = self._call("GET", "/api/auth/status")
+        self.assertEqual(body["clients"], [self.PROPIO])
+        self.assertEqual(body["role"], "operador")
+
+    def test_clients_ajeno_o_inexistente_no_aparecen_ni_con_alcance_a_inexistente(self):
+        tok = self._tok(clients=[self.PROPIO, "fantasma"])
+        self.assertEqual(self._call("GET", "/api/clients", tok)[1], {"clients": [self.PROPIO]})
+
+    def test_rutas_fuera_de_su_lista_dan_403(self):
+        q = self._q(self.PROPIO)
+        casos = [("GET", f"/api/kpis?client={q}"), ("GET", f"/api/forecast?client={q}"),
+                 ("GET", "/api/accounts"), ("GET", "/api/team"), ("GET", "/api/vendors"),
+                 ("GET", f"/api/campaigns?client={q}"), ("GET", "/api/finance"),
+                 ("DELETE", f"/api/leads?client={q}&confirm={q}"),
+                 ("POST", "/api/pipeline"),
+                 ("POST", f"/api/leads?client={q}"),
+                 ("POST", f"/api/leads/a@propia.cl/otra?client={q}"),
+                 ("POST", "/api/team/u1/role"), ("POST", "/api/team/u1/clients"),
+                 ("POST", "/api/followups")]
+        for method, path in casos:
+            body = {} if method == "POST" else None
+            self.assertEqual(self._call(method, path, body=body)[0], 403, f"{method} {path}")
+
+    def test_cliente_ajeno_responde_identico_al_inexistente(self):
+        key = "a@ajena.cl"
+        for cliente in (self.AJENO, "no-existe-nunca"):
+            q = self._q(cliente)
+            reales = {}
+            for method, path, body in (
+                ("GET", f"/api/board?client={q}", None),
+                ("GET", f"/api/leads?client={q}", None),
+                ("GET", f"/api/leads/pending?client={q}", None),
+                ("GET", f"/api/leads/search?q=Ajena&client={q}", None),
+                ("GET", f"/api/leads/{key}?client={q}", None),
+                ("GET", f"/api/icp?client={q}", None),
+                ("POST", f"/api/icp?client={q}", {"icp": {"sells": "x"}}),
+                ("GET", f"/api/conversation?client={q}&lead={key}", None),
+                ("POST", f"/api/leads/{key}/stage?client={q}", {"stage": "won"}),
+                ("POST", f"/api/leads/{key}/reply?client={q}", {"text": "x"}),
+                ("POST", f"/api/leads/{key}/send?client={q}", {}),
+            ):
+                reales[path.split("?")[0]] = self._call(method, path, body=body)
+            for ruta, resp in reales.items():
+                self.assertEqual(resp, (404, {"detail": "cliente no encontrado"}), f"{cliente} {ruta}")
+        # y con el parámetro repetido, el propio no tapa al ajeno
+        q = self._q(self.PROPIO)
+        self.assertEqual(self._call("GET", f"/api/board?client={q}&client={self.AJENO}")[0], 404)
+        # el lead ajeno no cambió de etapa
+        admin = _make_supabase_jwt(self.JWT_SECRET, role="admin")
+        self.assertEqual(self._call("GET", f"/api/leads/{key}?client={self.AJENO}", admin)[1]["stage"], "new")
+
+    def test_pipeline_start_ajeno_o_inexistente_da_404_y_no_crea_cliente(self):
+        for ruta in ("/api/pipeline/start", "/api/pipeline/start-selected"):
+            for cliente in (self.AJENO, "cliente-nuevo"):
+                resp = self._call("POST", ruta, body={"client": cliente, "query": "x", "count": 2})
+                self.assertEqual(resp, (404, {"detail": "cliente no encontrado"}), f"{ruta} {cliente}")
+        admin = _make_supabase_jwt(self.JWT_SECRET, role="admin")
+        self.assertEqual(self._call("GET", "/api/clients", admin)[1]["clients"],
+                         sorted([self.PROPIO, self.AJENO]))
+
+    def test_pipeline_start_usa_el_tier_registrado_e_ignora_el_del_body(self):
+        status, arranque = self._call("POST", "/api/pipeline/start",
+                                      body={"client": self.PROPIO, "query": "seguros", "count": 2,
+                                            "tier": "ENTERPRISE"})
+        self.assertEqual(status, 200)
+        limite = time.time() + 30
+        while time.time() < limite:   # la corrida registraba el tier al correr
+            _, p = self._call("GET", f"/api/pipeline/progress?run={arranque['run']}")
+            if p["estado"] != "corriendo":
+                break
+            time.sleep(0.2)
+        self.assertEqual(p["cliente"], self.PROPIO)
+        self.assertEqual(p["estado"], "terminada")
+        # el tier no se expone en progress: se comprueba en el registro del cliente
+        from zero.memory import SessionMemory
+        mem = SessionMemory(os.path.join(self._tmpdir, "state.json"))
+        self.assertEqual(mem.clients[self.PROPIO]["tier"], "STARTER")
+
+    def test_runs_y_progress_filtrados_al_alcance(self):
+        admin = _make_supabase_jwt(self.JWT_SECRET, role="admin")
+        _, ajena = self._call("POST", "/api/pipeline/start", admin,
+                              body={"client": self.AJENO, "query": "x", "count": 2})
+        _, propia = self._call("POST", "/api/pipeline/start",
+                               body={"client": self.PROPIO, "query": "x", "count": 2})
+        _, body = self._call("GET", "/api/pipeline/runs?limit=20")
+        runs_ids = {r["run"] for r in body["runs"]}
+        self.assertIn(propia["run"], runs_ids)
+        self.assertNotIn(ajena["run"], runs_ids)
+        self.assertTrue(all(r["cliente"] == self.PROPIO for r in body["runs"]))
+        ajeno = self._call("GET", f"/api/pipeline/progress?run={ajena['run']}")
+        inexistente = self._call("GET", "/api/pipeline/progress?run=r_no-existe")
+        self.assertEqual(ajeno[0], 404)
+        self.assertEqual(ajeno, inexistente)
+        self.assertEqual(self._call("GET", f"/api/pipeline/progress?run={propia['run']}")[0], 200)
+
+    def _esperar_corrida(self, run: str) -> dict:
+        limite = time.time() + 30
+        while time.time() < limite:
+            _, p = self._call("GET", f"/api/pipeline/progress?run={run}")
+            if p["estado"] != "corriendo":
+                return p
+            time.sleep(0.2)
+        self.fail("la corrida no terminó")
+
+    def test_operador_no_puede_forzar_auto_send(self):
+        """auto_send=true del operador se ignora: el primer mensaje queda en
+        borrador (observable: bandeja de pendientes, ningún lead 'sent')."""
+        for ruta in ("/api/pipeline/start", "/api/pipeline/start-selected"):
+            _, arranque = self._call("POST", ruta, body={"client": self.PROPIO, "query": "seguros",
+                                                         "count": 3, "auto_send": True})
+            self.assertEqual(self._esperar_corrida(arranque["run"])["estado"], "terminada", ruta)
+        from zero.crm import CRM
+        crm = CRM(os.path.join(self._tmpdir, "crm.json"))
+        estados = [(r.get("outreach") or {}).get("status") for r in crm.query(self.PROPIO, limit=500)]
+        self.assertIn("draft", estados)
+        self.assertNotIn("sent", estados)
+
+    def test_operador_guarda_icp_de_su_cliente_pero_no_de_otro(self):
+        q = self._q(self.PROPIO)
+        status, body = self._call("POST", f"/api/icp?client={q}", body={"icp": {"sells": "seguros"}})
+        self.assertEqual(status, 200)
+        self.assertEqual(self._call("GET", f"/api/icp?client={q}")[1]["icp"]["sells"], "seguros")
+        ajeno = self._call("POST", f"/api/icp?client={self.AJENO}", body={"icp": {"sells": "x"}})
+        inexistente = self._call("POST", "/api/icp?client=no-existe-nunca", body={"icp": {"sells": "x"}})
+        self.assertEqual(ajeno, (404, {"detail": "cliente no encontrado"}))
+        self.assertEqual(ajeno, inexistente)
+
+    def test_sin_clients_es_403(self):
+        for clients in (None, [], "Augustar Seguros", [""], [1, None]):
+            tok = _make_supabase_jwt(self.JWT_SECRET, role="operador", clients=clients)
+            self.assertEqual(self._call("GET", "/api/clients", tok)[0], 403, repr(clients))
+
+    def test_clients_en_user_metadata_no_cuenta(self):
+        tok = _make_supabase_jwt(self.JWT_SECRET, role="operador", user_clients=[self.PROPIO])
+        self.assertEqual(self._call("GET", "/api/clients", tok)[0], 403)
+
+    def test_roles_sin_alcance_siguen_viendo_todo(self):
+        for role in ("admin", "cro", "cto", "cco"):
+            tok = _make_supabase_jwt(self.JWT_SECRET, role=role)
+            status, body = self._call("GET", "/api/clients", tok)
+            self.assertEqual(sorted(body["clients"]), sorted([self.PROPIO, self.AJENO]), role)
+
+    def test_asignar_clientes_es_solo_admin(self):
+        for role in ("operador", "cro", "cto", "cco"):
+            tok = _make_supabase_jwt(self.JWT_SECRET, role=role, clients=[self.PROPIO])
+            self.assertEqual(self._call("POST", "/api/team/u1/clients", tok,
+                                        body={"clients": [self.PROPIO]})[0], 403, role)
+        admin = _make_supabase_jwt(self.JWT_SECRET, role="admin")
+        status, body = self._call("POST", "/api/team/u1/clients", admin,
+                                  body={"clients": ["no-existe"]})
+        self.assertEqual(status, 400)
+        self.assertIn("no-existe", body["detail"])
+        # cliente válido pero sin Supabase configurado: 502, nunca un 200 falso
+        self.assertEqual(self._call("POST", "/api/team/u1/clients", admin,
+                                    body={"clients": [self.PROPIO]})[0], 502)
 
 
 if __name__ == "__main__":

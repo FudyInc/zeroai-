@@ -442,7 +442,7 @@ class Zero:
         if dom and dom in {e.lower() for e in exclusions}:
             fails.append("en lista de exclusión")
 
-        last = self.memory.contacted.get(lead.key())
+        last = self.memory.last_contacted(client_id, lead.key())
         if last and self._days_since(last) < RECONTACT_BLACKOUT_DAYS:
             fails.append(f"contactado hace <{RECONTACT_BLACKOUT_DAYS}d")
 
@@ -521,7 +521,7 @@ class Zero:
         sent = 0
         by_company = {m.get("company"): m for m in messages}
         for lead in qualified:
-            self.memory.mark_contacted(lead.key())
+            self.memory.mark_contacted(client_id, lead.key())
             msg = by_company.get(lead.company)
             if self.crm:
                 self.crm.advance(client_id, lead.key(), "contacted")
@@ -600,7 +600,7 @@ class Zero:
         self.crm.set_outreach(client_id, lead_key,
                               {**msg, "status": "sent" if res["status"] == "sent" else "failed"})
         if res["status"] == "sent":
-            self.memory.mark_contacted(lead_key)
+            self.memory.mark_contacted(client_id, lead_key)
             # Distingue primer contacto de seguimiento por si YA hay una
             # secuencia abierta para este lead (la abrió el primer envío) —
             # find_open_sequence no crea nada, a diferencia de open_sequence.
@@ -887,7 +887,7 @@ class Zero:
                                  f"borrador listo, paso {s['step']} ({cadence.get('kind', '')})")
                 drafted += 1
                 continue
-            self.memory.mark_contacted(s["lead_key"])
+            self.memory.mark_contacted(client_id, s["lead_key"])
             if self.crm:
                 cadence = followup_step(s["step"]) or {}
                 self.crm.log(client_id, s["lead_key"], "followup",

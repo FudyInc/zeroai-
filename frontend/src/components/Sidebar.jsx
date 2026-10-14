@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import { cn } from '../lib/util'
 import { api } from '../lib/api'
-import { canSeePage, ROLE_LABELS } from '../lib/roles'
+import { canSeePage, homePath, isScoped, ROLE_LABELS } from '../lib/roles'
 
 const SECTIONS = [
   {
@@ -86,7 +86,7 @@ export default function Sidebar({ mobileOpen = false, onClose = () => {}, userna
         )}
       >
         <div className="h-[68px] flex items-center gap-3 px-[20px] border-b border-zinc-100 shrink-0">
-          <Link to="/" onClick={onClose} title="Ir al Dashboard"
+          <Link to={homePath(role)} onClick={onClose} title={isScoped(role) ? 'Ir al Pipeline' : 'Ir al Dashboard'}
             className="flex items-center gap-3 flex-1 min-w-0 rounded-lg transition-opacity hover:opacity-70">
             <Mark />
             <motion.div animate={{ opacity: open ? 1 : 0 }} transition={{ duration: 0.2 }} className="leading-tight whitespace-nowrap">
