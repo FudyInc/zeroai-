@@ -9,6 +9,7 @@ import { useDismiss } from '../hooks/useDismiss'
 import { Card, Skeleton, Select, Input, Button, CountUp, pageState, SectionTitle } from '../components/ui'
 import { useApp } from '../App'
 import { rise, fade, surface, stagger, overlay, dialog } from '../lib/motion'
+import { WorkspaceHero, WorkspaceSectionHeading } from '../components/WorkspaceHero'
 
 const clp = (n) => '$' + Math.round(n || 0).toLocaleString('es-CL')
 
@@ -53,30 +54,28 @@ export default function Clientes() {
   const { accounts, mrr_clp, plans } = data
 
   return (
-    <motion.div className="space-y-5" initial="hidden" animate="show" variants={rise}>
-      <motion.div className="flex items-start justify-between gap-4 flex-wrap" variants={surface}>
-        <Card className="p-5 inline-flex items-center gap-4 bg-brand-surface text-white">
-          <div className="w-11 h-11 rounded-xl grid place-items-center bg-white/10"><Wallet size={20} /></div>
-          <div>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.13em] text-champagne/80">Ingreso mensual</div>
-            <div className="text-[32px] leading-none font-display font-extrabold tabular-nums mt-1.5">$<CountUp value={mrr_clp} /></div>
-            <div className="text-[11px] text-champagne/70 mt-1">{accounts.length} cliente{accounts.length !== 1 ? 's' : ''}</div>
-          </div>
-        </Card>
-        <Button variant="accent" onClick={() => setCreating(true)}>
-          <Plus size={15} /> Nuevo cliente
-        </Button>
+    <motion.div className="workspace-page" initial="hidden" animate="show" variants={rise}>
+      <motion.div variants={surface}>
+        <WorkspaceHero eyebrow="Cartera de negocios" title="Clientes"
+          description="Administra los negocios, sus planes y el ingreso mensual desde un solo lugar."
+          icon={Wallet}
+          aside={{ label: 'Ingreso mensual', value: <span className="tabular-nums">$<CountUp value={mrr_clp} /></span>, detail: `${accounts.length} cliente${accounts.length !== 1 ? 's' : ''}` }}>
+          <Button variant="accent" onClick={() => setCreating(true)}><Plus size={15} /> Nuevo cliente</Button>
+        </WorkspaceHero>
       </motion.div>
 
+      <section className="workspace-section">
+        <WorkspaceSectionHeading eyebrow="Cartera" title="Negocios activos"
+          description="Consulta cada plan o entra al dashboard de un negocio." />
       {accounts.length === 0 ? (
         <motion.div className="py-16 text-center text-zinc-400" variants={fade}>
           Sin clientes aún. Da de alta el primero con <b className="text-zinc-500">"Nuevo cliente"</b>.
         </motion.div>
       ) : (
-        <motion.div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" variants={stagger()} initial="hidden" animate="show">
+        <motion.div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5" variants={stagger()} initial="hidden" animate="show">
           {accounts.map((a) => (
             <motion.div key={a.client} variants={surface}>
-              <Card interactive className="p-4">
+              <Card interactive className="p-6 h-full">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <SectionTitle className="capitalize text-base">{a.client}</SectionTitle>
@@ -105,6 +104,7 @@ export default function Clientes() {
           ))}
         </motion.div>
       )}
+      </section>
 
       {creating && <NewClientModal plans={plans} existingClients={accounts.map((a) => a.client)} onClose={() => setCreating(false)} onCreated={afterCreate} />}
     </motion.div>

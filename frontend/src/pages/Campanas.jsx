@@ -10,6 +10,7 @@ import { Segmented } from '../components/Segmented'
 import { useApp } from '../App'
 import { NoClient } from './Dashboard'
 import { rise, fade, surface, stagger, staggerDense } from '../lib/motion'
+import { WorkspaceHero, WorkspaceSectionHeading } from '../components/WorkspaceHero'
 
 const FILTERS = [
   { value: 'todas', label: 'Todas' },
@@ -46,16 +47,30 @@ function byObjective(campaigns) {
 
 export default function Campanas() {
   const { client } = useApp()
+  const qc = useQueryClient()
   const [filter, setFilter] = useState('todas')
   const [showCfg, setShowCfg] = useState(false)
   const [opt, setOpt] = useState(null)
   const [optBusy, setOptBusy] = useState(false)
+  const [syncBusy, setSyncBusy] = useState(false)
   useEffect(() => { setShowCfg(false); setOpt(null); setFilter('todas') }, [client])
   const optimize = async () => {
     setOptBusy(true)
     try { setOpt(await api.optimizeCampaigns(client)) }
     catch (e) { toast.error('No se pudo optimizar: ' + e.message) }
     finally { setOptBusy(false) }
+  }
+  const syncLeads = async () => {
+    const selectedClient = client
+    setSyncBusy(true)
+    try {
+      const result = await api.syncAdLeads(selectedClient)
+      qc.invalidateQueries({ queryKey: ['leads', selectedClient] })
+      qc.invalidateQueries({ queryKey: ['board', selectedClient] })
+      qc.invalidateQueries({ queryKey: ['kpis', selectedClient] })
+      toast.success(`${result.imported} respuestas de formularios Meta importadas para ${selectedClient}`)
+    } catch (e) { toast.error('No se pudo importar: ' + e.message) }
+    finally { setSyncBusy(false) }
   }
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['campaigns', client], queryFn: () => api.campaigns(client), enabled: !!client,
@@ -82,11 +97,21 @@ export default function Campanas() {
   ]
 
   return (
-    <motion.div className="space-y-5" initial="hidden" animate="show" variants={rise}>
-      <motion.div className="grid grid-cols-1 sm:grid-cols-3 gap-4" variants={stagger()} initial="hidden" animate="show">
+    <motion.div className="workspace-page" initial="hidden" animate="show" variants={rise}>
+      <motion.div variants={surface}>
+        <WorkspaceHero eyebrow="Meta Ads" title="Campañas"
+          description="Revisa inversión, resultados y campañas del negocio seleccionado. Importa las respuestas de formularios y gestiona el plan desde aquí."
+          icon={Target}
+          aside={{ label: 'Campañas activas', value: summary.active, detail: `${campaigns.length} campañas registradas` }} />
+      </motion.div>
+
+      <section className="workspace-section">
+        <WorkspaceSectionHeading eyebrow="Rendimiento" title="Resumen del mes"
+          description="Inversión y captación registradas en Meta Ads." />
+      <motion.div className="grid grid-cols-1 sm:grid-cols-3 gap-5" variants={stagger()} initial="hidden" animate="show">
         {cards.map((c) => (
           <motion.div key={c.l} variants={surface}>
-            <Card interactive className="p-5 flex items-start justify-between">
+            <Card interactive className="p-6 flex items-start justify-between h-full">
               <div className="min-w-0">
                 <Eyebrow>{c.l}</Eyebrow>
                 <div className="text-[28px] leading-none font-display font-extrabold tracking-tight text-brand mt-2.5 tabular-nums">{typeof c.v === 'number' ? <CountUp value={c.v} /> : c.v}</div>
@@ -98,10 +123,14 @@ export default function Campanas() {
           </motion.div>
         ))}
       </motion.div>
+      </section>
 
+      <section className="workspace-section">
+      <WorkspaceSectionHeading eyebrow="Gestión" title="Explora y gestiona"
+        description="Filtra campañas, configura la cuenta y sincroniza formularios." />
       <motion.div className="flex items-center justify-between gap-3 flex-wrap" variants={fade}>
         <Segmented options={FILTERS} value={filter} onChange={setFilter} />
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Badge color="#8C929B"><Activity size={11} className="inline -mt-px mr-1" />{summary.active} activas</Badge>
           <Badge color={summary.cpl_clp && summary.cpl_clp <= summary.good_cpl_clp ? '#16a34a' : '#d97706'}>
             CPL objetivo Chile ≤ {clp(summary.good_cpl_clp)}
@@ -110,6 +139,10 @@ export default function Campanas() {
             {summary.source === 'live' ? 'Meta conectado' : 'Meta sin conectar'}
           </Badge>
           <Button variant="soft" onClick={() => setShowCfg((v) => !v)}><Settings2 size={15} /> Config del cliente</Button>
+          <Button variant="soft" onClick={syncLeads} disabled={syncBusy}>
+            {syncBusy ? <Spinner /> : <Users size={15} />}
+            {syncBusy ? 'Importando…' : 'Importar formularios'}
+          </Button>
           <Button variant="accent" onClick={optimize} disabled={optBusy}>
             {optBusy ? <Spinner /> : <Sparkles size={15} />} {optBusy ? 'Analizando…' : 'Gestionar con Claude'}
           </Button>
@@ -134,11 +167,15 @@ export default function Campanas() {
       )}
       {showCfg && <ClientConfig key={client} client={client} />}
       {opt && <OptimizePanel opt={opt} onClose={() => setOpt(null)} />}
+      </section>
 
       {campaigns.length > 0 && daily_spend.length > 0 && (
+        <section className="workspace-section">
+          <WorkspaceSectionHeading eyebrow="Evolución" title="Tendencias"
+            description="Gasto diario y distribución de leads por objetivo." />
         <motion.div className="grid grid-cols-1 lg:grid-cols-3 gap-4" variants={stagger()} initial="hidden" animate="show">
           <motion.div className="lg:col-span-2" variants={surface}>
-            <Card className="p-5 h-full">
+            <Card className="p-6 h-full">
             <div className="flex items-center justify-between mb-1">
               <SectionTitle className="flex items-center gap-2"><TrendingUp size={16} className="text-gold-deep" /> Tendencia de gasto (7 días)</SectionTitle>
               <Badge color="#16a34a">Meta Ads</Badge>
@@ -170,7 +207,7 @@ export default function Campanas() {
           </motion.div>
 
           <motion.div variants={surface}>
-            <Card className="p-5 h-full">
+            <Card className="p-6 h-full">
             <SectionTitle className="mb-1">Leads por objetivo</SectionTitle>
             <div className="text-xs text-zinc-400 mb-3">Distribución real de leads del mes.</div>
             <div className="h-44">
@@ -189,8 +226,12 @@ export default function Campanas() {
             </Card>
           </motion.div>
         </motion.div>
+        </section>
       )}
 
+      <section className="workspace-section">
+        <WorkspaceSectionHeading eyebrow="Detalle" title="Campañas registradas"
+          description="Estado, presupuesto y resultados de cada campaña." />
       {campaigns.length === 0 ? (
         <motion.div variants={surface}>
           <Card className="py-16 text-center">
@@ -237,6 +278,7 @@ export default function Campanas() {
           </Card>
         </motion.div>
       )}
+      </section>
     </motion.div>
   )
 }
@@ -287,6 +329,7 @@ function ClientConfig({ client }) {
   const [vals, setVals] = useState(null)
   const v = vals ?? {
     ad_account: cfg.ad_account || '',
+    page_id: cfg.page_id || '',
     monthly_budget_clp: cfg.monthly_budget_clp || 300000,
     regions: (cfg.regions || ['Santiago (RM)']).join(', '),
   }
@@ -295,6 +338,7 @@ function ClientConfig({ client }) {
     try {
       await api.setMarketing(client, {
         ad_account: v.ad_account.trim() || null,
+        page_id: v.page_id.trim() || null,
         monthly_budget_clp: Number(v.monthly_budget_clp) || null,
         regions: v.regions.split(',').map((s) => s.trim()).filter(Boolean),
       })
@@ -310,6 +354,8 @@ function ClientConfig({ client }) {
       <div className="grid grid-cols-2 gap-3">
         <div className="col-span-2"><label className="block text-xs text-zinc-500 mb-1">Cuenta publicitaria Meta (act_…)</label>
           <Input value={v.ad_account} onChange={(e) => set('ad_account', e.target.value)} placeholder="act_123456789 (vacío = sin conectar)" /></div>
+        <div className="col-span-2"><label className="block text-xs text-zinc-500 mb-1">ID de página Meta para formularios</label>
+          <Input value={v.page_id} onChange={(e) => set('page_id', e.target.value)} placeholder="123456789" /></div>
         <div><label className="block text-xs text-zinc-500 mb-1">Presupuesto mensual (CLP)</label>
           <Input type="number" value={v.monthly_budget_clp} onChange={(e) => set('monthly_budget_clp', e.target.value)} /></div>
         <div><label className="block text-xs text-zinc-500 mb-1">Zonas (foco Chile)</label>

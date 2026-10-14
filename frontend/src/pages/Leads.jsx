@@ -2,11 +2,12 @@ import { useState, useEffect } from 'react'
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
-import { Search } from 'lucide-react'
+import { Search, Users } from 'lucide-react'
 import { api } from '../lib/api'
 import { STAGES, ORDER, scoreColor } from '../lib/util'
 import { Card, Skeleton, Button, Input } from '../components/ui'
 import { Segmented } from '../components/Segmented'
+import { WorkspaceHero, WorkspaceSectionHeading } from '../components/WorkspaceHero'
 import { useApp } from '../App'
 import { NoClient } from './Dashboard'
 import PipelineRun from '../components/PipelineRun'
@@ -98,7 +99,14 @@ export default function Leads() {
     : filtrados
 
   return (
-    <motion.div className="space-y-5" initial="hidden" animate="show" variants={rise}>
+    <motion.div className="workspace-page" initial="hidden" animate="show" variants={rise}>
+      <motion.div variants={fade}>
+        <WorkspaceHero eyebrow="CRM" title={`Leads de ${client}`}
+          description="Busca contactos, revisa su calificación y actualiza cada etapa del proceso comercial."
+          icon={Users}
+          aside={!isLoading && !error ? { label: 'Leads registrados', value: total.toLocaleString('es-CL'), detail: 'Total según el filtro de etapa seleccionado' } : undefined} />
+      </motion.div>
+
       {runId && (
         <PipelineRun
           runId={runId}
@@ -112,6 +120,9 @@ export default function Leads() {
         />
       )}
 
+      <section className="workspace-section">
+        <WorkspaceSectionHeading eyebrow="Contactos" title="Explora tus leads"
+          description="Filtra por estado o busca entre los registros cargados." />
       <motion.div className="flex flex-wrap items-center gap-2" variants={fade}>
         <div className="relative flex-1 min-w-[220px]">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
@@ -173,6 +184,7 @@ export default function Leads() {
           </Button>
         </motion.div>
       )}
+      </section>
     </motion.div>
   )
 }

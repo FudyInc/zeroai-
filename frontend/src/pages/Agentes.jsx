@@ -1,13 +1,14 @@
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Instagram, Linkedin, Clock } from 'lucide-react'
+import { Instagram, Linkedin, Clock, Radio } from 'lucide-react'
 import { api } from '../lib/api'
 import { repliedRecently } from '../lib/util'
 import ChannelIcon from '../components/ChannelIcon'
 import { Card } from '../components/ui'
 import { useApp } from '../App'
 import { rise, fade, surface, stagger } from '../lib/motion'
+import { WorkspaceHero, WorkspaceSectionHeading } from '../components/WorkspaceHero'
 
 /* Vista general de los canales de contacto — el punto de entrada para elegir
    por dónde llega el agente al lead. La configuración a fondo del agente de
@@ -84,11 +85,12 @@ export default function Agentes() {
   ]
 
   return (
-    <motion.div className="space-y-4" initial="hidden" animate="show" variants={rise}>
-      <motion.p className="text-sm text-zinc-500 max-w-2xl" variants={fade}>
-        Un agente por canal, todos con el mismo cerebro — cambia solo la forma de llegar al prospecto.
-        Elige uno para configurarlo o ver su estado.
-      </motion.p>
+    <motion.div className="workspace-page" initial="hidden" animate="show" variants={rise}>
+      <motion.div variants={surface}>
+        <WorkspaceHero eyebrow="Canales de contacto" title="Agentes"
+          description="Un agente por canal, todos con el mismo cerebro. Elige un canal para configurarlo o revisar su estado."
+          icon={Radio} aside={{ label: 'Canales disponibles', value: '3', detail: 'Email, llamadas y WhatsApp' }} />
+      </motion.div>
       {cfgQ.isError && (
         <motion.div variants={fade}>
           <Card className="p-4 text-sm text-rose-600">
@@ -97,13 +99,16 @@ export default function Agentes() {
           </Card>
         </motion.div>
       )}
-      <motion.div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" variants={stagger()} initial="hidden" animate="show">
+      <section className="workspace-section">
+        <WorkspaceSectionHeading eyebrow="Operación" title="Elige un canal"
+          description="Consulta su conexión, actividad reciente y configuración." />
+      <motion.div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5" variants={stagger()} initial="hidden" animate="show">
         {agents.map((a) => (
           <motion.div key={a.key} variants={surface}>
             <Card
               interactive={!a.disabled && !!a.onClick}
               onClick={a.disabled ? undefined : a.onClick}
-              className={'p-5 h-full ' + (a.disabled ? 'opacity-60' : a.onClick ? 'cursor-pointer' : '')}
+              className={'p-6 h-full ' + (a.disabled ? 'opacity-60' : a.onClick ? 'cursor-pointer' : '')}
             >
               <div className="flex items-start justify-between">
                 <div className={'w-11 h-11 rounded-xl grid place-items-center ' + a.chip}>
@@ -122,6 +127,7 @@ export default function Agentes() {
           </motion.div>
         ))}
       </motion.div>
+      </section>
     </motion.div>
   )
 }

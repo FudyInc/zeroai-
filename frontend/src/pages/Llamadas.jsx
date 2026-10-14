@@ -4,7 +4,8 @@ import { motion } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { Phone } from 'lucide-react'
 import { api } from '../lib/api'
-import { Card, Button, Input, Select, Skeleton, SectionTitle } from '../components/ui'
+import { Card, Button, Input, Select, Skeleton } from '../components/ui'
+import { WorkspaceHero, WorkspaceSectionHeading } from '../components/WorkspaceHero'
 import { rise, fade } from '../lib/motion'
 import { useApp } from '../App'
 
@@ -19,33 +20,56 @@ export default function Llamadas() {
   const [msg, setMsg] = useState(null)
   const [busy, setBusy] = useState(false)
   useEffect(() => { setAgent(''); setNum(''); setDigits(''); setMsg(null) }, [client])
+  const header = <WorkspaceHero
+    eyebrow="Canal de voz"
+    title="Llamadas con IA"
+    description="Elige un agente y un número de origen para iniciar una llamada desde el negocio."
+    icon={Phone}
+  />
+  const sectionHeader = <WorkspaceSectionHeading
+    eyebrow="Contacto telefónico"
+    title="Iniciar llamada"
+    description="Prueba primero con tu celular para comprobar la configuración del agente."
+  />
 
   // Cargando (importante: sin esto, durante la carga mostraba 'No tienes agentes' en rojo).
   if (agentsQ.isLoading || numbersQ.isLoading) {
     return (
-      <Card className="p-6 max-w-xl space-y-3">
-        <Skeleton className="h-5 w-44" />
-        <Skeleton className="h-9 w-full" />
-        <Skeleton className="h-9 w-full" />
-        <Skeleton className="h-10 w-full" />
-      </Card>
+      <div className="workspace-page">
+        {header}
+        <section className="workspace-section">
+          {sectionHeader}
+          <Card className="p-6 w-full max-w-2xl space-y-3">
+            <Skeleton className="h-5 w-44" />
+            <Skeleton className="h-9 w-full" />
+            <Skeleton className="h-9 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </Card>
+        </section>
+      </div>
     )
   }
 
   // Vapi no configurado (o error de conexión) → estado claro, no un crash.
   if (agentsQ.isError) {
     return (
-      <Card className="p-6 max-w-xl">
-        <div className="font-semibold mb-1">Llamadas con IA</div>
-        <div className="text-sm text-zinc-500 mb-2">
-          Este canal usa <b>Vapi</b>. Conecta la clave de <b>{client}</b> en Configuración para activarlo.
-        </div>
-        <div className="text-xs text-zinc-400 mb-3 break-words">({agentsQ.error?.message || 'no disponible'})</div>
-        <div className="flex gap-3">
-          <Link to="/config" className="text-gold-deep text-sm font-medium">Ir a Configuración →</Link>
-          <button onClick={() => { agentsQ.refetch(); numbersQ.refetch() }} className="text-zinc-500 text-sm hover:text-zinc-700">Reintentar</button>
-        </div>
-      </Card>
+      <div className="workspace-page">
+        {header}
+        <section className="workspace-section">
+          {sectionHeader}
+          <Card className="p-6 w-full max-w-2xl">
+            <div className="font-semibold mb-1">Llamadas con IA</div>
+            <div className="text-sm text-zinc-500 mb-2">
+              Este canal usa <b>Vapi</b>. Conecta la clave de <b>{client}</b> en Configuración para activarlo.
+            </div>
+            <div className="text-xs text-zinc-400 mb-3 break-words">({agentsQ.error?.message || 'no disponible'})</div>
+            <div className="flex gap-3">
+              <Link to="/config" className="text-gold-deep text-sm font-medium">Ir a Configuración →</Link>
+              <button onClick={() => { agentsQ.refetch(); numbersQ.refetch() }} className="text-zinc-500 text-sm hover:text-zinc-700">Reintentar</button>
+            </div>
+          </Card>
+        </section>
+      </div>
     )
   }
 
@@ -68,45 +92,45 @@ export default function Llamadas() {
   }
 
   return (
-    <motion.div initial="hidden" animate="show" variants={rise}>
-      <Card className="p-6 max-w-xl space-y-4">
-        <motion.div variants={fade}>
-          <SectionTitle>Llamar con un agente</SectionTitle>
-          <div className="text-sm text-zinc-500">Elegí el agente de voz y llamá. Probá con tu celular primero.</div>
-        </motion.div>
+    <motion.div className="workspace-page" initial="hidden" animate="show" variants={rise}>
+      <motion.div variants={fade}>{header}</motion.div>
+      <section className="workspace-section">
+        {sectionHeader}
+        <Card className="p-6 w-full max-w-2xl space-y-4">
 
-      <div>
-        <label className="block text-xs text-zinc-500 mb-1">Agente de voz</label>
-        {agents.length ? (
-          <Select className="w-full" value={agent} onChange={(e) => setAgent(e.target.value)}>
-            {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </Select>
-        ) : <div className="text-sm text-rose-600">No tienes agentes en Vapi.</div>}
-      </div>
+          <div>
+            <label className="block text-xs text-zinc-500 mb-1">Agente de voz</label>
+            {agents.length ? (
+              <Select className="w-full" value={agent} onChange={(e) => setAgent(e.target.value)}>
+                {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </Select>
+            ) : <div className="text-sm text-rose-600">No tienes agentes en Vapi.</div>}
+          </div>
 
-      <div>
-        <label className="block text-xs text-zinc-500 mb-1">Número de origen</label>
-        {numbers.length ? (
-          <Select className="w-full" value={num} onChange={(e) => setNum(e.target.value)}>
-            {numbers.map((n) => <option key={n.id} value={n.id}>{n.number}</option>)}
-          </Select>
-        ) : <div className="text-sm text-rose-600">Este negocio aún no tiene número de origen habilitado en Vapi.</div>}
-      </div>
+          <div>
+            <label className="block text-xs text-zinc-500 mb-1">Número de origen</label>
+            {numbers.length ? (
+              <Select className="w-full" value={num} onChange={(e) => setNum(e.target.value)}>
+                {numbers.map((n) => <option key={n.id} value={n.id}>{n.number}</option>)}
+              </Select>
+            ) : <div className="text-sm text-rose-600">Este negocio aún no tiene número de origen habilitado en Vapi.</div>}
+          </div>
 
-      <div>
-        <label className="block text-xs text-zinc-500 mb-1">Llamar a</label>
-        <div className="flex gap-2">
-          <span className="inline-flex items-center gap-1.5 border border-zinc-200 rounded-xl px-3 py-2 text-sm bg-zinc-50 whitespace-nowrap">🇨🇱 +56</span>
-          <Input inputMode="numeric" maxLength={11} placeholder="9 1234 5678" value={digits} onChange={(e) => setDigits(e.target.value)} />
-          <Button variant="accent" onClick={call} disabled={busy || missingSetup}
-                  title={missingSetup ? 'Configura un agente y un número de origen en Vapi primero' : undefined}>
-            <Phone size={15} />{busy ? 'Llamando…' : 'Llamar'}
-          </Button>
-        </div>
-      </div>
+          <div>
+            <label className="block text-xs text-zinc-500 mb-1">Llamar a</label>
+            <div className="flex flex-wrap sm:flex-nowrap gap-2">
+              <span className="inline-flex items-center gap-1.5 border border-zinc-200 rounded-xl px-3 py-2 text-sm bg-zinc-50 whitespace-nowrap">🇨🇱 +56</span>
+              <Input className="min-w-[120px] flex-1" inputMode="numeric" maxLength={11} placeholder="9 1234 5678" value={digits} onChange={(e) => setDigits(e.target.value)} />
+              <Button variant="accent" onClick={call} disabled={busy || missingSetup}
+                      title={missingSetup ? 'Configura un agente y un número de origen en Vapi primero' : undefined}>
+                <Phone size={15} />{busy ? 'Llamando…' : 'Llamar'}
+              </Button>
+            </div>
+          </div>
 
-      {msg && <motion.div variants={fade} className={'text-sm ' + (msg.ok ? 'text-gold-deep' : 'text-rose-600')}>{msg.ok ? '✓ ' : ''}{msg.t}</motion.div>}
-      </Card>
+          {msg && <motion.div variants={fade} className={'text-sm ' + (msg.ok ? 'text-gold-deep' : 'text-rose-600')}>{msg.ok ? '✓ ' : ''}{msg.t}</motion.div>}
+        </Card>
+      </section>
     </motion.div>
   )
 }

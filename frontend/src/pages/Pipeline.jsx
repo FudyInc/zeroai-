@@ -2,14 +2,16 @@ import { useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
+import { Columns3 } from 'lucide-react'
 import { api } from '../lib/api'
 import { STAGES, ORDER, scoreColor } from '../lib/util'
-import { Card, Skeleton, pageState } from '../components/ui'
+import { Skeleton, pageState } from '../components/ui'
 import { Segmented } from '../components/Segmented'
 import { useApp } from '../App'
 import { NoClient } from './Dashboard'
 import { rise, fade, surface, stagger, staggerDense } from '../lib/motion'
 import LeadRoute from '../components/LeadRoute'
+import { WorkspaceHero, WorkspaceSectionHeading } from '../components/WorkspaceHero'
 
 const DENSITY = [{ value: 'comodo', label: 'Cómodo' }, { value: 'compacto', label: 'Compacto' }]
 
@@ -38,6 +40,7 @@ export default function Pipeline() {
   // Mapa etapa → leads, y mostramos TODAS las etapas como columnas (para poder
   // soltar incluso en una vacía). El orden lo da ORDER.
   const byStage = Object.fromEntries((board?.stages || []).map((s) => [s.stage, s.leads]))
+  const totalLeads = (board?.stages || []).reduce((total, stage) => total + stage.leads.length, 0)
 
   const gate = pageState({
     isLoading, error, onRetry: refetch,
@@ -46,12 +49,30 @@ export default function Pipeline() {
   if (gate) return gate
 
   return (
-    <motion.div initial="hidden" animate="show" variants={rise}>
-      <motion.div className="flex items-center justify-between gap-3 mb-4" variants={fade}>
-        <div className="text-xs text-zinc-400">Arrastra una tarjeta entre columnas para cambiar su etapa — o usa el menú. Tócala para ver el detalle.</div>
-        <Segmented options={DENSITY} value={dense} onChange={setDense} />
+    <motion.div className="workspace-page" initial="hidden" animate="show" variants={rise}>
+      <motion.div variants={fade}>
+        <WorkspaceHero
+          eyebrow="Gestión comercial"
+          title="Pipeline"
+          description={`Sigue el avance de los leads de ${client} y organiza cada oportunidad según su etapa.`}
+          icon={Columns3}
+          aside={{
+            label: 'Leads en el tablero',
+            value: totalLeads.toLocaleString('es-CL'),
+            detail: `Distribuidos en ${ORDER.length} etapas`,
+          }}
+        />
       </motion.div>
-      <motion.div className="flex gap-4 overflow-x-auto pb-2" variants={stagger()} initial="hidden" animate="show">
+
+      <section className="workspace-section" aria-label="Tablero de etapas">
+        <WorkspaceSectionHeading
+          eyebrow="Vista Kanban"
+          title="Etapas del pipeline"
+          description="Arrastra una tarjeta a otra columna o usa su menú para cambiarla de etapa. Tócala para ver el detalle."
+        >
+          <Segmented options={DENSITY} value={dense} onChange={setDense} />
+        </WorkspaceSectionHeading>
+        <motion.div className="flex min-w-0 w-full gap-3 sm:gap-4 overflow-x-auto rounded-2xl border border-zinc-200/70 bg-zinc-50/60 dark:bg-zinc-100/30 p-2 sm:p-3 pb-3" variants={stagger()} initial="hidden" animate="show">
         {ORDER.map((stage) => {
           const m = STAGES[stage] || { l: stage, c: '#94a3b8' }
           const leads = byStage[stage] || []
@@ -64,13 +85,13 @@ export default function Pipeline() {
               onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setOver((s) => (s === stage ? null : s)) }}
               onDrop={(e) => { e.preventDefault(); onDrop(stage) }}
               className={
-                'shrink-0 rounded-2xl p-3 transition-colors ' + (compact ? 'w-52 ' : 'w-64 ') +
-                (isOver ? 'bg-champagne/20 ring-2 ring-gold/40' : 'bg-transparent')
+                'flex-1 rounded-xl p-3 transition-colors ' + (compact ? 'min-w-52 ' : 'min-w-60 ') +
+                (isOver ? 'bg-champagne/20 ring-2 ring-gold/40' : 'bg-zinc-100/70 dark:bg-zinc-50/70')
               }
             >
               <div className="flex items-center gap-2 mb-3 px-1 text-xs font-semibold uppercase tracking-wide" style={{ color: m.c }}>
                 <span className="w-2 h-2 rounded-full" style={{ background: m.c }} />{m.l}
-                <span className="ml-auto bg-zinc-100 text-zinc-500 rounded-full px-2 py-0.5 text-[11px]">{leads.length}</span>
+                <span className="ml-auto bg-white dark:bg-zinc-100 text-zinc-500 rounded-full px-2 py-0.5 text-[11px]">{leads.length}</span>
               </div>
               <motion.div className="space-y-2.5 min-h-[60px]" variants={staggerDense()}>
                 {leads.map((r) => (
@@ -85,7 +106,7 @@ export default function Pipeline() {
                     className={'cursor-grab active:cursor-grabbing bg-white dark:bg-zinc-50 border border-champagne/50 dark:border-zinc-700/40 rounded-xl shadow-[0_1px_2px_rgba(44,53,41,0.04)] hover:shadow-[0_14px_34px_-18px_rgba(44,53,41,0.20)] hover:-translate-y-0.5 dark:hover:border-zinc-600/60 transition-all ' + (compact ? 'p-3' : 'p-4')}
                   >
                     <div className="flex justify-between items-start gap-2">
-                      <div className={'font-semibold ' + (compact ? 'text-sm' : '')}>{r.company}</div>
+                      <div className={'min-w-0 break-words font-semibold ' + (compact ? 'text-sm' : '')}>{r.company}</div>
                       <span className="font-extrabold tabular-nums" style={{ color: scoreColor(r.score) }}>{r.score ?? '—'}</span>
                     </div>
                     {/* Va en ambas densidades: son 4px y en compacto es lo único que
@@ -104,7 +125,7 @@ export default function Pipeline() {
                   </motion.div>
                 ))}
                 {leads.length === 0 && (
-                  <div className="text-[12px] text-zinc-300 text-center py-6 border border-dashed border-zinc-200 rounded-xl">
+                  <div className="text-[12px] text-zinc-500 text-center py-6 border border-dashed border-zinc-300 rounded-xl">
                     suelta aquí
                   </div>
                 )}
@@ -112,7 +133,8 @@ export default function Pipeline() {
             </motion.div>
           )
         })}
-      </motion.div>
+        </motion.div>
+      </section>
     </motion.div>
   )
 }

@@ -3,9 +3,10 @@ import { motion } from 'framer-motion'
 import { ShieldCheck, AlertTriangle, Circle } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
-import { Card, Skeleton, Select, pageState, SectionTitle } from '../components/ui'
+import { Card, Skeleton, Select, pageState } from '../components/ui'
 import { ROLE_LABELS } from '../lib/roles'
 import { rise, fade, surface, stagger } from '../lib/motion'
+import { WorkspaceHero, WorkspaceSectionHeading } from '../components/WorkspaceHero'
 
 /* Panel exclusivo del admin (Diego): quién tiene cuenta en el dashboard, qué
    rol tiene cada uno (o ninguno todavía — alguien que entró con Google pero
@@ -47,17 +48,17 @@ export default function Equipo() {
   const { users, configured } = data
 
   return (
-    <motion.div className="space-y-5 max-w-3xl" initial="hidden" animate="show" variants={rise}>
-      <motion.div className="flex items-center gap-2" variants={fade}>
-        <ShieldCheck size={18} className="text-gold-deep" />
-        <SectionTitle>Equipo</SectionTitle>
+    <motion.div className="workspace-page" initial="hidden" animate="show" variants={rise}>
+      <motion.div variants={surface}>
+        <WorkspaceHero eyebrow="Administración" title="Equipo"
+          description="Revisa las cuentas del dashboard, sus roles, actividad reciente y trabajo pendiente."
+          icon={ShieldCheck}
+          aside={{ label: 'Miembros registrados', value: users.length, detail: 'Administra el acceso desde cada perfil' }} />
       </motion.div>
-      <motion.p className="text-sm text-zinc-500 max-w-2xl" variants={fade}>
-        Quién tiene cuenta, qué rol tiene, quién está conectado ahora, trabajo pendiente según su
-        rol, y horas activas esta semana (para CCO, con meta de 20h). Todo esto es una
-        <b> aproximación de uso del dashboard, no un timesheet real</b> — no captura trabajo hecho
-        fuera de acá (llamadas, WhatsApp desde el celular, reuniones).
-      </motion.p>
+
+      <section className="workspace-section">
+        <WorkspaceSectionHeading eyebrow="Accesos" title="Miembros del equipo"
+          description="Las horas activas (meta CCO: 20 h por semana) son una aproximación de uso del dashboard; no incluyen llamadas, WhatsApp desde el celular ni reuniones." />
 
       {!configured && (
         <motion.div variants={fade}>
@@ -71,10 +72,10 @@ export default function Equipo() {
         </motion.div>
       )}
 
-      <motion.div className="space-y-2" variants={stagger()} initial="hidden" animate="show">
+      <motion.div className="grid gap-4 max-w-4xl" variants={stagger()} initial="hidden" animate="show">
         {users.map((u) => (
           <motion.div key={u.id} variants={surface}>
-            <Card className={'p-4 flex items-center gap-4 ' + (!u.role ? 'bg-amber-50/40 border-amber-200' : '')}>
+            <Card className={'p-5 flex flex-wrap sm:flex-nowrap items-center gap-4 ' + (!u.role ? 'bg-amber-50/40 border-amber-200' : '')}>
               <div className="w-10 h-10 rounded-full bg-champagne/40 text-gold-deep grid place-items-center shrink-0 font-bold text-sm">
                 {(u.full_name || u.email || '?').trim().charAt(0).toUpperCase()}
               </div>
@@ -122,7 +123,7 @@ export default function Equipo() {
                 value={u.role || ''}
                 onChange={(e) => setRole.mutate({ id: u.id, role: e.target.value || null })}
                 disabled={setRole.isPending}
-                className="w-32 shrink-0"
+                className="w-full sm:w-32 shrink-0"
               >
                 <option value="">Sin acceso</option>
                 <option value="admin">{ROLE_LABELS.admin}</option>
@@ -134,6 +135,7 @@ export default function Equipo() {
           </motion.div>
         ))}
       </motion.div>
+      </section>
     </motion.div>
   )
 }

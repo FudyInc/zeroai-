@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion'
 import { Activity } from 'lucide-react'
-import { SectionTitle } from '../components/ui'
+import { WorkspaceHero, WorkspaceSectionHeading } from '../components/WorkspaceHero'
 import CicloPanel from '../components/CicloPanel'
 import { rise, fade } from '../lib/motion'
 
@@ -18,18 +18,19 @@ import { rise, fade } from '../lib/motion'
    el fallo solo aparecía en el checkout con el .env real. */
 export default function Ciclo() {
   return (
-    <motion.div className="space-y-5 max-w-3xl" initial="hidden" animate="show" variants={rise}>
-      <motion.div className="flex items-center gap-2" variants={fade}>
-        <Activity size={18} className="text-gold-deep" />
-        <SectionTitle>Ciclo autónomo</SectionTitle>
-      </motion.div>
-      <motion.p className="text-sm text-pewter max-w-2xl" variants={fade}>
-        Lo que ZERO hizo sin que nadie lo pidiera: qué tareas tomó, qué agentes corrieron
-        y con qué motor, y qué encontró la auditoría diaria.
-      </motion.p>
+    <motion.div className="workspace-page" initial="hidden" animate="show" variants={rise}>
       <motion.div variants={fade}>
-        <CicloPanel />
+        <WorkspaceHero eyebrow="Operación autónoma" title="Ciclo autónomo"
+          description="Lo que ZERO hizo sin que nadie lo pidiera: qué tareas tomó, qué agentes corrieron y con qué motor, y qué encontró la auditoría diaria."
+          icon={Activity} />
       </motion.div>
+      <section className="workspace-section max-w-3xl">
+        <WorkspaceSectionHeading eyebrow="Actividad" title="Trabajo y auditoría"
+          description="Consulta las tareas, la telemetría y los informes de salud del sistema." />
+        <motion.div variants={fade}>
+          <CicloPanel />
+        </motion.div>
+      </section>
     </motion.div>
   )
 }
