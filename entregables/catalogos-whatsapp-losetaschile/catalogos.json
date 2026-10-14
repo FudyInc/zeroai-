@@ -1,0 +1,27 @@
+{
+  "verificado": "2026-10-13",
+  "colecciones": [
+    {
+      "nombre": "Catálogo Bordes de Piscina",
+      "imagen_propuesta_para_portada": "bordes-de-piscina/00-portada-borde-recto-con-nariz.png",
+      "imagenes": [
+        "bordes-de-piscina/00-portada-borde-recto-con-nariz.png",
+        "bordes-de-piscina/01-esquina-piscina-50x50.jpeg",
+        "bordes-de-piscina/02-extension-borde-piscina-50x50.jpeg"
+      ]
+    },
+    {
+      "nombre": "Catálogo Pastelones",
+      "imagen_propuesta_para_portada": "pastelones-40x40/00-portada-laja-espanola-40x40.jpeg",
+      "imagenes": [
+        "pastelones-40x40/00-portada-laja-espanola-40x40.jpeg",
+        "pastelones-40x40/01-ladrillo-cruzado-40x40.jpeg",
+        "pastelones-40x40/02-sol-40x40.jpeg",
+        "pastelones-40x40/03-sol-rustico-40x40.jpeg",
+        "pastelones-40x40/05-adoquin-40x40.jpeg",
+        "pastelones-40x40/06-gregioriano-40x40-catalogo-activo.jpeg",
+        "pastelones-40x40/07-octagonal-piedra-40x40-catalogo-activo.jpeg"
+      ]
+    }
+  ]
+}
