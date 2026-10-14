@@ -2,6 +2,18 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-10-14-pdf-entregado-y-403-del-puente",
+      "date": "2026-10-14",
+      "type": "incident",
+      "title": "El PDF del catálogo nunca se había entregado por un 403 del puente; primera entrega real confirmada",
+      "origin": "Diego probó «Catalogo bordes» tras la activación y no recibió nada",
+      "summary": "El mensaje llegó y el ruteo al PDF funcionó, pero el puente respondió 403 y el evento quedó en revisión. LosetasChile corre en el puente por defecto, que arranca sin WHATSAPP_WEB_CLIENT_ID, y tres rutas comparaban clientId en estricto contra losetaschile: el PDF del catálogo, la encuesta de despacho y la captura del voto. La ruta de imágenes no tiene esa guarda, y por eso las fotos y el enlace siempre funcionaron y el fallo no se notó. Se añadió actsFor, que admite un puente sin nombre y sigue rechazando uno de otra empresa. Diego confirmó después la recepción del PDF y pidió corregir el recorte de las fotos.",
+      "status": "Arreglado, activo y confirmado por Diego; presentación de las fotos pendiente",
+      "scope": "Puente WhatsApp Web y presentación de los catálogos PDF de LosetasChile",
+      "evidence": "Evento del 2026-10-14 22:53:00 en needs_review con «HTTP 403 · catalog document not allowed for this account»; el mismo error ya estaba registrado a las 03:06:18, antes de la activación, así que el PDF nunca se había entregado. Ningún evento completed pudo haber enviado un documento, porque la guarda rechazaba el 100% de los intentos en este puente. El texto «Catalogo de bordes» aparece completed a las 02:31:44 y en revisión a las 03:06:18: entre esas dos horas se activó el ruteo al PDF. Arreglo en whatsapp-web-bridge/account-scope.js con test-account-scope.js; 1104 pruebas Python, tres pruebas Node y git diff --check OK. Contra el puente en marcha, la misma petición que daba 403 devolvió 400 por validación del destinatario, sin enviar mensaje alguno. Backend reiniciado a PID 436852 con salud OK y puente PID 436875 ready con la cuenta 56964537891. El evento del 2026-10-14 23:03:15 quedó completed sin error y Diego confirmó el PDF en su teléfono: es la primera entrega real comprobada del documento. Commit ad42b20 publicado en origin/motor-whatsapp.",
+      "pending": "Las fotos se recortan: nueve de las once son capturas verticales de 591×1280 y el marco de 200×200 con object-fit cover descarta un 54% de cada una. Solo Gregioriano y Octagonal Piedra, casi cuadradas, se ven completas. Diego preparará material nuevo; falta decidir si se recorta el origen o se rearma la maqueta. Sigue pendiente el precio estructurado de la extensión de borde y seis productos con precio que ningún PDF muestra."
+    },
+    {
       "id": "2026-10-14-commit-y-activacion-saludo-gate",
       "date": "2026-10-14",
       "type": "change",

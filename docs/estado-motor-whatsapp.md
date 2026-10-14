@@ -1,5 +1,30 @@
 # Motor del agente de WhatsApp
 
+**El PDF del catálogo se entregó por primera vez 2026-10-14:** tras la
+activación, «Catalogo bordes» no obtuvo respuesta. El mensaje llegó y el ruteo
+al PDF funcionó; el puente respondió `403 catalog document not allowed for this
+account` y el evento quedó en revisión. LosetasChile corre en el puente **por
+defecto**, que arranca sin `WHATSAPP_WEB_CLIENT_ID`, de modo que `clientId`
+queda vacío y tres rutas lo comparaban en estricto contra `losetaschile`: el PDF
+del catálogo, la encuesta de despacho y la captura del voto. La ruta de imágenes
+no tiene esa guarda, y por eso el enlace y las fotos siempre funcionaron y el
+fallo pasó inadvertido. El mismo 403 ya estaba registrado a las 03:06, antes de
+la activación: el documento nunca se había entregado, y ningún evento
+`completed` pudo haberlo enviado porque la guarda rechazaba todos los intentos.
+
+`actsFor` admite ahora un puente sin nombre y sigue rechazando uno de otra
+empresa; la autorización real sigue en Python, que exige la empresa y verifica
+el número conectado. Contra el puente en marcha, la petición que daba 403
+devolvió 400 por validación del destinatario, sin enviar nada. Diego confirmó
+después la recepción del PDF en su teléfono —evento `completed` a las 23:03:15,
+sin error—, la primera entrega real comprobada del documento.
+
+Queda un problema de presentación: nueve de las once fotos son capturas
+verticales de 591×1280 y el marco de 200×200 con `object-fit: cover` descarta
+un 54% de cada una. Solo Gregioriano y Octagonal Piedra, casi cuadradas, se ven
+completas. Diego preparará material nuevo; falta decidir si se recorta el origen
+o se rearma la maqueta.
+
 **Saludo por hora y gate de respuesta activados 2026-10-14:** el trabajo del
 worktree `motor-whatsapp` quedó versionado en cuatro commits sobre `0fdb494`.
 Al comparar con el backend activo apareció una brecha: desde el 2026-10-11 solo
