@@ -10,6 +10,7 @@ const { serializedVoterId } = require('./delivery-poll')
 const { isCustomerMessageType } = require('./customer-message')
 const { recentInbound } = require('./recovery')
 const { CATALOGS, makeCatalogPdf } = require('./catalog-document')
+const { actsFor } = require('./account-scope')
 
 const host = '127.0.0.1'
 const port = Number(process.env.WHATSAPP_WEB_BRIDGE_PORT || 8810)
@@ -266,7 +267,7 @@ client.on('message', msg => {
 
 client.on('vote_update', vote => {
   void (async () => {
-    if (clientId !== 'losetaschile') return
+    if (!actsFor(clientId, 'losetaschile')) return
     const poll = vote.parentMessage
     const chatId = poll?.to?._serialized || String(poll?.to || '')
     const voterId = serializedVoterId(vote.voter)
@@ -560,7 +561,7 @@ const server = http.createServer(async (req, res) => {
           : respond(res, 502, { error: 'Group send outcome uncertain; review chat before retry' })
       }
       if (req.url === '/send-delivery-poll') {
-        if (clientId !== 'losetaschile') return respond(res, 403, { error: 'poll not allowed for this account' })
+        if (!actsFor(clientId, 'losetaschile')) return respond(res, 403, { error: 'poll not allowed for this account' })
         const number = String(body.to || '').replace(/\D/g, '')
         const chatId = String(body.chat_id || `${number}@c.us`)
         if (!/^\d{8,15}$/.test(number) || !/^\d{8,20}@(c\.us|lid)$/.test(chatId) ||
@@ -577,7 +578,7 @@ const server = http.createServer(async (req, res) => {
           : respond(res, 502, { error: 'Poll send outcome uncertain; review chat before retry' })
       }
       if (req.url === '/send-catalog-document') {
-        if (clientId !== 'losetaschile') return respond(res, 403, { error: 'catalog document not allowed for this account' })
+        if (!actsFor(clientId, 'losetaschile')) return respond(res, 403, { error: 'catalog document not allowed for this account' })
         const number = String(body.to || '').replace(/\D/g, '')
         const chatId = String(body.chat_id || `${number}@c.us`)
         const category = String(body.category || '')
