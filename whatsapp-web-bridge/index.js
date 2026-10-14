@@ -8,6 +8,8 @@ const { Client, LocalAuth, MessageMedia, Poll } = require('whatsapp-web.js')
 const QRCode = require('qrcode')
 const { serializedVoterId } = require('./delivery-poll')
 const { isCustomerMessageType } = require('./customer-message')
+const { recentInbound } = require('./recovery')
+const { CATALOGS, makeCatalogPdf } = require('./catalog-document')
 
 const host = '127.0.0.1'
 const port = Number(process.env.WHATSAPP_WEB_BRIDGE_PORT || 8810)
@@ -25,14 +27,18 @@ let account = null
 let messageEvents = 0
 let forwardedMessages = 0
 const recentEvents = []
+const recoveredIds = new Set()
+let readinessTimer = null
+let restartingConnection = false
 const sessionDir = path.resolve(process.env.WHATSAPP_WEB_SESSION_DIR || path.join(__dirname, '.session'))
 const pendingFile = path.resolve(process.env.WHATSAPP_WEB_PENDING_FILE || path.join(sessionDir, 'inbound-pending.json'))
 const clientId = process.env.WHATSAPP_WEB_CLIENT_ID || ''
 const catalogImages = new Set([
   'gama-bordes-piscina.jpeg',
   'borde-recto-nariz-50x50.png', 'ladrillo-cruzado-40x40.jpeg',
-  'sol-40x40.jpeg', 'sol-rustico-40x40.jpeg', 'flor-de-lis-40x40.jpeg',
+  'sol-40x40.jpeg', 'sol-rustico-40x40.jpeg',
   'adoquin-40x40.jpeg', 'laja-espanola-40x40.jpeg',
+  'gregioriano-40x40.jpeg', 'octagonal-piedra-40x40.jpeg',
   'dormiente-1-16x40.jpeg', 'dormiente-2-16x40.jpeg',
   'deck-50x50.jpeg', 'esquina-piscina-50x50.jpeg',
   'extension-borde-piscina-50x50.jpeg',
@@ -65,20 +71,87 @@ const client = new Client({
   },
 })
 
+function watchReadiness() {
+  if (restartingConnection) return
+  clearTimeout(readinessTimer)
+  readinessTimer = setTimeout(async () => {
+    if (!['starting', 'connecting', 'disconnected', 'error', 'auth_failed'].includes(state)) return
+    restartingConnection = true
+    lastError = `WhatsApp Web quedó en ${state} durante 120 segundos; reiniciando el puente`
+    console.error(lastError)
+    const forceExit = setTimeout(() => process.exit(1), 10000)
+    try { await client.destroy() } catch (err) { console.error('Bridge cleanup:', err.message) }
+    clearTimeout(forceExit)
+    process.exit(1)
+  }, 120000)
+  readinessTimer.unref()
+}
+
+async function recoverRecentMessages() {
+  if (state !== 'ready') return
+  try {
+    const cutoff = Math.floor(Date.now() / 1000) - 1800
+    const cached = await client.pupPage.evaluate(since =>
+      window.require('WAWebCollections').Chat.getModelsArray()
+        .filter(chat => /^\d{8,20}@(c\.us|lid)$/.test(chat.id?._serialized || ''))
+        .flatMap(chat => {
+          const messages = chat.msgs?.getModelsArray?.() || []
+          const lastOutgoingTimestamp = messages.reduce((latest, msg) =>
+            msg.id?.fromMe ? Math.max(latest, msg.t || 0) : latest, 0)
+          return messages
+            .filter(msg => !msg.id?.fromMe && (msg.t || 0) >= since)
+            .map(msg => ({ id: msg.id?._serialized || '',
+              from: msg.from?._serialized || '', fromMe: !!msg.id?.fromMe,
+              timestamp: msg.t || 0, type: msg.type || '',
+              body: msg.type === 'chat' ? String(msg.body || '') : '',
+              lastOutgoingTimestamp }))
+        }), cutoff)
+    const candidates = recentInbound(cached, Math.floor(Date.now() / 1000))
+      .filter(message => isCustomerMessageType(message.type))
+    let queued = 0
+    for (const candidate of candidates) {
+      if (recoveredIds.has(candidate.id)) continue
+      try {
+        const message = candidate.type === 'chat'
+          ? { id: { _serialized: candidate.id }, from: candidate.from,
+              fromMe: false, type: 'chat', body: candidate.body,
+              getContact: () => client.getContactById(candidate.from) }
+          : await client.getMessageById(candidate.id)
+        if (!message || message.fromMe || message.from !== candidate.from) continue
+        const payload = await normalizeMessage(message)
+        if (!payload) continue
+        queuePayload(payload)
+        recoveredIds.add(candidate.id)
+        queued += 1
+      } catch (err) {
+        console.error('Could not recover cached inbound:', err.message)
+      }
+    }
+    if (queued) console.info(`Recovered ${queued} recent inbound message(s) from WhatsApp Web cache`)
+  } catch (err) {
+    lastError = `Recuperación entrante: ${err.message}`
+    console.error(lastError)
+  }
+}
+
 client.on('qr', async qr => {
   state = 'scan_qr'
+  clearTimeout(readinessTimer)
   account = null
   try { qrDataUrl = await QRCode.toDataURL(qr) } catch (err) { lastError = err.message }
 })
-client.on('authenticated', () => { state = 'connecting'; qrDataUrl = null })
+client.on('authenticated', () => { state = 'connecting'; qrDataUrl = null; watchReadiness() })
 client.on('ready', () => {
   state = 'ready'
+  clearTimeout(readinessTimer)
   qrDataUrl = null
   lastError = null
   account = client.info?.wid?.user || null
+  setTimeout(() => { void recoverRecentMessages() }, 5000).unref()
+  setTimeout(() => { void recoverRecentMessages() }, 30000).unref()
 })
-client.on('auth_failure', message => { state = 'auth_failed'; lastError = String(message) })
-client.on('disconnected', reason => { state = 'disconnected'; account = null; lastError = String(reason) })
+client.on('auth_failure', message => { state = 'auth_failed'; lastError = String(message); watchReadiness() })
+client.on('disconnected', reason => { state = 'disconnected'; account = null; lastError = String(reason); watchReadiness() })
 
 async function forward(message) {
   const raw = JSON.stringify(message)
@@ -304,7 +377,7 @@ async function sendAndConfirm(chatId, content, options, matchesCreated, expected
           .find(item => item.id?._serialized === id)
           const message = (chat?.msgs?.getModelsArray?.() || [])
             .find(item => item.id?.fromMe && item.type === kind &&
-              (kind === 'image' ? item.caption :
+              (kind === 'image' || kind === 'document' ? item.caption || item.body :
                 kind === 'poll_creation' ? (item.pollName || item.body) : item.body) === body &&
               (item.t || 0) >= since)
         const rawId = message?.id?._serialized || message?.id?.toString?.()
@@ -409,6 +482,7 @@ const server = http.createServer(async (req, res) => {
             body: msg.type === 'chat' ? String(msg.body || '') : `[${msg.type || 'archivo'}]`,
             type: msg.type,
             fromMe: !!msg.id?.fromMe,
+            ack: msg.ack ?? null,
             timestamp: msg.t || null,
             author: msg.author?._serialized || null,
           }))
@@ -462,6 +536,7 @@ const server = http.createServer(async (req, res) => {
     }
   }
   if (req.method === 'POST' && (req.url === '/send-group' || req.url === '/send-catalog-image' ||
+                                req.url === '/send-catalog-document' ||
                                 req.url === '/send-delivery-poll')) {
     if (state !== 'ready') return respond(res, 503, { error: 'WhatsApp Web is not ready' })
     let raw = ''
@@ -500,6 +575,30 @@ const server = http.createServer(async (req, res) => {
         'poll_creation', deliveryPollQuestion)
         return result ? respond(res, 200, result)
           : respond(res, 502, { error: 'Poll send outcome uncertain; review chat before retry' })
+      }
+      if (req.url === '/send-catalog-document') {
+        if (clientId !== 'losetaschile') return respond(res, 403, { error: 'catalog document not allowed for this account' })
+        const number = String(body.to || '').replace(/\D/g, '')
+        const chatId = String(body.chat_id || `${number}@c.us`)
+        const category = String(body.category || '')
+        const prices = body.prices
+        if (!/^\d{8,15}$/.test(number) || !/^\d{8,20}@(c\.us|lid)$/.test(chatId) ||
+            (chatId.endsWith('@c.us') && chatId.split('@')[0] !== number) ||
+            !CATALOGS[category] || !prices || typeof prices !== 'object' || Array.isArray(prices)) {
+          return respond(res, 400, { error: 'invalid catalog document request' })
+        }
+        const pdf = await makeCatalogPdf(client.pupBrowser, category, prices, catalogDir)
+        const caption = CATALOGS[category].title
+        const filename = category === 'bordes' ? 'catalogo-bordes-de-piscina.pdf' : 'catalogo-pastelones.pdf'
+        const media = new MessageMedia('application/pdf', pdf.toString('base64'), filename)
+        await prepareMediaSend()
+        const result = await sendAndConfirm(chatId, media,
+          { caption, sendMediaAsDocument: true }, message =>
+            message.type === 'document' && (message.caption === caption ||
+              message._data?.caption === caption || message.filename === filename),
+          'document', caption)
+        return result ? respond(res, 200, result)
+          : respond(res, 502, { error: 'Catalog document outcome uncertain; review chat before retry' })
       }
       const number = String(body.to || '').replace(/\D/g, '')
       const chatId = String(body.chat_id || `${number}@c.us`)
@@ -558,6 +657,7 @@ const server = http.createServer(async (req, res) => {
       const startedAt = Math.floor(Date.now() / 1000)
       const sent = await client.sendMessage(chatId, text, {
         sendSeen: false, waitUntilMsgSent: true,
+        linkPreview: body.link_preview !== false,
       })
       const sentId = messageId(sent)
       let confirmed = sentId ? { id: sentId, ack: sent.ack ?? null } : await Promise.race([
@@ -585,6 +685,7 @@ const server = http.createServer(async (req, res) => {
 })
 
 server.listen(port, host, () => console.log(`WhatsApp bridge listening on ${host}:${port}`))
-client.initialize().catch(err => { state = 'error'; lastError = err.message; console.error(err) })
+watchReadiness()
+client.initialize().catch(err => { state = 'error'; lastError = err.message; console.error(err); watchReadiness() })
 if (pending.size) void drainPending()
 setInterval(() => { if (pending.size) void drainPending() }, 10000).unref()
