@@ -161,7 +161,7 @@ export const api = {
     setToken(null)
     supabase.auth.signOut().finally(() => window.location.reload())
   },
-  metaadsAccounts: (c) => req('/api/metaads/accounts?client=' + q(c)).then((d) => d.accounts),
+  metaadsAccounts: (c) => req('/api/metaads/accounts?client=' + q(c)),
   setMetaadsToken: (c, token) =>
     req('/api/metaads/token?client=' + q(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) }),
   whatsappStatus: (c) => req('/api/whatsapp/status?client=' + q(c)),
