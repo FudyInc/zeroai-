@@ -125,7 +125,7 @@ export function CountUp({ value, prefix = '', duration = 850 }) {
     raf.current = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf.current)
   }, [target, duration])
-  return <span>{prefix}{Math.round(n).toLocaleString()}</span>
+  return <span>{prefix}{Math.round(n).toLocaleString('es-CL')}</span>
 }
 
 /* Estado de carga/error/vacío unificado. Devuelve el elemento del estado, o null si

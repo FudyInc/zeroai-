@@ -125,7 +125,7 @@ export default function Dashboard() {
               {boardQ.isLoading ? '—' : <CountUp value={pct} />}%
             </div>
             <div className="w-full h-2 bg-zinc-100 rounded-full mt-3 overflow-hidden">
-              <motion.div className="h-full bg-zinc-900 rounded-full" {...meterFill(pct)} />
+              <motion.div className="h-full bg-gold rounded-full" {...meterFill(pct)} />
             </div>
             <div className="mt-5 space-y-3 text-sm">
               <Row c="#10b981" l="En proceso" v={openN} />
