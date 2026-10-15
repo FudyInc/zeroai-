@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
 import { STAGES, ORDER, scoreColor } from '../lib/util'
-import { Card, Skeleton, pageState } from '../components/ui'
+import { Card, Skeleton, pageState, StageSelect } from '../components/ui'
 import { Segmented } from '../components/Segmented'
 import { useApp } from '../App'
 import { NoClient } from './Dashboard'
@@ -116,10 +116,8 @@ export default function Pipeline() {
                       <>
                         <div className="text-xs text-zinc-500 mt-2">{r.role || '—'}</div>
                         <div className="text-xs text-zinc-400">{r.email || r.phone || '—'}</div>
-                        <select value={r.stage} onClick={(e) => e.stopPropagation()} onChange={(e) => move(r.key, e.target.value)}
-                          className="mt-3 w-full text-xs border border-zinc-200 dark:border-zinc-700/50 rounded-lg px-2.5 py-1.5 bg-white dark:bg-zinc-50 text-zinc-700 dark:text-zinc-300 outline-none focus:ring-2 focus:ring-champagne/40 transition">
-                          {ORDER.map((st) => <option key={st} value={st}>{STAGES[st].l}</option>)}
-                        </select>
+                        <StageSelect value={r.stage} onClick={(e) => e.stopPropagation()} onChange={(e) => move(r.key, e.target.value)}
+                          aria-label={`Etapa de ${r.company}`} className="mt-3" />
                       </>
                     )}
                   </motion.div>

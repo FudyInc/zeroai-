@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { cn } from '../lib/util'
+import { cn, STAGES, ORDER } from '../lib/util'
 import { useIsDark } from '../lib/theme'
 
 /* Superficie base. Estilo editorial premium dentro de la marca: hairline cálido,
@@ -89,12 +89,36 @@ export function Select({ className, ...p }) {
   return (
     <select
       className={cn(
-        'border border-zinc-200 dark:border-zinc-700/50 bg-white dark:bg-zinc-50 rounded-xl px-3 py-2 text-sm outline-none transition',
+        'select-chevron appearance-none cursor-pointer border border-zinc-200 dark:border-zinc-700/50 bg-white dark:bg-zinc-50 rounded-xl pl-3 pr-9 py-2 text-sm outline-none transition hover:border-zinc-300 dark:hover:border-zinc-600/60',
         'focus:ring-4 focus:ring-champagne/40 focus:border-gold/60 dark:focus:border-gold/40',
         className,
       )}
       {...p}
     />
+  )
+}
+
+/* Selector de etapa del CRM. Sigue siendo un <select> nativo a propósito: dentro
+   de tablas y columnas con overflow un menú propio se recorta, y el nativo trae
+   teclado y lector de pantalla gratis. Se viste como píldora con el color
+   semántico de la etapa (lib/util.js STAGES) — el mismo que usa el kanban. */
+export function StageSelect({ value, onChange, className, ...p }) {
+  const dark = useIsDark()
+  const color = STAGES[value]?.c || '#71717a'
+  return (
+    <select
+      value={value}
+      onChange={onChange}
+      className={cn(
+        'select-chevron appearance-none cursor-pointer rounded-full border pl-3 pr-8 py-1 text-xs font-semibold outline-none transition',
+        'focus-visible:ring-2 focus-visible:ring-champagne/60 hover:brightness-95 dark:hover:brightness-125',
+        className,
+      )}
+      style={{ backgroundColor: color + (dark ? '26' : '14'), borderColor: color + (dark ? '55' : '40'), color }}
+      {...p}
+    >
+      {ORDER.map((s) => <option key={s} value={s}>{STAGES[s].l}</option>)}
+    </select>
   )
 }
 

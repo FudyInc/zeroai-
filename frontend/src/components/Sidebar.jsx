@@ -121,7 +121,7 @@ export default function Sidebar({ mobileOpen = false, onClose = () => {}, userna
               {sec.items.map(({ to, label: text, icon: Icon, end }) => (
                 <NavLink key={to} to={to} end={end} title={text} onClick={onClose}
                   className={({ isActive }) => cn(
-                    'flex items-center gap-3 px-3 py-[7px] rounded-xl text-sm transition-colors',
+                    'flex items-center gap-3 px-3 py-1.5 rounded-xl text-sm transition-colors',
                     isActive ? 'bg-zinc-100 text-zinc-900 font-semibold' : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-800',
                   )}>
                   <Icon size={18} className="shrink-0" />

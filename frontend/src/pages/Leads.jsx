@@ -4,8 +4,8 @@ import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { Search } from 'lucide-react'
 import { api } from '../lib/api'
-import { STAGES, ORDER, scoreColor } from '../lib/util'
-import { Card, Skeleton, Button, Input } from '../components/ui'
+import { STAGES, scoreColor } from '../lib/util'
+import { Card, Skeleton, Button, Input, StageSelect } from '../components/ui'
 import { Segmented } from '../components/Segmented'
 import { useApp } from '../App'
 import { NoClient } from './Dashboard'
@@ -142,10 +142,7 @@ export default function Leads() {
                 <td className="px-5 py-3 text-zinc-500">{r.email || r.phone || '—'}</td>
                 <td className="px-5 py-3 font-extrabold tabular-nums" style={{ color: scoreColor(r.score) }}>{r.score ?? '—'}</td>
                 <td className="px-5 py-3" onClick={(e) => e.stopPropagation()}>
-                  <select value={r.stage} onChange={(e) => move(r.key, e.target.value)}
-                    className="text-xs border border-zinc-200 rounded-lg px-2 py-1 bg-zinc-50 text-zinc-600 outline-none focus:ring-2 focus:ring-champagne">
-                    {ORDER.map((s) => <option key={s} value={s}>{STAGES[s].l}</option>)}
-                  </select>
+                  <StageSelect value={r.stage} onChange={(e) => move(r.key, e.target.value)} aria-label={`Etapa de ${r.company}`} />
                 </td>
               </motion.tr>
             ))}
