@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { CheckCircle2, Clock3, Lightbulb, RefreshCw } from 'lucide-react'
+import { CheckCircle2, Clock3, Lightbulb, RefreshCw, ClipboardList } from 'lucide-react'
 import { api } from '../lib/api'
-import { Button, Card, SectionTitle } from '../components/ui'
+import { Button, Card } from '../components/ui'
+import { WorkspaceHero, WorkspaceSectionHeading } from '../components/WorkspaceHero'
 
 const FILTERS = [
   ['todos', 'Todos'],
@@ -20,21 +21,27 @@ export default function Avances() {
   })
   const visible = filter === 'todos' ? entries : entries.filter((entry) => entry.type === filter)
 
-  return <div className="max-w-4xl space-y-5">
-    <div className="flex items-start justify-between gap-4 flex-wrap">
-      <div>
-        <SectionTitle>Avances</SectionTitle>
-        <p className="text-sm text-zinc-500 mt-1">Tus pedidos, las decisiones tomadas y lo que quedó comprobado.</p>
-      </div>
-      <Button variant="secondary" onClick={() => refetch()} disabled={isFetching}>
-        <RefreshCw size={15} className={isFetching ? 'animate-spin' : ''} /> Actualizar
-      </Button>
-    </div>
+  return <div className="workspace-page">
+    <WorkspaceHero eyebrow="Registro de trabajo" title="Avances"
+      description="Tus pedidos, las decisiones tomadas y lo que quedó comprobado."
+      icon={ClipboardList}
+      aside={!isLoading && !error ? { label: 'Avances registrados', value: entries.length.toLocaleString('es-CL'), detail: 'Total de entradas disponibles' } : undefined} />
 
+    <section className="workspace-section max-w-4xl">
+      <WorkspaceSectionHeading eyebrow="Evidencia" title="Qué significa cada avance"
+        description="Consulta el alcance verificado antes de dar un cambio por activo." />
     <Card className="p-4 text-sm text-zinc-600">
       Cada avance indica dónde se verificó. «Código local» no significa que el cambio ya esté activo en producción.
     </Card>
+    </section>
 
+    <section className="workspace-section max-w-4xl">
+      <WorkspaceSectionHeading eyebrow="Historial" title="Pedidos y decisiones"
+        description="Filtra las entradas para seguir el trabajo realizado.">
+        <Button variant="secondary" onClick={() => refetch()} disabled={isFetching}>
+          <RefreshCw size={15} className={isFetching ? 'animate-spin' : ''} /> Actualizar
+        </Button>
+      </WorkspaceSectionHeading>
     <div className="flex gap-2 flex-wrap" role="group" aria-label="Filtrar avances">
       {FILTERS.map(([value, label]) => <button key={value} type="button" onClick={() => setFilter(value)}
         aria-pressed={filter === value}
@@ -81,5 +88,6 @@ export default function Avances() {
         </dl>
       </Card>)}
     </div>
+    </section>
   </div>
 }

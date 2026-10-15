@@ -4,7 +4,8 @@ import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { CheckCheck, Send, Mail, MessageCircle, ChevronDown } from 'lucide-react'
 import { api } from '../lib/api'
-import { Card, Button, Skeleton, pageState, SectionTitle, Eyebrow } from '../components/ui'
+import { Card, Button, Skeleton, pageState, Eyebrow } from '../components/ui'
+import { WorkspaceHero, WorkspaceSectionHeading } from '../components/WorkspaceHero'
 import { cn } from '../lib/util'
 import { useApp } from '../App'
 import { rise, fade, surface, stagger } from '../lib/motion'
@@ -119,22 +120,29 @@ export default function Aprobar() {
     isLoading: q.isLoading, error: q.error, onRetry: q.refetch,
     skeleton: <div className="space-y-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-40 w-full" />)}</div>,
   })
-  if (gate) return gate
+  if (gate) return (
+    <div className="workspace-page">
+      <WorkspaceHero eyebrow="Revisión humana" title="Por aprobar"
+        description="Lo que los agentes redactaron trabajando solos. Nada de esto se envió: revisa, edita si hace falta y aprueba. Lo más antiguo va primero."
+        icon={CheckCheck} />
+      <div className="max-w-2xl">{gate}</div>
+    </div>
+  )
 
   const items = q.data || []
   const refresh = () => qc.invalidateQueries({ queryKey: ['pending-outreach', client] })
 
   return (
-    <motion.div className="space-y-5 max-w-2xl" initial="hidden" animate="show" variants={rise}>
-      <motion.div className="flex items-center gap-2" variants={fade}>
-        <CheckCheck size={18} className="text-gold-deep" />
-        <SectionTitle>Por aprobar</SectionTitle>
+    <motion.div className="workspace-page" initial="hidden" animate="show" variants={rise}>
+      <motion.div variants={fade}>
+        <WorkspaceHero eyebrow="Revisión humana" title="Por aprobar"
+          description="Lo que los agentes redactaron trabajando solos. Nada de esto se envió: revisa, edita si hace falta y aprueba. Lo más antiguo va primero."
+          icon={CheckCheck}
+          aside={{ label: 'Borradores pendientes', value: items.length.toLocaleString('es-CL'), detail: 'Esperando tu revisión' }} />
       </motion.div>
-      <motion.p className="text-sm text-pewter" variants={fade}>
-        Lo que los agentes redactaron trabajando solos. Nada de esto se envió: revisa, edita si
-        hace falta y aprueba. Lo más antiguo va primero.
-      </motion.p>
-
+      <section className="workspace-section max-w-2xl">
+        <WorkspaceSectionHeading eyebrow="Bandeja" title="Borradores para revisar"
+          description="Abre cada mensaje, ajusta el texto si hace falta y decide qué enviar." />
       {items.length === 0 ? (
         <motion.div variants={fade}>
           <Card className="p-8 text-center">
@@ -157,6 +165,7 @@ export default function Aprobar() {
           ))}
         </motion.div>
       )}
+      </section>
     </motion.div>
   )
 }

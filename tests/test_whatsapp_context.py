@@ -6,6 +6,7 @@ from zero.contracts import AgentResponse
 from zero.memory import SessionMemory
 from zero.orchestrator import Zero
 from zero.whatsapp_context import select_history, select_knowledge
+from scripts.cargar_empresa import leer_ficha
 
 
 class WhatsAppContextTest(unittest.TestCase):
@@ -30,6 +31,56 @@ class WhatsAppContextTest(unittest.TestCase):
         selected = select_knowledge(sheet, "¿Hacen despacho?", 1600)
         self.assertIn("revisión humana", selected)
         self.assertLessEqual(len(selected), 1600)
+
+    def test_restaurant_question_includes_relevant_offer(self):
+        sheet = leer_ficha("docs/ficha-zeroai.md")
+        selected = select_knowledge(sheet, "Tengo un restaurante, ¿qué me ofrecen?", 1600)
+        self.assertIn("toma pedidos y agenda reservas", " ".join(selected.split()))
+
+    def test_uppercase_final_policy_is_not_lost(self):
+        selected = select_knowledge("Empresa: Ejemplo.\n\nNO HACEMOS DESPACHO",
+                                    "¿Hacen despacho?", 1600)
+        self.assertIn("NO HACEMOS DESPACHO", selected)
+
+    def test_explicit_new_topic_does_not_retrieve_previous_service(self):
+        sheet = leer_ficha("docs/ficha-zeroai.md")
+        memory = SessionMemory(None)
+        memory.register_client("zeroai", "GROWTH")
+        memory.set_client_knowledge("zeroai", sheet)
+        agent = mock.Mock(prompt_file="concierge-whatsapp-local.md")
+        zero = Zero({"CONCIERGE": agent}, memory=memory)
+        answer = AgentResponse("test", "CONCIERGE", "done", {"reply": "Te cuento."})
+        turns = [{"role": "lead", "text": "Me interesan los leads B2B"},
+                 {"role": "agent", "text": "Podemos conseguir leads B2B calificados."}]
+        with mock.patch.object(zero, "dispatch", return_value=answer) as dispatch:
+            zero.converse_result("zeroai", "Tengo un restaurante, ¿qué me ofrecen?",
+                                 history=turns)
+        selected = dispatch.call_args.args[1].data["knowledge"]
+        self.assertIn("toma pedidos y agenda reservas", " ".join(selected.split()))
+
+    def test_freight_question_finds_shipping_policy(self):
+        sheet = "Empresa: Ejemplo.\n\n" + "\n\n".join(
+            f"Producto {i}: " + "baldosas decorativas. " * 20 for i in range(8))
+        sheet += "\n\nDespacho: requiere revisión humana antes de confirmar entrega."
+        selected = select_knowledge(sheet, "¿Cuánto cuesta el flete?", 1600)
+        self.assertIn("requiere revisión humana", selected)
+
+    def test_followup_uses_recent_topic_to_retrieve_policy(self):
+        sheet = "Empresa: Ejemplo.\n\n" + "\n\n".join(
+            f"Producto {i}: " + "baldosas decorativas. " * 20 for i in range(8))
+        sheet += "\n\nDespacho: requiere revisión humana antes de confirmar entrega."
+        memory = SessionMemory(None)
+        memory.register_client("ejemplo", "STARTER")
+        memory.set_client_knowledge("ejemplo", sheet)
+        agent = mock.Mock(prompt_file="concierge-whatsapp-local.md")
+        zero = Zero({"CONCIERGE": agent}, memory=memory)
+        answer = AgentResponse("test", "CONCIERGE", "done", {"reply": "Lo revisamos."})
+        turns = [{"role": "lead", "text": "¿Hacen despacho?"},
+                 {"role": "agent", "text": "El despacho requiere revisión."}]
+        with mock.patch.object(zero, "dispatch", return_value=answer) as dispatch:
+            zero.converse_result("ejemplo", "¿Y eso cuánto cuesta?", history=turns)
+        selected = dispatch.call_args.args[1].data["knowledge"]
+        self.assertIn("requiere revisión humana", selected)
 
     def test_measurement_and_location_survive_unrelated_recent_turns(self):
         turns = [{"role": "lead", "text": "La piscina mide 7 por 3 metros"},
@@ -73,9 +124,9 @@ class WhatsAppContextTest(unittest.TestCase):
             memory.add_turn("losetaschile", "lead-1", "agent", f"Turno {number}")
         agent = mock.Mock(prompt_file="concierge-whatsapp-local.md")
         zero = Zero({"CONCIERGE": agent}, memory=memory)
-        answer = AgentResponse("test", "CONCIERGE", "done", {"reply": "Revisamos el despacho."})
+        answer = AgentResponse("test", "CONCIERGE", "done", {"reply": "Revisamos las opciones."})
         with mock.patch.object(zero, "dispatch", return_value=answer) as dispatch:
-            zero.converse_result("losetaschile", "Mi piscina de 7 por 3, ¿despachan?",
+            zero.converse_result("losetaschile", "Mi piscina de 7 por 3, ¿qué materiales tienen?",
                                  lead={"key": "lead-1"})
         history = dispatch.call_args.args[1].data["history"]
         self.assertTrue(any("7 por 3" in turn["text"] for turn in history))

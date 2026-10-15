@@ -169,7 +169,21 @@ class CRM:
         """Como is_blocked, pero a partir de un dict de lead crudo (discovery,
         Meta Ads) — para decidir SI conviene registrarlo/contactarlo, no solo
         consultar un registro que ya existe."""
-        return self.is_blocked(client_id, lead_key(lead))
+        if self.is_blocked(client_id, lead_key(lead)):
+            return True
+        email = str(lead.get("email") or "").strip().lower()
+        phone = "".join(c for c in str(lead.get("phone") or "") if c.isdigit())
+        if not (email or phone):
+            return False
+        self._ensure(client_id)
+        for rec in self.leads.values():
+            if rec.get("client_id") != client_id or BLOCK_TAG not in (rec.get("tags") or []):
+                continue
+            rec_email = str(rec.get("email") or "").strip().lower()
+            rec_phone = "".join(c for c in str(rec.get("phone") or "") if c.isdigit())
+            if (email and rec_email == email) or (phone and rec_phone == phone):
+                return True
+        return False
 
     # --- queries -------------------------------------------------------------
     def get(self, client_id: str, key: str) -> Optional[Dict[str, Any]]:

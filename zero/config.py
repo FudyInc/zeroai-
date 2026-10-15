@@ -46,11 +46,28 @@ DEFAULT_INBOUND_CLIENT_ID = os.environ.get("DEFAULT_INBOUND_CLIENT_ID", "zeroai"
 # de demostración 1111 en Fernanda; no se debe usar ese dato para enrutar.
 DEFAULT_INBOUND_WHATSAPP_NUMBER = os.environ.get("DEFAULT_INBOUND_WHATSAPP_NUMBER", "56964537891")
 
+# Saludo de WhatsApp según la hora local de los negocios atendidos en Chile.
+# Los límites pertenecen a la política; el cálculo usa ZoneInfo para respetar
+# los cambios de horario de verano/invierno.
+WHATSAPP_TIME_ZONE = "America/Santiago"
+WHATSAPP_MORNING_START_HOUR = 5
+WHATSAPP_AFTERNOON_START_HOUR = 12
+WHATSAPP_EVENING_START_HOUR = 20
+
 # PoolEdge requiere dirección completa y despacho revisado por una persona antes
 # de emitir un total final (ficha confirmada el 2026-09-29). El cotizador genérico
 # solo suma productos e IVA; no debe enviar ese subtotal como presupuesto final.
 QUOTE_REVIEW_REQUIRED_CLIENT_IDS = frozenset({"pooledge"})
 
+# Tarifa provisional confirmada por Diego el 2026-10-08. La distancia debe ser
+# por ruta y estar verificada antes de incluir un importe de flete.
+LOSETASCHILE_FLETE_ORIGIN = "Los Granados 029, La Pintana"
+LOSETASCHILE_FLETE_CLP_PER_KM = 2000
+# Enlace copiado por Diego del catálogo de WhatsApp Business el 2026-10-08.
+LOSETASCHILE_WHATSAPP_CATALOG_URL = "https://wa.me/c/56964537891"
+LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE = (
+    "Catálogo\n" + LOSETASCHILE_WHATSAPP_CATALOG_URL
+)
 # --- Acciones que una función programada puede PEDIR --------------------------
 # Una función sandboxeada nunca actúa por sí misma: corre con --network=none y
 # sin credenciales (zero/sandbox.py), así que lo único que puede hacer es
@@ -133,7 +150,7 @@ OUTBOX_RETRY_DELAY_SECONDS = 1.0
 # ~4096 caracteres; este tope es más chico a propósito, con margen.
 MAX_INBOUND_MESSAGE_CHARS = 2000
 
-# --- Motor de WhatsApp (2026-08-21) -------------------------------------------
+# --- Motor de WhatsApp (actualizado 2026-10-08) -------------------------------
 # QUÉ CEREBRO contesta un WhatsApp entrante. Es el único frente del producto que
 # corre con modelo LOCAL a propósito; el resto (dashboard, scheduler, funciones)
 # no cambia de motor por esto.
@@ -141,8 +158,9 @@ MAX_INBOUND_MESSAGE_CHARS = 2000
 # El porqué: WhatsApp es conversación de alto volumen y baja dificultad —
 # responder dudas de un lead con la ficha del vendor delante. Un modelo local
 # lo hace bien y su costo marginal es CERO, mientras que la API paga cobra por
-# cada mensaje de cada lead, para siempre. Medido en esta máquina (2026-08-21):
-# qwen2.5:14b-instruct-q4_K_M en la RTX 5060 Ti da ~40 tokens/s, 100% en GPU.
+# cada mensaje de cada lead, para siempre. Diego prefirió la redacción de
+# Qwen 3 en la prueba real del 2026-10-07. La muestra fue pequeña y Qwen 3
+# tardó más; el cotizador de productos sigue siendo determinista.
 #
 # La jaula es deliberada: el modelo local se limita a este canal. No se extiende
 # a otros agentes sin una decisión explícita — decisión de Diego, 2026-08-21.
@@ -151,7 +169,7 @@ MAX_INBOUND_MESSAGE_CHARS = 2000
 # pago existe porque un Ollama caído no debe dejar a un lead sin respuesta;
 # es un respaldo, no el camino normal.
 WHATSAPP_ENGINE = {
-    "model": "qwen2.5:14b-instruct-q4_K_M",   # el que ya está cargado en VRAM
+    "model": "qwen3:14b",                   # decisión de Diego, 2026-10-08
     "base_url": "http://localhost:11434/v1",  # Ollama, endpoint OpenAI-compatible
     "fallback_to_paid": False,                # política cero gasto: nunca Anthropic
 }

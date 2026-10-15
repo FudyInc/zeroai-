@@ -1,4 +1,7 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Montserrat:wght@600;700;800&display=swap');
+/* Satoshi: la misma sans de la landing (web/styles.css) — una sola voz de marca.
+   Montserrat queda solo para display (titulares y cifras). */
+@import url('https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&display=swap');
 @import "tailwindcss";
 
 /* Modo oscuro por CLASE (no por prefers-color-scheme): togglear .dark en
@@ -23,7 +26,7 @@
   --color-gold-deep: #8A6B2D;    /* dorado legible — links y texto chico */
   --color-champagne: #D8CDB0;    /* champagne claro — fondos/tintes/rings */
   --color-offwhite: #F4F4F4;     /* fondo de marca */
-  --font-display: 'Montserrat', 'Inter', sans-serif;
+  --font-display: 'Montserrat', 'Satoshi', sans-serif;
 }
 
 /* ─── Modo oscuro — negro neutro, no un oliva oscuro ─────────────────────
@@ -86,16 +89,35 @@
 :root { color-scheme: light; }
 .dark { color-scheme: dark; }
 
-html { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background-color: var(--color-offwhite); }
+html { font-family: 'Satoshi', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background-color: var(--color-offwhite); }
 body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
 
 /* paleta de marca — oscura y sobria (negro → slate), botones/píldoras/scrollbars */
 .bg-brand-grad { background-image: linear-gradient(135deg, #222923, #2C3529 60%, #3a4536); }
 
-::-webkit-scrollbar { height: 9px; width: 9px; }
-::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #3f3f46, #18181b); border-radius: 6px; }
-::-webkit-scrollbar-thumb:hover { filter: brightness(1.2); }
-::-webkit-scrollbar-track { background: transparent; }
+/* Chevron propio para <select> con appearance-none (Select y StageSelect). Un
+   <select> no admite ::after, así que va como background-image; el gris pewter
+   se lee sobre blanco, sobre negro y sobre los tintes de etapa. */
+.select-chevron {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238C929B' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.7rem center;
+  background-size: 14px 14px;
+}
+
+/* Scrollbar fina y del tema: antes era un gradiente casi negro de 9px que en modo
+   claro se leía como una barra más de la interfaz (muy visible junto al sidebar).
+   Se usan las propiedades estándar (scrollbar-width/color): Chrome 121+ y Firefox
+   las respetan y, cuando existen, ignoran las ::-webkit-scrollbar — por eso no hay. */
+:root { --scroll-thumb: rgba(44, 53, 41, 0.22); }
+.dark { --scroll-thumb: rgba(255, 255, 255, 0.16); }
+/* En @layer base: sin capa, este `*` le ganaría a toda utilidad de Tailwind
+   (p.ej. [scrollbar-width:none] del sidebar) — en v4 lo sin capa pisa lo con capa. */
+@layer base {
+  * { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent; }
+  /* Las cifras display (KPIs, montos, conteos) se alinean en columna. */
+  .font-display { font-variant-numeric: tabular-nums; }
+}
 
 /* halo de gradiente animado para el CTA estrella (componente <Glow>) */
 .glow-halo {

@@ -6,8 +6,9 @@ import { toast } from 'sonner'
 import { api } from '../lib/api'
 import { useDismiss } from '../hooks/useDismiss'
 import { useApp } from '../App'
-import { Card, Button, Input, Skeleton, pageState, Eyebrow, SectionTitle } from '../components/ui'
+import { Card, Button, Input, Skeleton, pageState } from '../components/ui'
 import { rise, fade, surface, staggerDense, overlay, dialog } from '../lib/motion'
+import { WorkspaceHero, WorkspaceSectionHeading } from '../components/WorkspaceHero'
 
 /* Panel exclusivo del admin: crear/editar/correr/borrar funciones — código
    Python a medida que corre AISLADO (Docker, zero/sandbox.py) contra leads
@@ -119,17 +120,21 @@ export default function Funciones() {
   }
 
   return (
-    <motion.div className="space-y-5 max-w-3xl" initial="hidden" animate="show" variants={rise}>
-      <motion.div className="flex items-center justify-between gap-3 flex-wrap" variants={fade}>
-        <div className="flex items-center gap-2">
-          <Terminal size={18} className="text-gold-deep" />
-          <SectionTitle>Funciones</SectionTitle>
-        </div>
-        <Button variant="primary" onClick={openNew}><Plus size={15} /> Nueva función</Button>
+    <motion.div className="workspace-page" initial="hidden" animate="show" variants={rise}>
+      <motion.div variants={surface}>
+        <WorkspaceHero eyebrow="Automatización" title="Funciones"
+          description="Crea y ejecuta funciones Python para los leads del negocio seleccionado. Programa corridas automáticas o ejecútalas cuando las necesites."
+          icon={Terminal}
+          aside={{ label: 'Funciones configuradas', value: functions?.length ?? '—', detail: client ? `Negocio: ${client}` : 'Selecciona un negocio' }}>
+          <Button variant="accent" onClick={openNew}><Plus size={15} /> Nueva función</Button>
+        </WorkspaceHero>
       </motion.div>
 
+      <section className="workspace-section">
+        <WorkspaceSectionHeading eyebrow="Ejecución" title="Funciones del negocio"
+          description="Cada función puede ejecutarse manualmente o con una programación periódica." />
       <motion.div variants={fade}>
-        <Card className="p-4 flex items-start gap-3 bg-amber-50/60 border-amber-200">
+        <Card className="p-5 flex items-start gap-3 bg-amber-50/60 border-amber-200 max-w-4xl">
         <AlertTriangle size={17} className="text-amber-700 shrink-0 mt-0.5" />
         <div className="text-sm text-amber-800">
           Cada función corre código Python real, aislado en un contenedor Docker, contra los{' '}
@@ -143,13 +148,13 @@ export default function Funciones() {
       </motion.div>
 
       {gate || (
-        <motion.div className="space-y-2" variants={staggerDense()} initial="hidden" animate="show">
+        <motion.div className="grid gap-4 max-w-4xl" variants={staggerDense()} initial="hidden" animate="show">
           {(!functions || functions.length === 0) && (
             <motion.div className="py-16 text-center text-zinc-400" variants={fade}>Sin funciones todavía — crea la primera.</motion.div>
           )}
           {functions?.map((fn) => (
             <motion.div key={fn.id} variants={surface}>
-              <Card className="p-4 space-y-2">
+              <Card className="p-5 space-y-3">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
@@ -193,6 +198,7 @@ export default function Funciones() {
           ))}
         </motion.div>
       )}
+      </section>
 
       <AnimatePresence>
         {form && (

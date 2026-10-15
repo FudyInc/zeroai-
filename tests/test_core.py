@@ -564,6 +564,18 @@ class CRMBlockTest(unittest.TestCase):
         self.assertTrue(self.crm.is_blocked_lead("acme", {"email": "ceo@acme.cl"}))
         self.assertFalse(self.crm.is_blocked_lead("acme", {"email": "otro@x.cl"}))
 
+    def test_opt_out_matches_phone_when_meta_adds_an_email(self):
+        self.crm.upsert("acme", {"phone": "+56 9 1234 5678"})
+        self.crm.block("acme", "+56 9 1234 5678")
+        incoming = {"email": "nuevo@x.cl", "phone": "56912345678"}
+        self.assertTrue(self.crm.is_blocked_lead("acme", incoming))
+        self.assertFalse(self.crm.is_blocked_lead("otro_cliente", incoming))
+
+    def test_opt_out_matches_email_when_meta_changes_phone(self):
+        self.crm.block("acme", self.key)
+        incoming = {"email": " CEO@ACME.CL ", "phone": "+56 9 9999 9999"}
+        self.assertTrue(self.crm.is_blocked_lead("acme", incoming))
+
 
 class RobustnessTest(unittest.TestCase):
     """A live model may deviate from the mock's clean contract — don't crash."""
@@ -1899,8 +1911,8 @@ class OptOutDurabilityTest(unittest.TestCase):
         rec = crm.get("acme", "no@bloqueada.cl")
         self.assertNotIn("Meta Ads", rec.get("tags") or [])
         self.assertNotEqual(rec["stage"], "qualified")
-        # el otro lead, sin relación, entra normal
-        self.assertEqual(crm.get("acme", "hola@nueva.cl")["stage"], "qualified")
+        # el otro lead entra sin saltarse la calificación B2B
+        self.assertEqual(crm.get("acme", "hola@nueva.cl")["stage"], "new")
 
 
 class ScalabilityTest(unittest.TestCase):
@@ -2546,7 +2558,8 @@ class MetaAdsTest(unittest.TestCase):
 
     def test_make_metaads_defaults_to_mock(self):
         from zero.metaads import make_metaads, MockMetaAds
-        self.assertIsInstance(make_metaads(), MockMetaAds)   # sin credenciales → mock
+        with mock.patch.dict(os.environ, {"META_ADS_TOKEN": "", "META_AD_ACCOUNT_ID": ""}):
+            self.assertIsInstance(make_metaads(), MockMetaAds)   # sin credenciales → mock
 
     def test_ad_leads_flow_into_crm(self):
         from zero.metaads import MockMetaAds
@@ -2559,7 +2572,31 @@ class MetaAdsTest(unittest.TestCase):
         recs = crm.list("acme")
         self.assertEqual(len(recs), len(leads))
         self.assertTrue(all("Meta Ads" in (r.get("tags") or []) for r in recs))
-        self.assertTrue(all(r["stage"] == "qualified" for r in recs))
+        self.assertTrue(all(r["stage"] == "new" for r in recs))
+
+    def test_ad_lead_reimport_is_idempotent_and_keeps_opt_out(self):
+        crm = CRM(None)
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=crm)
+        lead = {"email": "ana@empresa.cl", "name": "Ana", "source": "meta_ads",
+                "meta_lead_id": "123"}
+        self.assertEqual(z.import_ad_leads("acme", [lead])["imported"], 1)
+        self.assertEqual(z.import_ad_leads("acme", [lead])["skipped"], 1)
+        rec = crm.get("acme", "ana@empresa.cl")
+        self.assertEqual(sum(h["event"] == "ad_lead" for h in rec["history"]), 1)
+        crm.block("acme", rec["key"])
+        later = {**lead, "meta_lead_id": "124"}
+        self.assertEqual(z.import_ad_leads("acme", [later])["blocked"], 1)
+
+    def test_ad_lead_id_deduplicates_changed_contact_within_client(self):
+        crm = CRM(None)
+        z = Zero(build_agents(mock=True), memory=SessionMemory(None), crm=crm)
+        first = {"email": "ana@empresa.cl", "meta_lead_id": "123", "source": "meta_ads"}
+        changed = {"email": "ana.nueva@empresa.cl", "meta_lead_id": "123", "source": "meta_ads"}
+        self.assertEqual(z.import_ad_leads("acme", [first])["imported"], 1)
+        self.assertEqual(z.import_ad_leads("acme", [changed])["skipped"], 1)
+        self.assertEqual(len(crm.list("acme")), 1)
+        self.assertEqual(z.import_ad_leads("otro", [changed])["imported"], 1)
+        self.assertEqual(len(crm.list("otro")), 1)
 
     def test_mediabuyer_recommends_actions(self):
         a = build_agents(mock=True)["MEDIABUYER"]
@@ -3513,7 +3550,8 @@ class WhatsAppMetaOutboxTest(unittest.TestCase):
     def test_live_outbox_without_whatsapp_credentials_reports_error(self):
         from zero.channels import make_outbox
         with mock.patch.dict(os.environ, {"OUTBOX_LIVE": "1", "WHATSAPP_TOKEN": "",
-                                          "WHATSAPP_PHONE_ID": "", "SMTP_HOST": "smtp.example.test",
+                                          "WHATSAPP_PHONE_ID": "", "WHATSAPP_PROVIDER": "meta",
+                                          "SMTP_HOST": "smtp.example.test",
                                           "SMTP_USER": "", "SMTP_PASS": ""}):
             box = make_outbox()
             result = box.send({"channel": "whatsapp", "to": "56911112222", "body": "hola"})
@@ -3524,7 +3562,8 @@ class WhatsAppMetaOutboxTest(unittest.TestCase):
     def test_meta_sender_uses_configured_credentials(self):
         from zero.channels import WhatsAppSender, make_outbox
         with mock.patch.dict(os.environ, {"OUTBOX_LIVE": "1", "WHATSAPP_TOKEN": "meta-tok",
-                                          "WHATSAPP_PHONE_ID": "meta-pid", "SMTP_HOST": ""}):
+                                          "WHATSAPP_PHONE_ID": "meta-pid", "WHATSAPP_PROVIDER": "meta",
+                                          "SMTP_HOST": ""}):
             box = make_outbox()
             self.assertIsInstance(box.real["whatsapp"], WhatsAppSender)
             self.assertIsInstance(box._wa_factory("pid-x", "tok-x"), WhatsAppSender)

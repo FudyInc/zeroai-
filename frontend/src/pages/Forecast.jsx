@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
+import { TrendingUp } from 'lucide-react'
 import { api } from '../lib/api'
-import { Card, CountUp, Skeleton, pageState, Eyebrow, SectionTitle, Badge } from '../components/ui'
+import { Card, CountUp, Skeleton, pageState, Eyebrow, Badge } from '../components/ui'
 import { Segmented } from '../components/Segmented'
+import { WorkspaceHero, WorkspaceSectionHeading } from '../components/WorkspaceHero'
 import { useApp } from '../App'
 import { NoClient } from './Dashboard'
 import { rise, fade, surface, stagger } from '../lib/motion'
@@ -52,7 +54,17 @@ export default function Forecast() {
     { l: 'Pipeline', v: Math.round(p.expected_pipeline_clp * k), prefix: '$' },
   ]
   return (
-    <motion.div className="space-y-5" initial="hidden" animate="show" variants={rise}>
+    <motion.div className="workspace-page" initial="hidden" animate="show" variants={rise}>
+      <motion.div variants={fade}>
+        <WorkspaceHero eyebrow="Proyección" title={`Forecast de ${client}`}
+          description="Explora las respuestas, reuniones y cierres estimados a partir de la actividad comercial registrada."
+          icon={TrendingUp}
+          aside={data.mode === 'live' ? { label: 'Pipeline proyectado', value: `$${Math.round(p.expected_pipeline_clp * k).toLocaleString('es-CL')}`, detail: `Escenario ${scen} · modelo real` } : undefined} />
+      </motion.div>
+
+      <section className="workspace-section">
+        <WorkspaceSectionHeading eyebrow="Escenarios" title="Resultado estimado"
+          description="Ajusta el escenario para comparar posibles resultados." />
       <motion.div className="flex items-center justify-between gap-3 flex-wrap" variants={fade}>
         <Segmented options={SCENARIOS} value={scen} onChange={setScen} />
         <div className="flex items-center gap-2 flex-wrap">
@@ -82,14 +94,18 @@ export default function Forecast() {
           </motion.div>
         ))}
       </motion.div>
+      </section>
+      <section className="workspace-section">
+        <WorkspaceSectionHeading eyebrow="Origen de los datos" title="Supuestos del cálculo"
+          description="Entradas y tasas que sostienen la proyección mostrada." />
       <motion.div variants={surface}>
         <Card className="p-5 text-sm text-zinc-600">
-        <SectionTitle className="mb-2">Supuestos</SectionTitle>
         Embudo: descubiertos {i.discovered} → calificados {i.qualified} → contactados {i.contacted}.<br />
         Tasas: respuesta {a.reply_rate} · reunión {a.meeting_rate} · cierre {a.win_rate} · ticket ${(a.avg_deal_value_clp || 0).toLocaleString('es-CL')} CLP.
         {f.commentary && <div className="mt-3 text-zinc-500 italic">{f.commentary}</div>}
         </Card>
       </motion.div>
+      </section>
     </motion.div>
   )
 }

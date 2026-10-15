@@ -190,7 +190,7 @@ class MetaAds:
                     "field": "time_created", "operator": "GREATER_THAN",
                     "value": int(moment.timestamp()) - LEAD_ADS_CURSOR_MARGIN_SECONDS}])
             try:
-                rows = _graph_pages(f"{form_id}/leads", self.token, params)
+                rows = _graph_pages(f"{form_id}/leads", self.token, params, strict=True)
                 form_leads = self._normalize_rows(form_id, rows, ad_accounts)
             except RuntimeError as e:
                 self.failed_forms.append({"form_id": form_id, "error": str(e)})
@@ -326,7 +326,8 @@ def _graph(path: str, token: str, params: Optional[Dict[str, Any]] = None) -> Di
     return data
 
 
-def _graph_pages(path: str, token: str, params: Dict[str, Any], max_pages: int = 20) -> List[Dict[str, Any]]:
+def _graph_pages(path: str, token: str, params: Dict[str, Any], max_pages: int = 20,
+                 strict: bool = False) -> List[Dict[str, Any]]:
     """Lee todas las páginas hasta un límite explícito; nunca trunca en silencio."""
     out: List[Dict[str, Any]] = []
     cursor = None
@@ -337,15 +338,27 @@ def _graph_pages(path: str, token: str, params: Dict[str, Any], max_pages: int =
         data = _graph(path, token, query)
         items = data.get("data")
         if not isinstance(items, list):
+            if strict:
+                raise RuntimeError("Meta devolvió una lista de formularios/leads inválida")
             return out
+        if strict and any(not isinstance(x, dict) for x in items):
+            raise RuntimeError("Meta devolvió un formulario/lead con forma inválida")
         out.extend(x for x in items if isinstance(x, dict))
         paging = data.get("paging") or {}
+        if not isinstance(paging, dict):
+            if strict:
+                raise RuntimeError("Meta devolvió paginación inválida; no se importa un resultado parcial")
+            return out
         cursors = paging.get("cursors") or {}
         next_cursor = cursors.get("after") if isinstance(cursors, dict) else None
+        if strict and paging.get("next") and not next_cursor:
+            raise RuntimeError("Meta indicó otra página sin cursor; no se importa un resultado parcial")
         if not paging.get("next") or not next_cursor or next_cursor == cursor:
             return out
         cursor = next_cursor
     raise RuntimeError("Meta devolvió más páginas que el límite de lectura; no se muestran cifras parciales")
+
+
 
 
 def list_ad_accounts(token: str) -> List[Dict[str, Any]]:

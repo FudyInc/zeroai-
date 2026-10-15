@@ -8,8 +8,94 @@ Vercel informó un despliegue de producción `Ready` el mismo día.
 el 2026-10-06 23:41 Chile, antes de la corrección del cálculo de bordes.
 El catálogo activo de LosetasChile ya incluye el esquinero; el subtotal de
 productos de un pedido 6 × 3 m se calculó con historial y precios reales en una
-simulación sin envío. Faltan una respuesta real de ese subtotal por WhatsApp y
-una conversación real de ZeroAI por Meta.
+simulación sin envío. El 2026-10-07 se observó un subtotal real por WhatsApp
+tras «Okay el presupuesto»; lo calculó el código activo, no Qwen 3. Falta una
+conversación real de ZeroAI por Meta.
+
+**Flujo de LosetasChile activo en el backend local 2026-10-08:** la imagen
+entregada por Diego muestra siete colores etiquetados. El agente puede enviarla
+por WhatsApp Web, recoger el color elegido y preparar un presupuesto interno
+con nombre de perfil opcional y número obligatorio. Ese presupuesto no se envía
+automáticamente al cliente. Diego creó «Presuouesto losetas ia»; se verificó
+como grupo separado de «Losetas Diego» en la cuenta Web asignada. Se configuró
+como destino en el servicio local y se confirmó un mensaje técnico aceptado y
+visible en el grupo, sin datos de clientes. Pasaron 1048 pruebas Python y la
+revisión de sintaxis del puente. Falta comprobar el recorrido real de imagen,
+elección de color y presupuesto con un mensaje nuevo desde el teléfono de Diego.
+El cambio aún no se publicó en GitHub ni en Vercel.
+Diego confirmó después que la prueba técnica llegó al grupo correcto.
+En el primer intento del recorrido desde el cliente, el mensaje entrante
+quedó registrado pero el chat ya tenía una pausa automática por una consulta
+anterior no interpretable. No se envió respuesta. La pausa de ese chat de
+prueba se liberó y se comprobó el estado nuevo el 2026-10-08; el mensaje
+anterior no se reprocesó. Falta un mensaje nuevo con las medidas completas.
+
+**Ajustes activos en el backend local el 2026-10-08:** las consultas por
+bordes de piscina sin largo y ancho preguntan primero por las medidas en
+metros. La respuesta a esa pregunta continúa el flujo sin depender del modelo.
+Diego prefirió Qwen 3 de 14B tras la prueba temporal y pidió dejarlo como
+modelo habitual de WhatsApp. Se añadió una configuración específica del canal
+para mantener Qwen 2.5 en los otros agentes. El servicio reinició con
+`WHATSAPP_MODEL=qwen3:14b`, `/api/health` respondió OK, el puente Web quedó
+`ready` y `ollama ps` mostró Qwen 3 en GPU. Una simulación sin envío devolvió
+respuesta de Qwen 3 y otra preguntó por medidas cuando faltaban. Pasaron 1053
+pruebas Python. La muestra previa fue pequeña y Qwen 3 tardó más (la nueva
+simulación demoró unos 24 s). Falta verificar un mensaje nuevo de extremo a
+extremo por WhatsApp para la pregunta de medidas ausentes. Estos ajustes no se
+han publicado en GitHub ni Vercel.
+
+**Prueba real de imagen 2026-10-08:** la consulta de bordes 6 × 3 llegó al
+backend, pero `whatsapp-web.js` falló al construir la imagen por una colisión
+de su ID interno de medios con el del mensaje. Coincide con el reporte
+<https://github.com/wwebjs/whatsapp-web.js/issues/201922>. Se aisló ese campo
+en el puente. Una reanudación manual, tras comprobar que no había imagen en el
+chat, creó una imagen con descripción correcta; WhatsApp mostró acuse 2. El
+puente la marcó incierta porque comparaba la descripción con `body`; se cambió
+la confirmación para usar `caption`. Se comprobó la imagen entregada, se
+registró la pregunta de color en la conversación y se cerró solo el último
+evento. No se envió una copia adicional. Diego confirmó la imagen y respondió
+«gris». El evento quedó completado; el presupuesto fue visible en «Presuouesto
+losetas ia» con nombre sobre número, 36 bordes, 4 esquinas, color gris, total
+de productos $230.400 y despacho por cotizar. En el chat del cliente no se
+observó subtotal automático. Falta comprobar la pregunta por medidas ausentes
+desde un chat sin historial y un envío nuevo de imagen con confirmación del
+puente sin intervención manual.
+
+**Acuse de color 2026-10-08:** Diego reportó que no recibió mensaje tras
+responder «gris». El silencio era el comportamiento anterior: el presupuesto
+solo se mandaba al grupo. El backend local ahora envía una confirmación breve
+del color después de la aceptación por el grupo, sin mostrar importe alguno.
+Si ese acuse falla, el evento queda para revisión; la firma del presupuesto
+ya está guardada y evita un segundo envío al grupo. Una sola confirmación del
+caso existente se entregó al chat de prueba con acuse 2 y quedó registrada en
+la memoria activa. El subtotal continuó ausente del chat del cliente. La suite
+Python completa aprobó 1054 pruebas. Falta ver el nuevo acuse automático en un
+pedido posterior.
+
+**Prueba temporal de Qwen 3 2026-10-07:** el backend WhatsApp usó Qwen 3 de
+14B durante una prueba desde el teléfono de Diego. Se observó un saludo y una
+respuesta de subtotal; el subtotal vino del cotizador activo y no mide la
+calidad del modelo. Se restauró Qwen 2.5; `/api/health` y el puente Web
+respondieron correctamente. El resto de agentes mantuvo su modelo.
+
+**Evaluación de modelo local 2026-10-07:** el servicio sigue configurado con
+`qwen2.5:14b-instruct-q4_K_M`. La máquina tiene una RTX 5060 Ti de 16 GB.
+Se descargó `qwen3:14b` para una comparación local sin mensajes a clientes ni
+cambio del backend. Con la ficha versionada de ZeroAI en memoria temporal,
+ambos respondieron cuatro consultas comerciales sin cifras o garantías
+inventadas. Qwen 2.5 tardó 2,3–9,6 s por consulta; Qwen 3 tardó 5,6–19,5 s
+con razonamiento y 5,5–12 s sin él. La muestra es pequeña y no prueba una
+mejora general. El modelo activo volvió a quedar cargado en GPU. Para evaluar
+un modelo de mayor tamaño en esta máquina hace falta considerar más VRAM;
+queda pendiente una comparación representativa antes de cambiar producción.
+
+**Incidente 2026-10-07:** una conversación real de LosetasChile respondió
+«alrededor de 18 pastelones» a «Necesito pastelones». Esa frase no pedía un
+cálculo y llegó al LLM. Diego precisó que, con el pedido ya confirmado, el
+motor debe guardar las cantidades y enviar el presupuesto con total, sin
+explicar las piezas en una frase suelta. La corrección local usa el cotizador
+estructurado y deriva cifras no respaldadas del modelo a revisión. Queda
+pendiente su publicación y comprobación en una conversación nueva.
 
 **Comprobación 2026-10-07:** el backend respondió a `/api/health` con el
 subtotal de productos y la segunda corrección de bordes ya en `main`. Después
@@ -79,3 +165,25 @@ pruebas Python y 6/6 casos del modelo local; una conversación inventada produjo
 una respuesta sin repetir las medidas. El backend respondió a salud, handshake
 Meta, POST firmado vacío y estado Web ready. Falta probar una conversación real
 de extremo a extremo, sin reintentar el mensaje de entrega incierta del 2026-10-05.
+
+### Catálogos visuales LosetasChile — 2026-10-13
+
+La solicitud explícita de bordes o pastelones se enruta a un PDF distinto
+por categoría, con fotos originales y nombres y precios estructurados.
+Cada PDF ocupa una página y se envía como un solo documento de WhatsApp.
+El de bordes reúne las tres fotos iniciales y dos fotos propias nuevas para
+Borde ballena 50×40 ($5.500 por unidad confirmado en el almacén activo):
+una instalación y un detalle del material. El de pastelones reúne seis fotos.
+La extensión sin precio estructurado queda por confirmar. La carpeta recibida
+quedó archivada en `entregables/fotos-losetas-recibidas-2026-10-13/`.
+La generación local y la suite se comprobaron el 2026-10-13. Las fotos de
+Borde ballena se activaron en el backend local el 2026-10-14, con salud OK y
+puente Web de LosetasChile listo. La entrega en el teléfono del cliente aún
+no se ha comprobado.
+
+El 2026-10-14 se ajustó el orden de la tarjeta de Borde ballena: foto de la
+pieza, seguida de la piscina instalada. Los precios de ambos catálogos se
+muestran bajo el nombre, en negrita y con «x unidad». La vista previa de
+bordes y los dos PDF de una página se comprobaron localmente. El formato nuevo
+se activó en el backend local: salud OK y puente LosetasChile ready. La entrega
+en WhatsApp sigue pendiente de comprobación real.

@@ -2,13 +2,14 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { CheckCircle2, AlertCircle, WifiOff } from 'lucide-react'
+import { CheckCircle2, AlertCircle, WifiOff, Settings2, Lock } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
 import { Card, Button, Input, Select, Skeleton, Badge, SectionTitle } from '../components/ui'
 import AgentTester from '../components/AgentTester'
 import { useApp } from '../App'
-import { rise, fade, surface, stagger } from '../lib/motion'
+import { rise, fade, surface } from '../lib/motion'
+import { WorkspaceHero, WorkspaceSectionHeading } from '../components/WorkspaceHero'
 
 export default function Config() {
   const { client } = useApp()
@@ -31,14 +32,23 @@ export default function Config() {
   if (error) return <div className="max-w-xl py-16 text-center"><p className="text-rose-600">No se pudo cargar la configuración.</p><Button variant="soft" className="mt-3" onClick={() => refetch()}>Reintentar</Button></div>
 
   return (
-    <motion.div className="max-w-xl space-y-4" initial="hidden" animate="show" variants={rise}>
+    <motion.div className="workspace-page" initial="hidden" animate="show" variants={rise}>
+      <motion.div variants={surface}>
+        <WorkspaceHero eyebrow="Administración" title="Configuración"
+          description="Conecta los servicios de la agencia y las integraciones del negocio seleccionado. Revisa el respaldo antes de guardar credenciales."
+          icon={Settings2} />
+      </motion.div>
+      <section className="workspace-section">
+        <WorkspaceSectionHeading eyebrow="Conexiones" title="Accesos e integraciones"
+          description="Gestiona credenciales, prueba conexiones y controla el envío real." />
+      <div className="w-full max-w-xl space-y-4">
       <motion.div variants={fade}>
         <CloudBackupBanner backedUp={cfg?.backed_up || []} supabase={cfg?.supabase} />
       </motion.div>
 
       <motion.div variants={surface}>
           <IntegrationCard title="Acceso (login de agencia)" ok={cfg?.auth} hint="protege el dashboard con una contraseña · vacío = abierto (solo local)">
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-2">
             <Input type="password" placeholder="Nueva contraseña" value={vals.pw || ''} onChange={(e) => set('pw', e.target.value)} />
             <Button onClick={() => vals.pw && save({ auth_password: vals.pw }, ['pw'])}>{cfg?.auth ? 'Cambiar' : 'Activar login'}</Button>
           </div>
@@ -47,7 +57,7 @@ export default function Config() {
 
       <motion.div variants={surface}>
           <IntegrationCard title="ElevenLabs (voz)" ok={cfg?.elevenlabs} hint="se guarda en .env (local)">
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-2">
             <Input type="password" placeholder="sk_..." value={vals.el || ''} onChange={(e) => set('el', e.target.value)} />
             <Button onClick={() => vals.el && save({ elevenlabs_api_key: vals.el }, ['el'])}>Guardar</Button>
           </div>
@@ -73,7 +83,7 @@ export default function Config() {
 
       <motion.div variants={surface}>
         <IntegrationCard title="Anthropic (modo --live, opcional)" ok={cfg?.anthropic} hint="para correr el motor con Claude">
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-2">
             <Input type="password" placeholder="sk-ant-..." value={vals.an || ''} onChange={(e) => set('an', e.target.value)} />
             <Button onClick={() => vals.an && save({ anthropic_api_key: vals.an }, ['an'])}>Guardar</Button>
           </div>
@@ -90,7 +100,7 @@ export default function Config() {
 
       <motion.div variants={surface}>
         <Card className="p-6">
-          <div className="flex items-center justify-between gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <SectionTitle className="flex items-center gap-2">
                 Envío real
@@ -113,6 +123,8 @@ export default function Config() {
           </div>
         </Card>
       </motion.div>
+      </div>
+      </section>
     </motion.div>
   )
 }
@@ -272,7 +284,7 @@ function TestEmailRow({ client }) {
   return (
     <Card className="p-4 -mt-2 border-dashed">
       <div className="text-xs text-zinc-500 mb-2">Probar envío — te llega un correo a esta dirección</div>
-      <div className="flex gap-2">
+      <div className="flex flex-col sm:flex-row gap-2">
         <Input type="email" placeholder="tu-correo@gmail.com" value={to} onChange={(e) => setTo(e.target.value)} />
         <Button variant="soft" onClick={send} disabled={busy}>{busy ? 'Enviando…' : 'Probar envío'}</Button>
       </div>
@@ -290,17 +302,17 @@ function CloudBackupBanner({ backedUp, supabase }) {
   const names = [...new Set(backedUp.map((k) => _NAMES[k.split('_')[0]] || k))]
   if (!supabase) return (
     <Card className="p-4 border-amber-200 bg-amber-50/70 text-sm text-amber-800">
-      ⚠️ <b>Sin Supabase conectado, las keys no se respaldan</b> y se borran en cada redeploy. Conéctalo abajo (tarjeta Supabase) para protegerlas.
+      <AlertCircle className="inline w-3.5 h-3.5 mr-1.5 -mt-0.5" aria-hidden /><b>Sin Supabase conectado, las keys no se respaldan</b> y se borran en cada redeploy. Conéctalo abajo (tarjeta Supabase) para protegerlas.
     </Card>
   )
   if (names.length === 0) return (
     <Card className="p-4 border-zinc-200 bg-zinc-50 text-sm text-zinc-600">
-      🔒 Las keys que guardes aquí quedan <b>respaldadas en la nube</b> y sobreviven a los redeploys. Aún no hay ninguna guardada.
+      <Lock className="inline w-3.5 h-3.5 mr-1.5 -mt-0.5" aria-hidden /> Las keys que guardes aquí quedan <b>respaldadas en la nube</b> y sobreviven a los redeploys. Aún no hay ninguna guardada.
     </Card>
   )
   return (
     <Card className="p-4 border-champagne bg-champagne/30 text-sm text-brand">
-      🔒 <b>Respaldado en la nube — sobrevive a cualquier redeploy.</b>
+      <Lock className="inline w-3.5 h-3.5 mr-1.5 -mt-0.5" aria-hidden /><b>Respaldado en la nube — sobrevive a cualquier redeploy.</b>
       <div className="text-xs text-gold-deep mt-1">Protegido: {names.join(' · ')}</div>
     </Card>
   )

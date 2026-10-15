@@ -4,6 +4,7 @@ import { Card, SectionTitle } from '../components/ui'
 import { Segmented } from '../components/Segmented'
 import { useThemePreference } from '../lib/theme'
 import { rise, surface } from '../lib/motion'
+import { WorkspaceHero, WorkspaceSectionHeading } from '../components/WorkspaceHero'
 
 const THEME_OPTIONS = [
   { value: 'light', label: 'Claro' },
@@ -24,7 +25,16 @@ export default function Preferencias() {
   const Icon = THEME_ICON[theme] || Monitor
 
   return (
-    <motion.div className="space-y-5 max-w-xl" initial="hidden" animate="show" variants={rise}>
+    <motion.div className="workspace-page" initial="hidden" animate="show" variants={rise}>
+      <motion.div variants={surface}>
+        <WorkspaceHero eyebrow="Tu espacio" title="Preferencias"
+          description="Personaliza cómo ves el dashboard en este dispositivo."
+          icon={Icon} />
+      </motion.div>
+      <section className="workspace-section">
+        <WorkspaceSectionHeading eyebrow="Apariencia" title="Tema visual"
+          description="Elige una apariencia o sigue la configuración del sistema." />
+      <div className="w-full max-w-xl">
       <motion.div variants={surface}>
         <Card className="p-6">
           <div className="flex items-center gap-2 mb-1">
@@ -37,6 +47,8 @@ export default function Preferencias() {
           <Segmented options={THEME_OPTIONS} value={theme} onChange={setTheme} />
         </Card>
       </motion.div>
+      </div>
+      </section>
     </motion.div>
   )
 }

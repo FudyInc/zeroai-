@@ -78,8 +78,29 @@ class MetaAdsCampaignsTest(unittest.TestCase):
                 metaads.MetaAds("act_1").campaigns("acme")
             self.assertIn("no pude contactar", str(cm.exception))
 
-    def test_lead_ads_real_vacio(self):
-        self.assertEqual(metaads.MetaAds("act_1").lead_ads("acme"), [])
+    def test_lead_ads_paginacion_rota_no_avanza_el_cursor(self):
+        # Meta anuncia otra página sin cursor: el formulario cuenta como fallido
+        # (no se importa un resultado parcial ni se mueve su cursor).
+        respuestas = {
+            "1/leads": {"data": [{"id": "9", "created_time": "2026-10-15T10:00:00+0000",
+                                  "ad_id": "7", "field_data": [
+                                      {"name": "email", "values": ["a@b.cl"]}]}],
+                        "paging": {"next": "otra-pagina"}},
+            "2/leads": {"data": []},
+        }
+        with mock.patch("zero.metaads._graph", side_effect=lambda path, *a, **k: respuestas[path]):
+            src = metaads.MetaAds("act_1")
+            leads = src.lead_ads("acme", {"lead_form_ids": ["1", "2"]},
+                                 since={"1": "2026-10-14T10:00:00+0000"})
+        self.assertEqual(leads, [])
+        self.assertEqual([f["form_id"] for f in src.failed_forms], ["1"])
+        self.assertIn("sin cursor", src.failed_forms[0]["error"])
+        self.assertNotIn("1", src.cursors)
+
+    def test_lead_ads_paginacion_invalida_en_todos_lanza(self):
+        with mock.patch("zero.metaads._graph", return_value={"data": [], "paging": "invalida"}):
+            with self.assertRaisesRegex(RuntimeError, "paginación inválida"):
+                metaads.MetaAds("act_1").lead_ads("acme", {"lead_form_ids": ["1"]})
 
     def test_lead_ads_lee_solo_formularios_asignados_y_normaliza(self):
         body = json.dumps({"data": [{"id": "lead-1", "ad_id": "ad-1", "ad_name": "Anuncio IG",

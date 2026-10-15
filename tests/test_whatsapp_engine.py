@@ -119,7 +119,8 @@ class OwnerAlertTest(unittest.TestCase):
     # Estas variables se fijan explícitamente en cada test porque `zero/_env.py`
     # carga el .env real al importar: sin fijarlas, el resultado dependería de la
     # máquina donde corre la suite (y CI, sin .env, daría algo distinto al portátil).
-    SIN_CANALES = {"OWNER_WHATSAPP_TO": "", "OWNER_EMAIL_TO": "",
+    SIN_CANALES = {"OWNER_WHATSAPP_TO": "", "OWNER_WHATSAPP_PAUSED": "0",
+                   "OWNER_EMAIL_TO": "",
                    "SMTP_FROM": "", "SMTP_USER": ""}
 
     def test_skipped_without_a_number(self):
@@ -237,6 +238,17 @@ class TheCageTest(unittest.TestCase):
         self.assertIsInstance(backend, FallbackBackend)
         self.assertIsInstance(backend.primary, LocalBackend)
 
+    def test_whatsapp_model_override_does_not_change_other_local_agents(self):
+        import api
+        with mock.patch.dict(os.environ, {"WHATSAPP_MODEL": "qwen3:14b",
+                                       "LOCAL_MODEL": "qwen2.5:14b",
+                                       "ANTHROPIC_API_KEY": "", "OPENAI_API_KEY": ""},
+                             clear=False):
+            agents, _ = api._agents_whatsapp()
+            other_agents, _ = api._agents_best()
+        self.assertEqual(agents["CONCIERGE"].backend.primary.model, "qwen3:14b")
+        self.assertEqual(other_agents["CONCIERGE"].backend.model, "qwen2.5:14b")
+
     def test_inbound_whatsapp_does_not_use_agents_best(self):
         """El camino de un WhatsApp entrante NO puede pasar por _agents_best.
 
@@ -277,16 +289,25 @@ class EngineStatusTest(unittest.TestCase):
 
     def test_status_matches_the_policy(self):
         import api
-        with mock.patch.dict(os.environ, {"LOCAL_MODEL": "", "LOCAL_MODEL_URL": ""}, clear=False):
+        with mock.patch.dict(os.environ, {"WHATSAPP_MODEL": "", "LOCAL_MODEL": "",
+                                       "LOCAL_MODEL_URL": ""}, clear=False):
             st = api._whatsapp_engine_status()
         self.assertEqual(st["model"], WHATSAPP_ENGINE["model"])
         self.assertEqual(st["base_url"], WHATSAPP_ENGINE["base_url"])
 
     def test_status_honors_the_env_override(self):
         import api
-        with mock.patch.dict(os.environ, {"LOCAL_MODEL": "otro:7b"}, clear=False):
+        with mock.patch.dict(os.environ, {"WHATSAPP_MODEL": "",
+                                       "LOCAL_MODEL": "otro:7b"}, clear=False):
             st = api._whatsapp_engine_status()
         self.assertEqual(st["model"], "otro:7b")
+
+    def test_status_honors_whatsapp_specific_override_first(self):
+        import api
+        with mock.patch.dict(os.environ, {"WHATSAPP_MODEL": "qwen3:14b",
+                                       "LOCAL_MODEL": "qwen2.5:14b"}, clear=False):
+            st = api._whatsapp_engine_status()
+        self.assertEqual(st["model"], "qwen3:14b")
 
     def test_declared_fallback_without_a_key_is_not_ready(self):
         """Un respaldo declarado pero sin key NO puede mostrarse como listo."""
@@ -339,7 +360,7 @@ class IcpLeakTest(unittest.TestCase):
                "buyer_roles": ["dueño"], "regions": ["RM"],
                "context": "Buscamos empresas de mudanzas para ofrecerles el servicio"}
         z, capturado = self._zero_con_icp(icp)
-        z.converse_result("zeroai", "hola", lead={"name": "Marcela"}, history=[])
+        z.converse_result("zeroai", "¿Qué venden?", lead={"name": "Marcela"}, history=[])
 
         visto = capturado["data"]["icp"]
         self.assertEqual(visto, {"sells": "leads B2B"})
@@ -350,7 +371,7 @@ class IcpLeakTest(unittest.TestCase):
 
     def test_an_empty_icp_stays_empty(self):
         z, capturado = self._zero_con_icp({})
-        z.converse_result("zeroai", "hola", lead={}, history=[])
+        z.converse_result("zeroai", "¿Qué venden?", lead={}, history=[])
         self.assertEqual(capturado["data"]["icp"], {})
 
 

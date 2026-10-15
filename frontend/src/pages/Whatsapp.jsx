@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import {
   MessageCircle, CheckCircle2, WifiOff, AlertCircle, Copy, Check, Clock,
-  Building2, Rocket, Cpu, ChevronDown,
+  Building2, Rocket, Cpu, ChevronDown, ArrowUpRight, SlidersHorizontal,
 } from 'lucide-react'
 import { api, BASE } from '../lib/api'
 import { Card, Button, Badge, Skeleton, SectionTitle, Input } from '../components/ui'
@@ -17,6 +17,7 @@ import PricingCard from '../components/PricingCard'
 import ConversationThread from '../components/ConversationThread'
 import WhatsAppWebInbox from '../components/WhatsAppWebInbox'
 import { rise, fade, surface } from '../lib/motion'
+import './whatsapp.css'
 
 /* El agente de WhatsApp, en un solo lugar: en 3 pasos dejas a un agente
    atendiendo los leads de una empresa (cuéntale del negocio, elige quién
@@ -70,31 +71,47 @@ export default function Whatsapp() {
   const connected = provider === 'web'
     ? !!cfg?.whatsapp && !!readinessQ.data?.number_bound
     : !!integrationsQ.data?.whatsapp_cloud
+  const readyItems = readinessQ.data && [readinessQ.data.knowledge, readinessQ.data.response_rules,
+    readinessQ.data.number_bound, (readinessQ.data.pricing_items || 0) > 0].filter(Boolean).length
 
   // Toda la página depende de un cliente elegido; sin uno no hay a quién
   // configurarle el agente, y consultar con cliente vacío pegaría contra la API mal.
   if (!client) {
     return (
-      <Card className="p-8 text-center text-sm text-zinc-400">
-        Elige un cliente en el encabezado.
+      <Card className="wa-empty-client p-8 text-center">
+        <MessageCircle size={28} className="mx-auto mb-3 text-gold-deep" />
+        <h2 className="font-display text-lg font-bold text-brand">Elige una empresa</h2>
+        <p className="mt-1 text-sm text-zinc-500">Selecciona un cliente en el encabezado para ver su agente y sus conversaciones.</p>
       </Card>
     )
   }
 
   return (
-    <motion.div className="space-y-6" initial="hidden" animate="show" variants={rise}>
-      <motion.div className="flex flex-wrap items-center gap-x-4 gap-y-1" variants={fade}>
-        <p className="text-sm text-zinc-500 max-w-2xl">
-          En 3 pasos dejas un agente atendiendo a los leads de <b className="text-zinc-700">{client}</b>:
-          cuéntale de la empresa, elige quién atiende y despliega. Pruébalo en el chat antes de que
-          hable con leads reales. El motor es común; la ficha, los precios, las reglas y la sesión
-          de WhatsApp pertenecen solo a este negocio.
-        </p>
-        {cfg?.local_model && (
-          <span className="inline-flex items-center gap-1.5 text-[11px] text-zinc-400">
-            <Cpu size={12} /> Cerebro: {cfg.local_model}{cfg.discover === 'web' ? ' · búsqueda web' : ''}
-          </span>
-        )}
+    <motion.div className="wa-page space-y-7" initial="hidden" animate="show" variants={rise}>
+      <motion.div variants={fade}>
+        <Card className="wa-hero">
+          <div className="wa-hero-main">
+            <div className="wa-eyebrow"><MessageCircle size={14} /> Centro de atención</div>
+            <h1>WhatsApp <span>de {client}</span></h1>
+            <p>Conversaciones, configuración del agente y pruebas en un solo lugar. Prepara su ficha y sus reglas antes de activar respuestas automáticas.</p>
+            <div className="wa-hero-meta">
+              <span className="wa-meta-pill"><span className={'wa-status-dot ' + (connected ? 'is-ready' : '')} />{connected ? 'Canal configurado' : 'Conexión pendiente'}</span>
+              <span className="wa-meta-pill"><SlidersHorizontal size={13} /> {readinessQ.data?.response_mode === 'automatic' ? 'Respuesta automática' : 'Atención manual'}</span>
+              {cfg?.local_model && <span className="wa-meta-pill"><Cpu size={13} /> {cfg.local_model}</span>}
+            </div>
+            <nav className="wa-quick-nav" aria-label="Ir a secciones de WhatsApp">
+              {connected && provider === 'web' && <a href="#wa-bandeja">Ir a la bandeja <ArrowUpRight size={15} /></a>}
+              <a href="#wa-configuracion">Configurar agente <ArrowUpRight size={15} /></a>
+              <a href="#wa-pruebas">Pruebas y actividad <ArrowUpRight size={15} /></a>
+            </nav>
+          </div>
+          <div className="wa-hero-progress">
+            <span>Preparación del negocio</span>
+            <strong>{readyItems == null ? '…' : `${readyItems}/4`}</strong>
+            <div className="wa-progress-track"><div style={{ width: `${(readyItems || 0) * 25}%` }} /></div>
+            <small>Ficha, reglas, número y precios</small>
+          </div>
+        </Card>
       </motion.div>
 
       <motion.div variants={surface}>
@@ -107,12 +124,24 @@ export default function Whatsapp() {
         </motion.div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+      {connected && provider === 'web' && (
+        <section id="wa-bandeja" className="wa-section">
+          <div className="wa-section-heading"><div><span className="wa-section-kicker">01 / Conversaciones</span><h2>Bandeja de entrada</h2><p>Lee los mensajes y toma los chats que necesitan atención humana.</p></div></div>
+          <motion.div variants={surface}>
+            <WhatsAppWebInbox client={client} expectedNumber={readinessQ.data?.number}
+              responseMode={readinessQ.data?.response_mode} />
+          </motion.div>
+        </section>
+      )}
+
+      <section id="wa-configuracion" className="wa-section">
+        <div className="wa-section-heading"><div><span className="wa-section-kicker">{connected && provider === 'web' ? '02' : '01'} / Agente</span><h2>Configuración del agente</h2><p>Define qué sabe, cómo responde y quién atiende a esta empresa.</p></div></div>
+      <div className="wa-config-grid grid grid-cols-1 xl:grid-cols-[minmax(0,1.15fr)_minmax(340px,.85fr)] gap-5 items-start">
         <motion.div className="space-y-4" variants={surface}>
           <motion.div variants={surface}>
             <KnowledgeCard client={client} knowledgeQ={knowledgeQ} />
           </motion.div>
-          <motion.div variants={surface}>
+          <motion.div variants={surface} className="wa-card-shell">
             <PricingCard client={client} />
           </motion.div>
           <motion.div variants={surface}>
@@ -128,8 +157,8 @@ export default function Whatsapp() {
             />
           </motion.div>
         </motion.div>
-        <motion.div className="lg:sticky lg:top-24 space-y-4" variants={surface}>
-          <motion.div variants={surface}>
+        <motion.div className="xl:sticky xl:top-24 space-y-4" variants={surface}>
+          <motion.div variants={surface} className="wa-card-shell">
             <AgentTester
               title="Probar antes de desplegar"
               hint="Escribe como si fueras un lead de esta empresa. Nada de esto le llega a nadie: es solo un ensayo."
@@ -156,27 +185,17 @@ export default function Whatsapp() {
           )}
         </motion.div>
       </div>
-
-      {connected && provider === 'web' && (
-        <motion.div variants={surface}>
-          <WhatsAppWebInbox client={client} expectedNumber={readinessQ.data?.number}
-            responseMode={readinessQ.data?.response_mode} />
-        </motion.div>
-      )}
+      </section>
 
       {/* A ancho completo y no en una columna: la comparación pone la respuesta esperada,
           la de antes y la de ahora una al lado de la otra, y eso no entra en media
           pantalla. Va después del chat de prueba porque es su versión sistemática: el
           chat sirve para tantear, esto para no romper lo que ya funcionaba. */}
-      <motion.div variants={surface}>
-        <CasesLab client={client} vendorId={currentId} />
-      </motion.div>
-
-      {connected && (
-        <motion.div variants={surface}>
-          <ActivityCard leadsQ={leadsQ} client={client} />
-        </motion.div>
-      )}
+      <section id="wa-pruebas" className="wa-section">
+        <div className="wa-section-heading"><div><span className="wa-section-kicker">{connected && provider === 'web' ? '03' : '02'} / Seguimiento</span><h2>Pruebas y actividad</h2><p>Compara respuestas antes de usar la configuración con mensajes reales.</p></div></div>
+        <motion.div variants={surface} className="wa-card-shell"><CasesLab client={client} vendorId={currentId} /></motion.div>
+        {connected && <motion.div variants={surface} className="mt-5"><ActivityCard leadsQ={leadsQ} client={client} /></motion.div>}
+      </section>
     </motion.div>
   )
 }
@@ -187,15 +206,14 @@ export default function Whatsapp() {
    queda pendiente de esa conexión). */
 function ConnectMetaBanner() {
   return (
-    <Card className="p-4 flex items-start gap-3 bg-amber-50/60 border-amber-200">
-      <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 grid place-items-center shrink-0">
+    <Card className="wa-alert p-4 sm:p-5 flex items-start gap-3">
+      <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 grid place-items-center shrink-0">
         <MessageCircle size={17} />
       </div>
-      <div className="text-sm text-amber-800">
-        <b>Meta todavía no está conectada.</b> Puedes preparar todo (ficha, precios, quién atiende) y
-        probarlo en el chat de al lado igual — el envío real por WhatsApp se activa apenas conectes tu
-        cuenta de <b>WhatsApp Business (Meta Cloud API)</b> en{' '}
-        <a href="/config" className="underline font-medium">Configuración</a>.
+      <div className="text-sm text-amber-900 dark:text-amber-200">
+        <b>Conexión de WhatsApp pendiente.</b> Puedes preparar la ficha, los precios y las reglas,
+        y probar al agente aquí. Completa la conexión para atender mensajes reales en{' '}
+        <a href="/config" className="underline font-semibold underline-offset-2">Configuración <ArrowUpRight size={13} className="inline" /></a>.
       </div>
     </Card>
   )
@@ -225,7 +243,7 @@ function KnowledgeCard({ client, knowledgeQ }) {
   const dirty = text !== (knowledgeQ.data?.knowledge || '')
 
   return (
-    <Card className="p-5">
+    <Card className="wa-panel p-5 sm:p-6">
       <StepHeader n={1} icon={Building2} title="La ficha de la empresa"
         sub="Pega aquí todo lo que el agente debe saber para atender bien: qué vende, precios, horarios, políticas. Texto libre, como se lo contarías a un vendedor nuevo." />
       {knowledgeQ.isLoading ? (
@@ -245,7 +263,7 @@ function KnowledgeCard({ client, knowledgeQ }) {
         <div className="flex items-center justify-between mt-2">
           <span className="text-[11px] text-zinc-400">
             {text.trim()
-              ? `${text.length.toLocaleString()} caracteres`
+              ? `${text.length.toLocaleString('es-CL')} caracteres`
               : 'Sin ficha todavía — el agente responderá solo con lo básico.'}
           </span>
           <Button variant={dirty ? 'accent' : 'soft'} onClick={() => save.mutate()} disabled={save.isPending || !dirty}>
@@ -262,7 +280,7 @@ function KnowledgeCard({ client, knowledgeQ }) {
 function VendorPicker({ vendorsQ, assignedId, currentId, onPick }) {
   const current = (vendorsQ.data?.vendors || []).find((v) => v.id === currentId)
   return (
-    <Card className="p-5">
+    <Card className="wa-panel p-5 sm:p-6">
       <StepHeader n={2} icon={MessageCircle} title="Elige quién atiende"
         sub="Cada personalidad tiene su propio tono. La que elijas responderá a los leads de esta empresa." />
       {vendorsQ.isLoading ? (
@@ -274,11 +292,11 @@ function VendorPicker({ vendorsQ, assignedId, currentId, onPick }) {
           {(vendorsQ.data?.vendors || []).map((v) => {
             const active = v.id === currentId
             return (
-              <button key={v.id} onClick={() => onPick(v.id)}
-                className={'text-left rounded-xl border p-3.5 transition-all duration-150 ' +
+              <button key={v.id} onClick={() => onPick(v.id)} type="button" aria-pressed={active}
+                className={'wa-vendor text-left rounded-xl border p-3.5 transition-all duration-150 ' +
                   (active
-                    ? 'border-gold/60 ring-4 ring-champagne/40 bg-champagne/10'
-                    : 'border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50')}>
+                    ? 'border-gold/60 ring-2 ring-champagne/40 bg-champagne/10 dark:bg-zinc-100'
+                    : 'border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-100')}>
                 <div className="flex items-center gap-3">
                   <VendorAvatar vendor={v} />
                   <div className="min-w-0">
@@ -335,9 +353,9 @@ function ProfileCard({ client, profileQ, vendor }) {
     profile.response_mode !== (saved.response_mode || 'automatic')
 
   return (
-    <Card className="p-5">
-      <div className="font-semibold text-sm">Forma de atender de {client}</div>
-      <p className="text-xs text-zinc-500 mt-1 mb-3">Estas indicaciones se aplican solo a esta empresa. Identidad elegida: {vendor?.name || 'sin elegir'}.</p>
+    <Card className="wa-panel p-5 sm:p-6">
+      <div className="wa-profile-heading"><div><div className="wa-field-kicker">Reglas del negocio</div><div className="font-display font-bold text-brand">Forma de atender</div></div><span>{vendor?.name || 'Sin agente'}</span></div>
+      <p className="text-xs text-zinc-500 mt-1 mb-4">Estas indicaciones se aplican solo a {client}.</p>
       {profileQ.isError && <p className="text-xs text-rose-600 mb-2">No se pudo cargar. <button className="underline" onClick={() => profileQ.refetch()}>Reintentar</button></p>}
       <label className="block text-xs font-medium text-zinc-600 mb-1">Tono de respuesta</label>
       <textarea
@@ -357,14 +375,14 @@ function ProfileCard({ client, profileQ, vendor }) {
       <p className="text-[11px] text-zinc-500 mt-1">Debe coincidir con un número vinculado al servicio. El contacto nuevo se asociará a esta empresa por el número que recibió el mensaje.</p>
       <label className="block text-xs font-medium text-zinc-600 mt-3 mb-1">Quién responde los mensajes</label>
       <select value={profile.response_mode} onChange={(e) => setProfile((p) => ({ ...p, response_mode: e.target.value }))}
-        className="w-full border border-zinc-200 rounded-xl px-3 py-2.5 text-sm">
+        className="w-full border border-zinc-200 rounded-xl px-3 py-2.5 text-sm bg-white dark:bg-zinc-100 text-zinc-900">
         <option value="manual">Yo respondo desde la bandeja de WhatsApp</option>
         <option value="automatic">El agente responde automáticamente</option>
       </select>
       <p className="text-[11px] text-zinc-500 mt-1">Durante la preparación, usa revisión manual. Activa respuestas automáticas después de probar la ficha y los presupuestos.</p>
       <label className="block text-xs font-medium text-zinc-600 mt-3 mb-1">Presupuestos por WhatsApp</label>
       <select value={profile.quote_mode} onChange={(e) => setProfile((p) => ({ ...p, quote_mode: e.target.value }))}
-        className="w-full border border-zinc-200 rounded-xl px-3 py-2.5 text-sm">
+        className="w-full border border-zinc-200 rounded-xl px-3 py-2.5 text-sm bg-white dark:bg-zinc-100 text-zinc-900">
         <option value="manual">Revisión humana: el agente pide los datos y no envía montos</option>
         <option value="automatic">Automático: cantidad × precio unitario + impuesto</option>
       </select>
@@ -382,20 +400,19 @@ function ProfileCard({ client, profileQ, vendor }) {
 function ReadinessCard({ client, readinessQ }) {
   const data = readinessQ.data
   const rows = [
-    ['Ficha de conocimiento', data?.knowledge, 'Cargar la información del negocio.'],
-    ['Forma de respuesta', data?.response_rules, 'Definir tono y reglas de atención.'],
-    ['Número receptor', data?.number_bound, 'Vincular un número propio a la empresa.'],
-    ['Precios', (data?.pricing_items || 0) > 0, 'Opcional si no cotiza; el cálculo actual es cantidad × precio + impuesto.'],
+    ['Ficha de conocimiento', data?.knowledge, 'Agrega la información que el agente debe conocer.'],
+    ['Reglas de respuesta', data?.response_rules, 'Define tono y reglas de atención.'],
+    ['Número receptor', data?.number_bound, 'Vincula un número a esta empresa.'],
+    ['Precios', (data?.pricing_items || 0) > 0, 'Opcional si no cotiza.'],
   ]
   return (
-    <Card className="p-5">
-      <div className="font-display font-bold tracking-tight text-brand">Preparación de {client}</div>
-      <p className="text-xs text-zinc-500 mt-1 mb-3">Configuración de esta empresa. El número conectado y los cálculos particulares requieren verificación aparte.</p>
+    <Card className="wa-readiness p-5 sm:p-6">
+      <div className="wa-readiness-heading"><div><span className="wa-field-kicker">Estado de preparación</span><h2>Todo lo necesario, a la vista</h2></div><span>Para {client}</span></div>
       {readinessQ.isError ? <p className="text-sm text-rose-600">No se pudo consultar. <button className="underline" onClick={() => readinessQ.refetch()}>Reintentar</button></p> :
-        <div className="grid sm:grid-cols-2 gap-2">{rows.map(([label, done, hint]) => (
-          <div key={label} className="rounded-xl bg-zinc-50 px-3 py-2 text-sm">
-            <span className={done ? 'text-green-700' : 'text-amber-700'}>{done ? '✓' : '○'} {label}</span>
-            {!done && <p className="text-xs text-zinc-500 mt-0.5">{hint}</p>}
+        <div className="wa-readiness-grid">{rows.map(([label, done, hint], index) => (
+          <div key={label} className={'wa-readiness-item ' + (done ? 'is-done' : '')}>
+            <span className="wa-readiness-icon" aria-hidden="true">{done ? <Check size={16} /> : String(index + 1).padStart(2, '0')}</span>
+            <div><strong>{label}</strong><p>{done ? 'Configurado' : readinessQ.isLoading ? 'Consultando…' : hint}</p></div>
           </div>
         ))}</div>}
     </Card>
@@ -406,13 +423,13 @@ function ReadinessCard({ client, readinessQ }) {
 function DeployCard({ client, vendor, assignedId, knowledgeSaved, deploy, cfg }) {
   const isDeployed = vendor && vendor.id === assignedId
   return (
-    <Card className="p-5">
+    <Card className="wa-panel wa-deploy p-5 sm:p-6">
       <StepHeader n={3} icon={Rocket} title="Asignar agente a esta empresa"
         sub={vendor
           ? `${vendor.name} atenderá a los leads de ${client} usando la ficha guardada.`
           : 'Elige una personalidad en el paso 2.'} />
       {!knowledgeSaved && (
-        <div className="text-xs text-amber-700 bg-amber-50 rounded-xl px-3 py-2 mb-3">
+        <div className="text-xs text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-900/20 rounded-xl px-3 py-2 mb-3">
           Aún no guardas la ficha (paso 1). Puedes desplegar igual, pero el agente sabrá muy poco de la empresa.
         </div>
       )}
@@ -437,14 +454,14 @@ function DeployCard({ client, vendor, assignedId, knowledgeSaved, deploy, cfg })
 
 function StepHeader({ n, icon: Icon, title, sub }) {
   return (
-    <div className="flex items-start gap-3 mb-4">
-      <div className="w-9 h-9 rounded-xl bg-champagne/35 text-gold-deep grid place-items-center shrink-0 relative">
+    <div className="wa-step-header flex items-start gap-3 mb-5">
+      <div className="w-10 h-10 rounded-xl bg-champagne/35 text-gold-deep grid place-items-center shrink-0 relative">
         <Icon size={17} />
-        <span className="absolute -top-1.5 -right-1.5 w-[18px] h-[18px] rounded-full bg-zinc-900 text-white text-[10px] font-bold grid place-items-center">{n}</span>
+        <span className="absolute -top-1.5 -right-1.5 w-[18px] h-[18px] rounded-full bg-brand-surface text-white text-[10px] font-bold grid place-items-center">{n}</span>
       </div>
       <div>
         <div className="font-display font-bold tracking-tight leading-tight text-brand">{title}</div>
-        <div className="text-xs text-zinc-400 mt-0.5">{sub}</div>
+        <div className="text-xs text-zinc-500 mt-1 leading-relaxed">{sub}</div>
       </div>
     </div>
   )

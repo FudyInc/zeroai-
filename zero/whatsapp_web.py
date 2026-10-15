@@ -7,14 +7,18 @@ import json
 import logging
 import os
 import re
+import signal
 import sqlite3
 import subprocess
 import threading
+import time
 import urllib.error
 import urllib.request
 from contextlib import closing
 from pathlib import Path
 from typing import Any, Dict, Optional
+
+from .config import LOSETASCHILE_WHATSAPP_CATALOG_URL
 
 
 _bridge_stop = threading.Event()
@@ -64,6 +68,29 @@ def _client_ports() -> Dict[str, int]:
         raise RuntimeError("WHATSAPP_WEB_CLIENT_PORTS inválido") from exc
 
 
+def _terminate_bridge_group(process: subprocess.Popen) -> None:
+    """Stop Node and any Chromium children before reusing the browser profile."""
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    if process.poll() is None:
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
+    time.sleep(0.5)
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    if process.poll() is None:
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            logging.error("WhatsApp bridge process %s did not exit after SIGKILL", process.pid)
+
+
 def _extra_bridge_loop(client_id: str, port: int) -> None:
     root = Path(__file__).resolve().parents[1] / "whatsapp-web-bridge"
     session_dir = root / f".session-{client_id}"
@@ -71,23 +98,21 @@ def _extra_bridge_loop(client_id: str, port: int) -> None:
                WHATSAPP_WEB_SESSION_DIR=str(session_dir),
                WHATSAPP_WEB_CLIENT_ID=client_id)
     while not _bridge_stop.is_set():
+        process = None
         try:
-            process = subprocess.Popen(["node", str(root / "index.js")], cwd=root, env=env)
+            process = subprocess.Popen(["node", str(root / "index.js")], cwd=root, env=env,
+                                       start_new_session=True)
             while not _bridge_stop.is_set():
                 try:
                     process.wait(timeout=1)
                     break
                 except subprocess.TimeoutExpired:
                     pass
-            if _bridge_stop.is_set() and process.poll() is None:
-                process.terminate()
-                try:
-                    process.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait()
         except OSError:
             logging.exception("Could not start WhatsApp bridge for %s", client_id)
+        finally:
+            if process is not None:
+                _terminate_bridge_group(process)
         _bridge_stop.wait(5)
 
 
@@ -96,23 +121,19 @@ def _bridge_loop() -> None:
     root = Path(__file__).resolve().parents[1] / "whatsapp-web-bridge"
     while not _bridge_stop.is_set():
         try:
-            _bridge_process = subprocess.Popen(["node", str(root / "index.js")], cwd=root)
+            _bridge_process = subprocess.Popen(["node", str(root / "index.js")], cwd=root,
+                                               start_new_session=True)
             while not _bridge_stop.is_set():
                 try:
                     _bridge_process.wait(timeout=1)
                     break
                 except subprocess.TimeoutExpired:
                     pass
-            if _bridge_stop.is_set() and _bridge_process.poll() is None:
-                _bridge_process.terminate()
-                try:
-                    _bridge_process.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    _bridge_process.kill()
-                    _bridge_process.wait()
         except OSError:
             logging.exception("Could not start WhatsApp Web bridge")
         finally:
+            if _bridge_process is not None:
+                _terminate_bridge_group(_bridge_process)
             _bridge_process = None
         _bridge_stop.wait(5)
 
@@ -146,13 +167,17 @@ def parse_message(payload: Dict[str, Any]) -> Optional[Dict[str, str]]:
         return None
     if chat_id and not re.fullmatch(r"\d{8,20}@(c\.us|lid)", chat_id):
         return None
-    return {
+    parsed = {
         "id": event_id,
         "from": phone,
         "text": str(payload.get("text") or "")[:4096],
         "to_phone_id": destination,
         "chat_id": chat_id,
     }
+    profile_name = " ".join(str(payload.get("profile_name") or "").split())[:80]
+    if any(ch.isalpha() for ch in profile_name):
+        parsed["profile_name"] = profile_name
+    return parsed
 
 
 def _event_db() -> Path:
@@ -300,6 +325,114 @@ def bridge_request(path: str, body: Optional[Dict[str, Any]] = None,
         raise RuntimeError("Puente WhatsApp Web sin conexión") from exc
 
 
+_CATALOG_IMAGES = frozenset({
+    "gama-bordes-piscina.jpeg",
+    "borde-recto-nariz-50x50.png", "ladrillo-cruzado-40x40.jpeg",
+    "sol-40x40.jpeg", "sol-rustico-40x40.jpeg",
+    "adoquin-40x40.jpeg", "laja-espanola-40x40.jpeg",
+    "gregioriano-40x40.jpeg", "octagonal-piedra-40x40.jpeg",
+    "dormiente-1-16x40.jpeg", "dormiente-2-16x40.jpeg",
+    "deck-50x50.jpeg", "esquina-piscina-50x50.jpeg",
+    "extension-borde-piscina-50x50.jpeg",
+})
+
+
+def _verified_account(client_id: str, expected_account: str) -> None:
+    expected = "".join(c for c in expected_account if c.isdigit())
+    if not client_id or not 8 <= len(expected) <= 15:
+        raise ValueError("Falta empresa o número receptor válido")
+    status = bridge_request("/status", client_id=client_id)
+    actual = "".join(c for c in str(status.get("account") or "") if c.isdigit())
+    if status.get("state") != "ready" or actual != expected:
+        raise RuntimeError("El número conectado no coincide con el asignado al cliente")
+
+
+def send_group_text(client_id: str, expected_account: str,
+                    group_id: str, text: str) -> Dict[str, Any]:
+    """Send text to an existing group on the client's verified WhatsApp account.
+
+    A missing message ID is an uncertain send. Callers must inspect the group
+    before considering a retry; bridge_request never retries POST.
+    """
+    if not re.fullmatch(r"[0-9-]{8,40}@g\.us", group_id or ""):
+        raise ValueError("ID de grupo inválido")
+    if not text or not text.strip() or len(text) > 4096:
+        raise ValueError("Texto de grupo inválido")
+    _verified_account(client_id, expected_account)
+    result = bridge_request("/send-group", {"group_id": group_id, "text": text.strip()},
+                            client_id=client_id)
+    if not result.get("id") or result.get("ack") == -1:
+        raise RuntimeError("Envío al grupo sin confirmación; revisar antes de reintentar")
+    return result
+
+
+def send_catalog_image(client_id: str, expected_account: str, to: str,
+                       image: str, caption: str, chat_id: str = "") -> Dict[str, Any]:
+    """Send one allowlisted LosetasChile catalog image to an individual chat."""
+    if client_id != "losetaschile":
+        raise ValueError("Catálogo de imágenes disponible solo para LosetasChile")
+    number = "".join(c for c in str(to or "") if c.isdigit())
+    if not 8 <= len(number) <= 15:
+        raise ValueError("Destinatario inválido")
+    if chat_id and not re.fullmatch(r"\d{8,20}@(c\.us|lid)", chat_id):
+        raise ValueError("Chat individual inválido")
+    if chat_id.endswith("@c.us") and chat_id.split("@", 1)[0] != number:
+        raise ValueError("El chat no coincide con el destinatario")
+    if image not in _CATALOG_IMAGES:
+        raise ValueError("Imagen fuera del catálogo autorizado")
+    if not caption or not caption.strip() or len(caption) > 1024:
+        raise ValueError("Descripción de imagen inválida")
+    _verified_account(client_id, expected_account)
+    result = bridge_request("/send-catalog-image", {
+        "to": number, "chat_id": chat_id, "image": image, "caption": caption.strip(),
+    }, client_id=client_id)
+    if not result.get("id") or result.get("ack") == -1:
+        raise RuntimeError("Envío de imagen sin confirmación; revisar antes de reintentar")
+    return result
+
+
+def send_catalog_document(client_id: str, expected_account: str, to: str,
+                          category: str, pricing: Dict[str, Any],
+                          chat_id: str = "") -> Dict[str, Any]:
+    """Send one PDF assembled from verified photos and current structured prices."""
+    if client_id != "losetaschile" or category not in {"bordes", "pastelones"}:
+        raise ValueError("Catálogo visual no autorizado")
+    number = "".join(c for c in str(to or "") if c.isdigit())
+    if not 8 <= len(number) <= 15:
+        raise ValueError("Destinatario inválido")
+    if chat_id and not re.fullmatch(r"\d{8,20}@(c\.us|lid)", chat_id):
+        raise ValueError("Chat individual inválido")
+    if chat_id.endswith("@c.us") and chat_id.split("@", 1)[0] != number:
+        raise ValueError("El chat no coincide con el destinatario")
+    prices = {str(item.get("id")): item.get("unit_price")
+              for item in pricing.get("items", []) if item.get("id")}
+    _verified_account(client_id, expected_account)
+    result = bridge_request("/send-catalog-document", {
+        "to": number, "chat_id": chat_id, "category": category, "prices": prices,
+    }, client_id=client_id)
+    if not result.get("id") or result.get("ack") == -1:
+        raise RuntimeError("Envío de catálogo sin confirmación; revisar antes de reintentar")
+    return result
+
+
+def send_delivery_poll(client_id: str, expected_account: str, to: str,
+                       chat_id: str) -> Dict[str, Any]:
+    """Send the fixed one-choice delivery poll to a verified LosetasChile chat."""
+    if client_id != "losetaschile":
+        raise ValueError("Encuesta de despacho disponible solo para LosetasChile")
+    number = "".join(c for c in str(to or "") if c.isdigit())
+    if not 8 <= len(number) <= 15 or not re.fullmatch(r"\d{8,20}@(c\.us|lid)", chat_id or ""):
+        raise ValueError("Destinatario de encuesta inválido")
+    if chat_id.endswith("@c.us") and chat_id.split("@", 1)[0] != number:
+        raise ValueError("El chat no coincide con el destinatario")
+    _verified_account(client_id, expected_account)
+    result = bridge_request("/send-delivery-poll", {"to": number, "chat_id": chat_id},
+                            client_id=client_id)
+    if not result.get("id") or result.get("ack") == -1:
+        raise RuntimeError("Encuesta sin confirmación; revisar el chat antes de reintentar")
+    return {"status": "sent", **result}
+
+
 class WhatsAppWebSender:
     name = "whatsapp_web"
 
@@ -320,8 +453,11 @@ class WhatsAppWebSender:
             if status.get("state") != "ready" or actual != expected:
                 return _result("whatsapp", to, "error",
                                error="El número conectado no coincide con el asignado al cliente", via=self.name)
-        result = bridge_request("/send", {"to": to, "text": msg["body"],
-                                          "chat_id": msg.get("whatsapp_chat_id") or ""}, client_id=client_id)
+        payload = {"to": to, "text": msg["body"],
+                   "chat_id": msg.get("whatsapp_chat_id") or ""}
+        if client_id == "losetaschile" and LOSETASCHILE_WHATSAPP_CATALOG_URL in msg["body"]:
+            payload["link_preview"] = False
+        result = bridge_request("/send", payload, client_id=client_id)
         if not result.get("id") or result.get("ack") == -1:
             return _result("whatsapp", to, "error", error="El puente no confirmó la aceptación del mensaje", via=self.name)
         outcome = _result("whatsapp", to, "sent", id=result["id"], via=self.name)

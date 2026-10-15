@@ -8,6 +8,7 @@ import { api } from '../lib/api'
 import { STAGES, repliedRecently } from '../lib/util'
 import { Card, CountUp, Skeleton, Button, pageState, Eyebrow, SectionTitle } from '../components/ui'
 import { Segmented } from '../components/Segmented'
+import { WorkspaceHero, WorkspaceSectionHeading } from '../components/WorkspaceHero'
 import { useApp } from '../App'
 import { rise, fade, surface, stagger, meterFill } from '../lib/motion'
 
@@ -49,11 +50,25 @@ export default function Dashboard() {
   const pct = total ? Math.round((100 * (total - disq)) / total) : 0
 
   return (
-    <motion.div className="space-y-5" initial="hidden" animate="show" variants={rise}>
+    <motion.div className="workspace-page" initial="hidden" animate="show" variants={rise}>
       <motion.div variants={fade}>
-        <NeedsAttention clients={clients} setClient={setClient} />
+        <WorkspaceHero eyebrow="Vista general" title={`Resumen de ${client}`}
+          description="Consulta el estado de tus leads, las respuestas que requieren atención y el avance del embudo."
+          icon={Users}
+          aside={!kpisQ.isLoading && kpis ? { label: 'Leads en pipeline', value: (kpis.in_pipeline ?? 0).toLocaleString('es-CL'), detail: 'Datos del cliente seleccionado' } : undefined} />
       </motion.div>
 
+      <section className="workspace-section">
+        <WorkspaceSectionHeading eyebrow="Seguimiento" title="Pendientes de respuesta"
+          description="Respuestas recientes de tus clientes que esperan una acción humana." />
+        <motion.div variants={fade}>
+          <NeedsAttention clients={clients} setClient={setClient} />
+        </motion.div>
+      </section>
+
+      <section className="workspace-section">
+        <WorkspaceSectionHeading eyebrow="Indicadores" title="Rendimiento comercial"
+          description="Una vista rápida del volumen y el resultado de tu pipeline." />
       <motion.div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5" variants={stagger()} initial="hidden" animate="show">
         {cards.map((c) => {
           const chip = c.tone === 'gold'
@@ -76,7 +91,11 @@ export default function Dashboard() {
           )
         })}
       </motion.div>
+      </section>
 
+      <section className="workspace-section">
+        <WorkspaceSectionHeading eyebrow="Embudo" title="Distribución y salud"
+          description="Compara las etapas del CRM y revisa cuántos leads pasaron el filtro." />
       <motion.div className="grid grid-cols-1 lg:grid-cols-3 gap-5" variants={stagger()} initial="hidden" animate="show">
         <motion.div className="lg:col-span-2" variants={surface}>
           <Card className="p-4">
@@ -125,7 +144,7 @@ export default function Dashboard() {
               {boardQ.isLoading ? '—' : <CountUp value={pct} />}%
             </div>
             <div className="w-full h-2 bg-zinc-100 rounded-full mt-3 overflow-hidden">
-              <motion.div className="h-full bg-zinc-900 rounded-full" {...meterFill(pct)} />
+              <motion.div className="h-full bg-gold rounded-full" {...meterFill(pct)} />
             </div>
             <div className="mt-5 space-y-3 text-sm">
               <Row c="#10b981" l="En proceso" v={openN} />
@@ -135,6 +154,7 @@ export default function Dashboard() {
           </Card>
         </motion.div>
       </motion.div>
+      </section>
     </motion.div>
   )
 }

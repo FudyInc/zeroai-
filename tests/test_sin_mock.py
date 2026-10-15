@@ -95,6 +95,17 @@ class SyncLeadsSinMetaTest(unittest.TestCase):
         self.assertIn("Meta Ads no está conectado", ctx.exception.detail)
         crm_falso.assert_not_called()   # ni siquiera se abrió el CRM
 
+    def test_cliente_inexistente_no_toca_meta_ni_crm(self):
+        with mock.patch.object(api, "make_memory") as memory_falsa, \
+             mock.patch.object(api, "make_crm") as crm_falso, \
+             mock.patch("zero.metaads.make_metaads") as meta_falso:
+            memory_falsa.return_value.clients = {}
+            with self.assertRaises(HTTPException) as ctx:
+                api.sync_ad_leads(SimpleNamespace(state=SimpleNamespace()), "Petlabs")
+        self.assertEqual(ctx.exception.status_code, 404)
+        meta_falso.assert_not_called()
+        crm_falso.assert_not_called()
+
 
 class FinanzasSinArchivoTest(unittest.TestCase):
     """Sin finance.json el resumen traía vapi 40k / elevenlabs 10k / dominio 2k."""

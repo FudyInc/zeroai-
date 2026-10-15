@@ -197,10 +197,7 @@ class ReglasDurasTest(unittest.TestCase):
             for vendor in (FERNANDA, STEFANO):
                 with self.subTest(caso=caso, vendor=vendor["name"]):
                     r = _responder(msg, vendor)
-                    fallas = [f for f in check_reply(r)
-                              # 'accept' no está en el catálogo del prompt: es un hueco
-                              # de contrato conocido, cubierto por el test de abajo.
-                              if "fuera del contrato" not in f]
+                    fallas = check_reply(r)
                     self.assertEqual(fallas, [], f"{msg} → {r['reply']}")
 
     def test_disclose_se_presenta_como_la_persona_no_como_asistente(self):
@@ -212,19 +209,9 @@ class ReglasDurasTest(unittest.TestCase):
             self.assertNotIn("asistente", reply.lower())
             self.assertIn("ia", reply.lower())     # no lo niega
 
-    def test_el_intent_accept_no_esta_en_el_contrato(self):
-        """Desalineación conocida, reportada a coordinación y NO arreglada acá.
-
-        `prompts/concierge.md` cierra con 9 intents y 'accept' no es uno de ellos;
-        `zero/agent_rules.INTENTS` tampoco lo tiene. El mock lo emite igual desde
-        antes de este trabajo. Cambiar el vocabulario de intents es tocar el
-        contrato (prompt + agent_rules), que es de coordinación.
-
-        Cuando coordinación lo resuelva, este test falla: ahí hay que borrarlo y
-        sacar el filtro de `test_ninguna_respuesta_rompe_las_reglas_duras`.
-        """
+    def test_el_intent_accept_esta_en_el_contrato(self):
         self.assertEqual(_responder(MENSAJES["accept"], FERNANDA)["intent"], "accept")
-        self.assertNotIn("accept", INTENTS)
+        self.assertIn("accept", INTENTS)
 
 
 if __name__ == "__main__":

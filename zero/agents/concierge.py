@@ -251,8 +251,13 @@ class Concierge(BaseAgent):
 
         name = lead.get("name") or ""
         returning = bool(task.data.get("history"))
-        hi = (str(name) if name else "Ya") if returning else (
-            f"Hola {name}".strip() if name else "Estimado/a")
+        greeting = str(task.data.get("greeting") or "").strip()
+        if returning:
+            hi = str(name) if name else "Ya"
+        elif greeting:
+            hi = f"{greeting} {name}".strip()
+        else:
+            hi = f"Hola {name}".strip() if name else "Estimado/a"
         sells = icp.get("sells")
         activity = lead.get("activity")
 
