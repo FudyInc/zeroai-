@@ -103,7 +103,7 @@ export default function Sidebar({ mobileOpen = false, onClose = () => {}, userna
           )}
         </div>
 
-        <nav className="p-3 flex-1 min-h-0 space-y-3 overflow-y-auto overflow-x-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <nav className="p-3 flex-1 min-h-0 space-y-3 overflow-y-auto overflow-x-hidden [scrollbar-width:none]">
           {noRoleAssigned && (
             <div className="flex items-center gap-3 text-amber-700 bg-amber-50 rounded-xl px-3 py-2" title="Sin rol asignado — contacta al administrador">
               <AlertTriangle size={18} className="shrink-0" />

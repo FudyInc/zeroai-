@@ -290,7 +290,7 @@ function CloudBackupBanner({ backedUp, supabase }) {
   const names = [...new Set(backedUp.map((k) => _NAMES[k.split('_')[0]] || k))]
   if (!supabase) return (
     <Card className="p-4 border-amber-200 bg-amber-50/70 text-sm text-amber-800">
-      ⚠️ <b>Sin Supabase conectado, las keys no se respaldan</b> y se borran en cada redeploy. Conéctalo abajo (tarjeta Supabase) para protegerlas.
+      <AlertCircle className="inline w-3.5 h-3.5 mr-1.5 -mt-0.5" aria-hidden /><b>Sin Supabase conectado, las keys no se respaldan</b> y se borran en cada redeploy. Conéctalo abajo (tarjeta Supabase) para protegerlas.
     </Card>
   )
   if (names.length === 0) return (

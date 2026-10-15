@@ -117,7 +117,9 @@ export function StageSelect({ value, onChange, className, ...p }) {
       style={{ backgroundColor: color + (dark ? '26' : '14'), borderColor: color + (dark ? '55' : '40'), color }}
       {...p}
     >
-      {ORDER.map((s) => <option key={s} value={s}>{STAGES[s].l}</option>)}
+      {/* El popup nativo hereda color/fondo del <select> (tinte al 8–15%): las
+          opciones van en neutro del tema para que se lean en claro y oscuro. */}
+      {ORDER.map((s) => <option key={s} value={s} className="bg-white text-zinc-800 dark:bg-zinc-50 dark:text-zinc-900">{STAGES[s].l}</option>)}
     </select>
   )
 }

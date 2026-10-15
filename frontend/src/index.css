@@ -104,23 +104,20 @@ body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; 
   background-position: right 0.7rem center;
   background-size: 14px 14px;
 }
-/* Las cifras display se alinean en columna (KPIs, montos, conteos): ver @layer base abajo. */
 
 /* Scrollbar fina y del tema: antes era un gradiente casi negro de 9px que en modo
    claro se leía como una barra más de la interfaz (muy visible junto al sidebar).
-   Ahora es un pulgar neutro con borde transparente que se "achica" visualmente. */
-:root { --scroll-thumb: rgba(44, 53, 41, 0.18); --scroll-thumb-hover: rgba(44, 53, 41, 0.34); }
-.dark { --scroll-thumb: rgba(255, 255, 255, 0.14); --scroll-thumb-hover: rgba(255, 255, 255, 0.28); }
+   Se usan las propiedades estándar (scrollbar-width/color): Chrome 121+ y Firefox
+   las respetan y, cuando existen, ignoran las ::-webkit-scrollbar — por eso no hay. */
+:root { --scroll-thumb: rgba(44, 53, 41, 0.22); }
+.dark { --scroll-thumb: rgba(255, 255, 255, 0.16); }
 /* En @layer base: sin capa, este `*` le ganaría a toda utilidad de Tailwind
    (p.ej. [scrollbar-width:none] del sidebar) — en v4 lo sin capa pisa lo con capa. */
 @layer base {
   * { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent; }
+  /* Las cifras display (KPIs, montos, conteos) se alinean en columna. */
   .font-display { font-variant-numeric: tabular-nums; }
 }
-::-webkit-scrollbar { height: 10px; width: 10px; }
-::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 999px; border: 3px solid transparent; background-clip: padding-box; }
-::-webkit-scrollbar-thumb:hover { background-color: var(--scroll-thumb-hover); }
-::-webkit-scrollbar-track { background: transparent; }
 
 /* halo de gradiente animado para el CTA estrella (componente <Glow>) */
 .glow-halo {
