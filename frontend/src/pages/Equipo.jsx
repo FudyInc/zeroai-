@@ -38,6 +38,30 @@ export default function Equipo() {
     onError: (e) => toast.error('No se pudo cambiar el rol: ' + e.message),
   })
 
+  const setClients = useMutation({
+    mutationFn: ({ id, clients }) => api.setTeamClients(id, clients),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['team'] })
+      toast.success('Clientes actualizados')
+    },
+    onError: (e) => {
+      qc.invalidateQueries({ queryKey: ['team'] })   // deshace la actualización optimista
+      toast.error('No se pudieron guardar los clientes: ' + e.message)
+    },
+  })
+
+  // La lista se arma desde el caché más reciente (no desde el render que pintó
+  // el checkbox) y se escribe de inmediato: dos clics seguidos suman, no se pisan.
+  const toggleClient = (id, client) => {
+    const actual = qc.getQueryData(['team'])?.users?.find((x) => x.id === id)?.clients || []
+    const clients = actual.includes(client) ? actual.filter((x) => x !== client) : [...actual, client]
+    qc.setQueryData(['team'], (old) => old && ({
+      ...old, users: old.users.map((x) => (x.id === id ? { ...x, clients } : x)),
+    }))
+    setClients.mutate({ id, clients })
+  }
+  const { data: allClients = [] } = useQuery({ queryKey: ['clients'], queryFn: api.clients })
+
   const gate = pageState({
     isLoading, error, onRetry: refetch,
     isEmpty: !data?.users?.length, emptyText: 'Sin cuentas todavía.',
@@ -75,7 +99,8 @@ export default function Equipo() {
       <motion.div className="grid gap-4 max-w-4xl" variants={stagger()} initial="hidden" animate="show">
         {users.map((u) => (
           <motion.div key={u.id} variants={surface}>
-            <Card className={'p-5 flex flex-wrap sm:flex-nowrap items-center gap-4 ' + (!u.role ? 'bg-amber-50/40 border-amber-200' : '')}>
+            <Card className={'p-5 ' + (!u.role ? 'bg-amber-50/40 border-amber-200' : '')}>
+              <div className="flex flex-wrap sm:flex-nowrap items-center gap-4">
               <div className="w-10 h-10 rounded-full bg-champagne/40 text-gold-deep grid place-items-center shrink-0 font-bold text-sm">
                 {(u.full_name || u.email || '?').trim().charAt(0).toUpperCase()}
               </div>
@@ -130,7 +155,29 @@ export default function Equipo() {
                 <option value="cro">{ROLE_LABELS.cro}</option>
                 <option value="cto">{ROLE_LABELS.cto}</option>
                 <option value="cco">{ROLE_LABELS.cco}</option>
+                <option value="operador">{ROLE_LABELS.operador}</option>
               </Select>
+              </div>
+              {u.role === 'operador' && (
+                <fieldset className="mt-3 pt-3 border-t border-zinc-100" disabled={setClients.isPending}>
+                  <legend className="text-xs font-medium text-zinc-500 mb-1.5">
+                    Clientes asignados: {(u.clients || []).length ? u.clients.join(', ') : 'ninguno (no verá ningún cliente)'}
+                  </legend>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                    {allClients.map((c) => {
+                      const assigned = (u.clients || []).includes(c)
+                      return (
+                        <label key={c} className="flex items-center gap-1.5 text-sm text-zinc-700 cursor-pointer">
+                          <input type="checkbox" className="accent-gold" checked={assigned}
+                            onChange={() => toggleClient(u.id, c)} />
+                          {c}
+                        </label>
+                      )
+                    })}
+                  </div>
+                  <p className="text-[11px] text-zinc-400 mt-2">Los cambios de clientes aplican al próximo inicio de sesión (hasta 1 hora).</p>
+                </fieldset>
+              )}
             </Card>
           </motion.div>
         ))}

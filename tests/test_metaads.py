@@ -78,8 +78,55 @@ class MetaAdsCampaignsTest(unittest.TestCase):
                 metaads.MetaAds("act_1").campaigns("acme")
             self.assertIn("no pude contactar", str(cm.exception))
 
-    def test_lead_ads_real_vacio(self):
-        self.assertEqual(metaads.MetaAds("act_1").lead_ads("acme"), [])
+    def test_lead_ads_requires_page_id(self):
+        with self.assertRaisesRegex(RuntimeError, "ID numérico de la página"):
+            metaads.MetaAds("act_1").lead_ads("acme")
+
+    def test_lead_ads_reads_only_selected_page_and_maps_contact(self):
+        responses = [
+            {"data": [{"id": "123", "name": "Consulta"}]},
+            {"data": [{"id": "456", "form_id": "123", "campaign_name": "B2B",
+                       "field_data": [
+                           {"name": "full_name", "values": ["Ana Pérez"]},
+                           {"name": "email", "values": ["ana@empresa.cl"]},
+                           {"name": "company_name", "values": ["Empresa"]},
+                           {"name": "job_title", "values": ["Gerente"]},
+                       ]}]},
+        ]
+        with mock.patch("zero.metaads._graph", side_effect=responses) as graph:
+            leads = metaads.MetaAds("act_1").lead_ads("acme", {"page_id": "789"})
+        self.assertEqual(graph.call_args_list[0].args[0], "789/leadgen_forms")
+        self.assertEqual(graph.call_args_list[1].args[0], "123/leads")
+        self.assertEqual(leads[0]["email"], "ana@empresa.cl")
+        self.assertEqual(leads[0]["company"], "Empresa")
+        self.assertEqual(leads[0]["meta_lead_id"], "456")
+
+    def test_lead_ads_rejects_partial_meta_response(self):
+        with mock.patch("zero.metaads._graph", return_value={"data": None}):
+            with self.assertRaisesRegex(RuntimeError, "lista de formularios"):
+                metaads.MetaAds("act_1").lead_ads("acme", {"page_id": "789"})
+
+    def test_lead_ads_rejects_broken_pagination(self):
+        response = {"data": [{"id": "123"}], "paging": {"next": "another-page"}}
+        with mock.patch("zero.metaads._graph", return_value=response):
+            with self.assertRaisesRegex(RuntimeError, "sin cursor"):
+                metaads.MetaAds("act_1").lead_ads("acme", {"page_id": "789"})
+
+    def test_lead_ads_rejects_malformed_paging(self):
+        response = {"data": [{"id": "123"}], "paging": "invalid"}
+        with mock.patch("zero.metaads._graph", return_value=response):
+            with self.assertRaisesRegex(RuntimeError, "paginación inválida"):
+                metaads.MetaAds("act_1").lead_ads("acme", {"page_id": "789"})
+
+    def test_lead_ads_rejects_lead_from_another_form(self):
+        responses = [
+            {"data": [{"id": "123"}]},
+            {"data": [{"id": "456", "form_id": "999", "field_data": [
+                {"name": "email", "values": ["ana@empresa.cl"]}]}]},
+        ]
+        with mock.patch("zero.metaads._graph", side_effect=responses):
+            with self.assertRaisesRegex(RuntimeError, "otro formulario"):
+                metaads.MetaAds("act_1").lead_ads("acme", {"page_id": "789"})
 
 
 class GraphHelpersTest(unittest.TestCase):

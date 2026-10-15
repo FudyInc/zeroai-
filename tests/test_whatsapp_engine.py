@@ -119,7 +119,8 @@ class OwnerAlertTest(unittest.TestCase):
     # Estas variables se fijan explícitamente en cada test porque `zero/_env.py`
     # carga el .env real al importar: sin fijarlas, el resultado dependería de la
     # máquina donde corre la suite (y CI, sin .env, daría algo distinto al portátil).
-    SIN_CANALES = {"OWNER_WHATSAPP_TO": "", "OWNER_EMAIL_TO": "",
+    SIN_CANALES = {"OWNER_WHATSAPP_TO": "", "OWNER_WHATSAPP_PAUSED": "0",
+                   "OWNER_EMAIL_TO": "",
                    "SMTP_FROM": "", "SMTP_USER": ""}
 
     def test_skipped_without_a_number(self):
@@ -240,7 +241,9 @@ class TheCageTest(unittest.TestCase):
     def test_whatsapp_model_override_does_not_change_other_local_agents(self):
         import api
         with mock.patch.dict(os.environ, {"WHATSAPP_MODEL": "qwen3:14b",
-                                       "LOCAL_MODEL": "qwen2.5:14b"}, clear=False):
+                                       "LOCAL_MODEL": "qwen2.5:14b",
+                                       "ANTHROPIC_API_KEY": "", "OPENAI_API_KEY": ""},
+                             clear=False):
             agents, _ = api._agents_whatsapp()
             other_agents, _ = api._agents_best()
         self.assertEqual(agents["CONCIERGE"].backend.primary.model, "qwen3:14b")
@@ -357,7 +360,7 @@ class IcpLeakTest(unittest.TestCase):
                "buyer_roles": ["dueño"], "regions": ["RM"],
                "context": "Buscamos empresas de mudanzas para ofrecerles el servicio"}
         z, capturado = self._zero_con_icp(icp)
-        z.converse_result("zeroai", "hola", lead={"name": "Marcela"}, history=[])
+        z.converse_result("zeroai", "¿Qué venden?", lead={"name": "Marcela"}, history=[])
 
         visto = capturado["data"]["icp"]
         self.assertEqual(visto, {"sells": "leads B2B"})
@@ -368,7 +371,7 @@ class IcpLeakTest(unittest.TestCase):
 
     def test_an_empty_icp_stays_empty(self):
         z, capturado = self._zero_con_icp({})
-        z.converse_result("zeroai", "hola", lead={}, history=[])
+        z.converse_result("zeroai", "¿Qué venden?", lead={}, history=[])
         self.assertEqual(capturado["data"]["icp"], {})
 
 

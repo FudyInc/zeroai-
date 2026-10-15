@@ -267,3 +267,32 @@ pregunta por modelos tras mencionar piscina, pregunta genérica al abrir chat
 y pregunta directa por bordes. Los tres incluyen el enlace correcto. Sigue
 pendiente recibir una pregunta real nueva y verificar la apertura del catálogo
 en el teléfono del cliente. No se publicó en GitHub ni Vercel.
+
+**Actualización verificada el 2026-10-13:** Diego pidió evitar varios mensajes
+por catálogo y mostrar nombre y precio, dejando las dimensiones dentro de las
+imágenes originales. Se preparó un PDF de una página por categoría, que agrupa
+las tres fotos iniciales de bordes o las seis de pastelones en un solo archivo
+para abrir desde el chat. Diego compartió el 2026-10-13 una carpeta de fotos:
+el PDF de bordes ahora añade una tarjeta de **Borde ballena 50×40** con dos
+fotos propias, una piscina instalada y un detalle de la pieza, y el precio
+estructurado confirmado de **$5.500 por unidad**. Se archivó la carpeta
+recibida en `entregables/fotos-losetas-recibidas-2026-10-13/`.
+Los precios se leen del catálogo estructurado al generar cada
+archivo: borde recto $6.000, esquina $3.600 y pastelones 40×40 $1.600 por
+unidad, verificados en el almacén activo el 2026-10-13. La extensión queda
+con «Precio por confirmar» porque no consta un precio estructurado. Flor de lis
+y Adoquín no aparecen. La petición genérica «Catálogo» sigue compartiendo el
+enlace general. La generación local produjo dos PDF válidos de una página;
+el parche quedó activo en el backend local. Las fotos de Borde ballena se
+activaron allí el 2026-10-14; salud OK y puente Web de LosetasChile listo.
+La entrega real y su presentación en el teléfono siguen pendientes de prueba.
+No se comprobó despliegue remoto.
+
+**Presentación ajustada el 2026-10-14:** Diego pidió mostrar primero la foto
+de la pieza Borde ballena y después la piscina instalada. En ambos PDF, el
+precio calculable queda debajo del nombre en negrita y se indica
+«$… x unidad». La extensión sin precio conserva «Precio por confirmar».
+La vista previa de bordes y la generación de ambos PDF de una página se
+comprobaron localmente. El formato nuevo quedó activo en el backend local el
+2026-10-14; salud OK y puente Web de LosetasChile listo. La recepción real
+sigue pendiente.

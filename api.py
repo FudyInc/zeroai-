@@ -33,6 +33,7 @@ from zero.cloud_env import backed_up_keys, load_into_environ, save_secret
 load_into_environ()   # + secretos guardados en la nube (sobreviven a redeploys)
 from zero.agents import build_agents
 from zero.config import (AGENCY_CLIENT_ID, AVG_DEAL_VALUE_CLP, CRM_OPEN_STAGES, CRM_STAGES,
+                         MAX_CORRIDAS_RECORDADAS,
                          DEFAULT_INBOUND_CLIENT_ID, DEFAULT_INBOUND_WHATSAPP_NUMBER,
                          DEFAULT_VENDOR_ID, MAX_INBOUND_MESSAGE_CHARS, PUBLIC_FORM_MAX_PER_HOUR_PER_IP,
                          PUBLIC_FORM_MAX_PER_HOUR_TOTAL, PUBLIC_FORM_SOURCES,
@@ -164,14 +165,65 @@ _ROLE_ALLOWED: dict = {
         ("GET", "/api/marketing"),        # Campañas.jsx
         ("POST", "/api/marketing"),
     ),
+    # Operador (Diego, 2026-10-14): acotado a SUS clientes (app_metadata.clients,
+    # ver _SCOPED_ROLES) y solo a Pipeline + modal "Buscar leads" + ficha del
+    # lead. Prefijos finos a propósito: "*" casa un segmento, así que abrir
+    # mover-etapa/responder/enviar no abre el resto de POST /api/leads.
+    # Pipeline: solo start/start-selected (el POST /api/pipeline síncrono no lo
+    # usa el front); progress y runs, no todo /api/pipeline.
+    "operador": (
+        ("GET", "/api/clients"),                # selector (filtrado a su alcance)
+        ("GET", "/api/board"),                  # Pipeline.jsx
+        ("GET", "/api/leads"),                  # lista, /pending, /search, /{key}
+        ("POST", "/api/leads/*/stage"),         # ficha: mover etapa
+        ("POST", "/api/leads/*/reply"),         # ficha: registrar respuesta
+        ("POST", "/api/leads/*/send"),          # ficha: enviar borrador
+        ("GET", "/api/conversation"),           # ficha: hilo del lead
+        ("GET", "/api/icp"),                    # modal "Buscar leads"
+        ("POST", "/api/icp"),                   # guardar el ICP de SU cliente
+        ("POST", "/api/pipeline/start"),        # modal "Buscar leads"
+        ("POST", "/api/pipeline/start-selected"),
+        ("GET", "/api/pipeline/progress"),      # avance en vivo
+        ("GET", "/api/pipeline/runs"),          # filtrado a su alcance
+    ),
 }
+
+# Roles que exigen alcance por cliente: sin app_metadata.clients -> 403 (fail
+# closed), y todo lo que tocan se acota a esa lista (ver _client_scope).
+_SCOPED_ROLES = frozenset({"operador"})
+
+_CLIENT_NOT_FOUND = "cliente no encontrado"
 
 
 def _role_may_access(role: str, method: str, path: str) -> bool:
+    """Match exacto o por prefijo de segmentos; un "*" en el patrón casa
+    cualquier segmento (p. ej. "/api/leads/*/stage")."""
+    parts = path.split("/")
     for m, prefix in _ROLE_ALLOWED.get(role, ()):
-        if method == m and (path == prefix or path.startswith(prefix + "/")):
+        pat = prefix.split("/")
+        if (method == m and len(parts) >= len(pat)
+                and all(p == "*" or p == q for p, q in zip(pat, parts))):
             return True
     return False
+
+
+def _client_scope(request: Request):
+    """None = sin alcance (admin/cro/cto/cco, o auth deshabilitada: ve todo).
+    frozenset = los únicos client_id que este usuario puede ver o tocar."""
+    # `request` es obligatorio a propósito: un handler llamado sin él no puede
+    # saltarse el alcance en silencio (fail-open). Sin auth no hay `state.auth`.
+    identity = getattr(request.state, "auth", None)
+    if not identity or identity.get("role") not in _SCOPED_ROLES:
+        return None
+    return frozenset(identity.get("clients") or ())
+
+
+def _require_client(request: Request, client: str) -> None:
+    """Un cliente fuera del alcance responde IGUAL que uno inexistente (mismo
+    status y detail): el operador no debe poder inferir que otros existen."""
+    scope = _client_scope(request)
+    if scope is not None and client not in scope:
+        raise HTTPException(status_code=404, detail=_CLIENT_NOT_FOUND)
 
 
 # "Quién está conectado" (panel de Equipo, admin-only) — última vez que se vio
@@ -237,6 +289,14 @@ async def auth_guard(request: Request, call_next):
             return JSONResponse({"detail": "sin rol asignado"}, status_code=403)
         if role != "admin" and not _role_may_access(role, request.method, path):
             return JSONResponse({"detail": "sin permiso para este recurso"}, status_code=403)
+        if role in _SCOPED_ROLES:
+            if not identity.get("clients"):
+                return JSONResponse({"detail": "sin clientes asignados"}, status_code=403)
+            # Defensa en profundidad: además de la validación en cada handler,
+            # cualquier ?client= fuera del alcance se corta acá (todos los
+            # valores: FastAPI se queda con uno solo y no hay que adivinar cuál).
+            if any(c not in identity["clients"] for c in request.query_params.getlist("client")):
+                return JSONResponse({"detail": _CLIENT_NOT_FOUND}, status_code=404)
         request.state.auth = identity
     return await call_next(request)
 
@@ -270,7 +330,8 @@ def auth_status(request: Request):
     return {"enabled": enabled, "authenticated": authenticated,
             "username": identity.get("username") if identity else None,
             "role": identity.get("role") if identity else None,
-            "full_name": identity.get("full_name") if identity else None}
+            "full_name": identity.get("full_name") if identity else None,
+            "clients": (identity.get("clients") or []) if identity else []}
 
 
 # Meta semanal de horas conectadas — ver zero/activity.py para los límites
@@ -352,6 +413,26 @@ def team_set_role(user_id: str, body: SetRole):
     return {"user_id": user_id, "role": body.role}
 
 
+class SetClients(BaseModel):
+    clients: list[str]   # [] = quitar el alcance
+
+
+@app.post("/api/team/{user_id}/clients")
+def team_set_clients(user_id: str, body: SetClients):
+    """Asigna los clientes de un operador — admin-only (sin entrada en
+    _ROLE_ALLOWED). Cada cliente debe existir: un typo dejaría al operador
+    con un alcance que no apunta a nada."""
+    from zero.auth import set_user_clients
+    known = set(_all_client_ids())
+    unknown = [c for c in body.clients if c not in known]
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"clientes inexistentes: {', '.join(unknown)}")
+    clients = list(dict.fromkeys(body.clients))
+    if not set_user_clients(user_id, clients):
+        raise HTTPException(status_code=502, detail="no se pudo actualizar en Supabase")
+    return {"user_id": user_id, "clients": clients}
+
+
 def _crm():
     return make_crm(CRM_PATH)   # Supabase if configured, else local crm.json
 
@@ -391,8 +472,12 @@ def _all_client_ids() -> list:
 
 
 @app.get("/api/clients")
-def clients():
-    return {"clients": _all_client_ids()}
+def clients(request: Request):
+    ids = _all_client_ids()
+    scope = _client_scope(request)
+    if scope is not None:
+        ids = [c for c in ids if c in scope]
+    return {"clients": ids}
 
 
 _PLANS = {k: {"segment": v["segment"], "price_clp": v.get("price_clp"),
@@ -623,7 +708,8 @@ def kpis(client: str):
 
 
 @app.get("/api/board")
-def board(client: str):
+def board(request: Request, client: str):
+    _require_client(request, client)
     crm = _crm()
     return {
         "client": client,
@@ -640,7 +726,8 @@ _LEAD_GROUPS = {
 
 
 @app.get("/api/leads")
-def leads(client: str, group: str = "todos", limit: int = 50, offset: int = 0):
+def leads(request: Request, client: str, group: str = "todos", limit: int = 50, offset: int = 0):
+    _require_client(request, client)
     crm = _crm()
     stages = _LEAD_GROUPS.get(group)
     rows = crm.query(client, stages=stages, limit=limit, offset=offset)
@@ -650,12 +737,13 @@ def leads(client: str, group: str = "todos", limit: int = 50, offset: int = 0):
 
 
 @app.get("/api/leads/pending")
-def leads_pending(client: str):
+def leads_pending(request: Request, client: str):
     """Borradores pendientes exclusivamente del negocio seleccionado.
 
     Devuelve solo lo que la bandeja necesita mostrar, no el registro completo
     del CRM: se lee por datos móviles y el historial de un lead puede ser
     largo. Para el detalle completo ya está GET /api/leads."""
+    _require_client(request, client)
     if client not in make_memory(STATE_PATH).clients:
         raise HTTPException(status_code=404, detail="cliente no encontrado")
     rows = _crm().pending_outreach(client)
@@ -674,8 +762,9 @@ def leads_pending(client: str):
 
 
 @app.get("/api/leads/search")
-def leads_search(q: str, client: str, limit: int = 20):
+def leads_search(request: Request, q: str, client: str, limit: int = 20):
     """Busca leads solo dentro del negocio seleccionado."""
+    _require_client(request, client)
     if len(q.strip()) < 2:
         raise HTTPException(status_code=400, detail="query muy corta (mínimo 2 caracteres)")
     if client not in make_memory(STATE_PATH).clients:
@@ -755,14 +844,26 @@ def campaigns(client: str):
 
 @app.post("/api/campaigns/sync-leads")
 def sync_ad_leads(client: str):
-    """La importación queda cerrada hasta implementar Lead Ads real."""
+    """Import the selected business's Page forms as unqualified CRM contacts."""
     from zero.metaads import make_metaads
+    memory = make_memory(STATE_PATH)
+    if client not in memory.clients:
+        raise HTTPException(status_code=404, detail="cliente no encontrado")
     cfg = _client_meta_cfg(client)
     src = make_metaads(cfg, client_id=client)
     if not getattr(src, "live", False):
         raise HTTPException(status_code=400, detail=(
             "Meta Ads no está conectado para este negocio: configura su token y cuenta publicitaria."))
-    raise HTTPException(status_code=501, detail="La importación de formularios Lead Ads aún no está disponible.")
+    if not cfg.get("page_id"):
+        raise HTTPException(status_code=400, detail=(
+            "Configura el ID de la página Meta del negocio para importar sus formularios."))
+    try:
+        leads = src.lead_ads(client, cfg)
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=f"No se pudieron leer los formularios Meta: {e}") from e
+    crm = make_crm(CRM_PATH)
+    zero = Zero({}, memory=memory, crm=crm)
+    return zero.import_ad_leads(client, leads)
 
 
 @app.get("/api/metaads/accounts")
@@ -793,6 +894,7 @@ def optimize_campaigns(client: str):
 
 class Marketing(BaseModel):
     ad_account: Optional[str] = None
+    page_id: Optional[str] = None
     monthly_budget_clp: Optional[int] = None
     regions: Optional[list] = None
     objective: Optional[str] = None
@@ -832,6 +934,19 @@ def set_marketing(client: str, body: Marketing):
             cfg["ad_account"] = account
         else:
             cfg.pop("ad_account", None)
+    if "page_id" in updates:
+        page_id = str(updates.pop("page_id") or "").strip()
+        if page_id and not page_id.isdigit():
+            raise HTTPException(status_code=400, detail="ID de página Meta inválido")
+        if page_id:
+            for other, data in memory.clients.items():
+                assigned = str((data.get("meta") or {}).get("page_id") or "").strip()
+                if other != client and assigned == page_id:
+                    raise HTTPException(status_code=409, detail=(
+                        f"La página Meta ya está asignada a {other}."))
+            cfg["page_id"] = page_id
+        else:
+            cfg.pop("page_id", None)
     cfg.update({k: v for k, v in updates.items() if v is not None})
     memory.set_client_meta(client, cfg)
     memory.save()
@@ -908,7 +1023,8 @@ def set_client_integration(client: str, channel: str, body: IntegrationCredentia
 
 
 @app.get("/api/leads/{key}")
-def lead(key: str, client: str):
+def lead(request: Request, key: str, client: str):
+    _require_client(request, client)
     rec = _crm().get(client, key.lower())
     if rec is None:
         raise HTTPException(status_code=404, detail="lead no encontrado")
@@ -921,7 +1037,8 @@ class StageMove(BaseModel):
 
 
 @app.post("/api/leads/{key}/stage")
-def move_stage(key: str, client: str, body: StageMove):
+def move_stage(request: Request, key: str, client: str, body: StageMove):
+    _require_client(request, client)
     crm = _crm()
     try:
         rec = crm.set_stage(client, key.lower(), body.stage, detail="api")
@@ -939,8 +1056,9 @@ class Reply(BaseModel):
 
 
 @app.post("/api/leads/{key}/reply")
-def register_reply(key: str, client: str, body: Reply):
+def register_reply(request: Request, key: str, client: str, body: Reply):
     """A lead replied: close its follow-up sequence and move it to `replied`."""
+    _require_client(request, client)
     crm = make_crm(CRM_PATH)
     memory = make_memory(STATE_PATH)
     if crm.get(client, key.lower()) is None:
@@ -957,11 +1075,12 @@ class SendOutreach(BaseModel):
 
 
 @app.post("/api/leads/{key}/send")
-def send_outreach(key: str, client: str, body: SendOutreach):
+def send_outreach(request: Request, key: str, client: str, body: SendOutreach):
     """Manda el mensaje que quedó en borrador (modo revisión, ver auto_send en
     POST /api/pipeline) — con el texto guardado o, si se manda algo en el
     body, con ediciones (para mejorar la copia antes de enviar). Agentes mock:
     esto no redacta nada, solo entrega lo que ya está escrito."""
+    _require_client(request, client)
     crm = make_crm(CRM_PATH)
     memory = make_memory(STATE_PATH)
     zero = Zero(build_agents(mock=True), memory=memory, crm=crm, outbox=make_outbox())
@@ -1559,7 +1678,7 @@ def run_pipeline(req: RunRequest):
 # Ruta explícita: un backend antiguo devuelve 404 en vez de ignorar provider.
 @app.post("/api/pipeline/start-selected")
 @app.post("/api/pipeline/start")
-def start_pipeline(req: RunRequest, tareas: BackgroundTasks):
+def start_pipeline(req: RunRequest, tareas: BackgroundTasks, request: Request):
     """Arranca el pipeline en segundo plano y devuelve el id para seguirlo.
 
     `POST /api/pipeline` (el de arriba) sigue igual: abre la request, corre todo y
@@ -1571,16 +1690,32 @@ def start_pipeline(req: RunRequest, tareas: BackgroundTasks):
     No reemplaza al otro a propósito: el endpoint síncrono ya lo usa el frontend
     actual y romperlo para agregar una animación sería cambiar algo que funciona.
     """
+    # Con alcance (operador): solo un cliente suyo Y que ya exista — nunca se
+    # crea uno —, con el plan ya registrado (el tier del body se ignora). Va
+    # primero: un 404 de cliente ajeno no puede depender del estado del motor.
+    tier = req.tier
+    scoped = _client_scope(request) is not None
+    # Con alcance, el servidor nunca manda solo: el primer mensaje queda en
+    # borrador para revisión, mande lo que mande el cliente HTTP.
+    auto_send = req.auto_send and not scoped
+    if scoped:
+        _require_client(request, req.client)
+        if req.client not in _all_client_ids():
+            raise HTTPException(status_code=404, detail=_CLIENT_NOT_FOUND)
+        tier = make_memory(STATE_PATH).clients.get(req.client, {}).get("tier")
+        if tier not in TIERS:
+            raise HTTPException(status_code=409, detail="el cliente no tiene un plan registrado")
     # La guardia va ANTES de crear la corrida: si no hay motor real, el usuario ve
     # el error al apretar el botón, no una corrida fantasma que falla en segundo plano.
     agents, mode = _pipeline_agents(req.provider, source=_discovery_source())
     _exigir_motor_real(mode)
-    run_id = runs.crear(req.client, req.query, req.tier)
+    run_id = runs.crear(req.client, req.query, tier)
 
     def correr():
         crm = make_crm(CRM_PATH)
         memory = make_memory(STATE_PATH)
-        memory.register_client(req.client, req.tier)
+        if not scoped:
+            memory.register_client(req.client, tier)
         zero = Zero(agents, memory=memory, crm=crm, outbox=make_outbox())
 
         def avisar(**datos):
@@ -1593,8 +1728,8 @@ def start_pipeline(req: RunRequest, tareas: BackgroundTasks):
                 runs.anotar(run_id, empresa, etapa, **datos)
 
         try:
-            out = zero.run_pipeline(req.client, req.tier, req.query, count=req.count,
-                                    icp=req.icp, auto_send=req.auto_send,
+            out = zero.run_pipeline(req.client, tier, req.query, count=req.count,
+                                    icp=req.icp, auto_send=auto_send,
                                     on_progress=avisar)
             out["mode"] = mode
             runs.terminar(run_id, resumen=out.get("summary"))
@@ -1608,7 +1743,7 @@ def start_pipeline(req: RunRequest, tareas: BackgroundTasks):
 
 
 @app.get("/api/pipeline/progress")
-def pipeline_progress(run: str):
+def pipeline_progress(request: Request, run: str):
     """Qué empresa va en qué etapa, ahora mismo.
 
     Pensado para consultarse cada segundo mientras `estado == "corriendo"`. Trae
@@ -1616,6 +1751,9 @@ def pipeline_progress(run: str):
     hardcodear los nombres que usa el backend.
     """
     datos = runs.progreso(run)
+    scope = _client_scope(request)
+    if datos is not None and scope is not None and datos["cliente"] not in scope:
+        datos = None   # corrida ajena: indistinguible de una que no existe
     if datos is None:
         # También cae acá una corrida vieja que el anillo ya olvidó: para el
         # dashboard es lo mismo, no hay nada que mostrar.
@@ -1624,10 +1762,15 @@ def pipeline_progress(run: str):
 
 
 @app.get("/api/pipeline/runs")
-def pipeline_runs(limit: int = 10):
+def pipeline_runs(request: Request, limit: int = 10):
     """Las corridas que el proceso todavía recuerda — para reenganchar la pantalla
     después de un F5 sin tener que guardar el id en el navegador."""
-    return {"runs": runs.ultimas(limit)}
+    scope = _client_scope(request)
+    if scope is None:
+        return {"runs": runs.ultimas(limit)}
+    # Se filtra ANTES de recortar: si no, corridas ajenas recientes le comerían el cupo.
+    propias = [r for r in runs.ultimas(MAX_CORRIDAS_RECORDADAS) if r["cliente"] in scope]
+    return {"runs": propias[:max(limit, 0)]}
 
 
 @app.get("/api/avances")
@@ -1916,8 +2059,9 @@ def test_email(body: TestEmail):
 
 
 @app.get("/api/icp")
-def get_icp(client: str):
+def get_icp(request: Request, client: str):
     """The client's saved ICP, so the dashboard can show and edit it (not write-only)."""
+    _require_client(request, client)
     memory = make_memory(STATE_PATH)
     return {"client": client, "icp": normalize_icp(memory.get_client_icp(client))}
 
@@ -1927,8 +2071,11 @@ class IcpBody(BaseModel):
 
 
 @app.post("/api/icp")
-def set_icp(client: str, body: IcpBody):
+def set_icp(request: Request, client: str, body: IcpBody):
     """Guardar el ICP desde el dashboard sin tener que correr un pipeline."""
+    _require_client(request, client)
+    if _client_scope(request) is not None and client not in _all_client_ids():
+        raise HTTPException(status_code=404, detail=_CLIENT_NOT_FOUND)   # nunca crea uno
     memory = make_memory(STATE_PATH)
     memory.set_client_icp(client, normalize_icp(body.icp))
     memory.save()
@@ -2195,8 +2342,9 @@ def make_quote(body: QuoteBody):
 
 
 @app.get("/api/conversation")
-def conversation(client: str, lead: str, limit: int = 50):
+def conversation(request: Request, client: str, lead: str, limit: int = 50):
     """El hilo del diálogo con un lead, para verlo en el dashboard."""
+    _require_client(request, client)
     memory = make_memory(STATE_PATH)
     return {"client": client, "lead": lead.strip().lower(),
             "turns": memory.get_conversation(client, lead.strip(), limit=limit)}

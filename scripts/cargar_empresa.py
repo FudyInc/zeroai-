@@ -93,13 +93,15 @@ EMPRESAS = {
 # nosotros y no tienen por qué gastar el presupuesto de contexto del modelo.
 _MARCAS = re.compile(r"<!--\s*INICIO FICHA.*?-->\n(.*?)<!--\s*FIN FICHA\s*-->", re.S)
 
-# Mismo corte que aplica orchestrator.reply_to_inbound al pasar la ficha al agente.
+# Máximo del archivo cargable; el motor local selecciona hasta 1600 caracteres
+# relevantes de esta ficha para cada consulta.
 LIMITE_FICHA = 4000
 
 
 def leer_ficha(ruta_rel: str) -> str:
     ruta = os.path.join(RAIZ, ruta_rel)
-    texto = open(ruta, encoding="utf-8").read()
+    with open(ruta, encoding="utf-8") as ficha:
+        texto = ficha.read()
     m = _MARCAS.search(texto)
     if not m:
         raise SystemExit(f"{ruta_rel}: faltan las marcas INICIO FICHA / FIN FICHA")

@@ -17,6 +17,7 @@ _ALIASES = {
     "despachan": "despacho", "despachar": "despacho", "envio": "despacho",
     "envios": "despacho", "envian": "despacho", "entrega": "despacho",
     "entregas": "despacho", "entregan": "despacho", "entregamos": "despacho",
+    "flete": "despacho", "fletes": "despacho",
     "precio": "precio", "precios": "precio", "cuesta": "precio",
     "cuestan": "precio", "costo": "precio", "costos": "precio",
     "valor": "precio", "cotizar": "precio", "cotizacion": "precio",
@@ -24,6 +25,7 @@ _ALIASES = {
     "dimensiones": "medida", "tamano": "medida", "m2": "medida",
     "stock": "stock", "disponible": "stock", "disponibilidad": "stock",
     "horario": "horario", "horarios": "horario", "atienden": "horario",
+    "restaurantes": "restaurante",
 }
 
 
@@ -53,19 +55,29 @@ def _sections(knowledge: str) -> List[str]:
     """Preserve headings and split long free-form paragraphs into bounded parts."""
     result: List[str] = []
     heading = ""
+    pending_heading = False
     for paragraph in re.split(r"\n\s*\n", knowledge.strip()):
         paragraph = paragraph.strip()
         if not paragraph:
             continue
         lines = paragraph.splitlines()
-        if len(lines) == 1 and (paragraph.startswith("#") or paragraph.endswith(":")):
+        if len(lines) == 1 and (paragraph.startswith("#") or paragraph.endswith(":") or
+                                paragraph.isupper()):
             heading = paragraph.lstrip("# ").strip()
+            pending_heading = True
             continue
-        if len(paragraph) <= 550:
-            result.append((heading + ": " if heading else "") + paragraph)
-            continue
-        for part in _split_long(paragraph):
-            result.append((heading + ": " if heading else "") + part)
+        pending_heading = False
+        # A Markdown list is often one paragraph. Keep each item intact so a
+        # relevant offer can fit without bringing every unrelated item along.
+        entries = re.split(r"\n(?=\s*(?:-\s|\d+\.\s))", paragraph) \
+            if re.match(r"\s*(?:-\s|\d+\.\s)", paragraph) else [paragraph]
+        for entry in entries:
+            entry = entry.strip()
+            parts = [entry] if len(entry) <= 550 else _split_long(entry)
+            for part in parts:
+                result.append((heading + ": " if heading else "") + part)
+    if pending_heading:
+        result.append(heading)
     return result
 
 

@@ -35,6 +35,13 @@ class RespuestaLegitima(unittest.TestCase):
                       "pero esto que hablamos es real 🙂", "intent": "disclose"}
         self.assertEqual(check_reply(r), [])
 
+    def test_handoff_accept_y_revelacion_honesta_son_validos(self):
+        for intent in ("handoff", "accept"):
+            self.assertEqual(check_reply({"reply": "Necesito apoyo del equipo.",
+                                          "intent": intent}), [])
+        self.assertEqual(check_reply({"reply": "Soy un asistente virtual con IA.",
+                                      "intent": "disclose"}), [])
+
 
 class ReglasRotas(unittest.TestCase):
     def test_respuesta_vacia(self):

@@ -70,6 +70,10 @@ export const api = {
     req('/api/team/' + q(userId) + '/role', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role }),
     }),
+  setTeamClients: (userId, clients) =>
+    req('/api/team/' + q(userId) + '/clients', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clients }),
+    }),
   icp: (c) => req('/api/icp?client=' + q(c)).then((d) => d.icp),
   campaigns: (c) => req('/api/campaigns?client=' + q(c)),
   optimizeCampaigns: (c) => req('/api/campaigns/optimize?client=' + q(c)),
@@ -90,7 +94,7 @@ export const api = {
     try {
       return await req(body.provider ? '/api/pipeline/start-selected' : '/api/pipeline/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     } catch (error) {
-      if (body.provider && error.status === 404) throw new Error('El servidor necesita actualizarse o reiniciarse para permitir elegir motor. No se inició la búsqueda.')
+      if (body.provider && error.status === 404 && error.message !== 'cliente no encontrado') throw new Error('El servidor necesita actualizarse o reiniciarse para permitir elegir motor. No se inició la búsqueda.')
       throw error
     }
   },

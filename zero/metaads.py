@@ -148,8 +148,32 @@ class MetaAds:
                 for r in rows if isinstance(r, dict) and r.get("date_start")]
 
     def lead_ads(self, client_id: str, cfg: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
-        # Lead Ads real (Graph: /{form}/leads) — pendiente de pago/token. Por ahora vacío.
-        return []
+        """Read every form on the client's Page before returning any leads.
+
+        A form belongs to a Page, not an ad account. Keeping page_id in the
+        selected client's config prevents importing another client's contacts.
+        """
+        page_id = str((cfg or {}).get("page_id") or "").strip()
+        if not page_id.isdigit():
+            raise RuntimeError("Configura el ID numérico de la página Meta de este negocio")
+        forms = _graph_pages(f"{page_id}/leadgen_forms", self.token,
+                             {"fields": "id,name,status", "limit": 100}, strict=True)
+        leads: List[Dict[str, Any]] = []
+        for form in forms:
+            form_id = str(form.get("id") or "")
+            if not form_id.isdigit():
+                raise RuntimeError("Meta devolvió un formulario sin ID válido")
+            rows = _graph_pages(f"{form_id}/leads", self.token, {
+                "fields": "id,created_time,field_data,form_id,campaign_name,ad_name",
+                "limit": 100,
+            }, strict=True)
+            for row in rows:
+                if row.get("form_id") and str(row["form_id"]) != form_id:
+                    raise RuntimeError("Meta devolvió un lead de otro formulario; no se importa")
+                lead = _form_lead(row)
+                if lead:
+                    leads.append(lead)
+        return leads
 
 
 _API = "https://graph.facebook.com/v20.0"
@@ -201,7 +225,8 @@ def _graph(path: str, token: str, params: Optional[Dict[str, Any]] = None) -> Di
     return data
 
 
-def _graph_pages(path: str, token: str, params: Dict[str, Any], max_pages: int = 20) -> List[Dict[str, Any]]:
+def _graph_pages(path: str, token: str, params: Dict[str, Any], max_pages: int = 20,
+                 strict: bool = False) -> List[Dict[str, Any]]:
     """Lee todas las páginas hasta un límite explícito; nunca trunca en silencio."""
     out: List[Dict[str, Any]] = []
     cursor = None
@@ -212,15 +237,55 @@ def _graph_pages(path: str, token: str, params: Dict[str, Any], max_pages: int =
         data = _graph(path, token, query)
         items = data.get("data")
         if not isinstance(items, list):
+            if strict:
+                raise RuntimeError("Meta devolvió una lista de formularios/leads inválida")
             return out
+        if strict and any(not isinstance(x, dict) for x in items):
+            raise RuntimeError("Meta devolvió un formulario/lead con forma inválida")
         out.extend(x for x in items if isinstance(x, dict))
         paging = data.get("paging") or {}
+        if not isinstance(paging, dict):
+            if strict:
+                raise RuntimeError("Meta devolvió paginación inválida; no se importa un resultado parcial")
+            return out
         cursors = paging.get("cursors") or {}
         next_cursor = cursors.get("after") if isinstance(cursors, dict) else None
+        if strict and paging.get("next") and not next_cursor:
+            raise RuntimeError("Meta indicó otra página sin cursor; no se importa un resultado parcial")
         if not paging.get("next") or not next_cursor or next_cursor == cursor:
             return out
         cursor = next_cursor
     raise RuntimeError("Meta devolvió más páginas que el límite de lectura; no se muestran cifras parciales")
+
+
+def _form_lead(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Keep contact fields only; form answers never become a qualification score."""
+    lead_id = str(row.get("id") or "").strip()
+    if not lead_id.isdigit():
+        raise RuntimeError("Meta devolvió un lead sin ID válido")
+    fields: Dict[str, str] = {}
+    for item in row.get("field_data") or []:
+        if not isinstance(item, dict) or not isinstance(item.get("values"), list):
+            continue
+        values = [str(v).strip() for v in item["values"] if str(v).strip()]
+        if values:
+            fields[str(item.get("name") or "").lower()] = values[0]
+    email = fields.get("email")
+    phone = fields.get("phone_number") or fields.get("phone")
+    if not (email or phone):
+        return None
+    name = (fields.get("full_name") or
+            " ".join(x for x in (fields.get("first_name"), fields.get("last_name")) if x))
+    return {
+        "name": name or None,
+        "company": fields.get("company_name") or fields.get("company"),
+        "role": fields.get("job_title") or fields.get("role"),
+        "email": email, "phone": phone,
+        "channel": "email" if email else "phone",
+        "source": "meta_ads", "meta_lead_id": lead_id,
+        "campaign": row.get("campaign_name") or "",
+        "form_id": row.get("form_id") or "",
+    }
 
 
 def list_ad_accounts(token: str) -> List[Dict[str, Any]]:

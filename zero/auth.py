@@ -375,6 +375,18 @@ def supabase_role(payload: Dict[str, Any]) -> Optional[str]:
     return role if isinstance(role, str) and role else None
 
 
+def supabase_clients(payload: Dict[str, Any]) -> List[str]:
+    """`app_metadata.clients`: los client_id a los que el usuario está acotado
+    (rol "operador"). Solo `app_metadata`, nunca `user_metadata` (lo edita el
+    propio usuario). Cualquier forma que no sea lista de strings no vacías
+    -> [] (y un rol con alcance sin clientes es un 403, fail closed)."""
+    app_meta = payload.get("app_metadata")
+    raw = app_meta.get("clients") if isinstance(app_meta, dict) else None
+    if not isinstance(raw, list):
+        return []
+    return [c for c in raw if isinstance(c, str) and c]
+
+
 def supabase_full_name(payload: Dict[str, Any]) -> Optional[str]:
     """Nombre real de la persona (`user_metadata.full_name`, o `.name` si
     Google no mandó el primero — confirmado en vivo, 2026-07-17, contra una
@@ -413,11 +425,12 @@ def token_identity(token: str) -> Optional[Dict[str, Any]]:
     if payload is not None:
         email = payload.get("email")
         return {"email": email, "username": email, "role": supabase_role(payload),
-                "full_name": supabase_full_name(payload), "source": "supabase"}
+                "full_name": supabase_full_name(payload),
+                "clients": supabase_clients(payload), "source": "supabase"}
     username = token_username(token)
     if username is not None:
         return {"email": None, "username": username, "role": "admin",
-                "full_name": None, "source": "local"}
+                "full_name": None, "clients": [], "source": "local"}
     return None
 
 
@@ -468,6 +481,7 @@ def list_supabase_users() -> List[Dict[str, Any]]:
             "email": u.get("email"),
             "full_name": supabase_full_name({"user_metadata": u.get("user_metadata")}),
             "role": app_meta.get("role"),
+            "clients": supabase_clients({"app_metadata": app_meta}),
             "created_at": u.get("created_at"),
             "last_sign_in_at": u.get("last_sign_in_at"),
         })
@@ -492,6 +506,34 @@ def set_user_role(user_id: str, role: Optional[str]) -> bool:
             app_meta["role"] = role
         else:
             app_meta.pop("role", None)
+        body = json.dumps({"app_metadata": app_meta}).encode("utf-8")
+        put_req = urllib.request.Request(f"{base}/users/{user_id}", data=body,
+                                         headers=headers, method="PUT")
+        with urllib.request.urlopen(put_req, timeout=10):
+            return True
+    except Exception:
+        return False
+
+
+def set_user_clients(user_id: str, clients: List[str]) -> bool:
+    """Asigna los clientes a los que queda acotado un usuario (rol "operador"),
+    en `app_metadata.clients`. Igual que set_user_role: lee el app_metadata
+    actual y solo pisa la clave `clients` (el `role` y lo demás se conservan).
+    Lista vacía -> quita la clave. True si Supabase confirmó; False ante
+    cualquier problema (nunca lanza)."""
+    base, headers = _admin_api_base(), _admin_headers()
+    if not base or not headers or not user_id:
+        return False
+    try:
+        get_req = urllib.request.Request(f"{base}/users/{user_id}", headers=headers)
+        with urllib.request.urlopen(get_req, timeout=10) as r:
+            current = json.loads(r.read().decode("utf-8"))
+        app_meta = dict(current.get("app_metadata") or {}) if isinstance(current, dict) else {}
+        limpios = [c for c in clients if isinstance(c, str) and c]
+        if limpios:
+            app_meta["clients"] = limpios
+        else:
+            app_meta.pop("clients", None)
         body = json.dumps({"app_metadata": app_meta}).encode("utf-8")
         put_req = urllib.request.Request(f"{base}/users/{user_id}", data=body,
                                          headers=headers, method="PUT")

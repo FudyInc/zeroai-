@@ -58,7 +58,8 @@ class SessionMemory:
         self.clients: Dict[str, Dict[str, Any]] = {}      # client_id -> {tier, stage}
         self.agent_status: Dict[str, str] = {}            # agent -> last status
         self.sequences: List[Dict[str, Any]] = []         # open follow-ups
-        self.contacted: Dict[str, str] = {}               # lead key -> iso timestamp
+        self.contacted: Dict[str, str] = {}               # legacy (sin cliente): lead key -> iso timestamp
+        self.contacted_by_client: Dict[str, Dict[str, str]] = {}   # client_id -> lead key -> iso timestamp
         self.actions: List[Dict[str, Any]] = []           # audit log
         self.used_emails: List[str] = []                  # correos ya contactados (autocompletar)
         self.pending_offers: Dict[str, Dict[str, Any]] = {}  # "client|lead" -> oferta hecha y aún no cumplida
@@ -303,8 +304,18 @@ class SessionMemory:
     def set_agent_status(self, agent: str, status: str) -> None:
         self.agent_status[agent] = status
 
-    def mark_contacted(self, lead_key: str) -> None:
-        self.contacted[lead_key] = _now()
+    def mark_contacted(self, client_id: str, lead_key: str) -> None:
+        """Registra el contacto por cliente: el blackout de un cliente no
+        bloquea a otro. `contacted` (sin cliente) es solo la forma antigua."""
+        self.contacted_by_client.setdefault(client_id, {})[lead_key] = _now()
+
+    def last_contacted(self, client_id: str, lead_key: str) -> Optional[str]:
+        """Contacto más reciente de este lead para este cliente. Una entrada
+        antigua (sin cliente) cuenta para todos hasta que venza el blackout."""
+        stamps = [self.contacted_by_client.get(client_id, {}).get(lead_key),
+                  self.contacted.get(lead_key)]
+        stamps = [s for s in stamps if s]
+        return max(stamps, key=_parse) if stamps else None
 
     # --- follow-up sequences (TRACKER) ---------------------------------------
     def open_sequence(self, client_id: str, lead: Dict[str, Any], started: Optional[str] = None) -> Dict[str, Any]:
@@ -430,6 +441,7 @@ class SessionMemory:
         self.agent_status = d.get("agent_status", {})
         self.sequences = d.get("sequences", [])
         self.contacted = d.get("contacted", {})
+        self.contacted_by_client = d.get("contacted_by_client", {})
         self.actions = d.get("actions", [])
         self.used_emails = d.get("used_emails", [])
         self.pending_offers = d.get("pending_offers", {})
@@ -443,6 +455,7 @@ class SessionMemory:
             "agent_status": self.agent_status,
             "sequences": self.sequences,
             "contacted": self.contacted,
+            "contacted_by_client": self.contacted_by_client,
             "actions": self.actions,
             "used_emails": self.used_emails,
             "pending_offers": self.pending_offers,

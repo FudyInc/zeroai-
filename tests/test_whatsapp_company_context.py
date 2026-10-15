@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import unittest
 import os
+from unittest import mock
 from tempfile import TemporaryDirectory
 from pathlib import Path
 
@@ -108,6 +109,28 @@ class CompanyContextTest(unittest.TestCase):
         self.assertTrue(result["matched"])
         self.assertIsNotNone(self.crm.find_by_contact(phone="56911112222", client_id="zeroai"))
         self.assertIsNone(self.crm.find_by_contact(phone="56911112222", client_id="pooledge"))
+
+    def test_meta_interactive_selection_preserves_visible_title(self):
+        payload = {"entry": [{"changes": [{"value": {
+            "metadata": {"phone_number_id": "business-number"},
+            "messages": [{"from": "56911112222", "type": "interactive",
+                          "interactive": {"button_reply": {"title": "Sí"}}}],
+        }}]}]}
+        self.assertEqual(parse_meta(payload)[0]["text"], "Sí")
+        payload["entry"][0]["changes"][0]["value"]["messages"][0]["interactive"] = {}
+        self.assertEqual(parse_meta(payload)[0]["text"], "[interactive]")
+
+    def test_meta_location_preserves_coordinates_or_requests_review(self):
+        message = {"from": "56911112222", "type": "location",
+                   "location": {"latitude": -33.610397, "longitude": -70.643376}}
+        payload = {"entry": [{"changes": [{"value": {
+            "metadata": {"phone_number_id": "business-number"},
+            "messages": [message],
+        }}]}]}
+        self.assertEqual(parse_meta(payload)[0]["text"],
+                         "[location] https://www.google.com/maps?q=-33.610397,-70.643376")
+        message["location"] = {"latitude": 999, "longitude": -70.643376}
+        self.assertEqual(parse_meta(payload)[0]["text"], "[location_invalid]")
 
     def test_meta_global_number_uses_unique_existing_company_contact(self):
         self.memory.upsert_vendor({"id": "pool", "name": "Paula"})
@@ -243,9 +266,10 @@ class CompanyContextTest(unittest.TestCase):
             self.assertNotIn("Hola", followup["reply"])
             self.assertNotIn("Estimado/a", followup["reply"])
 
-    def test_unknown_name_uses_respectful_address(self):
-        result = self.zero.handle_inbound("56911112222", "hola")
-        self.assertTrue(result["reply"].startswith("Estimado/a,"))
+    def test_unknown_name_uses_time_greeting_without_inventing_name(self):
+        with mock.patch("zero.orchestrator.whatsapp_greeting", return_value="Buenos días"):
+            result = self.zero.handle_inbound("56911112222", "hola")
+        self.assertTrue(result["reply"].startswith("Buenos días,"))
 
     def test_real_backend_receives_saved_name_and_previous_turns(self):
         class CapturingBackend:

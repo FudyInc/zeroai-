@@ -6,6 +6,7 @@ from unittest import mock
 
 from zero.agents import build_agents
 from zero.crm import CRM
+from zero.contracts import AgentResponse
 from zero.memory import SessionMemory
 from zero.losetas_shipping import (DELIVERY_LOCATION_PROMPT, DELIVERY_POLL_LOCATION,
                                    SHIPPING_COVERAGE_REPLY)
@@ -87,14 +88,15 @@ class WhatsAppHandoffTest(unittest.TestCase):
     def test_repeated_greeting_still_gets_a_reply(self):
         self.memory.add_turn("losetaschile", "56933333333", "agent", "Necesito las medidas")
         self.memory.save()
-        with mock.patch.object(self.zero, "converse_result", return_value={
+        with mock.patch("zero.orchestrator.whatsapp_greeting", return_value="Buenas noches"), \
+             mock.patch.object(self.zero, "converse_result", return_value={
             "reply": "Necesito las medidas", "intent": "general"}) as draft:
             result = self.inbound("Hola")
         self.assertFalse(result.get("manual_review", False))
         self.assertEqual(result["delivery"]["status"], "sent")
         self.assertEqual(draft.call_count, 1)
         self.assertEqual(self.zero._deliver.call_args.args[3]["body"],
-                         "¡Hola! Estoy aquí para ayudarte. ¿Qué necesitas hoy?")
+                         "¡Buenas noches! Estoy aquí para ayudarte. ¿Qué necesitas hoy?")
         self.assertIsNone(self.memory.get_whatsapp_handoff(
             "losetaschile", "56933333333@c.us"))
 
@@ -103,7 +105,8 @@ class WhatsAppHandoffTest(unittest.TestCase):
                              "¡Hola! Estoy aquí para ayudarte. ¿Qué necesitas hoy?")
         self.memory.save()
         detached = dict(self.crm.find_by_contact(phone="56933333333", client_id="losetaschile"))
-        with mock.patch.object(self.crm, "find_by_contact", return_value=detached), \
+        with mock.patch("zero.orchestrator.whatsapp_greeting", return_value="Buenas noches"), \
+             mock.patch.object(self.crm, "find_by_contact", return_value=detached), \
              mock.patch.object(self.zero, "converse_result", return_value={
             "reply": "¡Hola! Estoy aquí para ayudarte. ¿Qué necesitas hoy?",
             "intent": "general"}) as draft:
@@ -112,7 +115,7 @@ class WhatsAppHandoffTest(unittest.TestCase):
         self.assertEqual(draft.call_count, 1)
         self.assertEqual(result["delivery"]["status"], "sent")
         self.assertEqual(self.zero._deliver.call_args.args[3]["body"],
-                         "¡Hola, Diego! ¿En qué puedo ayudarte?")
+                         "¡Buenas noches, Diego! ¿En qué puedo ayudarte?")
         self.assertEqual(self.crm.get("losetaschile", "56933333333")["name"], "Diego")
         self.assertIsNone(self.memory.get_whatsapp_handoff(
             "losetaschile", "56933333333@c.us"))
@@ -122,6 +125,30 @@ class WhatsAppHandoffTest(unittest.TestCase):
             result = self.inbound("asdgfhj 123 ??")
         self.assertTrue(result["manual_review"])
         draft.assert_not_called()
+
+    def test_unreadable_meta_placeholders_skip_model(self):
+        for marker in ("[interactive]", "[contacts]", "[image]"):
+            with self.subTest(marker=marker), mock.patch.object(self.zero, "converse_result") as draft:
+                result = self.inbound(marker, chat=f"{marker}@c.us")
+            self.assertTrue(result["manual_review"])
+            draft.assert_not_called()
+        with mock.patch.object(self.zero, "converse_result") as draft:
+            result = self.inbound("[location] https://www.google.com/maps?q=-33.61,-70.64",
+                                  client="petlabs", chat="other-location@c.us")
+        self.assertTrue(result["manual_review"])
+        draft.assert_not_called()
+
+    def test_invalid_generated_reply_sends_review_notice_instead(self):
+        self.zero.agents["CONCIERGE"].prompt_file = "concierge-whatsapp-local.md"
+        unsafe = AgentResponse("test", "CONCIERGE", "done",
+                               {"reply": "Sale $99.000 al mes.", "intent": "pricing"})
+        with mock.patch.object(self.zero, "dispatch", return_value=unsafe) as dispatch:
+            result = self.inbound("¿Cuánto cuesta el servicio?", client="petlabs")
+        self.assertEqual(dispatch.call_count, 2)
+        self.assertTrue(result["manual_review"])
+        body = self.zero._deliver.call_args.args[3]["body"]
+        self.assertIn("Necesito revisar", body)
+        self.assertNotIn("$99.000", body)
 
     def test_supplied_measurements_are_not_requested_again(self):
         self.memory.add_turn("losetaschile", "56933333333", "lead", "Mi piscina mide 7 por 3 metros")
@@ -137,14 +164,18 @@ class WhatsAppHandoffTest(unittest.TestCase):
         self.assertNotIn("Hacemos despacho", self.zero._deliver.call_args.args[3]["body"])
 
     def test_verified_shipping_coverage_is_sent_without_handoff(self):
+        from zero.whatsapp_format import format_whatsapp_reply
         self.memory.set_client_knowledge(
             "losetaschile", "Cotizaciones y despacho requieren revisión humana.")
         with mock.patch("zero.whatsapp_web.send_delivery_poll", return_value={
                 "status": "sent", "id": "poll-1"}) as send_poll:
             result = self.inbound("¿Despachan a Los Andes?")
         self.assertFalse(result.get("manual_review", False))
-        self.assertEqual(self.zero._deliver.call_args.args[3]["body"],
-                         SHIPPING_COVERAGE_REPLY)
+        body = self.zero._deliver.call_args.args[3]["body"]
+        self.assertEqual(body, result["reply"])
+        self.assertIn("\n\n¿Dónde sería la entrega?\n\n", body)
+        self.assertEqual(body.replace("\n\n", " "), SHIPPING_COVERAGE_REPLY)
+        self.assertEqual(body, format_whatsapp_reply(SHIPPING_COVERAGE_REPLY))
         self.assertEqual(result["poll_delivery"]["id"], "poll-1")
         send_poll.assert_called_once()
 

@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
-import { Routes, Route, useLocation, useNavigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Toaster, toast } from 'sonner'
@@ -13,7 +13,7 @@ import Login from './components/Login'
 import LeadModal from './components/LeadModal'
 import CommandPalette from './components/CommandPalette'
 import ThemeToggle from './components/ThemeToggle'
-import { canSeePage } from './lib/roles'
+import { canSeePage, isScoped, homePath } from './lib/roles'
 import Dashboard from './pages/Dashboard'
 import Vender from './pages/Vender'
 import Campanas from './pages/Campanas'
@@ -83,6 +83,8 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [newBusinessOpen, setNewBusinessOpen] = useState(false)
   const canAddBusiness = !authEnabled || role === 'admin' || role === 'cro'
+  const [authClients, setAuthClients] = useState([]) // client_ids del alcance (rol operador)
+  const scoped = isScoped(role)
 
   // Cmd/Ctrl+K en cualquier parte de la app abre el buscador de páginas/clientes.
   useEffect(() => {
@@ -102,12 +104,13 @@ export default function App() {
       setAuthed(s.authenticated); setUsername(s.username || null)
       setFullName(s.full_name || null)
       setRole(s.role || null); setAuthEnabled(!!s.enabled)
+      setAuthClients(s.clients || [])
     })
     .catch((error) => setAuthError(error))
 
   useEffect(() => {
     refreshAuth()
-    const onUnauth = () => { setAuthed(false); setUsername(null); setFullName(null); setRole(null); setAuthEnabled(false) }
+    const onUnauth = () => { setAuthed(false); setUsername(null); setFullName(null); setRole(null); setAuthEnabled(false); setAuthClients([]) }
     window.addEventListener('zero-unauth', onUnauth)
     return () => window.removeEventListener('zero-unauth', onUnauth)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -134,6 +137,9 @@ export default function App() {
     if (!client && clients.length) setClient(clients[0])
   }, [clients, client])
 
+  // Rol con alcance sin clientes asignados: el backend responde 403 a todo; se
+  // explica acá en vez de mostrarlo como un fallo de conexión.
+  if (authed === true && scoped && !authError && authClients.length === 0) return <NoClientsScreen username={username} onLogout={() => api.logout()} />
   if (authError || (authed === true && clientsError)) return (
     <div className="min-h-screen grid place-items-center p-6">
       <div className="text-center max-w-md" role="alert">
@@ -151,7 +157,7 @@ export default function App() {
   if (authEnabled && !role) return <NoRoleScreen username={username} onLogout={() => api.logout()} />
 
   return (
-    <AppCtx.Provider value={{ client, setClient, clients, openLead: setLeadKey, openRun: () => setRunOpen(true), runId, setRunId }}>
+    <AppCtx.Provider value={{ client, setClient, clients, openLead: setLeadKey, openRun: () => setRunOpen(true), runId, setRunId, scoped, role }}>
       <div className="min-h-screen flex text-zinc-900 bg-[radial-gradient(120%_120%_at_100%_0%,#f2f1ec_0%,#f4f4f4_45%,#f6f5f2_100%)] dark:bg-[radial-gradient(120%_120%_at_100%_0%,#121214_0%,#0B0B0C_45%,#08080A_100%)]">
         <Sidebar mobileOpen={navOpen} onClose={() => setNavOpen(false)} username={username} fullName={fullName} role={role} authEnabled={authEnabled} />
         <div className="flex-1 min-w-0">
@@ -180,7 +186,7 @@ export default function App() {
                 className="hidden sm:inline-flex items-center gap-1.5 text-xs text-zinc-400 border border-zinc-200 rounded-lg px-2.5 py-1.5 hover:bg-zinc-50 hover:text-zinc-600 transition-colors">
                 <Search size={13} /> <kbd className="font-sans">⌘K</kbd>
               </button>
-              {(clients.length > 0 || canAddBusiness) && (
+              {(scoped ? clients.length > 1 : (clients.length > 0 || canAddBusiness)) && (
                 <BusinessSwitcher clients={clients} client={client} onSelect={setClient}
                   canAdd={canAddBusiness} onAdd={() => setNewBusinessOpen(true)} />
               )}
@@ -202,6 +208,9 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
             >
+              {/* Guard solo para roles con alcance: una ruta fuera de su lista (incluida "/",
+                  el Dashboard con todos los clientes) ni monta, redirige a su inicio. */}
+              {scoped && !canSeePage(pathname, role, authEnabled) ? <Navigate to={homePath(role)} replace /> : (
               <Routes>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/vender" element={<Vender />} />
@@ -223,6 +232,7 @@ export default function App() {
                 <Route path="/preferencias" element={<Preferencias />} />
                 <Route path="/avances" element={<Avances />} />
               </Routes>
+              )}
             </motion.div>
           </main>
         </div>
@@ -261,6 +271,7 @@ export default function App() {
           onNavigate={nav}
           onSelectClient={setClient}
           onOpenLead={setLeadKey}
+          scoped={scoped}
         />
         <Toaster richColors position="top-right" toastOptions={{ style: { borderRadius: '12px' } }} />
       </div>
@@ -313,6 +324,20 @@ function BusinessSwitcher({ clients, client, onSelect, canAdd, onAdd }) {
   )
 }
 
+function NoClientsScreen({ username, onLogout }) {
+  return (
+    <div className="min-h-screen grid place-items-center bg-[radial-gradient(120%_120%_at_100%_0%,#f2f1ec_0%,#f4f4f4_45%,#f6f5f2_100%)] dark:bg-[radial-gradient(120%_120%_at_100%_0%,#121214_0%,#0B0B0C_45%,#08080A_100%)] p-4">
+      <Card className="p-8 w-full max-w-sm text-center">
+        <div className="font-display font-bold text-lg tracking-tight text-brand mb-2">Sin clientes asignados</div>
+        <div className="text-sm text-zinc-500 mb-6">
+          Tu cuenta{username ? <> (<b className="text-zinc-700">{username}</b>)</> : ''} aún no tiene clientes asignados. Avísale a Diego.
+        </div>
+        <Button variant="soft" onClick={onLogout} className="w-full">Salir</Button>
+      </Card>
+    </div>
+  )
+}
+
 function NoRoleScreen({ username, onLogout }) {
   return (
     <div className="min-h-screen grid place-items-center bg-[radial-gradient(120%_120%_at_100%_0%,#f2f1ec_0%,#f4f4f4_45%,#f6f5f2_100%)] dark:bg-[radial-gradient(120%_120%_at_100%_0%,#121214_0%,#0B0B0C_45%,#08080A_100%)] p-4">
@@ -322,7 +347,7 @@ function NoRoleScreen({ username, onLogout }) {
           {username ? <>Tu cuenta (<b className="text-zinc-700">{username}</b>) inició sesión bien</> : 'Tu cuenta inició sesión bien'},
           pero todavía no tiene un rol asignado en ZeroAI.
         </div>
-        <div className="text-sm text-zinc-500 mb-6">Avisale a Diego para que te asigne uno.</div>
+        <div className="text-sm text-zinc-500 mb-6">Avísale a Diego para que te asigne uno.</div>
         <Button variant="soft" onClick={onLogout} className="w-full">Salir</Button>
       </Card>
     </div>
@@ -330,7 +355,7 @@ function NoRoleScreen({ username, onLogout }) {
 }
 
 function RunModal({ open, onClose, onStarted }) {
-  const { setClient, client: ctxClient } = useApp()
+  const { setClient, client: ctxClient, clients, scoped, role } = useApp()
   const nav = useNavigate()
   const qc = useQueryClient()
   const EMPTY_ICP = { sells: '', industry: '', roles: '', companySize: '', regions: '', mustHave: '', exclude: '', context: '' }
@@ -401,14 +426,14 @@ function RunModal({ open, onClose, onStarted }) {
       tier: form.tier,
       query: form.query.trim() || 'leads B2B',
       count: Number(form.count) || 8,
-      auto_send: form.autoSend,
+      auto_send: scoped ? false : form.autoSend,
       ...(Object.keys(icp).length ? { icp } : {}),
     })
       .then((d) => {
         setClient(targetClient)
         onClose()
         onStarted?.(d.run)
-        nav('/leads')
+        nav(scoped ? homePath(role) : '/leads')
       })
       .catch((e) => setRunError(`No se pudo iniciar la búsqueda: ${e.message}`))
       .finally(() => setStarting(false))
@@ -444,19 +469,29 @@ function RunModal({ open, onClose, onStarted }) {
             </fieldset>
             {runError && <p role="alert" className="text-sm text-rose-600">{runError}</p>}
             <div className="grid grid-cols-2 gap-3">
-              <div><label className="block text-xs text-zinc-500 mb-1">Cliente</label>
-                <Input value={form.client} onChange={(e) => { setForm({ ...form, client: e.target.value }); setIcpLoaded(false) }} placeholder="nombre del cliente" /></div>
-              <div><label className="block text-xs text-zinc-500 mb-1">Plan</label>
+              <div className={scoped ? 'col-span-2' : ''}><label className="block text-xs text-zinc-500 mb-1">Cliente</label>
+                {scoped ? (
+                  clients.length === 1
+                    ? <div className="text-sm font-medium py-2">{clients[0]}</div>
+                    : <Select className="w-full" value={form.client} onChange={(e) => { setForm({ ...form, client: e.target.value }); setIcpLoaded(false) }}>
+                      {clients.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </Select>
+                ) : (
+                  <Input value={form.client} onChange={(e) => { setForm({ ...form, client: e.target.value }); setIcpLoaded(false) }} placeholder="nombre del cliente" />
+                )}</div>
+              {!scoped && <div><label className="block text-xs text-zinc-500 mb-1">Plan</label>
                 <Select className="w-full" value={form.tier} onChange={(e) => setForm({ ...form, tier: e.target.value })}>
                   {['STARTER', 'GROWTH', 'SCALE', 'ENTERPRISE'].map((t) => <option key={t}>{t}</option>)}
-                </Select></div>
+                </Select></div>}
             </div>
             <div><label className="block text-xs text-zinc-500 mb-1">Búsqueda</label>
               <Input value={form.query} onChange={(e) => setForm({ ...form, query: e.target.value })} placeholder="agencias de marketing en Santiago" /></div>
             <div><label className="block text-xs text-zinc-500 mb-1">Cantidad</label>
               <Input type="number" value={form.count} onChange={(e) => setForm({ ...form, count: e.target.value })} className="w-28" /></div>
 
-            <label className="flex items-start gap-2 text-xs text-zinc-500 cursor-pointer">
+            {scoped ? (
+              <p className="text-xs text-zinc-500">El primer mensaje queda en borrador: lo revisas y mandas desde la ficha del lead en el Pipeline.</p>
+            ) : <label className="flex items-start gap-2 text-xs text-zinc-500 cursor-pointer">
               <input type="checkbox" checked={form.autoSend}
                 onChange={(e) => setForm({ ...form, autoSend: e.target.checked })}
                 className="mt-0.5 accent-gold" />
@@ -465,7 +500,7 @@ function RunModal({ open, onClose, onStarted }) {
                 <br />Si lo dejas apagado, el primer mensaje queda en borrador — lo revisas y mandas
                 desde la ficha del lead en el Pipeline.
               </span>
-            </label>
+            </label>}
 
             <div className="border-t border-zinc-100 pt-3">
               <div className="flex items-center justify-between">
@@ -498,7 +533,7 @@ function RunModal({ open, onClose, onStarted }) {
                     <Input value={form.exclude} onChange={(e) => setForm({ ...form, exclude: e.target.value })} placeholder="competidores, retail" /></div>
                   <div className="col-span-2"><label className="block text-xs text-zinc-500 mb-1">Contexto extra</label>
                     <Input value={form.context} onChange={(e) => setForm({ ...form, context: e.target.value })} placeholder="vende solo B2B, ticket alto" /></div>
-                  <div className="col-span-2 text-[11px] text-zinc-400">Separá varios con coma. Se guarda por cliente y adapta el scoring y los mensajes.</div>
+                  <div className="col-span-2 text-[11px] text-zinc-400">Separa varios con coma. Se guarda por cliente y adapta el scoring y los mensajes.</div>
                 </div>
               )}
             </div>

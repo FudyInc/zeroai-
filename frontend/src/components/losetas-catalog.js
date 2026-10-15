@@ -27,12 +27,6 @@ export const losetasCatalog = [
     features: 'Interior / exterior · alta resistencia',
   },
   {
-    id: 'flor-de-lis-40x40', name: 'Flor de lis',
-    size: '40 × 40 cm', thickness: '2 cm', priceId: 'pastelones-40x40',
-    image: '/catalog/losetaschile/flor-de-lis-40x40.jpeg',
-    features: 'Interior / exterior · alta resistencia',
-  },
-  {
     id: 'adoquin-40x40', name: 'Adoquín', size: '40 × 40 cm', thickness: '2 cm',
     priceId: 'pastelones-40x40',
     image: '/catalog/losetaschile/adoquin-40x40.jpeg',

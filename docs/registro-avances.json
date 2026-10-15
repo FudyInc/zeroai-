@@ -2,6 +2,78 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-10-14-losetas-orden-fotos-precios-pdf",
+      "date": "2026-10-14",
+      "type": "change",
+      "title": "Ordenar fotos de Borde ballena y destacar precios por unidad",
+      "origin": "Diego pidió primero la foto del borde, luego la piscina, y los valores abajo en negrita marcados x unidad",
+      "summary": "El PDF de bordes coloca primero la foto de la pieza Borde ballena y luego la piscina instalada. En ambos catálogos, cada precio calculable se muestra bajo el nombre, en negrita y con la leyenda x unidad. La extensión mantiene Precio por confirmar porque no tiene precio estructurado.",
+      "status": "Activo en backend local; entrega real pendiente",
+      "scope": "Presentación de los PDF de bordes y pastelones de LosetasChile",
+      "evidence": "whatsapp-web-bridge/catalog-document.js; test-catalog-document.js OK; vista previa de bordes revisada; ambos PDF válidos de una página generados con Chromium el 2026-10-14. Módulo copiado al checkout activo con respaldo /tmp/losetas-ballena-backup-f73rswjb; nuevo proceso systemd, /api/health OK y puente Web LosetasChile ready con la cuenta correcta y sin error. No se enviaron mensajes de prueba desde herramientas.",
+      "pending": "Verificar recepción y presentación de ambos PDF en el teléfono con una solicitud nueva."
+    },
+    {
+      "id": "2026-10-14-losetas-fotos-borde-ballena",
+      "date": "2026-10-14",
+      "type": "change",
+      "title": "Incorporar las fotos propias de Borde ballena al catálogo PDF",
+      "origin": "Diego compartió la carpeta IMAGENES LOSETAS para completar el catálogo de bordes",
+      "summary": "Se archivó una copia de las fotos recibidas y se incorporaron al PDF de bordes la piscina terminada con Borde ballena y un detalle del material. La tarjeta ahora muestra Borde ballena 50 × 40 y el precio estructurado de $5.500 por unidad. Las fotos originales de los demás productos permanecen, Flor de lis sigue excluida y el cliente continúa recibiendo un solo documento por solicitud.",
+      "status": "Activo en backend local; recepción real pendiente",
+      "scope": "Catálogo PDF de bordes de LosetasChile y archivo de fotos recibidas",
+      "evidence": "Carpeta proporcionada por Diego el 2026-10-13; entregables/fotos-losetas-recibidas-2026-10-13/; frontend/public/catalog/losetaschile/borde-ballena-50x40.jpeg y borde-ballena-instalado.jpeg; vista previa revisada; prueba Node OK; PDF de una página generado con Chromium. Módulo y fotos copiados al checkout activo con respaldo /tmp/losetas-ballena-backup-skdk20yw; nuevo proceso systemd, /api/health OK y puente de LosetasChile ready sin error el 2026-10-14. No se enviaron mensajes de prueba desde herramientas.",
+      "pending": "Comprobar en un teléfono la recepción y apertura del PDF nuevo. Confirmar el precio de la extensión de borde. No se comprobó despliegue remoto."
+    },
+    {
+      "id": "2026-10-13-losetas-catalogos-pdf-un-mensaje",
+      "date": "2026-10-13",
+      "type": "change",
+      "title": "Catálogos de bordes y pastelones en un archivo por solicitud",
+      "origin": "Diego pidió agrupar las imágenes para no llenar el chat, añadir nombre y precio y completar Borde ballena cuando entregue fotos",
+      "summary": "Se preparó un PDF de una página por categoría: tres fotos más una tarjeta sin foto para Borde ballena en bordes, y seis fotos en pastelones. Cada tarjeta indica nombre y precio consultado del catálogo estructurado; la extensión muestra Precio por confirmar. Borde ballena figura a $5.500 por unidad. Las dimensiones quedan en las fotos originales. Flor de lis y Adoquín se excluyen.",
+      "status": "Histórico: PDF inicial actualizado con fotos de Borde ballena el 2026-10-14",
+      "scope": "Motor WhatsApp Web de LosetasChile y ficha comercial versionada",
+      "evidence": "docs/ficha-losetaschile.md; whatsapp-web-bridge/catalog-document.js; prueba Chromium local: ambos PDF válidos de una página; 1102 pruebas Python y prueba Node OK el 2026-10-13. Precio de Borde ballena $5.500, borde recto $6.000, esquina $3.600 y pastelones 40×40 $1.600 consultados del almacén activo. Parche puntual aplicado a /home/diego/zeroai con respaldo en /tmp/losetas-pdf-backup-om9kaqdi; proceso systemd nuevo, /api/health OK y puente Web LosetasChile ready con la cuenta correcta y sin error.",
+      "pending": "Probar recepción y apertura de ambos PDF en el teléfono con mensajes nuevos. Confirmar precio de la extensión. No se comprobó despliegue remoto."
+    },
+    {
+      "id": "2026-10-13-losetas-catalogos-visuales-por-categoria",
+      "date": "2026-10-13",
+      "type": "change",
+      "title": "Preparar catálogos visuales separados al pedirlos por WhatsApp",
+      "origin": "Diego reiteró que quiere dos catálogos con imágenes distintas cuando el cliente los pida y consultó la recomendación",
+      "summary": "Las solicitudes explícitas de bordes y pastelones se enrutan a secuencias distintas de tres y seis fotos, con título en la primera imagen. La solicitud genérica conserva el enlace general. Flor de lis y Adoquín no se envían automáticamente; el primero no está vigente y el segundo espera confirmación. Un envío parcial incierto se detiene y registra los IDs aceptados.",
+      "status": "Histórico: secuencia de imágenes sustituida por documento PDF",
+      "scope": "Motor de LosetasChile, envío de imágenes WhatsApp Web y activos visuales locales",
+      "evidence": "zero/config.py, zero/pool_border.py, zero/orchestrator.py, zero/whatsapp_web.py, whatsapp-web-bridge/index.js y tests/test_pool_border.py. Las fotos de Gregioriano y Octagonal Piedra se copiaron del catálogo conectado preparado localmente. Suite Python: 1101 pruebas OK; tres pruebas Node, build frontend y git diff --check OK el 2026-10-13. Parche puntual aplicado al checkout activo /home/diego/zeroai, con respaldo en /tmp; systemd inició un nuevo proceso por Restart=always, /api/health OK y puente LosetasChile ready con la cuenta correcta. Las rutas del código activo preparan 3 y 6 fotos; no se enviaron mensajes de prueba desde herramientas.",
+      "pending": "Verificar con un chat de prueba ambos pedidos y la recepción completa sin duplicados. Confirmar vigencia de Adoquín y del borde recto antes de publicar colecciones nativas; comprobar si cada colección puede compartirse individualmente. No se comprobó despliegue remoto."
+    },
+    {
+      "id": "2026-10-13-losetas-flor-de-lis-no-vigente",
+      "date": "2026-10-13",
+      "type": "decision",
+      "title": "Excluir Flor de lis del catálogo de LosetasChile",
+      "origin": "Diego confirmó que Flor de lis ya no está vigente",
+      "summary": "Flor de lis se excluyó de la selección y del ZIP de Pastelones, de la vitrina del frontend y de las imágenes que el puente puede enviar. La imagen fuente se conserva como antecedente sin ofrecerla al cliente.",
+      "status": "Actualizado en backend y vitrina locales; catálogo conectado sin modificar",
+      "scope": "Preparación de colecciones, ficha versionada, vitrina frontend y envío de imágenes WhatsApp",
+      "evidence": "Confirmación directa de Diego el 2026-10-13; entregables/catalogos-whatsapp-losetaschile/catalogos.json y pastelones-40x40.zip comprobados (7 imágenes); frontend/src/components/losetas-catalog.js; zero/whatsapp_web.py. Suite Python y build frontend OK. Se retiró Flor de lis de la vitrina del checkout activo y de las listas de imágenes del backend y puente; no se modificó el catálogo conectado de Meta ni se comprobó despliegue remoto.",
+      "pending": "Confirmar vigencia de Adoquín y borde recto con nariz; crear las dos colecciones en la cuenta conectada, verificar sus enlaces y publicar los cambios del frontend y del motor cuando corresponda."
+    },
+    {
+      "id": "2026-10-13-pruebas-meta-optout",
+      "date": "2026-10-13",
+      "type": "change",
+      "title": "Suite recuperada y opt-out reforzado en importación Meta",
+      "origin": "Diego pidió apagar incendios uno a uno y prevenir regresiones según prioridad",
+      "summary": "La prueba de importación Meta ahora usa una empresa existente y comprueba por separado el rechazo de empresas desconocidas. El bloqueo no contactar compara también correo y teléfono dentro del mismo negocio, aunque Meta agregue otro identificador.",
+      "status": "Verificado en código local; despliegue pendiente",
+      "scope": "Checkout main local, CRM y pruebas de Meta Ads",
+      "evidence": "Copia del checkout activo con cambios pendientes: 1080 pruebas Python aprobadas el 2026-10-13. Backend local /api/health respondió OK. No se importaron leads reales.",
+      "pending": "Integrar y publicar el lote de cambios pendientes de main tras su revisión; verificar el comportamiento en el servicio activo. No se enviaron mensajes ni se modificó el CRM de producción."
+    },
+    {
       "id": "2026-10-08-losetas-enlace-catalogo-whatsapp",
       "date": "2026-10-08",
       "type": "change",

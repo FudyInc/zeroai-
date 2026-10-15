@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import math
 import os
 from typing import Any, Dict, List, Optional
 
@@ -40,8 +41,9 @@ def parse_inbound(payload: Dict[str, Any]) -> List[Dict[str, str]]:
 
     `to_phone_id` is the WhatsApp Business number that received the message
     (value.metadata.phone_number_id) — used to reply from the right vendor's
-    number. Non-text messages (image/audio/…) become a "[type]" placeholder so the
-    loop still registers that the lead replied. Malformed payloads yield [] (never raise).
+    number. Interactive selections with a visible title are treated as text;
+    other non-text messages become a "[type]" placeholder so the loop still
+    registers that the lead replied. Malformed payloads yield [] (never raise).
     """
     out: List[Dict[str, str]] = []
     if not isinstance(payload, dict):
@@ -86,6 +88,27 @@ def parse_inbound(payload: Dict[str, Any]) -> List[Dict[str, str]]:
                 if mtype == "text":
                     text_obj = m.get("text")
                     text = (text_obj.get("body") if isinstance(text_obj, dict) else None) or ""
+                elif mtype == "interactive":
+                    choice = m.get("interactive") or {}
+                    if isinstance(choice, dict):
+                        choice = choice.get("button_reply") or choice.get("list_reply") or {}
+                    title = choice.get("title") if isinstance(choice, dict) else None
+                    text = title.strip() if isinstance(title, str) and title.strip() else "[interactive]"
+                elif mtype == "button":
+                    button = m.get("button") or {}
+                    title = button.get("text") if isinstance(button, dict) else None
+                    text = title.strip() if isinstance(title, str) and title.strip() else "[button]"
+                elif mtype == "location":
+                    location = m.get("location") or {}
+                    try:
+                        latitude = float(location["latitude"])
+                        longitude = float(location["longitude"])
+                        valid = (math.isfinite(latitude) and math.isfinite(longitude) and
+                                 -90 <= latitude <= 90 and -180 <= longitude <= 180)
+                    except (KeyError, TypeError, ValueError):
+                        valid = False
+                    text = (f"[location] https://www.google.com/maps?q={latitude:.6f},{longitude:.6f}"
+                            if valid else "[location_invalid]")
                 else:
                     text = f"[{mtype or 'mensaje'}]"
                 parsed = {"from": frm, "text": text, "to_phone_id": to_phone_id}

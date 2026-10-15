@@ -165,3 +165,25 @@ pruebas Python y 6/6 casos del modelo local; una conversación inventada produjo
 una respuesta sin repetir las medidas. El backend respondió a salud, handshake
 Meta, POST firmado vacío y estado Web ready. Falta probar una conversación real
 de extremo a extremo, sin reintentar el mensaje de entrega incierta del 2026-10-05.
+
+### Catálogos visuales LosetasChile — 2026-10-13
+
+La solicitud explícita de bordes o pastelones se enruta a un PDF distinto
+por categoría, con fotos originales y nombres y precios estructurados.
+Cada PDF ocupa una página y se envía como un solo documento de WhatsApp.
+El de bordes reúne las tres fotos iniciales y dos fotos propias nuevas para
+Borde ballena 50×40 ($5.500 por unidad confirmado en el almacén activo):
+una instalación y un detalle del material. El de pastelones reúne seis fotos.
+La extensión sin precio estructurado queda por confirmar. La carpeta recibida
+quedó archivada en `entregables/fotos-losetas-recibidas-2026-10-13/`.
+La generación local y la suite se comprobaron el 2026-10-13. Las fotos de
+Borde ballena se activaron en el backend local el 2026-10-14, con salud OK y
+puente Web de LosetasChile listo. La entrega en el teléfono del cliente aún
+no se ha comprobado.
+
+El 2026-10-14 se ajustó el orden de la tarjeta de Borde ballena: foto de la
+pieza, seguida de la piscina instalada. Los precios de ambos catálogos se
+muestran bajo el nombre, en negrita y con «x unidad». La vista previa de
+bordes y los dos PDF de una página se comprobaron localmente. El formato nuevo
+se activó en el backend local: salud OK y puente LosetasChile ready. La entrega
+en WhatsApp sigue pendiente de comprobación real.
