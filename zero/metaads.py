@@ -353,6 +353,8 @@ def _graph_pages(path: str, token: str, params: Dict[str, Any], max_pages: int =
         next_cursor = cursors.get("after") if isinstance(cursors, dict) else None
         if strict and paging.get("next") and not next_cursor:
             raise RuntimeError("Meta indicó otra página sin cursor; no se importa un resultado parcial")
+        if strict and paging.get("next") and next_cursor == cursor:
+            raise RuntimeError("Meta repitió el cursor de paginación; no se importa un resultado parcial")
         if not paging.get("next") or not next_cursor or next_cursor == cursor:
             return out
         cursor = next_cursor

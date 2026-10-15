@@ -25,7 +25,7 @@ _FIELDS = ("company", "name", "role", "email", "phone", "domain", "score", "chan
            "income_range", "income_ok", "lead_origin")
 
 # Opt-out permanente — reusa el campo `tags` que ya existe (mismo campo que usa
-# import_ad_leads para "Meta Ads"), en vez de inventar uno paralelo. `tags` NO
+# la importación de Meta Ads), en vez de inventar uno paralelo. `tags` NO
 # está en _FIELDS, así que upsert() nunca lo pisa al refrescar un lead que
 # vuelve a aparecer en un discovery futuro — el bloqueo es forward-only por
 # construcción, no por una regla aparte que haya que recordar mantener.

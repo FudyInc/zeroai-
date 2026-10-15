@@ -249,9 +249,11 @@ internas aisladas en datos, no entran ellos).
 `zero/metaads.py` (MockMetaAds + MetaAds real vía Graph + `make_metaads`), `/api/campaigns`,
 pestaña **Campañas** (KPIs gasto/leads/CPL + tabla + filtro), card en Config. Mock por
 defecto; real con `META_ADS_TOKEN` + `META_AD_ACCOUNT_ID`. **Atar leads de ads → CRM: ✅**
-(`Zero.import_ad_leads`, endpoint `POST /api/campaigns/sync-leads`, botón en la pestaña
-Campañas; entra como `qualified` + tag "Meta Ads", mock por defecto). Falta: insights
-reales (gasto/leads del endpoint de Meta).
+(2026-10-15: `zero/leadads.py::import_lead_ads`, endpoint `POST /api/campaigns/sync-leads`,
+panel de Instagram en Agentes y timer `zero-instagram`; lee solo los `lead_form_ids`
+asignados al cliente, con renta, origen y cursor por formulario; entra en etapa `new`.
+Sin Meta conectado responde 400, sin mock). Falta: insights reales (gasto/leads del
+endpoint de Meta).
 
 ## ⏸️ Pendientes de PAGO (hacer cuando Diego pueda pagar — ver [[zero-cost-policy]])
 Cero gasto salvo lo que Diego ya decidió activar (Vapi, Supabase — ver abajo).

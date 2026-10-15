@@ -97,6 +97,12 @@ class MetaAdsCampaignsTest(unittest.TestCase):
         self.assertIn("sin cursor", src.failed_forms[0]["error"])
         self.assertNotIn("1", src.cursors)
 
+    def test_lead_ads_cursor_repetido_no_importa_parcial(self):
+        pagina = {"data": [], "paging": {"next": "mas", "cursors": {"after": "c1"}}}
+        with mock.patch("zero.metaads._graph", return_value=pagina):
+            with self.assertRaisesRegex(RuntimeError, "repitió el cursor"):
+                metaads.MetaAds("act_1").lead_ads("acme", {"lead_form_ids": ["1"]})
+
     def test_lead_ads_paginacion_invalida_en_todos_lanza(self):
         with mock.patch("zero.metaads._graph", return_value={"data": [], "paging": "invalida"}):
             with self.assertRaisesRegex(RuntimeError, "paginación inválida"):
