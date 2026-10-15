@@ -15,6 +15,9 @@ create table if not exists crm_leads (
   channel      text,
   stage        text default 'new',
   icp_reasons  jsonb default '[]'::jsonb,
+  income_range text,
+  income_ok    boolean,
+  lead_origin  jsonb,
   outreach     jsonb,
   tags         jsonb default '[]'::jsonb,
   history      jsonb default '[]'::jsonb,
@@ -22,6 +25,11 @@ create table if not exists crm_leads (
   updated      timestamptz default now(),
   unique (client_id, lead_key)
 );
+
+-- También cubre tablas crm_leads que ya existían antes de agregar respuestas de formularios.
+alter table crm_leads add column if not exists income_range text;
+alter table crm_leads add column if not exists income_ok boolean;
+alter table crm_leads add column if not exists lead_origin jsonb;
 
 create index if not exists crm_leads_client_idx on crm_leads (client_id);
 create index if not exists crm_leads_stage_idx  on crm_leads (client_id, stage);

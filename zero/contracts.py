@@ -170,6 +170,12 @@ class Lead:
     # vende contra a qué se dedica el prospecto— y confundirlas ya produjo un bug en
     # vivo el 2026-08-21, documentado en prompts/concierge.md:50.
     activity_category: Optional[str] = None
+    # Lead Ads (Instagram / Meta): respuesta de renta tal cual la dio el formulario,
+    # si cumple el umbral del cliente (None = sin umbral o ilegible) y de qué
+    # anuncio/formulario vino ({platform, form_id, ad_id, ad_name, campaign_name, lead_id}).
+    income_range: Optional[str] = None
+    income_ok: Optional[bool] = None
+    lead_origin: Optional[Dict[str, Any]] = None
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "Lead":
@@ -187,6 +193,9 @@ class Lead:
             activity=d.get("activity"),
             segment=d.get("segment"),
             activity_category=d.get("activity_category"),
+            income_range=d.get("income_range"),
+            income_ok=d.get("income_ok"),
+            lead_origin=d.get("lead_origin"),
         )
 
     def to_dict(self) -> Dict[str, Any]:

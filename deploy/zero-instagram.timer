@@ -1,0 +1,11 @@
+[Unit]
+Description=Importa los leads de Instagram cada 5 minutos
+
+[Timer]
+OnBootSec=2min
+# Mantener igual a LEAD_ADS_SYNC_MINUTES en zero/config.py (un test lo ancla).
+OnUnitActiveSec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

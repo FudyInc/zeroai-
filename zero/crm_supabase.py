@@ -29,8 +29,11 @@ load_env()
 # `tests/test_contracts.py` ancla las tres listas juntas para que no vuelva a pasar.
 _PLAIN = ("client_id", "company", "name", "role", "email", "phone", "domain",
           "score", "channel", "stage", "created", "updated",
-          "activity", "activity_category", "source", "segment")
-_JSONB = ("icp_reasons", "outreach", "tags", "history")
+          "activity", "activity_category", "source", "segment",
+          "income_range", "income_ok")
+_JSONB = ("icp_reasons", "outreach", "tags", "history", "lead_origin")
+# jsonb que viaja como objeto: sin dato es None, no lista vacía.
+_JSONB_OBJETO = ("outreach", "lead_origin")
 
 
 class SupabaseCRM(CRM):
@@ -159,7 +162,7 @@ class SupabaseCRM(CRM):
         row = {k: rec.get(k) for k in _PLAIN}
         row["lead_key"] = rec.get("key")
         for k in _JSONB:
-            row[k] = rec.get(k) if rec.get(k) is not None else ([] if k != "outreach" else None)
+            row[k] = rec.get(k) if rec.get(k) is not None else ([] if k not in _JSONB_OBJETO else None)
         return row
 
     @staticmethod
@@ -167,5 +170,5 @@ class SupabaseCRM(CRM):
         rec = {k: row.get(k) for k in _PLAIN}
         rec["key"] = row.get("lead_key")
         for k in _JSONB:
-            rec[k] = row.get(k) if row.get(k) is not None else ([] if k != "outreach" else None)
+            rec[k] = row.get(k) if row.get(k) is not None else ([] if k not in _JSONB_OBJETO else None)
         return rec

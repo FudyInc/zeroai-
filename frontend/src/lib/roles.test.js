@@ -9,6 +9,15 @@ test('operador solo ve Pipeline', () => {
   }
 })
 
+test('operador ve Agentes (Instagram) y sigue sin ver el resto de páginas admin', () => {
+  assert.equal(canSeePage('/agentes', 'operador', true), true)
+  assert.equal(canSeePage('/agentes', 'admin', true), true)
+  for (const r of ['cro', 'cto', 'cco']) assert.equal(canSeePage('/agentes', r, true), false, r)
+  for (const p of ['/llamadas', '/config', '/arquitectura', '/funciones', '/ciclo', '/vender', '/campanas', '/finanzas', '/whatsapp', '/preferencias']) {
+    assert.equal(canSeePage(p, 'operador', true), false, p)
+  }
+})
+
 test('homePath: operador aterriza en Pipeline, el resto en el Dashboard', () => {
   assert.equal(homePath('operador'), '/pipeline')
   for (const r of ['admin', 'cro', 'cto', 'cco', null]) assert.equal(homePath(r), '/')

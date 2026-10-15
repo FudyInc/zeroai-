@@ -1,0 +1,9 @@
+[Unit]
+Description=ZeroAI — importa los leads de Instagram (Lead Ads) al CRM (oneshot, disparado por zero-instagram.timer)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=diego
+WorkingDirectory=/home/diego/zeroai
+ExecStart=/usr/bin/python3 scripts/importar-instagram.py

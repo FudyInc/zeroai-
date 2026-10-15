@@ -7,6 +7,7 @@ import { api } from '../lib/api'
 import { useDismiss } from '../hooks/useDismiss'
 import { STAGES, scoreColor } from '../lib/util'
 import { Badge, Skeleton, Button, Input } from './ui'
+import IncomeBadge from './IncomeBadge'
 import ConversationThread from './ConversationThread'
 import LeadRoute from './LeadRoute'
 
@@ -81,6 +82,20 @@ function LeadBody({ r, client, onClose }) {
       </div>
 
       <div className="text-sm text-zinc-600 mt-3">{r.email || r.phone || '—'} · canal {r.channel || '—'}</div>
+
+      {r.source === 'instagram_ads' && (
+        <div className="mt-3 rounded-xl border border-zinc-200 bg-white dark:bg-zinc-50 p-3 space-y-1">
+          <div className="text-xs uppercase tracking-wide text-zinc-400">Instagram Ads</div>
+          {r.income_range && (
+            <div className="text-sm text-zinc-700 flex items-center gap-2 flex-wrap">
+              <span><b>Rango de renta:</b> {r.income_range}</span>
+              <IncomeBadge ok={r.income_ok} />
+            </div>
+          )}
+          {r.lead_origin?.ad_name && <div className="text-sm text-zinc-700"><b>Anuncio:</b> {r.lead_origin.ad_name}</div>}
+          {r.lead_origin?.campaign_name && <div className="text-sm text-zinc-700"><b>Campaña:</b> {r.lead_origin.campaign_name}</div>}
+        </div>
+      )}
 
       <LeadRoute lead={r} />
 

@@ -428,6 +428,12 @@ class SessionMemory:
             return
         save_json(self.path, self.snapshot())
 
+    def reload(self) -> None:
+        """Vuelve a leer el estado persistido (descarta lo que haya solo en memoria).
+        Para escritores de larga duración que no deben pisar escrituras ajenas."""
+        if self.path and self.path.exists():
+            self._load()
+
     def _load(self) -> None:
         # load_json ya intenta el .bak antes de rendirse; si igual falla, propaga
         # el RuntimeError tal cual (mismo comportamiento de antes: nunca arranca

@@ -14,12 +14,15 @@ llegar al CRM o a la pantalla. Lo nuevo está en `SinMotorNoHayRespuestaTest`.
 import os
 import re
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 from fastapi import HTTPException
 
 import api
+from zero import metaads
 from zero.finance import summary
+from zero.memory import SessionMemory
 
 
 class ExigirMotorRealTest(unittest.TestCase):
@@ -78,11 +81,16 @@ class SyncLeadsSinMetaTest(unittest.TestCase):
     indistinguibles de gente real. El botón "Importar leads de ads" las guardaba."""
 
     def test_se_niega_y_no_toca_el_crm(self):
-        with mock.patch.dict(os.environ, {"META_ADS_TOKEN": "", "META_AD_ACCOUNT_ID": ""},
-                             clear=False):
-            with mock.patch.object(api, "make_crm") as crm_falso:
-                with self.assertRaises(HTTPException) as ctx:
-                    api.sync_ad_leads("Petlabs")
+        memory = SessionMemory()
+        memory.register_client("petlabs", "GROWTH")
+        memory.set_client_meta("petlabs", {
+            "ad_account": "act_123", "lead_form_ids": ["456"]})
+        with mock.patch.dict(os.environ, {metaads.client_token_key("petlabs"): ""},
+                             clear=False), \
+             mock.patch.object(api, "make_memory", return_value=memory), \
+             mock.patch.object(api, "make_crm") as crm_falso:
+            with self.assertRaises(HTTPException) as ctx:
+                api.sync_ad_leads(SimpleNamespace(state=SimpleNamespace()), "petlabs")
         self.assertEqual(ctx.exception.status_code, 400)
         self.assertIn("Meta Ads no está conectado", ctx.exception.detail)
         crm_falso.assert_not_called()   # ni siquiera se abrió el CRM

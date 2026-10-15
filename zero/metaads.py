@@ -20,10 +20,12 @@ import os
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional
 
 from ._env import load_env
+from .config import LEAD_ADS_CURSOR_MARGIN_SECONDS
 
 load_env()
 
@@ -59,7 +61,11 @@ class MockMetaAds:
             })
         return out
 
-    def lead_ads(self, client_id: str, cfg: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    failed_forms: List[Dict[str, str]] = []     # misma forma que MetaAds
+    cursors: Dict[str, str] = {}
+
+    def lead_ads(self, client_id: str, cfg: Optional[Dict[str, Any]] = None,
+                 since: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
         """Leads que dejaron sus datos en un formulario de Meta (Lead Ads)."""
         return _ad_leads_mock(client_id, cfg)
 
@@ -80,10 +86,18 @@ def _ad_leads_mock(client_id: str, cfg: Optional[Dict[str, Any]]) -> List[Dict[s
         nombre = _LEAD_NOMBRES[(seed + i) % len(_LEAD_NOMBRES)]
         empresa = _LEAD_EMPRESAS[(seed + i * 3) % len(_LEAD_EMPRESAS)]
         first = nombre.split()[0].lower()
+        email = f"{first}.{i}@{empresa.lower().replace(' ', '')}.cl"
+        form_id = ((cfg.get("lead_form_ids") or ["0"])[0])
         out.append({
+            "key": email, "meta_lead_id": f"mock-lead-{seed}-{i}", "meta_form_id": form_id,
+            "income_range": ["Menos de $1.000.000", "$1.000.000 - $3.000.000",
+                             "Más de $3.000.000"][(seed + i) % 3],
+            "lead_origin": {"platform": "ig", "form_id": form_id, "ad_id": f"mock-ad-{i}",
+                            "ad_name": "Anuncio demo", "campaign_name": "Leads B2B - Búsqueda",
+                            "lead_id": f"mock-lead-{seed}-{i}"},
             "company": empresa, "name": nombre,
             "role": _LEAD_ROLES[(seed + i) % len(_LEAD_ROLES)],
-            "email": f"{first}.{i}@{empresa.lower().replace(' ', '')}.cl",
+            "email": email,
             "phone": f"+56 9 {3000 + (seed + i * 131) % 6000} {1000 + (seed * 7 + i) % 8999}",
             "channel": "whatsapp", "source": "meta_ads",
             "campaign": "Leads B2B - Búsqueda", "region": regions[i % len(regions)],
@@ -147,12 +161,123 @@ class MetaAds:
         return [{"date": r.get("date_start"), "spent_clp": _amount(r.get("spend"))}
                 for r in rows if isinstance(r, dict) and r.get("date_start")]
 
-    def lead_ads(self, client_id: str, cfg: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
-        # Lead Ads real (Graph: /{form}/leads) — pendiente de pago/token. Por ahora vacío.
-        return []
+    def lead_ads(self, client_id: str, cfg: Optional[Dict[str, Any]] = None,
+                 since: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
+        """Lee solamente los formularios asignados explícitamente a este cliente.
+
+        `since` = {form_id: created_time ISO} de la última lectura exitosa de cada
+        formulario: se piden solo los leads posteriores (con margen de
+        LEAD_ADS_CURSOR_MARGIN_SECONDS; la dedupe del CRM absorbe los repetidos).
+        Un formulario que falla no aborta a los demás: queda en `self.failed_forms`
+        [{form_id, error}] y su cursor no avanza. `self.cursors` deja el nuevo cursor
+        de cada formulario leído sin error. Si fallan todos, lanza RuntimeError.
+        """
+        forms = (cfg or {}).get("lead_form_ids") or []
+        self.failed_forms, self.cursors = [], {}
+        if not forms:
+            return []
+        leads = []
+        ad_accounts = {}
+        for form_id in forms:
+            params = {
+                "fields": "id,created_time,ad_id,ad_name,campaign_name,platform,form_id,field_data",
+                "limit": 100,
+            }
+            cursor = (since or {}).get(form_id)
+            moment = _parse_graph_time(cursor)
+            if moment is not None:
+                params["filtering"] = json.dumps([{
+                    "field": "time_created", "operator": "GREATER_THAN",
+                    "value": int(moment.timestamp()) - LEAD_ADS_CURSOR_MARGIN_SECONDS}])
+            try:
+                rows = _graph_pages(f"{form_id}/leads", self.token, params)
+                form_leads = self._normalize_rows(form_id, rows, ad_accounts)
+            except RuntimeError as e:
+                self.failed_forms.append({"form_id": form_id, "error": str(e)})
+                continue
+            leads.extend(form_leads)
+            times = [(t, r.get("created_time")) for r in rows
+                     if (t := _parse_graph_time(r.get("created_time"))) is not None]
+            newest = max(times)[1] if times else None
+            if newest and (moment is None or _parse_graph_time(newest) > moment):
+                self.cursors[form_id] = newest
+            elif cursor:
+                self.cursors[form_id] = cursor
+        if self.failed_forms and len(self.failed_forms) == len(forms):
+            raise RuntimeError("; ".join(f"formulario {f['form_id']}: {f['error']}"
+                                         for f in self.failed_forms))
+        return leads
+
+    def _normalize_rows(self, form_id: str, rows: List[Dict[str, Any]],
+                        ad_accounts: Dict[str, str]) -> List[Dict[str, Any]]:
+        leads = []
+        for row in rows:
+            ad_id = str(row.get("ad_id") or "").strip()
+            if not ad_id:
+                continue  # sin anuncio no se puede acreditar a la cuenta asignada
+            if ad_id not in ad_accounts:
+                ad_accounts[ad_id] = str(_graph(ad_id, self.token, {"fields": "account_id"}).get("account_id") or "")
+            if ad_accounts[ad_id] != self.account.removeprefix("act_"):
+                continue
+            fields = {}
+            for field in row.get("field_data") or []:
+                if isinstance(field, dict) and isinstance(field.get("values"), list):
+                    field_name = str(field.get("name") or "").strip()
+                    values = [str(value).strip() for value in field["values"] if str(value).strip()]
+                    fields[field_name] = ", ".join(values)
+            name = fields.get("full_name") or " ".join(filter(None, (
+                fields.get("first_name"), fields.get("last_name"))))
+            email = fields.get("email") or None
+            phone = fields.get("phone_number") or None
+            if not (email or phone):
+                continue
+            custom_fields = {
+                key: value for key, value in fields.items()
+                if key and key.lower() not in _CONTACT_FIELDS and value
+            }
+            income_field = next((
+                question for question in custom_fields
+                if any(term in question.casefold() for term in _INCOME_TERMS)
+            ), None)
+            if income_field is None and len(custom_fields) == 1:
+                # Si la única pregunta propia del formulario es una sola, es la renta.
+                income_field = next(iter(custom_fields))
+            income_range = custom_fields.get(income_field) if income_field else None
+            leads.append({"key": (email or phone).lower(), "name": name or None,
+                          "company": fields.get("company_name") or name or None,
+                          "role": fields.get("job_title") or None,
+                          "email": email.lower() if email else None, "phone": phone,
+                          "channel": "whatsapp" if phone else "email",
+                          "source": "meta_ads", "meta_lead_id": row.get("id"),
+                          "meta_form_id": form_id, "income_range": income_range,
+                          "lead_origin": {"platform": row.get("platform"), "form_id": form_id,
+                                          "ad_id": ad_id, "ad_name": row.get("ad_name"),
+                                          "campaign_name": row.get("campaign_name"),
+                                          "lead_id": row.get("id")}})
+        return leads
+
+
+def _parse_graph_time(value: Any) -> Optional[datetime]:
+    """created_time de Graph ("2026-10-15T10:00:00+0000") -> datetime con zona; None si no se entiende."""
+    if not value:
+        return None
+    try:
+        moment = datetime.strptime(str(value), "%Y-%m-%dT%H:%M:%S%z")
+    except ValueError:
+        try:
+            moment = datetime.fromisoformat(str(value))
+        except ValueError:
+            return None
+    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
 
 
 _API = "https://graph.facebook.com/v20.0"
+
+# Campos de contacto estándar de un formulario; cualquier otro es una pregunta propia.
+_CONTACT_FIELDS = frozenset({"full_name", "first_name", "last_name", "email", "phone_number",
+                             "company_name", "job_title"})
+# Palabras que delatan la pregunta de renta (en minúsculas, comparadas con casefold).
+_INCOME_TERMS = ("renta", "ingres", "income", "sueldo", "salario")
 
 _LEAD_ACTION_TYPES = (
     "onsite_conversion.lead_grouped", "onsite_conversion.lead",

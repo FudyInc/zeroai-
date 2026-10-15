@@ -35,7 +35,7 @@ import unittest
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from zero.config import PUBLIC_FORM_MAX_PER_HOUR_PER_IP, PUBLIC_FORM_MAX_PER_HOUR_TOTAL
@@ -989,12 +989,13 @@ class ProgrammedFunctionsHttpTest(unittest.TestCase):
             "schedule": {"interval_minutes": 5},
         }, token=admin)
         fid = body["function"]["id"]
-        before = datetime.fromisoformat(body["function"]["next_run"])
 
         status, run_body = self._send(f"/api/functions/{fid}/run?client=acme", {}, token=admin)
         self.assertEqual(status, 200)
         after = datetime.fromisoformat(run_body["function"]["next_run"])
-        self.assertGreaterEqual(after, before)   # se recalculó desde ahora, no quedó atrás
+        # Se recalculó desde ahora (intervalo 5 min), no quedó atrás. Sin comparar contra
+        # `before` ni exigir milisegundos: solo un margen holgado de 1 min.
+        self.assertGreater(after, datetime.now(timezone.utc) + timedelta(minutes=4))
 
     def test_registered_client_without_leads_appears_in_clients_and_accounts(self):
         """Antes: /api/clients y /api/accounts solo miraban el CRM — un cliente
@@ -1579,6 +1580,7 @@ class OperadorAislamientoHttpTest(unittest.TestCase):
         memory = SessionMemory(env["STATE_PATH"])
         memory.register_client(cls.PROPIO, "STARTER")
         memory.register_client(cls.AJENO, "GROWTH")
+        memory.set_client_meta(cls.AJENO, {"lead_form_ids": ["999"], "ad_account": "act_777"})
         memory.save()
         crm = CRM(env["CRM_PATH"])
         crm.upsert(cls.PROPIO, {"company": "Propia SA", "email": "a@propia.cl"})
@@ -1773,6 +1775,73 @@ class OperadorAislamientoHttpTest(unittest.TestCase):
         inexistente = self._call("POST", "/api/icp?client=no-existe-nunca", body={"icp": {"sells": "x"}})
         self.assertEqual(ajeno, (404, {"detail": "cliente no encontrado"}))
         self.assertEqual(ajeno, inexistente)
+
+    def test_instagram_rutas_propias_responden(self):
+        q = self._q(self.PROPIO)
+        status, body = self._call("GET", f"/api/instagram/status?client={q}")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["client"], self.PROPIO)
+        self.assertIs(body["connected"], False)
+        self.assertEqual(body["min_income_clp"], 3_000_000)
+        # sin formularios ni Meta conectado: 400 con el motivo, no 403 ni mock
+        status, body = self._call("POST", f"/api/campaigns/sync-leads?client={q}")
+        self.assertEqual(status, 400)
+        self.assertNotEqual(body["detail"], "sin permiso para este recurso")
+        status, body = self._call("POST", f"/api/instagram/forms?client={q}",
+                                  body={"lead_form_ids": ["111", "222"]})
+        self.assertEqual((status, body["lead_form_ids"]), (200, ["111", "222"]))
+        self.assertEqual(self._call("GET", f"/api/instagram/status?client={q}")[1]["lead_form_ids"],
+                         ["111", "222"])
+        status, body = self._call("POST", f"/api/campaigns/sync-leads?client={q}")
+        self.assertEqual(status, 400)
+        self.assertIn("Meta Ads no está conectado", body["detail"])
+        self.assertIn("error", self._call("GET", f"/api/instagram/status?client={q}")[1]["last_sync"])
+
+    def test_instagram_cliente_ajeno_es_404_identico_al_inexistente(self):
+        for cliente in (self.AJENO, "no-existe-nunca"):
+            q = self._q(cliente)
+            for method, path, body in (
+                ("GET", f"/api/instagram/status?client={q}", None),
+                ("POST", f"/api/instagram/forms?client={q}", {"lead_form_ids": ["1"]}),
+                ("POST", f"/api/campaigns/sync-leads?client={q}", {}),
+            ):
+                self.assertEqual(self._call(method, path, body=body),
+                                 (404, {"detail": "cliente no encontrado"}), f"{cliente} {path}")
+
+    def test_operador_no_obtiene_marketing_ni_metaads(self):
+        q = self._q(self.PROPIO)
+        for method, path in (("GET", f"/api/marketing?client={q}"), ("POST", f"/api/marketing?client={q}"),
+                             ("GET", f"/api/metaads/accounts?client={q}"),
+                             ("POST", f"/api/metaads/token?client={q}"),
+                             ("GET", f"/api/campaigns?client={q}"),
+                             ("GET", f"/api/campaigns/optimize?client={q}")):
+            body = {} if method == "POST" else None
+            self.assertEqual(self._call(method, path, body=body)[0], 403, f"{method} {path}")
+
+    def test_instagram_status_no_filtra_token_ni_cuenta(self):
+        admin = _make_supabase_jwt(self.JWT_SECRET, role="admin")
+        self._call("POST", f"/api/marketing?client={self._q(self.PROPIO)}", admin,
+                   body={"ad_account": "act_123456"})
+        crudo = json.dumps(self._call("GET", f"/api/instagram/status?client={self._q(self.PROPIO)}")[1])
+        for secreto in ("act_123456", "123456", "ad_account"):
+            self.assertNotIn(secreto, crudo)
+        self.assertEqual(set(json.loads(crudo)),
+                         {"client", "connected", "lead_form_ids", "last_sync", "min_income_clp"})
+
+    def test_instagram_forms_valida_y_el_409_no_revela_al_otro_cliente(self):
+        q = self._q(self.PROPIO)
+        for invalidos in (["abc"], ["1", "1"], [str(n) for n in range(21)], ["12 3"]):
+            self.assertEqual(self._call("POST", f"/api/instagram/forms?client={q}",
+                                        body={"lead_form_ids": invalidos})[0], 400, invalidos)
+        status, body = self._call("POST", f"/api/instagram/forms?client={q}", body={"lead_form_ids": ["999"]})
+        self.assertEqual(status, 409)
+        self.assertNotIn(self.AJENO, body["detail"])
+        # admin puede seguir viendo cuál es el negocio en conflicto
+        admin = _make_supabase_jwt(self.JWT_SECRET, role="admin")
+        status, body = self._call("POST", f"/api/instagram/forms?client={q}", admin,
+                                  body={"lead_form_ids": ["999"]})
+        self.assertEqual(status, 409)
+        self.assertIn(self.AJENO, body["detail"])
 
     def test_sin_clients_es_403(self):
         for clients in (None, [], "Augustar Seguros", [""], [1, None]):

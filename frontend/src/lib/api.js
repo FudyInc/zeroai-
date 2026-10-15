@@ -78,6 +78,9 @@ export const api = {
   campaigns: (c) => req('/api/campaigns?client=' + q(c)),
   optimizeCampaigns: (c) => req('/api/campaigns/optimize?client=' + q(c)),
   syncAdLeads: (c) => req('/api/campaigns/sync-leads?client=' + q(c), { method: 'POST' }),
+  instagramStatus: (c) => req('/api/instagram/status?client=' + q(c)),
+  setInstagramForms: (c, ids) =>
+    req('/api/instagram/forms?client=' + q(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lead_form_ids: ids }) }),
   marketing: (c) => req('/api/marketing?client=' + q(c)),
   setMarketing: (c, body) =>
     req('/api/marketing?client=' + q(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),

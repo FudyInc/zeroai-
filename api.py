@@ -35,7 +35,8 @@ from zero.agents import build_agents
 from zero.config import (AGENCY_CLIENT_ID, AVG_DEAL_VALUE_CLP, CRM_OPEN_STAGES, CRM_STAGES,
                          MAX_CORRIDAS_RECORDADAS,
                          DEFAULT_INBOUND_CLIENT_ID, DEFAULT_INBOUND_WHATSAPP_NUMBER,
-                         DEFAULT_VENDOR_ID, MAX_INBOUND_MESSAGE_CHARS, PUBLIC_FORM_MAX_PER_HOUR_PER_IP,
+                         DEFAULT_VENDOR_ID, LEAD_ADS_MAX_FORMS, MAX_INBOUND_MESSAGE_CHARS,
+                         PUBLIC_FORM_MAX_PER_HOUR_PER_IP,
                          PUBLIC_FORM_MAX_PER_HOUR_TOTAL, PUBLIC_FORM_SOURCES,
                          QUOTE_REVIEW_REQUIRED_CLIENT_IDS, TIERS)
 from zero.channels import make_outbox
@@ -185,6 +186,11 @@ _ROLE_ALLOWED: dict = {
         ("POST", "/api/pipeline/start-selected"),
         ("GET", "/api/pipeline/progress"),      # avance en vivo
         ("GET", "/api/pipeline/runs"),          # filtrado a su alcance
+        # Instagram (Lead Ads): rutas exactas. Sin /api/marketing ni /api/metaads/*:
+        # el token y la cuenta publicitaria siguen siendo solo de admin.
+        ("POST", "/api/campaigns/sync-leads"),  # importar leads de su formulario
+        ("GET", "/api/instagram/status"),       # estado: conectado, formularios, última importación
+        ("POST", "/api/instagram/forms"),       # guardar los IDs de formulario de SU cliente
     ),
 }
 
@@ -843,15 +849,16 @@ def campaigns(client: str):
 
 
 @app.post("/api/campaigns/sync-leads")
-def sync_ad_leads(client: str):
-    """La importación queda cerrada hasta implementar Lead Ads real."""
-    from zero.metaads import make_metaads
-    cfg = _client_meta_cfg(client)
-    src = make_metaads(cfg, client_id=client)
-    if not getattr(src, "live", False):
-        raise HTTPException(status_code=400, detail=(
-            "Meta Ads no está conectado para este negocio: configura su token y cuenta publicitaria."))
-    raise HTTPException(status_code=501, detail="La importación de formularios Lead Ads aún no está disponible.")
+def sync_ad_leads(request: Request, client: str):
+    """Importa los formularios Lead Ads reales al CRM (lógica en zero/leadads.py)."""
+    from zero.leadads import ClienteNoEncontrado, LeadAdsError, import_lead_ads
+    _require_client(request, client)
+    try:
+        return import_lead_ads(client, make_memory(STATE_PATH), _crm)
+    except ClienteNoEncontrado as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except LeadAdsError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.get("/api/metaads/accounts")
@@ -885,6 +892,8 @@ class Marketing(BaseModel):
     monthly_budget_clp: Optional[int] = None
     regions: Optional[list] = None
     objective: Optional[str] = None
+    lead_form_ids: Optional[list[str]] = None
+    lead_platform: Optional[str] = None
 
 
 @app.get("/api/marketing")
@@ -921,11 +930,78 @@ def set_marketing(client: str, body: Marketing):
             cfg["ad_account"] = account
         else:
             cfg.pop("ad_account", None)
+    if "lead_form_ids" in updates:
+        cfg["lead_form_ids"] = _validated_form_ids(memory, client, updates.pop("lead_form_ids"))
+    if "lead_platform" in updates:
+        platform = str(updates.pop("lead_platform") or "").strip().lower()
+        if platform not in {"instagram", "meta"}:
+            raise HTTPException(status_code=400, detail="La plataforma de formularios debe ser Instagram o Meta.")
+        cfg["lead_platform"] = platform
     cfg.update({k: v for k, v in updates.items() if v is not None})
     memory.set_client_meta(client, cfg)
     memory.save()
     return {"client": client, "config": cfg,
             "metaads_connected": bool(cfg.get("ad_account") and client_token(client))}
+
+
+def _validated_form_ids(memory, client: str, raw, *, generic_conflict: bool = False) -> list:
+    """IDs de formulario Lead Ads: solo dígitos, sin duplicados, tope en config y
+    ninguno asignado a otro cliente. `generic_conflict` oculta el nombre del otro
+    cliente (para quien no es admin)."""
+    form_ids = [str(x).strip() for x in (raw or [])]
+    if (len(form_ids) > LEAD_ADS_MAX_FORMS or any(not x.isdigit() for x in form_ids)
+            or len(form_ids) != len(set(form_ids))):
+        raise HTTPException(status_code=400, detail=(
+            f"IDs de formularios inválidos o duplicados (máximo {LEAD_ADS_MAX_FORMS})"))
+    for other, data in memory.clients.items():
+        if other != client and set(form_ids) & set((data.get("meta") or {}).get("lead_form_ids") or []):
+            raise HTTPException(status_code=409, detail=(
+                "Un formulario ya está asignado a otro negocio." if generic_conflict
+                else f"Un formulario ya está asignado a {other}."))
+    return form_ids
+
+
+def _instagram_status(memory, client: str) -> dict:
+    """Estado de Instagram de un cliente, sin token ni cuenta publicitaria."""
+    from zero.leadads import min_income_clp
+    from zero.metaads import make_metaads
+    cfg = memory.get_client_meta(client)
+    return {"client": client,
+            "connected": bool(getattr(make_metaads(cfg, client_id=client), "live", False)),
+            "lead_form_ids": list(cfg.get("lead_form_ids") or []),
+            "last_sync": cfg.get("lead_sync"),
+            "min_income_clp": min_income_clp(client)}
+
+
+@app.get("/api/instagram/status")
+def instagram_status(request: Request, client: str):
+    _require_client(request, client)
+    memory = make_memory(STATE_PATH)
+    if client not in memory.clients:
+        raise HTTPException(status_code=404, detail=_CLIENT_NOT_FOUND)
+    return _instagram_status(memory, client)
+
+
+class InstagramForms(BaseModel):
+    lead_form_ids: list[str]
+
+
+@app.post("/api/instagram/forms")
+def set_instagram_forms(request: Request, client: str, body: InstagramForms):
+    """Guarda solo los formularios (y la plataforma) del cliente; el token y la
+    cuenta publicitaria no se tocan desde acá."""
+    _require_client(request, client)
+    memory = make_memory(STATE_PATH)
+    if client not in memory.clients:
+        raise HTTPException(status_code=404, detail=_CLIENT_NOT_FOUND)
+    identity = getattr(request.state, "auth", None) or {}
+    cfg = dict(memory.get_client_meta(client))
+    cfg["lead_form_ids"] = _validated_form_ids(
+        memory, client, body.lead_form_ids, generic_conflict=identity.get("role") != "admin")
+    cfg["lead_platform"] = "instagram"
+    memory.set_client_meta(client, cfg)
+    memory.save()
+    return _instagram_status(memory, client)
 
 
 class MetaTokenBody(BaseModel):

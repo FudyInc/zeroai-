@@ -53,6 +53,9 @@ class SupabaseMemory(SessionMemory):
         if rows:
             self._restore(rows[0].get("data") or {})
 
+    def reload(self) -> None:
+        self._load_cloud()
+
     def save(self) -> None:
         self._req("POST", f"{self.TABLE}?on_conflict=id",
                   body=[{"id": self.ROW_ID, "data": self.snapshot()}],

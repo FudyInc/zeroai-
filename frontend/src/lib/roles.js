@@ -10,7 +10,8 @@
 //     Pipeline (revisar/editar borradores de outreach), Vender, Campañas,
 //     WhatsApp (tono, ficha, precios). Nada de Forecast/Clientes/Finanzas ni
 //     Configuración.
-//   - Agentes/Llamadas/Arquitectura/Configuración: solo admin.
+//   - Llamadas/Arquitectura/Configuración: solo admin. Agentes: admin + operador
+//     (el operador solo ve el panel de Instagram, ver pages/Agentes.jsx).
 //   - Equipo (2026-07-20): SOLO admin (Diego) — quién tiene cuenta, qué rol,
 //     quién está conectado. El backend ya lo exige (sin entrada en
 //     _ROLE_ALLOWED, fail-closed); esto es solo para ocultar el link.
@@ -25,13 +26,13 @@
 //     borradores que dejaron las corridas automáticas; revisar y enviar
 //     outreach ya es trabajo de esos tres roles (mismo criterio que el
 //     POST /api/leads/{key}/send que ya tenían).
-//   - "operador" (Stefano): rol con alcance por cliente — SOLO Pipeline (más el
-//     modal "Buscar leads", que no es página). Ve únicamente los clientes que
+//   - "operador" (Stefano): rol con alcance por cliente — Pipeline y Agentes
+//     (solo Instagram; más el modal "Buscar leads", que no es página). Ve únicamente los clientes que
 //     Diego le asigna en Equipo; la barrera real es el backend (404 fuera de
 //     alcance), esto evita mostrarle o pedirle nada de otros clientes.
 //   - Preferencias (2026-07-23): cro/cto/cco (y admin) — es personal (tema, por
 //     ahora), 100% cliente/localStorage, nada sensible ni de la agencia. El
-//     "operador" NO la tiene (decisión de Diego: solo Pipeline por ahora).
+//     "operador" NO la tiene (decisión de Diego: solo Pipeline y Agentes por ahora).
 export const PAGE_ROLES = {
   '/': ['cro', 'cto', 'cco'],
   '/leads': ['cto'],
@@ -41,7 +42,7 @@ export const PAGE_ROLES = {
   '/campanas': ['cro', 'cco'],
   '/clientes': ['cro'],
   '/finanzas': ['cro'],
-  '/agentes': [],
+  '/agentes': ['operador'],
   '/llamadas': [],
   '/whatsapp': ['cco'],
   '/arquitectura': [],

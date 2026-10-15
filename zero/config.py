@@ -419,6 +419,19 @@ PUBLIC_FORM_MAX_PER_HOUR_PER_IP = 10
 PUBLIC_FORM_MAX_PER_HOUR_TOTAL = 100
 
 
+# --- Importación de Lead Ads (Instagram / Meta) --------------------------------
+# Renta mínima mensual (CLP) que un cliente considera "calificada" en el formulario
+# instantáneo. Por client_id; un cliente sin entrada no evalúa renta (income_ok = None).
+LEAD_ADS_MIN_INCOME_CLP = {"Augustar Seguros": 3_000_000}
+# Cada cuántos minutos corre la importación automática (scripts/importar-instagram.py,
+# deploy/zero-instagram.timer — mantener ambos en el mismo número).
+LEAD_ADS_SYNC_MINUTES = 5
+# Límite de formularios por cliente en lead_form_ids.
+LEAD_ADS_MAX_FORMS = 20
+# Margen hacia atrás (segundos) al pedir solo leads nuevos desde el cursor de cada
+# formulario; la dedupe del CRM absorbe los repetidos.
+LEAD_ADS_CURSOR_MARGIN_SECONDS = 3600
+
 # --- CRM pipeline stages -----------------------------------------------------
 # The lifecycle a lead moves through in ZERO's system of record. Ordered; the
 # CRM board renders them left→right. ZERO advances the first ones automatically;

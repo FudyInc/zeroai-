@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
@@ -6,6 +7,7 @@ import { api } from '../lib/api'
 import { repliedRecently } from '../lib/util'
 import ChannelIcon from '../components/ChannelIcon'
 import { Card } from '../components/ui'
+import InstagramLeadsPanel, { useInstagramStatus } from '../components/InstagramLeadsPanel'
 import { useApp } from '../App'
 import { rise, fade, surface, stagger } from '../lib/motion'
 
@@ -24,7 +26,17 @@ const TONES = {
 }
 
 export default function Agentes() {
-  const { client } = useApp()
+  const { client, scoped } = useApp()
+  // El operador (scoped) solo ve el panel de Instagram: las demás consultas
+  // darían 403 para su rol, así que ni se disparan.
+  if (scoped) return <InstagramLeadsPanel client={client} />
+  return <AgentesGeneral client={client} />
+}
+
+function AgentesGeneral({ client }) {
+  const [igOpen, setIgOpen] = useState(false)
+  const igQ = useInstagramStatus(client)
+  const ig = igQ.data
   const cfgQ = useQuery({ queryKey: ['config'], queryFn: api.config })
   const cfg = cfgQ.data
   const integrationsQ = useQuery({ queryKey: ['integrations', client], queryFn: () => api.clientIntegrations(client), enabled: !!client })
@@ -45,7 +57,18 @@ export default function Agentes() {
     ? `${n} ${n === 1 ? 'lead respondió' : 'leads respondieron'} en 24h`
     : null
 
+  const igStatus = !ig ? { t: igQ.isError ? 'Sin estado' : '…', tone: 'soon' }
+    : !ig.connected ? { t: 'Meta no conectado', tone: 'warn' }
+    : ig.lead_form_ids.length === 0 ? { t: 'Sin formularios', tone: 'warn' }
+    : { t: 'Conectado', tone: 'ok' }
+
   const agents = [
+    {
+      key: 'ig', name: 'Instagram · Formularios (Lead Ads)', icon: Instagram, chip: 'bg-pewter/15 text-pewter',
+      desc: 'Importa los leads de los formularios de tus anuncios. Los DMs en frío siguen no siendo viables (la plataforma los bloquea).',
+      status: igStatus,
+      onClick: () => setIgOpen((o) => !o), activity: null,
+    },
     {
       key: 'email', name: 'Email', branded: true, chip: 'bg-white border border-zinc-200',
       desc: 'Envía un pitch con demo a un prospecto y los seguimientos por correo.',
@@ -68,12 +91,6 @@ export default function Agentes() {
         ? { t: 'Número asignado', tone: 'ok' } : { t: 'Configurar / probar', tone: 'warn' },
       onClick: () => nav('/whatsapp'),
       activity: activityLine(waReplied),
-    },
-    {
-      key: 'ig', name: 'Instagram', icon: Instagram, chip: 'bg-pewter/15 text-pewter',
-      desc: 'DMs en frío: la plataforma los bloquea (sin API oficial).',
-      status: { t: 'No viable (ToS)', tone: 'bad' },
-      onClick: null, disabled: true, activity: null,
     },
     {
       key: 'li', name: 'LinkedIn', icon: Linkedin, chip: 'bg-pewter/15 text-pewter',
@@ -122,6 +139,7 @@ export default function Agentes() {
           </motion.div>
         ))}
       </motion.div>
+      {igOpen && <InstagramLeadsPanel client={client} />}
     </motion.div>
   )
 }

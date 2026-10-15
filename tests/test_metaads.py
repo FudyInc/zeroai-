@@ -81,6 +81,65 @@ class MetaAdsCampaignsTest(unittest.TestCase):
     def test_lead_ads_real_vacio(self):
         self.assertEqual(metaads.MetaAds("act_1").lead_ads("acme"), [])
 
+    def test_lead_ads_lee_solo_formularios_asignados_y_normaliza(self):
+        body = json.dumps({"data": [{"id": "lead-1", "ad_id": "ad-1", "ad_name": "Anuncio IG",
+                                     "campaign_name": "Seguros", "platform": "ig", "field_data": [
+            {"name": "full_name", "values": ["Ana Pérez"]},
+            {"name": "phone_number", "values": ["+56912345678"]},
+            {"name": "email", "values": ["ANA@EXAMPLE.CL"]},
+        ]}]})
+        account = json.dumps({"account_id": "1"})
+        with mock.patch("zero.metaads.urllib.request.urlopen", side_effect=[_resp(body), _resp(account)]) as fetch:
+            leads = metaads.MetaAds("act_1").lead_ads("losetaschile", {"lead_form_ids": ["123"]})
+        primera = fetch.call_args_list[0].args[0].full_url
+        self.assertEqual(primera.split("?")[0].split("/")[-2:], ["123", "leads"])
+        self.assertIn("ad_name%2Ccampaign_name%2Cplatform", primera)
+        self.assertEqual(leads[0]["email"], "ana@example.cl")
+        self.assertEqual(leads[0]["source"], "meta_ads")
+        self.assertEqual(leads[0]["company"], "Ana Pérez")
+        self.assertEqual(leads[0]["lead_origin"], {
+            "platform": "ig", "form_id": "123", "ad_id": "ad-1", "ad_name": "Anuncio IG",
+            "campaign_name": "Seguros", "lead_id": "lead-1"})
+
+    def test_lead_ads_no_importa_anuncios_de_otra_cuenta(self):
+        body = json.dumps({"data": [{"id": "lead-1", "ad_id": "ad-1", "field_data": [
+            {"name": "email", "values": ["ana@example.cl"]}]}]})
+        account = json.dumps({"account_id": "999"})
+        with mock.patch("zero.metaads.urllib.request.urlopen", side_effect=[_resp(body), _resp(account)]):
+            self.assertEqual(metaads.MetaAds("act_1").lead_ads("losetaschile", {"lead_form_ids": ["123"]}), [])
+
+    def _renta(self, field_data):
+        body = json.dumps({"data": [{"id": "l", "ad_id": "ad-1", "field_data": field_data}]})
+        account = json.dumps({"account_id": "1"})
+        with mock.patch("zero.metaads.urllib.request.urlopen", side_effect=[_resp(body), _resp(account)]):
+            return metaads.MetaAds("act_1").lead_ads("c", {"lead_form_ids": ["123"]})[0]["income_range"]
+
+    def test_lead_ads_detecta_la_renta_por_palabra_clave(self):
+        self.assertEqual(self._renta([
+            {"name": "phone_number", "values": ["+56911111111"]},
+            {"name": "otra_pregunta", "values": ["x"]},
+            {"name": "cual_es_su_renta_mensual", "values": ["Más de $3.000.000"]}]), "Más de $3.000.000")
+
+    def test_lead_ads_la_unica_pregunta_propia_es_la_renta(self):
+        self.assertEqual(self._renta([
+            {"name": "phone_number", "values": ["+56911111111"]},
+            {"name": "rango", "values": ["$1.000.000 - $2.000.000"]}]), "$1.000.000 - $2.000.000")
+
+    def test_lead_ads_con_varias_preguntas_sin_palabra_clave_no_adivina(self):
+        self.assertIsNone(self._renta([
+            {"name": "phone_number", "values": ["+56911111111"]},
+            {"name": "a", "values": ["1"]}, {"name": "b", "values": ["2"]}]))
+
+    def test_mock_lead_ads_tiene_la_misma_forma_que_el_real(self):
+        mock_lead = metaads.MockMetaAds().lead_ads("acme")[0]
+        body = json.dumps({"data": [{"id": "l", "ad_id": "ad-1", "field_data": [
+            {"name": "email", "values": ["a@b.cl"]}, {"name": "renta", "values": ["3M"]}]}]})
+        with mock.patch("zero.metaads.urllib.request.urlopen",
+                        side_effect=[_resp(body), _resp(json.dumps({"account_id": "1"}))]):
+            real = metaads.MetaAds("act_1").lead_ads("acme", {"lead_form_ids": ["1"]})[0]
+        self.assertEqual(set(real) - set(mock_lead), set())
+        self.assertEqual(set(real["lead_origin"]), set(mock_lead["lead_origin"]))
+
 
 class GraphHelpersTest(unittest.TestCase):
     def test_graph_respuesta_no_dict_lanza(self):
