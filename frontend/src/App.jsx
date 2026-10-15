@@ -13,6 +13,7 @@ import Login from './components/Login'
 import LeadModal from './components/LeadModal'
 import CommandPalette from './components/CommandPalette'
 import ThemeToggle from './components/ThemeToggle'
+import WhatsAppAttentionWatcher from './components/WhatsAppAttentionWatcher'
 import { canSeePage, isScoped, homePath } from './lib/roles'
 import Dashboard from './pages/Dashboard'
 import Vender from './pages/Vender'
@@ -274,6 +275,8 @@ export default function App() {
           scoped={scoped}
         />
         <Toaster richColors position="top-right" toastOptions={{ style: { borderRadius: '12px' } }} />
+        <WhatsAppAttentionWatcher client={client} enabled={canSeePage('/whatsapp', role, authEnabled)}
+          onOpen={(chatId, forClient) => nav('/whatsapp', { state: chatId ? { waChat: chatId, client: forClient } : undefined })} />
       </div>
     </AppCtx.Provider>
   )
