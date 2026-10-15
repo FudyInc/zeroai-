@@ -111,22 +111,54 @@ const client = new Client({
 const readyTimeoutMs = Math.max(
   60000, Number(process.env.WHATSAPP_WEB_READY_TIMEOUT_MS) || 300000)
 
+async function restartBridge(reason) {
+  if (restartingConnection) return
+  restartingConnection = true
+  lastError = reason
+  console.error(lastError)
+  const forceExit = setTimeout(() => process.exit(1), 10000)
+  try { await client.destroy() } catch (err) { console.error('Bridge cleanup:', err.message) }
+  clearTimeout(forceExit)
+  process.exit(1)
+}
+
 function watchReadiness() {
   if (restartingConnection) return
   clearTimeout(readinessTimer)
-  readinessTimer = setTimeout(async () => {
+  readinessTimer = setTimeout(() => {
     if (!['starting', 'connecting', 'disconnected', 'error', 'auth_failed'].includes(state)) return
-    restartingConnection = true
-    lastError = `WhatsApp Web quedó en ${state} durante ${Math.round(readyTimeoutMs / 1000)} ` +
-      'segundos; reiniciando el puente'
-    console.error(lastError)
-    const forceExit = setTimeout(() => process.exit(1), 10000)
-    try { await client.destroy() } catch (err) { console.error('Bridge cleanup:', err.message) }
-    clearTimeout(forceExit)
-    process.exit(1)
+    void restartBridge(`WhatsApp Web quedó en ${state} durante ` +
+      `${Math.round(readyTimeoutMs / 1000)} segundos; reiniciando el puente`)
   }, readyTimeoutMs)
   readinessTimer.unref()
 }
+
+// `ready` es una etiqueta, no una prueba de vida. El 2026-10-15 el puente quedó
+// `ready` con la página de WhatsApp Web desprendida ("detached Frame"): no leía
+// ni enviaba, y el watchdog de arriba no lo veía porque solo mira la etiqueta.
+// Esta sonda ejecuta algo trivial en la página cada minuto; tras varias fallas
+// seguidas reinicia el puente. Varias, no una: un evaluate puede fallar suelto
+// durante una recarga legítima de WhatsApp Web.
+const livenessIntervalMs = 60000
+const livenessMaxFailures = 3
+let livenessFailures = 0
+setInterval(async () => {
+  if (state !== 'ready' || restartingConnection) { livenessFailures = 0; return }
+  try {
+    await Promise.race([
+      client.pupPage.evaluate(() => !!window.require('WAWebCollections').Chat),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('sin respuesta en 20 s')), 20000)),
+    ])
+    livenessFailures = 0
+  } catch (err) {
+    livenessFailures += 1
+    console.error(`WhatsApp Web: sonda de vida falló (${livenessFailures}/${livenessMaxFailures}): ${err.message}`)
+    if (livenessFailures >= livenessMaxFailures) {
+      void restartBridge(`WhatsApp Web marcado ready pero sin responder ${livenessMaxFailures} ` +
+        'veces seguidas; reiniciando el puente')
+    }
+  }
+}, livenessIntervalMs).unref()
 
 async function recoverRecentMessages() {
   if (state !== 'ready') return
