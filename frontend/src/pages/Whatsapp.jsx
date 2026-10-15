@@ -263,7 +263,7 @@ function KnowledgeCard({ client, knowledgeQ }) {
         <div className="flex items-center justify-between mt-2">
           <span className="text-[11px] text-zinc-400">
             {text.trim()
-              ? `${text.length.toLocaleString()} caracteres`
+              ? `${text.length.toLocaleString('es-CL')} caracteres`
               : 'Sin ficha todavía — el agente responderá solo con lo básico.'}
           </span>
           <Button variant={dirty ? 'accent' : 'soft'} onClick={() => save.mutate()} disabled={save.isPending || !dirty}>

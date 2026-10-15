@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { CheckCircle2, AlertCircle, WifiOff, Settings2 } from 'lucide-react'
+import { CheckCircle2, AlertCircle, WifiOff, Settings2, Lock } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
 import { Card, Button, Input, Select, Skeleton, Badge, SectionTitle } from '../components/ui'
@@ -302,17 +302,17 @@ function CloudBackupBanner({ backedUp, supabase }) {
   const names = [...new Set(backedUp.map((k) => _NAMES[k.split('_')[0]] || k))]
   if (!supabase) return (
     <Card className="p-4 border-amber-200 bg-amber-50/70 text-sm text-amber-800">
-      ⚠️ <b>Sin Supabase conectado, las keys no se respaldan</b> y se borran en cada redeploy. Conéctalo abajo (tarjeta Supabase) para protegerlas.
+      <AlertCircle className="inline w-3.5 h-3.5 mr-1.5 -mt-0.5" aria-hidden /><b>Sin Supabase conectado, las keys no se respaldan</b> y se borran en cada redeploy. Conéctalo abajo (tarjeta Supabase) para protegerlas.
     </Card>
   )
   if (names.length === 0) return (
     <Card className="p-4 border-zinc-200 bg-zinc-50 text-sm text-zinc-600">
-      🔒 Las keys que guardes aquí quedan <b>respaldadas en la nube</b> y sobreviven a los redeploys. Aún no hay ninguna guardada.
+      <Lock className="inline w-3.5 h-3.5 mr-1.5 -mt-0.5" aria-hidden /> Las keys que guardes aquí quedan <b>respaldadas en la nube</b> y sobreviven a los redeploys. Aún no hay ninguna guardada.
     </Card>
   )
   return (
     <Card className="p-4 border-champagne bg-champagne/30 text-sm text-brand">
-      🔒 <b>Respaldado en la nube — sobrevive a cualquier redeploy.</b>
+      <Lock className="inline w-3.5 h-3.5 mr-1.5 -mt-0.5" aria-hidden /><b>Respaldado en la nube — sobrevive a cualquier redeploy.</b>
       <div className="text-xs text-gold-deep mt-1">Protegido: {names.join(' · ')}</div>
     </Card>
   )
