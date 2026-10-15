@@ -37,3 +37,6 @@ node_modules/
 
 # informe de la auditoría diaria (se regenera; no es fuente de verdad)
 auditoria.json
+# Playwright CLI output (may contain credentials)
+.playwright-cli/
+.playwright/
