@@ -72,19 +72,30 @@ const client = new Client({
   },
 })
 
+// Cuánto se tolera fuera de `ready` antes de reiniciar la conexión. Existe por
+// el mensaje perdido del 2026-10-13, cuando el puente quedó más de diez minutos
+// en `connecting` sin que nadie se enterara. El primer valor, 120 s, resultó
+// más corto que una sincronización fría legítima: el 2026-10-14 mató al puente
+// cuatro veces seguidas antes de que alcanzara a conectar, y systemd lo
+// relanzaba en bucle. El umbral tiene que ser mayor que la sincronización más
+// lenta que se considera normal y menor que el bloqueo que se quiere detectar.
+const readyTimeoutMs = Math.max(
+  60000, Number(process.env.WHATSAPP_WEB_READY_TIMEOUT_MS) || 300000)
+
 function watchReadiness() {
   if (restartingConnection) return
   clearTimeout(readinessTimer)
   readinessTimer = setTimeout(async () => {
     if (!['starting', 'connecting', 'disconnected', 'error', 'auth_failed'].includes(state)) return
     restartingConnection = true
-    lastError = `WhatsApp Web quedó en ${state} durante 120 segundos; reiniciando el puente`
+    lastError = `WhatsApp Web quedó en ${state} durante ${Math.round(readyTimeoutMs / 1000)} ` +
+      'segundos; reiniciando el puente'
     console.error(lastError)
     const forceExit = setTimeout(() => process.exit(1), 10000)
     try { await client.destroy() } catch (err) { console.error('Bridge cleanup:', err.message) }
     clearTimeout(forceExit)
     process.exit(1)
-  }, 120000)
+  }, readyTimeoutMs)
   readinessTimer.unref()
 }
 
