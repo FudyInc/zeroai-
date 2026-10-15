@@ -6,6 +6,8 @@ snapshot the system prompt calls a "state handoff block".
 """
 from __future__ import annotations
 
+import re
+import unicodedata
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -15,6 +17,27 @@ from .config import (DEFAULT_VENDOR_ID, MAX_KNOWLEDGE_VERSIONS, MAX_TEST_CASES_P
                      followup_step)
 from .persistence import load_json, save_json
 from .vendors import seed_vendors
+
+
+def _gap_key(question: str) -> str:
+    """Clave para agrupar preguntas equivalentes.
+
+    «¿Realizan despachos?», «realizan despacho» y «REALIZAN DESPACHOS» son la
+    misma duda y deben contarse juntas: lo que se responde una vez sirve para
+    las tres. Se ignoran tildes, signos, mayúsculas y la `s` final de cada
+    palabra, que en español separa singular de plural y nada más.
+
+    Un adjunto sin texto legible (`[image]`, `[location]`) no es una pregunta
+    y devuelve cadena vacía, para que no llene la lista de huecos.
+    """
+    texto = " ".join(str(question or "").split()).strip()
+    if not texto or re.fullmatch(r"\[[a-z_]+\]", texto, re.IGNORECASE):
+        return ""
+    plano = unicodedata.normalize("NFKD", texto.casefold())
+    plano = "".join(c for c in plano if not unicodedata.combining(c))
+    palabras = [w[:-1] if len(w) > 3 and w.endswith("s") else w
+                for w in re.findall(r"[a-z0-9]+", plano)]
+    return " ".join(palabras)[:200]
 
 
 def _now() -> str:
@@ -257,6 +280,54 @@ class SessionMemory:
     def clear_whatsapp_handoff(self, client_id: str, lead_key: str) -> bool:
         handoffs = self.clients.get(client_id, {}).get("whatsapp_handoffs") or {}
         return handoffs.pop(str(lead_key).lower(), None) is not None
+
+    # --- preguntas sin respuesta (lo que el agente todavía no sabe) ---------
+    # Cada vez que una consulta termina en revisión humana queda acá. No se
+    # guarda lo que el agente respondió —ese es justo el texto que no sirvió, y
+    # el historial tiene casos registrados de cifras inventadas y revisiones
+    # que nunca ocurrieron—, sino la pregunta, para que una persona escriba la
+    # respuesta buena una sola vez y pase a la ficha.
+    def add_knowledge_gap(self, client_id: str, question: str,
+                          reason: str = "") -> Optional[Dict[str, Any]]:
+        """Registra una pregunta que el agente no supo responder."""
+        texto = " ".join(str(question or "").split())[:400]
+        if not texto:
+            return None
+        clave = _gap_key(texto)
+        if not clave:                       # un adjunto suelto no es pregunta
+            return None
+        huecos = self.clients.setdefault(client_id, {}).setdefault("knowledge_gaps", {})
+        item = huecos.get(clave)
+        if item:
+            item["veces"] = int(item.get("veces") or 1) + 1
+            item["ultima"] = _now()
+            if reason:
+                item["reason"] = reason[:200]
+        else:
+            item = {"pregunta": texto, "reason": reason[:200], "veces": 1,
+                    "primera": _now(), "ultima": _now(), "estado": "abierta"}
+            huecos[clave] = item
+        return item
+
+    def list_knowledge_gaps(self, client_id: str,
+                            incluir_resueltas: bool = False) -> List[Dict[str, Any]]:
+        """Huecos ordenados por frecuencia: lo más preguntado se responde antes."""
+        huecos = self.clients.get(client_id, {}).get("knowledge_gaps") or {}
+        salida = [dict(v, clave=k) for k, v in huecos.items()
+                  if incluir_resueltas or (v or {}).get("estado") != "resuelta"]
+        return sorted(salida, key=lambda h: (-int(h.get("veces") or 1), h.get("primera") or ""))
+
+    def resolve_knowledge_gap(self, client_id: str, clave: str,
+                              respuesta: str) -> bool:
+        """Marca un hueco como resuelto y guarda la respuesta aprobada."""
+        huecos = self.clients.get(client_id, {}).get("knowledge_gaps") or {}
+        item = huecos.get(clave)
+        if not item:
+            return False
+        item["estado"] = "resuelta"
+        item["respuesta"] = " ".join(str(respuesta or "").split())[:600]
+        item["resuelta_en"] = _now()
+        return True
 
     # --- vendor catalog (Fernanda, Stéfano, ... each with their own WhatsApp) --
     def _ensure_vendors_seeded(self) -> None:

@@ -1644,6 +1644,11 @@ class Zero:
             # and unreadable attachments are handled earlier and remain handoffs.
             self.memory.log("whatsapp_review_required", client=client_id,
                             lead=key, reason=reason)
+            # La consulta que llegó hasta acá es una que el agente no supo
+            # contestar. Se guarda la PREGUNTA, nunca el borrador: ese texto es
+            # justo el que no sirvió. Una persona escribe la respuesta buena una
+            # vez y entra a la ficha, que ya se consulta en cada conversación.
+            self.memory.add_knowledge_gap(client_id, text, reason)
             self.memory.save()
             if self.crm:
                 self.crm.log(client_id, key, "awaiting_human", reason)
