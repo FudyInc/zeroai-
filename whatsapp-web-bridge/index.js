@@ -4,6 +4,35 @@ const http = require('node:http')
 const crypto = require('node:crypto')
 const fs = require('node:fs')
 const path = require('node:path')
+// Parche sobre whatsapp-web.js 1.34.7 (2026-10-15). La librería registra sus
+// callbacks en la página con exposeFunctionIfAbsent; si uno falla (p.ej. el que
+// emite `ready`), el error muere dentro de la página y el puente queda en
+// `connecting` sin rastro. Aquí: (1) todo error de esos callbacks se registra, y
+// (2) exposeFunction se reintenta ante carreras de frames ("Target closed",
+// contexto destruido), el mismo arreglo propuesto upstream (issue #201946 /
+// PR #201958). Tiene que cargarse ANTES que el Client: Client.js desestructura
+// la función al importarse.
+const wwebPuppeteer = require('whatsapp-web.js/src/util/Puppeteer')
+wwebPuppeteer.exposeFunctionIfAbsent = async function exposeFunctionIfAbsent(page, name, fn) {
+  const logged = async (...args) => {
+    try { return await fn(...args) } catch (err) {
+      console.error(`WhatsApp Web (${name}): ${err && err.stack ? err.stack : err}`)
+      throw err
+    }
+  }
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      if (await page.evaluate(n => !!window[n], name)) return
+      await page.exposeFunction(name, logged)
+      return
+    } catch (err) {
+      const transient = /Target closed|detached Frame|Execution context was destroyed/i.test(String(err && err.message))
+      if (!transient || attempt >= 5) throw err
+      console.error(`WhatsApp Web: reintento ${attempt} de exponer ${name}: ${err.message}`)
+      await new Promise(resolve => setTimeout(resolve, 500 * attempt))
+    }
+  }
+}
 const { Client, LocalAuth, MessageMedia, Poll } = require('whatsapp-web.js')
 const QRCode = require('qrcode')
 const { serializedVoterId } = require('./delivery-poll')
