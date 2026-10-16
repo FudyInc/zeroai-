@@ -319,8 +319,10 @@ mantiene la ruta anterior compatible. El presupuesto de pastelones sigue
 pendiente hasta recibir la relación modelo/tamaño y comprobar cada precio; la
 regla de 6 o 4 piezas por m² no se aplica a ningún modelo por suposición.
 
-Pruebas locales: 1181 pruebas Python pasaron, incluidas 79 dirigidas a bordes,
-presupuesto, color, encuestas y transporte; 14 pruebas del puente Node pasaron.
-`node --check` y `git diff --check` también pasaron. El cambio está
-commiteado en esta rama local; no se comprobó el almacén activo, el servicio
-local ni WhatsApp real, así que todavía no está activado.
+Pruebas locales: 1181 pruebas Python pasaron en el checkout del cambio; al
+integrarlo al backend activo se repitieron 79 pruebas dirigidas y pasaron. Las
+14 pruebas Node del puente, `node --check` y `git diff --check` también pasaron.
+El commit quedó activado en el backend local `/home/diego/zeroai`: tras el
+reinicio, `/api/health` respondió OK y el estado autenticado del puente quedó
+`ready`. No se envió un mensaje de prueba a WhatsApp y no se comprobó producción
+remota.
