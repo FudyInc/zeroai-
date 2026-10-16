@@ -58,6 +58,7 @@ let account = null
 let messageEvents = 0
 let forwardedMessages = 0
 const recentEvents = []
+let voteEvents = 0
 const recoveredIds = new Set()
 let readinessTimer = null
 let restartingConnection = false
@@ -335,7 +336,15 @@ client.on('message', msg => {
   void queueMessage(msg).catch(err => { lastError = `Cola entrante: ${err.message}`; console.error(lastError) })
 })
 
+function noteVote(poll, choice, reject) {
+  recentEvents.unshift({ at: new Date().toISOString(), type: 'vote', poll: poll || null,
+                         choice: choice || null, forwarded: !reject, reason: reject || undefined })
+  recentEvents.length = Math.min(recentEvents.length, 10)
+  if (reject) console.error(`Voto de encuesta descartado (${poll || '?'}): ${reject}`)
+}
+
 client.on('vote_update', vote => {
+  voteEvents += 1
   void (async () => {
     if (!actsFor(clientId, 'losetaschile')) return
     const poll = vote.parentMessage
@@ -348,11 +357,18 @@ client.on('vote_update', vote => {
     const options = (poll?.pollOptions || []).map(option => option.name)
     const pollKey = pollForQuestion(question, options)
     const definition = polls[pollKey]
-    if (!poll?.fromMe || poll.type !== 'poll_creation' ||
-        !definition || !pollId ||
-        !/^\d{8,20}@(c\.us|lid)$/.test(chatId) ||
-        !/^\d{8,20}@(c\.us|lid)$/.test(voterId) ||
-        !definition.options.includes(choice)) return
+    // Un voto descartado sin rastro es una falla disimulada: el cliente hizo
+    // clic y nada pasó. Cada voto queda en /diagnostics con su motivo.
+    const reject = !poll?.fromMe ? 'encuesta ajena' :
+      poll.type !== 'poll_creation' ? `tipo ${poll?.type}` :
+      !definition ? `encuesta desconocida: ${question}` :
+      !pollId ? 'sin id de encuesta' :
+      !/^\d{8,20}@(c\.us|lid)$/.test(chatId) ? `chat no válido: ${chatId.split('@')[1] || '?'}` :
+      !/^\d{8,20}@(c\.us|lid)$/.test(voterId) ? `votante no válido: ${voterId.split('@')[1] || '?'}` :
+      !definition.options.includes(choice) ? (selected.length ? `opción no reconocida: ${choice}` : 'voto retirado') :
+      null
+    noteVote(pollKey, choice, reject)
+    if (reject) return
     const syntheticId = 'delivery-poll:' + crypto.createHash('sha256')
       .update(JSON.stringify([pollId, voterId, choice])).digest('hex')
     const payload = await normalizeMessage({
@@ -360,12 +376,14 @@ client.on('vote_update', vote => {
       type: 'chat', body: choice,
       getContact: () => client.getContactById(voterId),
     })
-    if (!payload) return
-    if (chatId.endsWith('@c.us') && payload.from !== chatId.split('@')[0]) return
+    if (!payload) return noteVote(pollKey, choice, 'no se resolvió el teléfono del votante')
+    if (chatId.endsWith('@c.us') && payload.from !== chatId.split('@')[0]) {
+      return noteVote(pollKey, choice, 'votante distinto del chat')
+    }
     if (chatId.endsWith('@lid') && voterId !== chatId) {
       const matches = await client.getContactLidAndPhone(chatId)
       const chatPhone = matches?.[0]?.pn?.split('@')[0]
-      if (!chatPhone || payload.from !== chatPhone) return
+      if (!chatPhone || payload.from !== chatPhone) return noteVote(pollKey, choice, 'votante distinto del chat')
     }
     payload.chat_id = chatId
     queuePayload(payload)
@@ -511,7 +529,7 @@ const server = http.createServer(async (req, res) => {
           }
         }).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(0, 10)
       }) : []
-      return respond(res, 200, { state, messageEvents, forwardedMessages, pendingInbound: pending.size, recentEvents, recentChats })
+      return respond(res, 200, { state, messageEvents, voteEvents, forwardedMessages, pendingInbound: pending.size, recentEvents, recentChats })
     } catch (err) { return respond(res, 500, { error: err.message, messageEvents, forwardedMessages, recentEvents }) }
   }
   if (url.pathname === '/chats' || /^\/chats\/[^/]+\/messages$/.test(url.pathname)) {
