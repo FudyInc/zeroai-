@@ -21,7 +21,8 @@ DELIVERY_POLL_OPTIONS = (DELIVERY_POLL_DELIVERY_LOCATION, DELIVERY_POLL_DELIVERY
                          DELIVERY_POLL_FACTORY_PICKUP)
 
 FACTORY_ADDRESS = "Los Granados 029, La Pintana"
-FACTORY_MAP_URL = ""
+# Same location PoolEdge shares with customers (docs/ficha-pooledge.md).
+FACTORY_MAP_URL = "https://maps.app.goo.gl/yd4CKEr1bqi7RwsZA"
 
 
 def _previous_poll(message: str, history: list[dict[str, Any]]) -> str | None:
@@ -73,9 +74,24 @@ def selected_category_from_history(history: list[dict[str, Any]]) -> str | None:
     return None
 
 
+_BARE_PRODUCT = re.compile(
+    r"[\s¡]*(?:(?:quiero|busco|necesito|me\s+interesan?|cotizar)\s+)?"
+    r"(?:(?:los|unos|el|un)\s+)?"
+    r"(?:(?P<borders>bordes?(?:\s+(?:de|para)\s+(?:la\s+)?piscinas?|\s+piscinas?)?)|"
+    r"(?P<pavers>pastel[oó]n(?:es)?))[\s!.,]*",
+    re.IGNORECASE)
+
+
 def direct_product_category(message: str) -> str | None:
     """Recognize a clear category request without interpreting catalog questions."""
     value = (message or "").strip()
+    # The product name alone answers the product question even when the lead
+    # types it instead of voting. Seen live (2026-10-15): «Bordes de piscina»
+    # reached the model, and no PDF or color poll was sent. A question
+    # («¿Pastelones?») is not a selection and keeps its own path.
+    bare = _BARE_PRODUCT.fullmatch(value)
+    if bare:
+        return "bordes" if bare.group("borders") else "pastelones"
     if not re.search(r"\b(?:quiero|busco|necesito|me interesan|cotizar|presupuesto)\b",
                      value, re.IGNORECASE):
         return None

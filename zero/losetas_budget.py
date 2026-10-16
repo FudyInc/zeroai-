@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .losetas_polls import FACTORY_MAP_URL
 
 
 def format_internal_budget(quote: dict[str, Any], *, profile_name: str | None,
@@ -36,6 +37,8 @@ def format_internal_budget(quote: dict[str, Any], *, profile_name: str | None,
     if delivery:
         lines.append(delivery)
     if delivery.startswith("Retiro en fábrica:"):
+        if FACTORY_MAP_URL:
+            lines.append(f"Ubicación fábrica: {FACTORY_MAP_URL}")
         lines.append("Costo de envío: no aplica (retiro en fábrica).")
     else:
         lines.append("Costo de envío: pendiente de confirmación del equipo.")

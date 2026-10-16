@@ -283,6 +283,74 @@ class PoolBorderCountTest(unittest.TestCase):
         dispatch.assert_not_called()
         self.assertEqual(result["reply"], "¡Buenas noches! ¿En qué puedo ayudarte?")
 
+    def test_live_greetings_open_the_product_poll_without_model(self):
+        # Seen live 2026-10-15: «Hola buenas tardes» reached the model and no poll was sent.
+        zero = Zero(build_agents(mock=True), memory=self.priced_memory())
+        for text in ("Hola buenas tardes", "Hola, buenas noches", "hola buenos días",
+                     "Buenas tardes, ¿cómo están?", "Hola buenas tardes soy Diego"):
+            with self.subTest(text=text), \
+                 mock.patch("zero.orchestrator.whatsapp_greeting", return_value="Buenas noches"), \
+                 mock.patch.object(zero, "dispatch") as dispatch:
+                result = zero.converse_result("losetaschile", text,
+                                              lead={"key": "new-lead"}, channel="whatsapp")
+                dispatch.assert_not_called()
+                self.assertEqual(result["customer_poll"], "product")
+        self.assertIn("Diego", result["reply"])
+
+    def test_greeting_with_a_question_is_not_a_simple_greeting(self):
+        from zero.orchestrator import _simple_greeting
+        for text in ("Hola, realizan despachos?", "Buenas tardes necesito bordes",
+                     "hola quiero cotizar"):
+            with self.subTest(text=text):
+                self.assertFalse(_simple_greeting(text))
+
+    def test_typed_product_name_sends_pdf_and_color_poll(self):
+        # Seen live 2026-10-15: «Bordes de piscina» typed instead of voted got a model reply.
+        zero = Zero(build_agents(mock=True), memory=self.priced_memory())
+        for text, category in (("Bordes de piscina", "bordes"), ("bordes", "bordes"),
+                               ("Pastelones", "pastelones"), ("pastelón", "pastelones"),
+                               ("Necesito bordes de piscina", "bordes")):
+            with self.subTest(text=text), mock.patch.object(zero, "dispatch") as dispatch:
+                result = zero.converse_result("losetaschile", text,
+                                              lead={"key": "new-lead"}, channel="whatsapp")
+                dispatch.assert_not_called()
+                self.assertEqual(result["catalog_document"]["category"], category)
+                self.assertEqual(result["customer_poll"], "color")
+
+    def test_self_description_is_not_taken_as_a_name(self):
+        from zero.orchestrator import _introduced_name
+        self.assertIsNone(_introduced_name("Hola soy nuevo"))
+        self.assertIsNone(_introduced_name("soy arquitecto"))
+        self.assertEqual(_introduced_name("hola buenas tardes soy diego"), "Diego")
+
+    def test_repeated_typed_category_does_not_resend_catalog(self):
+        zero = Zero(build_agents(mock=True), memory=self.priced_memory())
+        history = [{"role": "lead", "text": "Bordes de piscina"},
+                   {"role": "agent", "text": "Catálogo Bordes de Piscina"},
+                   {"role": "agent", "text": color_question()}]
+        draft = SimpleNamespace(result={"reply": "¿Qué color prefieres?", "intent": "info"},
+                                status="ok")
+        with mock.patch.object(zero, "dispatch", return_value=draft):
+            result = zero.converse_result("losetaschile", "bordes", lead={"key": "k"},
+                                          channel="whatsapp", history=history)
+        self.assertNotIn("catalog_document", result)
+        with mock.patch.object(zero, "dispatch") as dispatch:
+            switched = zero.converse_result("losetaschile", "Pastelones", lead={"key": "k"},
+                                            channel="whatsapp", history=history)
+        dispatch.assert_not_called()
+        self.assertEqual(switched["catalog_document"]["category"], "pastelones")
+
+    def test_factory_pickup_budget_includes_map_pin(self):
+        from zero.losetas_budget import format_internal_budget
+        from zero.losetas_polls import FACTORY_MAP_URL
+        quote = {"currency": "CLP", "total": 6000, "delivery_detail":
+                 "Retiro en fábrica: Los Granados 029, La Pintana",
+                 "lines": [{"qty": 1, "name": "Borde", "unit_price": 6000, "subtotal": 6000}]}
+        text = format_internal_budget(quote, profile_name="Diego", phone="56912345678",
+                                      tone="gris")
+        self.assertIn(FACTORY_MAP_URL, text)
+        self.assertTrue(FACTORY_MAP_URL.startswith("https://maps.app.goo.gl/"))
+
     def test_stefano_repeated_model_question_reaches_customer(self):
         memory = self.priced_memory(include_tone=False)
         memory.set_client_agent_profile("losetaschile", {
