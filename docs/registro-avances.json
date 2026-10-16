@@ -2,6 +2,18 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-10-15-flujo-encuestas-cotizacion-losetas",
+      "date": "2026-10-15",
+      "type": "change",
+      "title": "Flujo de selección por encuestas y datos de presupuesto para LosetasChile",
+      "origin": "Diego pidió dejar operativo el resto del flujo acordado por WhatsApp",
+      "summary": "Se añadieron encuestas de producto y color, envío conjunto del PDF de categoría y la imagen de la paleta, la tercera opción de retiro en fábrica y el filtro de entrega para no preparar el presupuesto de bordes sin ubicación. El presupuesto interno deja como pendientes de confirmación la fecha de entrega y el costo de envío; en retiro indica que el envío no aplica. Para pastelones se recopilan modelo y m²; no se calcula hasta confirmar el tamaño de cada modelo.",
+      "status": "Commiteado localmente y verificado por suite; activación pendiente",
+      "scope": "Código y documentación del flujo WhatsApp de LosetasChile",
+      "evidence": "Commit en la rama local. Código local verificado: 1181 pruebas Python aprobaron; 14 pruebas Node del puente aprobaron; node --check y git diff --check aprobaron. Incluye captura de modelo y m² que no avanza si falta un dato, prioridad para solicitudes explícitas de catálogo y compatibilidad de la ruta de encuesta de despacho. No se verificó el almacén activo, el servicio local ni WhatsApp real.",
+      "pending": "Recibir la correspondencia de modelos pastelones 40×40/50×50 y verificar precios vigentes antes de calcular el presupuesto; recibir el enlace de Google Maps para el pin de retiro; activar/verificar el flujo en el servicio y en WhatsApp antes de presentarlo como operativo."
+    },
+    {
       "id": "2026-10-14-losetas-orden-fotos-precios-pdf",
       "date": "2026-10-14",
       "type": "change",

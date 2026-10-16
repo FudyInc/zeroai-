@@ -269,6 +269,33 @@ def measurement_followup(message: str, history: list[dict[str, Any]]) -> bool:
     return False
 
 
+def border_model_followup(message: str, history: list[dict[str, Any]]) -> bool:
+    """Continue a pool-border quote when the customer answers the model question."""
+    content = (message or "").strip()
+    if not content or len(content) > 100 or "?" in content:
+        return False
+    for turn in reversed(history):
+        if turn.get("role") != "agent":
+            continue
+        prompt = str(turn.get("text") or "").casefold()
+        return ("modelo" in prompt and ("borde" in prompt or "piscina" in prompt) and
+                not re.search(r"\b(?:precio|medidas?)\b", prompt))
+    return False
+
+
+def pool_shape_followup(message: str, history: list[dict[str, Any]]) -> bool:
+    """Continue when the customer answers whether the pool is rectangular."""
+    answer = (message or "").strip().casefold().strip(".!¿? ")
+    if answer not in {"sí", "si", "no", "rectangular", "es rectangular"}:
+        return False
+    for turn in reversed(history):
+        if turn.get("role") != "agent":
+            continue
+        prompt = str(turn.get("text") or "").casefold()
+        return "piscina" in prompt and "rectangular" in prompt
+    return False
+
+
 def border_plan(message: str, history: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, str]:
     """Return confirmed quantities or the one missing detail to ask for."""
     message = normalize_pool_border_terms(message)
@@ -300,11 +327,18 @@ def border_plan(message: str, history: list[dict[str, Any]]) -> tuple[dict[str, 
                     _PRODUCT.search(text)), None)
     if product and (_REJECT_PRODUCT.search(product) or _OTHER_PRODUCT.search(product)):
         return None, "¿Te refieres al borde recto con nariz de la piscina o a otro producto?"
+    if (pool_shape_followup(message, history) and
+            re.fullmatch(r"\s*no[.!? ]*", message, re.IGNORECASE)):
+        return None, "Necesito revisar esta piscina antes de calcular las cantidades."
     if product is None:
         return None, "¿Qué modelo de borde o pastelón quieres usar?"
     shape = next((text for text in latest_first if _OTHER_SHAPE.search(text) or
                   re.search(r"\bno\s+(?:es\s+)?rectangular\b", text, re.IGNORECASE) or
                   _RECTANGULAR.search(text)), None)
+    if shape is None and pool_shape_followup(message, history) and \
+            re.fullmatch(r"\s*(?:s[ií]|rectangular|es rectangular)[.!? ]*", message,
+                         re.IGNORECASE):
+        shape = "rectangular"
     if shape and (_OTHER_SHAPE.search(shape) or
                   re.search(r"\bno\s+(?:es\s+)?rectangular\b", shape, re.IGNORECASE)):
         return None, "Necesito revisar la forma de esa piscina antes de calcular las piezas."

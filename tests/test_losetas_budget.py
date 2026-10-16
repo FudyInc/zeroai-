@@ -19,7 +19,8 @@ class LosetasBudgetTest(unittest.TestCase):
         self.assertIn("Cliente: María Pérez\nNúmero: +56912345678", message)
         self.assertIn("Color indicado por cliente: beige", message)
         self.assertIn("*Total productos: $230.400*", message)
-        self.assertIn("Despacho: por cotizar", message)
+        self.assertIn("Costo de envío: pendiente de confirmación del equipo.", message)
+        self.assertIn("Fecha de entrega: pendiente de confirmación del equipo.", message)
         self.assertIn("enviar manualmente", message)
 
     def test_no_display_name_omits_name_but_keeps_number(self):
@@ -33,14 +34,14 @@ class LosetasBudgetTest(unittest.TestCase):
         self.assertIsNone(format_internal_budget(self.quote, profile_name="Ana",
                                                  phone="", tone="rojo"))
 
-    def test_route_distance_calculates_freight_in_internal_budget(self):
+    def test_route_distance_does_not_override_team_shipping_confirmation(self):
         self.quote["shipping_route_km"] = 12.5
         self.quote["delivery_detail"] = (
             "Ubicación compartida: https://www.google.com/maps?q=-33.610397,-70.643376")
         message = format_internal_budget(self.quote, profile_name="", phone="56912345678",
                                          tone="gris")
-        self.assertIn("Despacho: $25.000 (12.5 km × $2.000/km)", message)
-        self.assertIn("Los Granados 029, La Pintana", message)
+        self.assertIn("Costo de envío: pendiente de confirmación del equipo.", message)
+        self.assertNotIn("$25.000", message)
         self.assertIn(self.quote["delivery_detail"], message)
 
     def test_invalid_route_distance_never_calculates_freight(self):

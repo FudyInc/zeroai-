@@ -415,9 +415,9 @@ def send_catalog_document(client_id: str, expected_account: str, to: str,
     return result
 
 
-def send_delivery_poll(client_id: str, expected_account: str, to: str,
-                       chat_id: str) -> Dict[str, Any]:
-    """Send the fixed one-choice delivery poll to a verified LosetasChile chat."""
+def send_choice_poll(client_id: str, expected_account: str, to: str,
+                     chat_id: str, poll_key: str) -> Dict[str, Any]:
+    """Send one of the configured one-choice polls to a verified chat."""
     if client_id != "losetaschile":
         raise ValueError("Encuesta de despacho disponible solo para LosetasChile")
     number = "".join(c for c in str(to or "") if c.isdigit())
@@ -426,11 +426,20 @@ def send_delivery_poll(client_id: str, expected_account: str, to: str,
     if chat_id.endswith("@c.us") and chat_id.split("@", 1)[0] != number:
         raise ValueError("El chat no coincide con el destinatario")
     _verified_account(client_id, expected_account)
-    result = bridge_request("/send-delivery-poll", {"to": number, "chat_id": chat_id},
-                            client_id=client_id)
+    if poll_key not in {"product", "color", "delivery"}:
+        raise ValueError("Encuesta de LosetasChile desconocida")
+    endpoint = "/send-delivery-poll" if poll_key == "delivery" else "/send-poll"
+    result = bridge_request(endpoint, {"to": number, "chat_id": chat_id,
+                                       "poll_key": poll_key}, client_id=client_id)
     if not result.get("id") or result.get("ack") == -1:
         raise RuntimeError("Encuesta sin confirmación; revisar el chat antes de reintentar")
     return {"status": "sent", **result}
+
+
+def send_delivery_poll(client_id: str, expected_account: str, to: str,
+                       chat_id: str) -> Dict[str, Any]:
+    """Compatibility wrapper for the delivery poll."""
+    return send_choice_poll(client_id, expected_account, to, chat_id, "delivery")
 
 
 class WhatsAppWebSender:

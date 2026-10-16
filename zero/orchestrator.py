@@ -45,12 +45,18 @@ from .losetas_budget import format_internal_budget
 from .losetas_shipping import (SHIPPING_COVERAGE_REPLY, SHIPPING_PRICE_REPLY,
                                delivery_detail, delivery_poll_choice_response,
                                shipping_coverage_request, shipping_delivery_followup)
+from .losetas_polls import (DELIVERY_POLL_QUESTION as LOSETAS_DELIVERY_POLL_QUESTION,
+                            PRODUCT_POLL_QUESTION,
+                            category_for_poll_choice, poll_answer_for_history,
+                            direct_product_category, selected_category_from_history,
+                            is_factory_pickup, FACTORY_ADDRESS, paver_order_details)
 from .memory import SessionMemory
 from .quotes import compute_quote, extract_request, format_quote, normalize_pricing
 from .pool_border import (border_plan, catalog_requested, visual_catalog_category,
                           delegates_piece_calculation,
                           format_product_quote, shipping_price_request,
-                          measurement_followup, unquoted_piece_count,
+                          border_model_followup, measurement_followup, pool_shape_followup,
+                          unquoted_piece_count,
                           wants_border_budget, wants_product_quote,
                           pool_border_models_reply, pool_measurement_message)
 from .vendors import credentials_for
@@ -1054,11 +1060,9 @@ class Zero:
         if client_id == "losetaschile" and channel == "whatsapp" and _simple_greeting(message):
             introduced = _introduced_name(message)
             salutation = f"¡{greeting}, {introduced}!" if introduced else f"¡{greeting}!"
-            return {"reply": f"{salutation} ¿En qué puedo ayudarte?", "intent": "general"}
+            return {"reply": f"{salutation} ¿En qué puedo ayudarte?", "intent": "general",
+                    "customer_poll": "product"}
         if client_id == "losetaschile" and channel == "whatsapp":
-            choice_reply = delivery_poll_choice_response(message)
-            if choice_reply:
-                return {"reply": choice_reply, "intent": "info"}
             visual_category = visual_catalog_category(message)
             if visual_category:
                 title = ("Catálogo Bordes de Piscina" if visual_category == "bordes"
@@ -1068,6 +1072,31 @@ class Zero:
                         "catalog_document": {"category": visual_category, "pricing": pricing}}
             if catalog_requested(message):
                 return {"reply": LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE, "intent": "catalog"}
+            selected_category = (category_for_poll_choice(message, order_history) or
+                                 direct_product_category(message))
+            if selected_category:
+                pricing = normalize_pricing(self.memory.get_client_pricing(client_id))
+                return {"reply": color_question(), "intent": "catalog",
+                        "catalog_document": {"category": selected_category, "pricing": pricing},
+                        "media_asset": COLOR_CATALOG_IMAGE_PATH,
+                        "customer_poll": "color"}
+            if (_QUOTE_REQUEST_RE.search(message) and
+                    not re.search(r"\b(?:bordes?\s+(?:de|para)\s+(?:la\s+)?piscina|pastelones?)\b",
+                                  message, re.IGNORECASE) and not order_history):
+                return {"reply": PRODUCT_POLL_QUESTION, "intent": "qualification",
+                        "customer_poll": "product"}
+            choice_reply = delivery_poll_choice_response(message)
+            category_in_history = selected_category_from_history(order_history)
+            paver_details = paver_order_details(message, order_history) \
+                if category_in_history == "pastelones" else {}
+            factory_order_ready = (
+                is_factory_pickup(message) and latest_color_preference(order_history) and
+                (category_in_history == "bordes" or
+                 (category_in_history == "pastelones" and paver_details.get("model") and
+                  paver_details.get("area_m2")))
+            )
+            if choice_reply and not factory_order_ready:
+                return {"reply": choice_reply, "intent": "info"}
         if (client_id == "losetaschile" and channel == "whatsapp" and
                 shipping_price_request(message)):
             return {"reply": SHIPPING_PRICE_REPLY, "intent": "pricing",
@@ -1130,9 +1159,38 @@ class Zero:
         selected_tone = (color_preference(message, order_history) or
                          latest_color_preference(order_history)) \
             if client_id == "losetaschile" and channel == "whatsapp" else None
+        if (client_id == "losetaschile" and channel == "whatsapp" and selected_tone and
+                poll_answer_for_history(message, order_history) == "color" and
+                selected_category_from_history(order_history) == "pastelones"):
+            return {"reply": (f"Anoté el color {selected_tone}. ¿Qué modelo del catálogo "
+                              "te interesa y cuántos m² necesitas cubrir?"),
+                    "intent": "qualification"}
+        if (client_id == "losetaschile" and channel == "whatsapp" and
+                selected_category_from_history(order_history) == "pastelones" and
+                not shipping_delivery_followup(message, order_history) and
+                any(turn.get("role") == "agent" and "cuántos m²" in
+                    str(turn.get("text") or "").casefold() for turn in order_history[-4:])):
+            paver_details = paver_order_details(message, order_history)
+            if paver_details["model"] and paver_details["area_m2"]:
+                return {"reply": LOSETAS_DELIVERY_POLL_QUESTION, "intent": "qualification",
+                        "delivery_poll": True}
+            if paver_details["model"]:
+                return {"reply": f"Anoté el modelo {paver_details['model']}. ¿Cuántos m² necesitas cubrir?",
+                        "intent": "qualification"}
+            if paver_details["area_m2"]:
+                return {"reply": f"Anoté {paver_details['area_m2']} m². ¿Qué modelo del catálogo te interesa?",
+                        "intent": "qualification"}
+        if (client_id == "losetaschile" and channel == "whatsapp" and
+                selected_category_from_history(order_history) == "pastelones" and
+                shipping_delivery_followup(message, order_history)):
+            return {"reply": ("Gracias, recibí el modelo, los m² y la ubicación. "
+                              "Debo confirmar el tamaño del modelo antes de calcular las cantidades."),
+                    "intent": "info"}
         if (client_id == "losetaschile" and channel == "whatsapp" and
                 (wants_border_budget(message) or pool_measurement_message(message) or measurement_followup(
-                    message, order_history) or color_preference(message, order_history) or
+                    message, order_history) or border_model_followup(message, order_history) or
+                 pool_shape_followup(message, order_history) or
+                 color_preference(message, order_history) or
                  shipping_delivery_followup(message, order_history))):
             plan, clarification = border_plan(message, order_history)
             if plan is None:
@@ -1142,7 +1200,11 @@ class Zero:
                 return {"reply": clarification, "intent": "pricing"}
             if not selected_tone:
                 return {"reply": color_question(), "intent": "qualification",
-                        "media_asset": COLOR_CATALOG_IMAGE_PATH}
+                        "media_asset": COLOR_CATALOG_IMAGE_PATH,
+                        "customer_poll": "color"}
+            if not delivery_detail(message, order_history):
+                return {"reply": LOSETAS_DELIVERY_POLL_QUESTION, "intent": "qualification",
+                        "delivery_poll": True}
             order = [{"id": "borde-recto-nariz-50x50", "qty": plan["straight"]},
                      {"id": "esquina-piscina-50x50", "qty": plan["corners"]}]
             product_quote = compute_quote(pricing, order)
@@ -1577,6 +1639,10 @@ class Zero:
                 else:
                     thanks = "Gracias, recibí los datos de tu pedido. "
                 acknowledgment = thanks + (
+                    (f"El retiro es en {FACTORY_ADDRESS}. "
+                     if delivery_detail(text, prior_turns) and
+                     str(delivery_detail(text, prior_turns)).startswith("Retiro en fábrica:")
+                     else "") +
                     "Tu presupuesto está pendiente de revisión por nuestro equipo; "
                     "te responderemos por este chat.")
                 try:
@@ -1705,6 +1771,19 @@ class Zero:
                             chat_id=whatsapp_chat_id)
                         delivery = {"status": "sent", "via": "whatsapp_web",
                                     "id": sent["id"], "ack": sent.get("ack")}
+                        self.memory.add_turn(client_id, key, "agent",
+                                             "Catálogo Bordes de Piscina" if
+                                             document["category"] == "bordes" else
+                                             "Catálogo Pastelones")
+                        if res.get("media_asset"):
+                            from .whatsapp_web import send_catalog_image
+                            from pathlib import PurePosixPath
+                            image = send_catalog_image(
+                                client_id, to_phone_id, rec.get("phone") or from_contact,
+                                PurePosixPath(res["media_asset"]).name, reply,
+                                chat_id=whatsapp_chat_id)
+                            delivery = {"status": "sent", "via": "whatsapp_web",
+                                        "id": image["id"], "ack": image.get("ack")}
                     except (RuntimeError, ValueError) as exc:
                         delivery = {"status": "error", "error": str(exc)}
             elif client_id == "losetaschile" and channel == "whatsapp" and res.get("media_asset"):
@@ -1741,6 +1820,26 @@ class Zero:
                         poll_delivery = {"status": "error", "error": str(exc)}
                     self.memory.log("delivery_poll", client=client_id, lead=key,
                                     status=poll_delivery.get("status", "sent"))
+                    if poll_delivery.get("status") == "sent":
+                        self.memory.add_turn(client_id, key, "agent",
+                                             LOSETAS_DELIVERY_POLL_QUESTION)
+                if (client_id == "losetaschile" and channel == "whatsapp" and
+                        res.get("customer_poll") and whatsapp_chat_id and to_phone_id):
+                    try:
+                        from .losetas_polls import (COLOR_POLL_QUESTION,
+                                                    PRODUCT_POLL_QUESTION)
+                        from .whatsapp_web import send_choice_poll
+                        poll_delivery = send_choice_poll(
+                            client_id, to_phone_id, rec.get("phone") or from_contact,
+                            whatsapp_chat_id, str(res["customer_poll"]))
+                        question = (PRODUCT_POLL_QUESTION if res["customer_poll"] == "product"
+                                    else COLOR_POLL_QUESTION)
+                        self.memory.add_turn(client_id, key, "agent", question)
+                    except (RuntimeError, ValueError) as exc:
+                        poll_delivery = {"status": "error", "error": str(exc)}
+                    self.memory.log("customer_poll", client=client_id, lead=key,
+                                    poll=res["customer_poll"],
+                                    status=poll_delivery.get("status", "error"))
             if self.crm:
                 # Un presupuesto enviado es un evento de venta, no una respuesta más:
                 # queda aparte en el historial para que un humano lo vea de un vistazo.

@@ -4,6 +4,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .losetas_polls import COLOR_POLL_QUESTION
+
 
 COLOR_CATALOG_IMAGE_PATH = "catalog/losetaschile/gama-bordes-piscina.jpeg"
 COLOR_CATALOG_IMAGE_URL = (
@@ -23,15 +25,14 @@ _REJECT = re.compile(
 
 def color_question() -> str:
     """Caption for the supplied image, without claiming stock availability."""
-    return (
-        "Te comparto la gama de colores para los bordes de piscina: "
-        "anaranjado, blanco, rojo, crema, beige, gris y amarillo. "
-        "¿Cuál prefieres?"
-    )
+    return ("Te comparto la gama de colores disponible para bordes y pastelones: "
+            "anaranjado, blanco, rojo, crema, beige, gris y amarillo. "
+            f"{COLOR_POLL_QUESTION}")
 
 
 def _is_color_question(text: str) -> bool:
-    return _QUESTION_MARKER in text.lower()
+    value = (text or "").casefold()
+    return _QUESTION_MARKER in value or COLOR_POLL_QUESTION.casefold() in value
 
 
 def _parse_preference(message: str) -> str | None:
