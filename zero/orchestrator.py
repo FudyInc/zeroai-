@@ -49,7 +49,8 @@ from .losetas_polls import (DELIVERY_POLL_QUESTION as LOSETAS_DELIVERY_POLL_QUES
                             PRODUCT_POLL_QUESTION,
                             category_for_poll_choice, poll_answer_for_history,
                             direct_product_category, selected_category_from_history,
-                            is_factory_pickup, FACTORY_ADDRESS, paver_order_details)
+                            is_factory_pickup, FACTORY_ADDRESS, FACTORY_MAP_URL,
+                            paver_order_details)
 from .memory import SessionMemory
 from .quotes import compute_quote, extract_request, format_quote, normalize_pricing
 from .pool_border import (border_plan, catalog_requested, visual_catalog_category,
@@ -89,19 +90,37 @@ def _same_reply(first: str, second: str) -> bool:
     return bool(normalize(first) and normalize(first) == normalize(second))
 
 
+# Saludos que se combinan entre sí: «Hola buenas tardes», «Hola, buenas noches,
+# ¿cómo están?». Visto en vivo (2026-10-15): «Hola buenas tardes» no estaba en la
+# lista cerrada anterior, llegó al modelo y nunca se mandó la encuesta de producto.
+_GREETING_WORD = (r"(?:hola+|holi|wena+s?|buenas|saludos|"
+                  r"buen[oa]?s?\s+(?:d[ií]as?|tardes|noches)|"
+                  r"qu[eé]\s+tal|c[oó]mo\s+(?:est[aá][sn]?|va)(?:\s+(?:ustedes|usted|todo))?)")
+_GREETING_SEP = r"[\s,!¡¿?.]+"
+_GREETING_RE = re.compile(
+    rf"[\s¡¿]*{_GREETING_WORD}(?:{_GREETING_SEP}{_GREETING_WORD}){{0,3}}[\s!?.,]*",
+    re.IGNORECASE)
+
+
+# «Hola, soy nuevo» describe al contacto; no es su nombre.
+_NOT_A_NAME = frozenset({
+    "nuevo", "nueva", "cliente", "clienta", "arquitecto", "arquitecta", "constructor",
+    "constructora", "contratista", "particular", "empresa", "instalador", "instaladora",
+    "maestro", "vecino", "vecina", "yo", "el", "la", "de", "del", "un", "una",
+})
+
+
 def _introduced_name(text: str) -> Optional[str]:
     match = re.fullmatch(
-        r"(?:(?:hola|buenas)[\s,!]+)?(?:me llamo|soy)\s+([^\W\d_]{2,30})[.!?]*",
+        rf"(?:{_GREETING_WORD}{_GREETING_SEP}){{0,3}}(?:me llamo|soy)\s+([^\W\d_]{{2,30}})[.!?]*",
         (text or "").strip(), re.IGNORECASE | re.UNICODE)
-    return match.group(1).capitalize() if match else None
+    if not match or match.group(1).casefold() in _NOT_A_NAME:
+        return None
+    return match.group(1).capitalize()
 
 
 def _simple_greeting(text: str) -> bool:
-    value = (text or "").strip().casefold().strip(" ¡!¿?.,")
-    return (value in {"hola", "holi", "buenas", "hola buenas", "hola buen día",
-                      "hola buen dia", "buenos días", "buenos dias",
-                      "buen día", "buen dia", "buenas tardes", "buenas noches"}
-            or _introduced_name(text) is not None)
+    return bool(_GREETING_RE.fullmatch(text or "")) or _introduced_name(text) is not None
 
 
 def _unreadable_whatsapp_message(text: str, client_id: str = "") -> bool:
@@ -1072,8 +1091,13 @@ class Zero:
                         "catalog_document": {"category": visual_category, "pricing": pricing}}
             if catalog_requested(message):
                 return {"reply": LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE, "intent": "catalog"}
-            selected_category = (category_for_poll_choice(message, order_history) or
-                                 direct_product_category(message))
+            selected_category = category_for_poll_choice(message, order_history)
+            typed_category = direct_product_category(message)
+            # A typed product name restarts the step only when it is a new choice:
+            # repeating the category just chosen must not resend PDF and color poll.
+            if (not selected_category and typed_category and
+                    selected_category_from_history(order_history[-6:]) != typed_category):
+                selected_category = typed_category
             if selected_category:
                 pricing = normalize_pricing(self.memory.get_client_pricing(client_id))
                 return {"reply": color_question(), "intent": "catalog",
@@ -1639,7 +1663,8 @@ class Zero:
                 else:
                     thanks = "Gracias, recibí los datos de tu pedido. "
                 acknowledgment = thanks + (
-                    (f"El retiro es en {FACTORY_ADDRESS}. "
+                    (f"El retiro es en {FACTORY_ADDRESS}" +
+                     (f" ({FACTORY_MAP_URL}). " if FACTORY_MAP_URL else ". ")
                      if delivery_detail(text, prior_turns) and
                      str(delivery_detail(text, prior_turns)).startswith("Retiro en fábrica:")
                      else "") +
@@ -1677,7 +1702,10 @@ class Zero:
                     "intent": "pricing", "company": rec.get("company"),
                     "delivery": delivery, "customer_ack": customer_ack, **out}
         def repetition(candidate: str) -> bool:
-            if candidate in (SHIPPING_COVERAGE_REPLY, SHIPPING_PRICE_REPLY) or intent == "catalog":
+            # A deterministic step that sends a poll is the flow asking its next
+            # question, not the model looping; flagging it would hand the chat off.
+            if (candidate in (SHIPPING_COVERAGE_REPLY, SHIPPING_PRICE_REPLY) or intent == "catalog"
+                    or res.get("customer_poll") or res.get("delivery_poll")):
                 return False
             return bool(channel == "whatsapp" and client_id == "losetaschile" and
                         (any(turn.get("role") == "agent" and _same_reply(candidate, turn.get("text"))
