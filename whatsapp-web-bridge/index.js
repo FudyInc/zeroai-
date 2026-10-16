@@ -7,6 +7,7 @@ const path = require('node:path')
 const { Client, LocalAuth, MessageMedia, Poll } = require('whatsapp-web.js')
 const QRCode = require('qrcode')
 const { serializedVoterId } = require('./delivery-poll')
+const { polls, pollForQuestion } = require('./poll-definitions')
 const { isCustomerMessageType } = require('./customer-message')
 const { recentInbound } = require('./recovery')
 const { CATALOGS, makeCatalogPdf } = require('./catalog-document')
@@ -45,9 +46,6 @@ const catalogImages = new Set([
   'extension-borde-piscina-50x50.jpeg',
 ])
 const catalogDir = path.resolve(__dirname, '../frontend/public/catalog/losetaschile')
-const deliveryPollQuestion = '¿Cómo prefieres indicar el lugar de entrega?'
-const deliveryPollLocation = '📍 Compartir ubicación'
-const deliveryPollAddress = '✍️ Escribir dirección'
 function loadPending() {
   try { return new Map(JSON.parse(fs.readFileSync(pendingFile, 'utf8')).map(item => [item.id, item])) }
   catch (err) {
@@ -285,14 +283,15 @@ client.on('vote_update', vote => {
     const selected = vote.selectedOptions || []
     const choice = selected.length === 1 ? selected[0]?.name : null
     const pollId = messageId(poll)
+    const question = poll?.pollName || poll?.body || ''
+    const options = (poll?.pollOptions || []).map(option => option.name)
+    const pollKey = pollForQuestion(question, options)
+    const definition = polls[pollKey]
     if (!poll?.fromMe || poll.type !== 'poll_creation' ||
-        poll.pollName !== deliveryPollQuestion || !pollId ||
+        !definition || !pollId ||
         !/^\d{8,20}@(c\.us|lid)$/.test(chatId) ||
         !/^\d{8,20}@(c\.us|lid)$/.test(voterId) ||
-        ![deliveryPollLocation, deliveryPollAddress].includes(choice)) return
-    const options = (poll.pollOptions || []).map(option => option.name)
-    if (options.length !== 2 || !options.includes(deliveryPollLocation) ||
-        !options.includes(deliveryPollAddress)) return
+        !definition.options.includes(choice)) return
     const syntheticId = 'delivery-poll:' + crypto.createHash('sha256')
       .update(JSON.stringify([pollId, voterId, choice])).digest('hex')
     const payload = await normalizeMessage({
@@ -549,7 +548,7 @@ const server = http.createServer(async (req, res) => {
   }
   if (req.method === 'POST' && (req.url === '/send-group' || req.url === '/send-catalog-image' ||
                                 req.url === '/send-catalog-document' ||
-                                req.url === '/send-delivery-poll')) {
+                                req.url === '/send-delivery-poll' || req.url === '/send-poll')) {
     if (state !== 'ready') return respond(res, 503, { error: 'WhatsApp Web is not ready' })
     let raw = ''
     for await (const chunk of req) {
@@ -571,7 +570,7 @@ const server = http.createServer(async (req, res) => {
         return result ? respond(res, 200, result)
           : respond(res, 502, { error: 'Group send outcome uncertain; review chat before retry' })
       }
-      if (req.url === '/send-delivery-poll') {
+      if (req.url === '/send-delivery-poll' || req.url === '/send-poll') {
         if (!actsFor(clientId, 'losetaschile')) return respond(res, 403, { error: 'poll not allowed for this account' })
         const number = String(body.to || '').replace(/\D/g, '')
         const chatId = String(body.chat_id || `${number}@c.us`)
@@ -579,12 +578,14 @@ const server = http.createServer(async (req, res) => {
             (chatId.endsWith('@c.us') && chatId.split('@')[0] !== number)) {
           return respond(res, 400, { error: 'invalid poll recipient' })
         }
-        const poll = new Poll(deliveryPollQuestion,
-          [deliveryPollLocation, deliveryPollAddress], { allowMultipleAnswers: false })
+        const pollKey = req.url === '/send-delivery-poll' ? 'delivery' : String(body.poll_key || '')
+        const definition = polls[pollKey]
+        if (!definition) return respond(res, 400, { error: 'invalid poll type' })
+        const poll = new Poll(definition.question, definition.options, { allowMultipleAnswers: false })
         const result = await sendAndConfirm(chatId, poll, {}, message =>
           message.type === 'poll_creation' &&
-          (message.pollName === deliveryPollQuestion || message.body === deliveryPollQuestion),
-        'poll_creation', deliveryPollQuestion)
+          (message.pollName === definition.question || message.body === definition.question),
+        'poll_creation', definition.question)
         return result ? respond(res, 200, result)
           : respond(res, 502, { error: 'Poll send outcome uncertain; review chat before retry' })
       }

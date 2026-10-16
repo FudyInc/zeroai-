@@ -373,3 +373,32 @@ envío cuando el cliente dice «pero no ahora», «mañana» o «todavía», y c
 solo pregunta si hay catálogo. La corrección se cargó en el backend local el
 2026-10-14; el servicio reinició y respondió salud OK. Falta verificar el
 resultado en el teléfono.
+
+## Flujo de selección y preparación de presupuesto — cambio local del 2026-10-15
+
+Diego pidió iniciar con una encuesta para elegir bordes de piscina o pastelones,
+entregar el PDF de esa categoría y mostrar la imagen común de siete colores con
+una encuesta. El flujo de bordes conserva la pregunta de largo y ancho de la
+piscina cuando falten medidas. Para pastelones solicita modelo y m² a cubrir;
+el cálculo por modelo queda pendiente hasta que Diego indique cuáles son de
+40×40 y cuáles de 50×50. Su regla confirmada es 6 piezas por m² para 40×40 y
+4 piezas por m² para 50×50.
+
+La encuesta de ubicación incluye despacho por ubicación compartida, despacho
+por dirección escrita y retiro en fábrica. El retiro queda como Los Granados
+029, La Pintana; falta el enlace de Google Maps para añadir el pin. El borrador
+interno modificado muestra como pendientes de confirmación del equipo solo la
+fecha de entrega y el costo de envío; para retiro indica que el envío no aplica.
+
+Verificación de código local el 2026-10-15: se recopilan por separado el modelo
+y los m², y la encuesta de entrega no avanza mientras falte uno de esos datos.
+El agente conserva la solicitud de catálogo explícita y el helper de despacho
+mantiene la ruta anterior compatible. El presupuesto de pastelones sigue
+pendiente hasta recibir la relación modelo/tamaño y comprobar cada precio; la
+regla de 6 o 4 piezas por m² no se aplica a ningún modelo por suposición.
+
+Pruebas locales: 1181 pruebas Python pasaron, incluidas 79 dirigidas a bordes,
+presupuesto, color, encuestas y transporte; 14 pruebas del puente Node pasaron.
+`node --check` y `git diff --check` también pasaron. El cambio está
+commiteado en esta rama local; no se comprobó el almacén activo, el servicio
+local ni WhatsApp real, así que todavía no está activado.

@@ -4,8 +4,6 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .config import LOSETASCHILE_FLETE_CLP_PER_KM, LOSETASCHILE_FLETE_ORIGIN
-from .quotes import compute_losetas_shipping_cost
 
 
 def format_internal_budget(quote: dict[str, Any], *, profile_name: str | None,
@@ -26,7 +24,7 @@ def format_internal_budget(quote: dict[str, Any], *, profile_name: str | None,
     lines.append(f"Número: +{digits}")
     if tone:
         selected = " ".join(str(tone).split())[:80]
-        lines.append(f"Color indicado por cliente: {selected} (confirmar disponibilidad)")
+        lines.append(f"Color indicado por cliente: {selected}")
     else:
         lines.append("Tono: pendiente de confirmar")
     lines.append("")
@@ -34,15 +32,13 @@ def format_internal_budget(quote: dict[str, Any], *, profile_name: str | None,
         lines.append(f"{item['qty']} × {item['name']} · {money(item['unit_price'])} c/u = "
                      f"{money(item['subtotal'])}")
     lines.extend(["", f"*Total productos: {money(quote['total'])}*"])
-    shipping = compute_losetas_shipping_cost(quote.get("shipping_route_km"))
-    if shipping is None:
-        lines.append("Despacho: por cotizar (distancia por ruta pendiente de verificar).")
+    delivery = " ".join(str(quote.get("delivery_detail") or "").split())[:300]
+    if delivery:
+        lines.append(delivery)
+    if delivery.startswith("Retiro en fábrica:"):
+        lines.append("Costo de envío: no aplica (retiro en fábrica).")
     else:
-        lines.append(f"Despacho: {money(shipping)} "
-                     f"({quote['shipping_route_km']} km × {money(LOSETASCHILE_FLETE_CLP_PER_KM)}/km).")
-    lines.extend([f"Origen del flete: {LOSETASCHILE_FLETE_ORIGIN}.",
-                  f"Tarifa provisional: {money(LOSETASCHILE_FLETE_CLP_PER_KM)}/km.",
+        lines.append("Costo de envío: pendiente de confirmación del equipo.")
+    lines.extend(["Fecha de entrega: pendiente de confirmación del equipo.",
                   "Borrador interno. Revisar y enviar manualmente al cliente."])
-    if quote.get("delivery_detail"):
-        lines.insert(-1, str(quote["delivery_detail"])[:300])
     return "\n".join(lines)
