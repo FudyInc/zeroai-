@@ -404,3 +404,23 @@ El commit quedó activado en el backend local `/home/diego/zeroai`: tras el
 reinicio, `/api/health` respondió OK y el estado autenticado del puente quedó
 `ready`. No se envió un mensaje de prueba a WhatsApp y no se comprobó producción
 remota.
+
+## Corrección del flujo tras la primera prueba real — 2026-10-16
+
+En la prueba real posterior a la activación, «Hola buenas tardes» no se reconoció
+como saludo (la lista cerrada no lo incluía): llegó al modelo, que tardó ~48 s y
+no envió la encuesta de producto. Luego «Bordes de piscina», escrito en vez de
+votado, tampoco activó el PDF, la imagen de colores ni la encuesta de color,
+porque solo se aceptaba con un verbo («quiero», «necesito»…).
+
+Corregido: los saludos combinados («Hola, buenas noches, ¿cómo están?») abren
+la encuesta de producto sin pasar por el modelo; el nombre del producto escrito
+solo cuenta como elección, salvo que repita la categoría recién elegida; «Hola,
+soy nuevo» ya no se toma como nombre; el retiro en fábrica incluye el pin
+https://maps.app.goo.gl/yd4CKEr1bqi7RwsZA (el mismo de `ficha-pooledge.md`) en
+el aviso al cliente y en el borrador interno. Suite completa en verde; activo en
+el backend local con el puente `ready`. Falta repetir la prueba en el teléfono.
+
+Sigue pendiente: qué modelos de pastelones son 50×50 (hoy el flujo de pastelones
+recoge modelo, m² y entrega, pero no arma presupuesto). Un saludo a mitad de un
+pedido vuelve a mandar la encuesta de producto.
