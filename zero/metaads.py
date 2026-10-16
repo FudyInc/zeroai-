@@ -105,6 +105,9 @@ def _ad_leads_mock(client_id: str, cfg: Optional[Dict[str, Any]]) -> List[Dict[s
     return out
 
 
+_NOT_CLP = "La cuenta publicitaria no usa CLP; se ocultaron importes para evitar cifras incorrectas"
+
+
 class MetaAds:
     """Campañas e Insights reales vía Meta Marketing API (Graph)."""
     live = True
@@ -128,6 +131,15 @@ class MetaAds:
             "fields": "campaign_id,spend,actions,account_currency",
             "level": "campaign", "date_preset": "this_month", "limit": 100,
         })
+        # Los montos se muestran como CLP: si la cuenta usa otra moneda, ocultarlos
+        # es mejor que mostrar 50 USD como $50. Sin moneda conocida, tampoco se
+        # asume CLP (una cuenta sin Insights aún puede tener presupuestos).
+        currencies = {str(r.get("account_currency")) for r in insights
+                      if isinstance(r, dict) and r.get("account_currency")}
+        if not currencies and items:
+            currencies = {str(_graph(self.account, self.token, {"fields": "currency"}).get("currency"))}
+        if currencies and currencies != {"CLP"}:
+            raise RuntimeError(_NOT_CLP)
         by_campaign = {str(r.get("campaign_id")): r for r in insights
                        if isinstance(r, dict) and r.get("campaign_id")}
         out: List[Dict[str, Any]] = []
@@ -158,6 +170,8 @@ class MetaAds:
             "fields": "date_start,spend", "level": "account",
             "date_preset": "last_7d", "time_increment": 1, "limit": 100,
         })
+        if rows and _graph(self.account, self.token, {"fields": "currency"}).get("currency") != "CLP":
+            raise RuntimeError(_NOT_CLP)
         return [{"date": r.get("date_start"), "spent_clp": _amount(r.get("spend"))}
                 for r in rows if isinstance(r, dict) and r.get("date_start")]
 
@@ -365,8 +379,9 @@ def _graph_pages(path: str, token: str, params: Dict[str, Any], max_pages: int =
 
 def list_ad_accounts(token: str) -> List[Dict[str, Any]]:
     """Cuentas publicitarias que el token puede ver — para elegir el act_ correcto."""
-    items = _graph_pages("me/adaccounts", token, {"fields": "id,name,account_status", "limit": 100})
-    return [{"id": a.get("id"), "name": a.get("name"), "status": a.get("account_status")}
+    items = _graph_pages("me/adaccounts", token, {"fields": "id,name,account_status,currency", "limit": 100})
+    return [{"id": a.get("id"), "name": a.get("name"), "status": a.get("account_status"),
+             "currency": a.get("currency")}
             for a in items if isinstance(a, dict)]
 
 

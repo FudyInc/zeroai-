@@ -4,9 +4,39 @@ const http = require('node:http')
 const crypto = require('node:crypto')
 const fs = require('node:fs')
 const path = require('node:path')
+// Parche sobre whatsapp-web.js 1.34.7 (2026-10-15). La librería registra sus
+// callbacks en la página con exposeFunctionIfAbsent; si uno falla (p.ej. el que
+// emite `ready`), el error muere dentro de la página y el puente queda en
+// `connecting` sin rastro. Aquí: (1) todo error de esos callbacks se registra, y
+// (2) exposeFunction se reintenta ante carreras de frames ("Target closed",
+// contexto destruido), el mismo arreglo propuesto upstream (issue #201946 /
+// PR #201958). Tiene que cargarse ANTES que el Client: Client.js desestructura
+// la función al importarse.
+const wwebPuppeteer = require('whatsapp-web.js/src/util/Puppeteer')
+wwebPuppeteer.exposeFunctionIfAbsent = async function exposeFunctionIfAbsent(page, name, fn) {
+  const logged = async (...args) => {
+    try { return await fn(...args) } catch (err) {
+      console.error(`WhatsApp Web (${name}): ${err && err.stack ? err.stack : err}`)
+      throw err
+    }
+  }
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      if (await page.evaluate(n => !!window[n], name)) return
+      await page.exposeFunction(name, logged)
+      return
+    } catch (err) {
+      const transient = /Target closed|detached Frame|Execution context was destroyed/i.test(String(err && err.message))
+      if (!transient || attempt >= 5) throw err
+      console.error(`WhatsApp Web: reintento ${attempt} de exponer ${name}: ${err.message}`)
+      await new Promise(resolve => setTimeout(resolve, 500 * attempt))
+    }
+  }
+}
 const { Client, LocalAuth, MessageMedia, Poll } = require('whatsapp-web.js')
 const QRCode = require('qrcode')
 const { serializedVoterId } = require('./delivery-poll')
+const { polls, pollForQuestion } = require('./poll-definitions')
 const { isCustomerMessageType } = require('./customer-message')
 const { recentInbound } = require('./recovery')
 const { CATALOGS, makeCatalogPdf } = require('./catalog-document')
@@ -28,6 +58,7 @@ let account = null
 let messageEvents = 0
 let forwardedMessages = 0
 const recentEvents = []
+let voteEvents = 0
 const recoveredIds = new Set()
 let readinessTimer = null
 let restartingConnection = false
@@ -45,9 +76,6 @@ const catalogImages = new Set([
   'extension-borde-piscina-50x50.jpeg',
 ])
 const catalogDir = path.resolve(__dirname, '../frontend/public/catalog/losetaschile')
-const deliveryPollQuestion = '¿Cómo prefieres indicar el lugar de entrega?'
-const deliveryPollLocation = '📍 Compartir ubicación'
-const deliveryPollAddress = '✍️ Escribir dirección'
 function loadPending() {
   try { return new Map(JSON.parse(fs.readFileSync(pendingFile, 'utf8')).map(item => [item.id, item])) }
   catch (err) {
@@ -82,22 +110,54 @@ const client = new Client({
 const readyTimeoutMs = Math.max(
   60000, Number(process.env.WHATSAPP_WEB_READY_TIMEOUT_MS) || 300000)
 
+async function restartBridge(reason) {
+  if (restartingConnection) return
+  restartingConnection = true
+  lastError = reason
+  console.error(lastError)
+  const forceExit = setTimeout(() => process.exit(1), 10000)
+  try { await client.destroy() } catch (err) { console.error('Bridge cleanup:', err.message) }
+  clearTimeout(forceExit)
+  process.exit(1)
+}
+
 function watchReadiness() {
   if (restartingConnection) return
   clearTimeout(readinessTimer)
-  readinessTimer = setTimeout(async () => {
+  readinessTimer = setTimeout(() => {
     if (!['starting', 'connecting', 'disconnected', 'error', 'auth_failed'].includes(state)) return
-    restartingConnection = true
-    lastError = `WhatsApp Web quedó en ${state} durante ${Math.round(readyTimeoutMs / 1000)} ` +
-      'segundos; reiniciando el puente'
-    console.error(lastError)
-    const forceExit = setTimeout(() => process.exit(1), 10000)
-    try { await client.destroy() } catch (err) { console.error('Bridge cleanup:', err.message) }
-    clearTimeout(forceExit)
-    process.exit(1)
+    void restartBridge(`WhatsApp Web quedó en ${state} durante ` +
+      `${Math.round(readyTimeoutMs / 1000)} segundos; reiniciando el puente`)
   }, readyTimeoutMs)
   readinessTimer.unref()
 }
+
+// `ready` es una etiqueta, no una prueba de vida. El 2026-10-15 el puente quedó
+// `ready` con la página de WhatsApp Web desprendida ("detached Frame"): no leía
+// ni enviaba, y el watchdog de arriba no lo veía porque solo mira la etiqueta.
+// Esta sonda ejecuta algo trivial en la página cada minuto; tras varias fallas
+// seguidas reinicia el puente. Varias, no una: un evaluate puede fallar suelto
+// durante una recarga legítima de WhatsApp Web.
+const livenessIntervalMs = 60000
+const livenessMaxFailures = 3
+let livenessFailures = 0
+setInterval(async () => {
+  if (state !== 'ready' || restartingConnection) { livenessFailures = 0; return }
+  try {
+    await Promise.race([
+      client.pupPage.evaluate(() => !!window.require('WAWebCollections').Chat),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('sin respuesta en 20 s')), 20000)),
+    ])
+    livenessFailures = 0
+  } catch (err) {
+    livenessFailures += 1
+    console.error(`WhatsApp Web: sonda de vida falló (${livenessFailures}/${livenessMaxFailures}): ${err.message}`)
+    if (livenessFailures >= livenessMaxFailures) {
+      void restartBridge(`WhatsApp Web marcado ready pero sin responder ${livenessMaxFailures} ` +
+        'veces seguidas; reiniciando el puente')
+    }
+  }
+}, livenessIntervalMs).unref()
 
 async function recoverRecentMessages() {
   if (state !== 'ready') return
@@ -276,7 +336,15 @@ client.on('message', msg => {
   void queueMessage(msg).catch(err => { lastError = `Cola entrante: ${err.message}`; console.error(lastError) })
 })
 
+function noteVote(poll, choice, reject) {
+  recentEvents.unshift({ at: new Date().toISOString(), type: 'vote', poll: poll || null,
+                         choice: choice || null, forwarded: !reject, reason: reject || undefined })
+  recentEvents.length = Math.min(recentEvents.length, 10)
+  if (reject) console.error(`Voto de encuesta descartado (${poll || '?'}): ${reject}`)
+}
+
 client.on('vote_update', vote => {
+  voteEvents += 1
   void (async () => {
     if (!actsFor(clientId, 'losetaschile')) return
     const poll = vote.parentMessage
@@ -285,14 +353,22 @@ client.on('vote_update', vote => {
     const selected = vote.selectedOptions || []
     const choice = selected.length === 1 ? selected[0]?.name : null
     const pollId = messageId(poll)
-    if (!poll?.fromMe || poll.type !== 'poll_creation' ||
-        poll.pollName !== deliveryPollQuestion || !pollId ||
-        !/^\d{8,20}@(c\.us|lid)$/.test(chatId) ||
-        !/^\d{8,20}@(c\.us|lid)$/.test(voterId) ||
-        ![deliveryPollLocation, deliveryPollAddress].includes(choice)) return
-    const options = (poll.pollOptions || []).map(option => option.name)
-    if (options.length !== 2 || !options.includes(deliveryPollLocation) ||
-        !options.includes(deliveryPollAddress)) return
+    const question = poll?.pollName || poll?.body || ''
+    const options = (poll?.pollOptions || []).map(option => option.name)
+    const pollKey = pollForQuestion(question, options)
+    const definition = polls[pollKey]
+    // Un voto descartado sin rastro es una falla disimulada: el cliente hizo
+    // clic y nada pasó. Cada voto queda en /diagnostics con su motivo.
+    const reject = !poll?.fromMe ? 'encuesta ajena' :
+      poll.type !== 'poll_creation' ? `tipo ${poll?.type}` :
+      !definition ? `encuesta desconocida: ${question}` :
+      !pollId ? 'sin id de encuesta' :
+      !/^\d{8,20}@(c\.us|lid)$/.test(chatId) ? `chat no válido: ${chatId.split('@')[1] || '?'}` :
+      !/^\d{8,20}@(c\.us|lid)$/.test(voterId) ? `votante no válido: ${voterId.split('@')[1] || '?'}` :
+      !definition.options.includes(choice) ? (selected.length ? `opción no reconocida: ${choice}` : 'voto retirado') :
+      null
+    noteVote(pollKey, choice, reject)
+    if (reject) return
     const syntheticId = 'delivery-poll:' + crypto.createHash('sha256')
       .update(JSON.stringify([pollId, voterId, choice])).digest('hex')
     const payload = await normalizeMessage({
@@ -300,12 +376,14 @@ client.on('vote_update', vote => {
       type: 'chat', body: choice,
       getContact: () => client.getContactById(voterId),
     })
-    if (!payload) return
-    if (chatId.endsWith('@c.us') && payload.from !== chatId.split('@')[0]) return
+    if (!payload) return noteVote(pollKey, choice, 'no se resolvió el teléfono del votante')
+    if (chatId.endsWith('@c.us') && payload.from !== chatId.split('@')[0]) {
+      return noteVote(pollKey, choice, 'votante distinto del chat')
+    }
     if (chatId.endsWith('@lid') && voterId !== chatId) {
       const matches = await client.getContactLidAndPhone(chatId)
       const chatPhone = matches?.[0]?.pn?.split('@')[0]
-      if (!chatPhone || payload.from !== chatPhone) return
+      if (!chatPhone || payload.from !== chatPhone) return noteVote(pollKey, choice, 'votante distinto del chat')
     }
     payload.chat_id = chatId
     queuePayload(payload)
@@ -451,7 +529,7 @@ const server = http.createServer(async (req, res) => {
           }
         }).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(0, 10)
       }) : []
-      return respond(res, 200, { state, messageEvents, forwardedMessages, pendingInbound: pending.size, recentEvents, recentChats })
+      return respond(res, 200, { state, messageEvents, voteEvents, forwardedMessages, pendingInbound: pending.size, recentEvents, recentChats })
     } catch (err) { return respond(res, 500, { error: err.message, messageEvents, forwardedMessages, recentEvents }) }
   }
   if (url.pathname === '/chats' || /^\/chats\/[^/]+\/messages$/.test(url.pathname)) {
@@ -549,7 +627,7 @@ const server = http.createServer(async (req, res) => {
   }
   if (req.method === 'POST' && (req.url === '/send-group' || req.url === '/send-catalog-image' ||
                                 req.url === '/send-catalog-document' ||
-                                req.url === '/send-delivery-poll')) {
+                                req.url === '/send-delivery-poll' || req.url === '/send-poll')) {
     if (state !== 'ready') return respond(res, 503, { error: 'WhatsApp Web is not ready' })
     let raw = ''
     for await (const chunk of req) {
@@ -571,7 +649,7 @@ const server = http.createServer(async (req, res) => {
         return result ? respond(res, 200, result)
           : respond(res, 502, { error: 'Group send outcome uncertain; review chat before retry' })
       }
-      if (req.url === '/send-delivery-poll') {
+      if (req.url === '/send-delivery-poll' || req.url === '/send-poll') {
         if (!actsFor(clientId, 'losetaschile')) return respond(res, 403, { error: 'poll not allowed for this account' })
         const number = String(body.to || '').replace(/\D/g, '')
         const chatId = String(body.chat_id || `${number}@c.us`)
@@ -579,12 +657,14 @@ const server = http.createServer(async (req, res) => {
             (chatId.endsWith('@c.us') && chatId.split('@')[0] !== number)) {
           return respond(res, 400, { error: 'invalid poll recipient' })
         }
-        const poll = new Poll(deliveryPollQuestion,
-          [deliveryPollLocation, deliveryPollAddress], { allowMultipleAnswers: false })
+        const pollKey = req.url === '/send-delivery-poll' ? 'delivery' : String(body.poll_key || '')
+        const definition = polls[pollKey]
+        if (!definition) return respond(res, 400, { error: 'invalid poll type' })
+        const poll = new Poll(definition.question, definition.options, { allowMultipleAnswers: false })
         const result = await sendAndConfirm(chatId, poll, {}, message =>
           message.type === 'poll_creation' &&
-          (message.pollName === deliveryPollQuestion || message.body === deliveryPollQuestion),
-        'poll_creation', deliveryPollQuestion)
+          (message.pollName === definition.question || message.body === definition.question),
+        'poll_creation', definition.question)
         return result ? respond(res, 200, result)
           : respond(res, 502, { error: 'Poll send outcome uncertain; review chat before retry' })
       }

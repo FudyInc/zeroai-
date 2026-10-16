@@ -296,3 +296,53 @@ La vista previa de bordes y la generación de ambos PDF de una página se
 comprobaron localmente. El formato nuevo quedó activo en el backend local el
 2026-10-14; salud OK y puente Web de LosetasChile listo. La recepción real
 sigue pendiente.
+## Flujo de selección y preparación de presupuesto — cambio local del 2026-10-15
+
+Diego pidió iniciar con una encuesta para elegir bordes de piscina o pastelones,
+entregar el PDF de esa categoría y mostrar la imagen común de siete colores con
+una encuesta. El flujo de bordes conserva la pregunta de largo y ancho de la
+piscina cuando falten medidas. Para pastelones solicita modelo y m² a cubrir;
+el cálculo por modelo queda pendiente hasta que Diego indique cuáles son de
+40×40 y cuáles de 50×50. Su regla confirmada es 6 piezas por m² para 40×40 y
+4 piezas por m² para 50×50.
+
+La encuesta de ubicación incluye despacho por ubicación compartida, despacho
+por dirección escrita y retiro en fábrica. El retiro queda como Los Granados
+029, La Pintana; falta el enlace de Google Maps para añadir el pin. El borrador
+interno modificado muestra como pendientes de confirmación del equipo solo la
+fecha de entrega y el costo de envío; para retiro indica que el envío no aplica.
+
+Verificación de código local el 2026-10-15: se recopilan por separado el modelo
+y los m², y la encuesta de entrega no avanza mientras falte uno de esos datos.
+El agente conserva la solicitud de catálogo explícita y el helper de despacho
+mantiene la ruta anterior compatible. El presupuesto de pastelones sigue
+pendiente hasta recibir la relación modelo/tamaño y comprobar cada precio; la
+regla de 6 o 4 piezas por m² no se aplica a ningún modelo por suposición.
+
+Pruebas locales: 1181 pruebas Python pasaron en el checkout del cambio; al
+integrarlo al backend activo se repitieron 79 pruebas dirigidas y pasaron. Las
+14 pruebas Node del puente, `node --check` y `git diff --check` también pasaron.
+El commit quedó activado en el backend local `/home/diego/zeroai`: tras el
+reinicio, `/api/health` respondió OK y el estado autenticado del puente quedó
+`ready`. No se envió un mensaje de prueba a WhatsApp y no se comprobó producción
+remota.
+
+## Corrección del flujo tras la primera prueba real — 2026-10-16
+
+En la prueba real posterior a la activación, «Hola buenas tardes» no se reconoció
+como saludo (la lista cerrada no lo incluía): llegó al modelo, que tardó ~48 s y
+no envió la encuesta de producto. Luego «Bordes de piscina», escrito en vez de
+votado, tampoco activó el PDF, la imagen de colores ni la encuesta de color,
+porque solo se aceptaba con un verbo («quiero», «necesito»…).
+
+Corregido: los saludos combinados («Hola, buenas noches, ¿cómo están?») abren
+la encuesta de producto sin pasar por el modelo; el nombre del producto escrito
+solo cuenta como elección, salvo que repita la categoría recién elegida; «Hola,
+soy nuevo» ya no se toma como nombre; el retiro en fábrica incluye el pin
+https://maps.app.goo.gl/yd4CKEr1bqi7RwsZA (el mismo de `ficha-pooledge.md`) en
+el aviso al cliente y en el borrador interno. Suite completa en verde; activo en
+el backend local con el puente `ready`. Falta repetir la prueba en el teléfono.
+
+Sigue pendiente: qué modelos de pastelones son 50×50 (hoy el flujo de pastelones
+recoge modelo, m² y entrega, pero no arma presupuesto). Un saludo a mitad de un
+pedido vuelve a mandar la encuesta de producto.

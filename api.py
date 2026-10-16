@@ -863,8 +863,12 @@ def sync_ad_leads(request: Request, client: str):
 
 @app.get("/api/metaads/accounts")
 def metaads_accounts(client: str):
-    """Prueba solo el token del negocio seleccionado."""
-    from zero.metaads import client_token, list_ad_accounts
+    """Prueba el token del negocio seleccionado y diagnostica su cuenta asignada.
+
+    `check` responde lo que "el token funciona" no dice: si la cuenta asignada
+    existe para ese token, si está activa, si usa CLP y si Insights se puede leer
+    — las cuatro cosas que, si fallan, dejan Campañas vacía sin explicar por qué."""
+    from zero.metaads import MetaAds, client_token, list_ad_accounts
     memory = make_memory(STATE_PATH)
     if client not in memory.clients:
         raise HTTPException(status_code=404, detail="cliente no encontrado")
@@ -872,9 +876,27 @@ def metaads_accounts(client: str):
     if not token:
         raise HTTPException(status_code=400, detail="Configura primero el token de Meta Ads de este negocio.")
     try:
-        return {"accounts": list_ad_accounts(token)}
+        accounts = list_ad_accounts(token)
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    assigned = str(memory.get_client_meta(client).get("ad_account") or "").strip()
+    # Graph devuelve siempre "act_…"; un valor guardado sin prefijo es la misma cuenta.
+    bare = lambda acc: str(acc or "").strip().removeprefix("act_")
+    account = next((a for a in accounts if bare(a.get("id")) == bare(assigned)), None) if assigned else None
+    check = {"assigned_account": assigned or None, "account_found": bool(account),
+             "account_active": bool(account and str(account.get("status")) == "1"),
+             "currency": account.get("currency") if account else None,
+             "insights_readable": False, "error": None}
+    if account:
+        try:
+            # La misma lectura de Insights que usa Campañas (incluida la guarda de CLP).
+            MetaAds(assigned, token).daily_spend()
+            check["insights_readable"] = True
+        except Exception as e:   # un diagnóstico nunca debe convertirse en un 500
+            check["error"] = str(e)[:300]
+    check["ready"] = bool(check["account_found"] and check["account_active"]
+                          and check["currency"] == "CLP" and check["insights_readable"])
+    return {"accounts": accounts, "check": check}
 
 
 @app.get("/api/campaigns/optimize")

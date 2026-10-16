@@ -3,6 +3,11 @@ from __future__ import annotations
 
 import re
 
+from .losetas_polls import (DELIVERY_POLL_DELIVERY_ADDRESS,
+                            DELIVERY_POLL_DELIVERY_LOCATION,
+                            DELIVERY_POLL_FACTORY_PICKUP,
+                            DELIVERY_POLL_QUESTION, FACTORY_ADDRESS, FACTORY_MAP_URL)
+
 
 _SHIPPING_TOPIC = re.compile(
     r"\b(?:despach\w*|flete\w*|env[ií]o\w*|env[ií]an|enviamos|"
@@ -20,9 +25,8 @@ SHIPPING_PRICE_REPLY = (
     "Puedes escribir tu dirección o compartir tu ubicación aquí; "
     "el equipo verificará la ruta y el valor del flete."
 )
-DELIVERY_POLL_QUESTION = "¿Cómo prefieres indicar el lugar de entrega?"
-DELIVERY_POLL_LOCATION = "📍 Compartir ubicación"
-DELIVERY_POLL_ADDRESS = "✍️ Escribir dirección"
+DELIVERY_POLL_LOCATION = DELIVERY_POLL_DELIVERY_LOCATION
+DELIVERY_POLL_ADDRESS = DELIVERY_POLL_DELIVERY_ADDRESS
 DELIVERY_LOCATION_PROMPT = "Toca 📎 o + → Ubicación → Enviar ubicación actual para el despacho."
 DELIVERY_ADDRESS_PROMPT = "Escríbeme calle, número y comuna de entrega."
 
@@ -68,12 +72,17 @@ def delivery_poll_choice_response(message: str) -> str | None:
         return DELIVERY_LOCATION_PROMPT
     if choice == DELIVERY_POLL_ADDRESS:
         return DELIVERY_ADDRESS_PROMPT
+    if choice == DELIVERY_POLL_FACTORY_PICKUP:
+        pin = f"\nUbicación: {FACTORY_MAP_URL}" if FACTORY_MAP_URL else ""
+        return f"El retiro es en {FACTORY_ADDRESS}.{pin}"
     return None
 
 
 def shipping_delivery_followup(message: str, history: list[dict]) -> bool:
     """Recognize a short destination sent after the agent asks for delivery details."""
     content = " ".join((message or "").split())
+    if content == DELIVERY_POLL_FACTORY_PICKUP:
+        return True
     if _LOCATION_MARKER.match(content):
         return True
     if _WRITTEN_ADDRESS.match(content):
@@ -98,6 +107,8 @@ def delivery_detail(message: str, history: list[dict]) -> str | None:
             continue
         raw = str(turn.get("text") or "")
         content = " ".join(raw.split())
+        if content == DELIVERY_POLL_FACTORY_PICKUP:
+            return f"Retiro en fábrica: {FACTORY_ADDRESS}"
         found = _SHARED_LOCATION.match(content)
         if found:
             return f"Ubicación compartida: {found.group(1)}"

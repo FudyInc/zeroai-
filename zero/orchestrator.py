@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from .config import (
+    LOSETASCHILE_CHOICE_STYLE,
     ACTIVE_MARKET_REGIONS,
     AVG_DEAL_VALUE_CLP,
     DEFAULT_VENDOR_ID,
@@ -45,12 +46,21 @@ from .losetas_budget import format_internal_budget
 from .losetas_shipping import (SHIPPING_COVERAGE_REPLY, SHIPPING_PRICE_REPLY,
                                delivery_detail, delivery_poll_choice_response,
                                shipping_coverage_request, shipping_delivery_followup)
+from .losetas_polls import (DELIVERY_POLL_QUESTION as LOSETAS_DELIVERY_POLL_QUESTION,
+                            PRODUCT_POLL_QUESTION,
+                            category_for_poll_choice, poll_answer_for_history,
+                            direct_product_category, selected_category_from_history,
+                            is_factory_pickup, FACTORY_ADDRESS, FACTORY_MAP_URL,
+                            paver_order_details, canonical_choice, numbered_choices,
+                            BORDER_MODEL_QUESTION, POOL_SHAPE_QUESTION,
+                            WHATSAPP_WEB_POLL_KEYS)
 from .memory import SessionMemory
 from .quotes import compute_quote, extract_request, format_quote, normalize_pricing
-from .pool_border import (border_plan, catalog_requested, visual_catalog_category,
+from .pool_border import (WHALE_BORDER_REVIEW, border_plan, catalog_requested, visual_catalog_category,
                           delegates_piece_calculation,
                           format_product_quote, shipping_price_request,
-                          measurement_followup, unquoted_piece_count,
+                          border_model_followup, measurement_followup, pool_shape_followup,
+                          unquoted_piece_count,
                           wants_border_budget, wants_product_quote,
                           pool_border_models_reply, pool_measurement_message)
 from .vendors import credentials_for
@@ -83,19 +93,37 @@ def _same_reply(first: str, second: str) -> bool:
     return bool(normalize(first) and normalize(first) == normalize(second))
 
 
+# Saludos que se combinan entre sí: «Hola buenas tardes», «Hola, buenas noches,
+# ¿cómo están?». Visto en vivo (2026-10-15): «Hola buenas tardes» no estaba en la
+# lista cerrada anterior, llegó al modelo y nunca se mandó la encuesta de producto.
+_GREETING_WORD = (r"(?:hola+|holi|wena+s?|buenas|saludos|"
+                  r"buen[oa]?s?\s+(?:d[ií]as?|tardes|noches)|"
+                  r"qu[eé]\s+tal|c[oó]mo\s+(?:est[aá][sn]?|va)(?:\s+(?:ustedes|usted|todo))?)")
+_GREETING_SEP = r"[\s,!¡¿?.]+"
+_GREETING_RE = re.compile(
+    rf"[\s¡¿]*{_GREETING_WORD}(?:{_GREETING_SEP}{_GREETING_WORD}){{0,3}}[\s!?.,]*",
+    re.IGNORECASE)
+
+
+# «Hola, soy nuevo» describe al contacto; no es su nombre.
+_NOT_A_NAME = frozenset({
+    "nuevo", "nueva", "cliente", "clienta", "arquitecto", "arquitecta", "constructor",
+    "constructora", "contratista", "particular", "empresa", "instalador", "instaladora",
+    "maestro", "vecino", "vecina", "yo", "el", "la", "de", "del", "un", "una",
+})
+
+
 def _introduced_name(text: str) -> Optional[str]:
     match = re.fullmatch(
-        r"(?:(?:hola|buenas)[\s,!]+)?(?:me llamo|soy)\s+([^\W\d_]{2,30})[.!?]*",
+        rf"(?:{_GREETING_WORD}{_GREETING_SEP}){{0,3}}(?:me llamo|soy)\s+([^\W\d_]{{2,30}})[.!?]*",
         (text or "").strip(), re.IGNORECASE | re.UNICODE)
-    return match.group(1).capitalize() if match else None
+    if not match or match.group(1).casefold() in _NOT_A_NAME:
+        return None
+    return match.group(1).capitalize()
 
 
 def _simple_greeting(text: str) -> bool:
-    value = (text or "").strip().casefold().strip(" ¡!¿?.,")
-    return (value in {"hola", "holi", "buenas", "hola buenas", "hola buen día",
-                      "hola buen dia", "buenos días", "buenos dias",
-                      "buen día", "buen dia", "buenas tardes", "buenas noches"}
-            or _introduced_name(text) is not None)
+    return bool(_GREETING_RE.fullmatch(text or "")) or _introduced_name(text) is not None
 
 
 def _unreadable_whatsapp_message(text: str, client_id: str = "") -> bool:
@@ -1050,15 +1078,15 @@ class Zero:
             history = self.memory.get_conversation(
                 client_id, lead["key"], limit=None if local_whatsapp else 12)
         order_history = history or []
+        if client_id == "losetaschile" and channel == "whatsapp":
+            message = canonical_choice(message, order_history) or message
         greeting = whatsapp_greeting() if channel == "whatsapp" else ""
         if client_id == "losetaschile" and channel == "whatsapp" and _simple_greeting(message):
             introduced = _introduced_name(message)
             salutation = f"¡{greeting}, {introduced}!" if introduced else f"¡{greeting}!"
-            return {"reply": f"{salutation} ¿En qué puedo ayudarte?", "intent": "general"}
+            return {"reply": f"{salutation} ¿En qué puedo ayudarte?", "intent": "general",
+                    "customer_poll": "product"}
         if client_id == "losetaschile" and channel == "whatsapp":
-            choice_reply = delivery_poll_choice_response(message)
-            if choice_reply:
-                return {"reply": choice_reply, "intent": "info"}
             visual_category = visual_catalog_category(message)
             if visual_category:
                 title = ("Catálogo Bordes de Piscina" if visual_category == "bordes"
@@ -1068,6 +1096,36 @@ class Zero:
                         "catalog_document": {"category": visual_category, "pricing": pricing}}
             if catalog_requested(message):
                 return {"reply": LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE, "intent": "catalog"}
+            selected_category = category_for_poll_choice(message, order_history)
+            typed_category = direct_product_category(message)
+            # A typed product name restarts the step only when it is a new choice:
+            # repeating the category just chosen must not resend PDF and color poll.
+            if (not selected_category and typed_category and
+                    selected_category_from_history(order_history[-6:]) != typed_category):
+                selected_category = typed_category
+            if selected_category:
+                pricing = normalize_pricing(self.memory.get_client_pricing(client_id))
+                return {"reply": color_question(), "intent": "catalog",
+                        "catalog_document": {"category": selected_category, "pricing": pricing},
+                        "media_asset": COLOR_CATALOG_IMAGE_PATH,
+                        "customer_poll": "color"}
+            if (_QUOTE_REQUEST_RE.search(message) and
+                    not re.search(r"\b(?:bordes?\s+(?:de|para)\s+(?:la\s+)?piscina|pastelones?)\b",
+                                  message, re.IGNORECASE) and not order_history):
+                return {"reply": PRODUCT_POLL_QUESTION, "intent": "qualification",
+                        "customer_poll": "product"}
+            choice_reply = delivery_poll_choice_response(message)
+            category_in_history = selected_category_from_history(order_history)
+            paver_details = paver_order_details(message, order_history) \
+                if category_in_history == "pastelones" else {}
+            factory_order_ready = (
+                is_factory_pickup(message) and latest_color_preference(order_history) and
+                (category_in_history == "bordes" or
+                 (category_in_history == "pastelones" and paver_details.get("model") and
+                  paver_details.get("area_m2")))
+            )
+            if choice_reply and not factory_order_ready:
+                return {"reply": choice_reply, "intent": "info"}
         if (client_id == "losetaschile" and channel == "whatsapp" and
                 shipping_price_request(message)):
             return {"reply": SHIPPING_PRICE_REPLY, "intent": "pricing",
@@ -1130,19 +1188,60 @@ class Zero:
         selected_tone = (color_preference(message, order_history) or
                          latest_color_preference(order_history)) \
             if client_id == "losetaschile" and channel == "whatsapp" else None
+        if (client_id == "losetaschile" and channel == "whatsapp" and selected_tone and
+                poll_answer_for_history(message, order_history) == "color" and
+                selected_category_from_history(order_history) == "pastelones"):
+            return {"reply": (f"Anoté el color {selected_tone}. ¿Qué modelo del catálogo "
+                              "te interesa y cuántos m² necesitas cubrir?"),
+                    "intent": "qualification"}
+        if (client_id == "losetaschile" and channel == "whatsapp" and
+                selected_category_from_history(order_history) == "pastelones" and
+                not shipping_delivery_followup(message, order_history) and
+                any(turn.get("role") == "agent" and "cuántos m²" in
+                    str(turn.get("text") or "").casefold() for turn in order_history[-4:])):
+            paver_details = paver_order_details(message, order_history)
+            if paver_details["model"] and paver_details["area_m2"]:
+                return {"reply": LOSETAS_DELIVERY_POLL_QUESTION, "intent": "qualification",
+                        "delivery_poll": True}
+            if paver_details["model"]:
+                return {"reply": f"Anoté el modelo {paver_details['model']}. ¿Cuántos m² necesitas cubrir?",
+                        "intent": "qualification"}
+            if paver_details["area_m2"]:
+                return {"reply": f"Anoté {paver_details['area_m2']} m². ¿Qué modelo del catálogo te interesa?",
+                        "intent": "qualification"}
+        if (client_id == "losetaschile" and channel == "whatsapp" and
+                selected_category_from_history(order_history) == "pastelones" and
+                shipping_delivery_followup(message, order_history)):
+            return {"reply": ("Gracias, recibí el modelo, los m² y la ubicación. "
+                              "Debo confirmar el tamaño del modelo antes de calcular las cantidades."),
+                    "intent": "info"}
         if (client_id == "losetaschile" and channel == "whatsapp" and
                 (wants_border_budget(message) or pool_measurement_message(message) or measurement_followup(
-                    message, order_history) or color_preference(message, order_history) or
+                    message, order_history) or border_model_followup(message, order_history) or
+                 pool_shape_followup(message, order_history) or
+                 color_preference(message, order_history) or
                  shipping_delivery_followup(message, order_history))):
             plan, clarification = border_plan(message, order_history)
             if plan is None:
                 if shipping_delivery_followup(message, order_history):
                     return {"reply": "Gracias, recibí los datos de entrega. El equipo revisará cobertura y flete.",
                             "intent": "info"}
+                if clarification == WHALE_BORDER_REVIEW:
+                    # No piece rule for this model yet: a person quotes it.
+                    return {"reply": "", "intent": "handoff",
+                            "review_reason": "Borde ballena: cotizar con el equipo"}
+                if clarification in (BORDER_MODEL_QUESTION, POOL_SHAPE_QUESTION):
+                    return {"reply": clarification, "intent": "qualification",
+                            "customer_poll": ("border_model" if clarification ==
+                                              BORDER_MODEL_QUESTION else "shape")}
                 return {"reply": clarification, "intent": "pricing"}
             if not selected_tone:
                 return {"reply": color_question(), "intent": "qualification",
-                        "media_asset": COLOR_CATALOG_IMAGE_PATH}
+                        "media_asset": COLOR_CATALOG_IMAGE_PATH,
+                        "customer_poll": "color"}
+            if not delivery_detail(message, order_history):
+                return {"reply": LOSETAS_DELIVERY_POLL_QUESTION, "intent": "qualification",
+                        "delivery_poll": True}
             order = [{"id": "borde-recto-nariz-50x50", "qty": plan["straight"]},
                      {"id": "esquina-piscina-50x50", "qty": plan["corners"]}]
             product_quote = compute_quote(pricing, order)
@@ -1421,6 +1520,10 @@ class Zero:
             self.crm.save()
 
         client_id, key = rec["client_id"], rec["key"]
+        if client_id == "losetaschile" and channel == "whatsapp":
+            # «2» answers the numbered options; store the option itself, because
+            # later steps read the order back from the conversation.
+            text = canonical_choice(text, self.memory.get_conversation(client_id, key)) or text
         if name_from_profile and channel == "whatsapp":
             display_names = self.memory.clients.setdefault(client_id, {}).setdefault(
                 "whatsapp_display_names", {})
@@ -1577,6 +1680,11 @@ class Zero:
                 else:
                     thanks = "Gracias, recibí los datos de tu pedido. "
                 acknowledgment = thanks + (
+                    (f"El retiro es en {FACTORY_ADDRESS}" +
+                     (f" ({FACTORY_MAP_URL}). " if FACTORY_MAP_URL else ". ")
+                     if delivery_detail(text, prior_turns) and
+                     str(delivery_detail(text, prior_turns)).startswith("Retiro en fábrica:")
+                     else "") +
                     "Tu presupuesto está pendiente de revisión por nuestro equipo; "
                     "te responderemos por este chat.")
                 try:
@@ -1611,7 +1719,10 @@ class Zero:
                     "intent": "pricing", "company": rec.get("company"),
                     "delivery": delivery, "customer_ack": customer_ack, **out}
         def repetition(candidate: str) -> bool:
-            if candidate in (SHIPPING_COVERAGE_REPLY, SHIPPING_PRICE_REPLY) or intent == "catalog":
+            # A deterministic step that sends a poll is the flow asking its next
+            # question, not the model looping; flagging it would hand the chat off.
+            if (candidate in (SHIPPING_COVERAGE_REPLY, SHIPPING_PRICE_REPLY) or intent == "catalog"
+                    or res.get("customer_poll") or res.get("delivery_poll")):
                 return False
             return bool(channel == "whatsapp" and client_id == "losetaschile" and
                         (any(turn.get("role") == "agent" and _same_reply(candidate, turn.get("text"))
@@ -1653,7 +1764,8 @@ class Zero:
             reply = format_whatsapp_reply(reply)
         if channel == "whatsapp" and (intent == "handoff" or not reply.strip() or repeated or
                                       unsafe_shipping or unsupported_review or unsupported_count):
-            reason = ("El agente no entendió la consulta" if intent == "handoff" else
+            reason = ((res.get("review_reason") or "El agente no entendió la consulta")
+                      if intent == "handoff" else
                       "Respuesta sobre despacho requiere revisión" if unsafe_shipping else
                       "Revisión de consulta no comprobada" if unsupported_review else
                       "Cantidad de piezas sin presupuesto comprobado" if unsupported_count else
@@ -1665,6 +1777,12 @@ class Zero:
             # and unreadable attachments are handled earlier and remain handoffs.
             self.memory.log("whatsapp_review_required", client=client_id,
                             lead=key, reason=reason)
+            # La consulta que llegó hasta acá es una que el agente no supo
+            # contestar. Se guarda la PREGUNTA, nunca el borrador: ese texto es
+            # justo el que no sirvió. Una persona escribe la respuesta buena una
+            # vez y entra a la ficha, que ya se consulta en cada conversación.
+            if not res.get("review_reason"):
+                self.memory.add_knowledge_gap(client_id, text, reason)
             self.memory.save()
             if self.crm:
                 self.crm.log(client_id, key, "awaiting_human", reason)
@@ -1689,6 +1807,15 @@ class Zero:
                     "delivery": notice_delivery, **out}
         self.memory.add_turn(client_id, key, "lead", text)
 
+        numbered_key = (("delivery" if res.get("delivery_poll") else res.get("customer_poll"))
+                        if client_id == "losetaschile" and channel == "whatsapp" else None)
+        if (numbered_key and LOSETASCHILE_CHOICE_STYLE == "poll" and
+                numbered_key in WHATSAPP_WEB_POLL_KEYS):
+            numbered_key = None  # the bridge has a poll for this question
+        if numbered_key and reply:
+            reply = reply.rstrip() + "\n\n" + numbered_choices(str(numbered_key), reply)
+            res = {key_: value for key_, value in res.items()
+                   if key_ not in ("customer_poll", "delivery_poll")}
         delivery = {"status": "error", "error": "El agente no produjo una respuesta"}
         poll_delivery = None
         if reply:
@@ -1705,6 +1832,19 @@ class Zero:
                             chat_id=whatsapp_chat_id)
                         delivery = {"status": "sent", "via": "whatsapp_web",
                                     "id": sent["id"], "ack": sent.get("ack")}
+                        self.memory.add_turn(client_id, key, "agent",
+                                             "Catálogo Bordes de Piscina" if
+                                             document["category"] == "bordes" else
+                                             "Catálogo Pastelones")
+                        if res.get("media_asset"):
+                            from .whatsapp_web import send_catalog_image
+                            from pathlib import PurePosixPath
+                            image = send_catalog_image(
+                                client_id, to_phone_id, rec.get("phone") or from_contact,
+                                PurePosixPath(res["media_asset"]).name, reply,
+                                chat_id=whatsapp_chat_id)
+                            delivery = {"status": "sent", "via": "whatsapp_web",
+                                        "id": image["id"], "ack": image.get("ack")}
                     except (RuntimeError, ValueError) as exc:
                         delivery = {"status": "error", "error": str(exc)}
             elif client_id == "losetaschile" and channel == "whatsapp" and res.get("media_asset"):
@@ -1741,6 +1881,24 @@ class Zero:
                         poll_delivery = {"status": "error", "error": str(exc)}
                     self.memory.log("delivery_poll", client=client_id, lead=key,
                                     status=poll_delivery.get("status", "sent"))
+                    if poll_delivery.get("status") == "sent":
+                        self.memory.add_turn(client_id, key, "agent",
+                                             LOSETAS_DELIVERY_POLL_QUESTION)
+                if (client_id == "losetaschile" and channel == "whatsapp" and
+                        res.get("customer_poll") and whatsapp_chat_id and to_phone_id):
+                    try:
+                        from .losetas_polls import CHOICE_PROMPTS
+                        from .whatsapp_web import send_choice_poll
+                        poll_delivery = send_choice_poll(
+                            client_id, to_phone_id, rec.get("phone") or from_contact,
+                            whatsapp_chat_id, str(res["customer_poll"]))
+                        question = CHOICE_PROMPTS[str(res["customer_poll"])][0]
+                        self.memory.add_turn(client_id, key, "agent", question)
+                    except (RuntimeError, ValueError) as exc:
+                        poll_delivery = {"status": "error", "error": str(exc)}
+                    self.memory.log("customer_poll", client=client_id, lead=key,
+                                    poll=res["customer_poll"],
+                                    status=poll_delivery.get("status", "error"))
             if self.crm:
                 # Un presupuesto enviado es un evento de venta, no una respuesta más:
                 # queda aparte en el historial para que un humano lo vea de un vistazo.
