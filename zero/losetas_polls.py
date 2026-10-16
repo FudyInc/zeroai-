@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Any
 
 
@@ -23,6 +24,74 @@ DELIVERY_POLL_OPTIONS = (DELIVERY_POLL_DELIVERY_LOCATION, DELIVERY_POLL_DELIVERY
 FACTORY_ADDRESS = "Los Granados 029, La Pintana"
 # Same location PoolEdge shares with customers (docs/ficha-pooledge.md).
 FACTORY_MAP_URL = "https://maps.app.goo.gl/yd4CKEr1bqi7RwsZA"
+
+
+BORDER_MODEL_QUESTION = "¿Qué modelo de borde quieres?"
+BORDER_MODEL_STRAIGHT = "Borde recto con nariz 50×50"
+BORDER_MODEL_WHALE = "Borde ballena 50×40"
+BORDER_MODEL_OPTIONS = (BORDER_MODEL_STRAIGHT, BORDER_MODEL_WHALE)
+
+POOL_SHAPE_QUESTION = "¿La piscina es rectangular?"
+POOL_SHAPE_OPTIONS = ("Sí, es rectangular", "No es rectangular")
+
+CHOICE_PROMPTS = {
+    "shape": (POOL_SHAPE_QUESTION, POOL_SHAPE_OPTIONS),
+    "border_model": (BORDER_MODEL_QUESTION, BORDER_MODEL_OPTIONS),
+    "product": (PRODUCT_POLL_QUESTION, PRODUCT_POLL_OPTIONS),
+    "color": (COLOR_POLL_QUESTION, COLOR_POLL_OPTIONS),
+    "delivery": (DELIVERY_POLL_QUESTION, DELIVERY_POLL_OPTIONS),
+}
+# Questions the WhatsApp Web bridge can send as a poll (poll-definitions.js).
+WHATSAPP_WEB_POLL_KEYS = frozenset({"product", "color", "delivery"})
+NUMBERED_HINT = "Responde con el número o el nombre."
+
+
+def numbered_choices(key: str, reply: str = "") -> str:
+    """The options as a numbered list; the question is added only if missing."""
+    question, options = CHOICE_PROMPTS[key]
+    lines = [] if question.casefold() in (reply or "").casefold() else [question]
+    lines += [f"{number}. {option}" for number, option in enumerate(options, 1)]
+    return "\n".join(lines + ["", NUMBERED_HINT])
+
+
+def _plain(value: str) -> str:
+    text = unicodedata.normalize("NFKD", (value or "").casefold())
+    text = "".join(c for c in text if not unicodedata.combining(c))
+    return " ".join(re.findall(r"[a-z0-9]+", text))
+
+
+_KEYCAPS = {"1️⃣": "1", "2️⃣": "2", "3️⃣": "3", "4️⃣": "4", "5️⃣": "5", "6️⃣": "6", "7️⃣": "7"}
+
+
+_YES_NO = {"si": 0, "s": 0, "rectangular": 0, "no": 1}
+
+
+def canonical_choice(message: str, history: list[dict[str, Any]]) -> str | None:
+    """Turn «2», «opción 2» or a typed option name into the exact option text.
+
+    Only an answer to the latest agent prompt counts: a later agent message
+    closes the question, as with poll votes.
+    """
+    value = (message or "").strip()
+    for keycap, digit in _KEYCAPS.items():
+        value = value.replace(keycap, digit)
+    for turn in reversed(history):
+        if turn.get("role") != "agent":
+            continue
+        prompt = str(turn.get("text") or "").casefold()
+        for question, options in CHOICE_PROMPTS.values():
+            if question.casefold() not in prompt:
+                continue
+            number = re.fullmatch(r"(?:(?:la\s+)?opci[oó]n\s+|n[uú]mero\s+)?(\d{1,2})\s*[.)]?",
+                                  value, re.IGNORECASE)
+            if number and 1 <= int(number.group(1)) <= len(options):
+                return options[int(number.group(1)) - 1]
+            typed = _plain(value)
+            if options is POOL_SHAPE_OPTIONS and typed in _YES_NO:
+                return options[_YES_NO[typed]]
+            return next((option for option in options if typed and _plain(option) == typed), None)
+        return None
+    return None
 
 
 def _previous_poll(message: str, history: list[dict[str, Any]]) -> str | None:
