@@ -867,6 +867,7 @@ class PoolBorderCountTest(unittest.TestCase):
         self.assertIn("https://www.google.com/maps?q=-33.610397,-70.643376", internal)
         self.assertIn("*Total productos: $230.400*", internal)
 
+    @mock.patch("zero.orchestrator.LOSETASCHILE_CHOICE_STYLE", "poll")
     def test_pastelon_selection_does_not_create_budget_without_model_and_area(self):
         memory = self.priced_memory()
         memory.set_client_agent_profile("losetaschile", {
@@ -919,6 +920,7 @@ class PoolBorderCountTest(unittest.TestCase):
                          LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE)
         self.assertNotIn("customer_ack", result)
 
+    @mock.patch("zero.orchestrator.LOSETASCHILE_CHOICE_STYLE", "poll")
     def test_pastelon_catalog_does_not_submit_budget_before_model_and_area(self):
         memory = self.priced_memory()
         memory.set_client_agent_profile("losetaschile", {
@@ -944,6 +946,86 @@ class PoolBorderCountTest(unittest.TestCase):
         self.assertEqual(result["delivery"]["id"], "image-1")
         self.assertEqual(send_poll.call_args.args[-1], "color")
         zero._deliver.assert_not_called()
+
+    def test_numbered_choices_drive_the_flow_without_polls(self):
+        memory = SessionMemory(None)
+        memory.register_client("losetaschile", "STARTER")
+        memory.set_client_agent_profile("losetaschile", {
+            "whatsapp_number": "56911111111", "response_mode": "automatic"})
+        crm = CRM(None)
+        crm.upsert("losetaschile", {"phone": "56933333333", "source": "test"})
+        zero = Zero(build_agents(mock=True), memory=memory, crm=crm)
+        zero._deliver = mock.Mock(return_value={"status": "sent", "via": "whatsapp_web", "id": "t-1"})
+        with mock.patch("zero.whatsapp_web.send_catalog_document",
+                        return_value={"id": "document-1", "ack": 0}) as send_document, \
+                mock.patch("zero.whatsapp_web.send_catalog_image",
+                           return_value={"id": "image-1", "ack": 0}) as send_image, \
+                mock.patch("zero.whatsapp_web.send_choice_poll") as send_poll, \
+                mock.patch.object(zero, "dispatch") as dispatch:
+            zero.handle_inbound("56933333333", "Hola buenas noches", to_phone_id="56911111111",
+                                whatsapp_chat_id="56933333333@c.us")
+            greeting = zero._deliver.call_args.args[3]["body"]
+            zero.handle_inbound("56933333333", "1", to_phone_id="56911111111",
+                                whatsapp_chat_id="56933333333@c.us")
+            zero.handle_inbound("56933333333", "5", to_phone_id="56911111111",
+                                whatsapp_chat_id="56933333333@c.us")
+        send_poll.assert_not_called()
+        dispatch.assert_not_called()
+        self.assertIn(PRODUCT_POLL_QUESTION, greeting)
+        self.assertIn("1. Bordes de piscina", greeting)
+        self.assertEqual(send_document.call_args.args[3], "bordes")
+        self.assertIn("7. Amarillo", send_image.call_args.args[4])
+        turns = memory.get_conversation("losetaschile", crm.find_by_contact(
+            phone="56933333333", client_id="losetaschile")["key"])
+        lead_turns = [t["text"] for t in turns if t["role"] == "lead"]
+        self.assertEqual(lead_turns[1:], ["Bordes de piscina", "Beige"])
+
+    def _numbered_chat(self, answers):
+        memory = self.priced_memory(include_tone=False)
+        memory.set_client_agent_profile("losetaschile", {
+            "whatsapp_number": "56911111111", "response_mode": "automatic"})
+        crm = CRM(None)
+        crm.upsert("losetaschile", {"phone": "56944444444", "source": "test"})
+        zero = Zero(build_agents(mock=True), memory=memory, crm=crm)
+        zero._deliver = mock.Mock(return_value={"status": "sent", "via": "whatsapp_web", "id": "t"})
+        results = []
+        with mock.patch("zero.whatsapp_web.send_catalog_document",
+                        return_value={"id": "document-1", "ack": 0}), \
+                mock.patch("zero.whatsapp_web.send_catalog_image",
+                           return_value={"id": "image-1", "ack": 0}), \
+                mock.patch("zero.whatsapp_web.send_group_text",
+                           return_value={"id": "group-1", "ack": 0}) as send_group, \
+                mock.patch.dict(os.environ, {"LOSETASCHILE_REVIEW_GROUP_ID": "123456789@g.us"}), \
+                mock.patch.object(zero, "dispatch") as dispatch:
+            for answer in answers:
+                results.append(zero.handle_inbound(
+                    "56944444444", answer, to_phone_id="56911111111",
+                    whatsapp_chat_id="56944444444@c.us"))
+        dispatch.assert_not_called()
+        return results, send_group
+
+    def test_numbered_border_flow_reaches_group_budget_with_pickup_pin(self):
+        from zero.losetas_polls import FACTORY_MAP_URL
+        results, send_group = self._numbered_chat(["Hola", "1", "5", "6x3", "1", "Sí", "3"])
+        budget = send_group.call_args.args[3]
+        self.assertIn("36 × Borde recto con nariz", budget)
+        self.assertIn("4 × Esquina piscina", budget)
+        self.assertIn("beige", budget)
+        self.assertIn(FACTORY_MAP_URL, budget)
+        self.assertTrue(results[-1]["manual_review"])
+
+    def test_whale_border_goes_to_a_person_without_invented_count(self):
+        results, send_group = self._numbered_chat(["Hola", "1", "5", "6x3", "2"])
+        send_group.assert_not_called()
+        self.assertTrue(results[-1]["manual_review"])
+        self.assertEqual(results[-1]["intent"], "handoff")
+
+    def test_question_about_whale_border_is_not_a_selection(self):
+        from zero.pool_border import WHALE_BORDER_REVIEW
+        _, ask = border_plan("¿Tienen borde ballena?", [])
+        self.assertNotEqual(ask, WHALE_BORDER_REVIEW)
+        _, choose = border_plan("Borde ballena 50×40", [])
+        self.assertEqual(choose, WHALE_BORDER_REVIEW)
 
     def test_color_image_then_pastelon_choice_asks_for_model_and_area(self):
         memory = self.priced_memory(include_tone=False)

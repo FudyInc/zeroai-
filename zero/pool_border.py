@@ -11,6 +11,7 @@ from typing import Any
 
 from .config import (LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE,
                      LOSETASCHILE_WHATSAPP_CATALOG_URL)
+from .losetas_polls import BORDER_MODEL_QUESTION, POOL_SHAPE_OPTIONS, POOL_SHAPE_QUESTION
 
 
 _COUNT = re.compile(r"\b(?:cu[aá]nt[oa]s|cantidad)\b", re.IGNORECASE)
@@ -87,6 +88,8 @@ _ITEM_SIZE_PREFIX = re.compile(
 _REJECT_PASTELON = re.compile(
     r"\b(?:ya\s+)?no\s+(?:quiero|necesito|busco)\s+"
     r"(?:(?:los|unos?|algunos)\s+)?pastelones?\b", re.IGNORECASE)
+_WHALE = re.compile(r"\bbordes?\s+ballena\b", re.IGNORECASE)
+WHALE_BORDER_REVIEW = "whale-border-review"
 _PRODUCT = re.compile(r"\bbordes? rectos?(?: con nariz)?\b", re.IGNORECASE)
 _OTHER_PRODUCT = re.compile(
     r"\bbordes? ballena\b|\bpastel[oó]n(?:es)?\s+(?:sol|adoqu[ií]n|laja|ladrillo)\b"
@@ -286,7 +289,8 @@ def border_model_followup(message: str, history: list[dict[str, Any]]) -> bool:
 def pool_shape_followup(message: str, history: list[dict[str, Any]]) -> bool:
     """Continue when the customer answers whether the pool is rectangular."""
     answer = (message or "").strip().casefold().strip(".!¿? ")
-    if answer not in {"sí", "si", "no", "rectangular", "es rectangular"}:
+    if answer not in {"sí", "si", "no", "rectangular", "es rectangular",
+                      *(option.casefold() for option in POOL_SHAPE_OPTIONS)}:
         return False
     for turn in reversed(history):
         if turn.get("role") != "agent":
@@ -301,6 +305,11 @@ def border_plan(message: str, history: list[dict[str, Any]]) -> tuple[dict[str, 
     message = normalize_pool_border_terms(message)
     lead_texts = [normalize_pool_border_terms(str(turn.get("text") or "")) for turn in history
                   if turn.get("role") == "lead"]
+    # The calculator only knows the straight border's piece rule. A whale border
+    # goes to the team instead of an invented count; checked before sizes so its
+    # «50×40» is never read as the pool.
+    if _WHALE.search(message) and "?" not in message:
+        return None, WHALE_BORDER_REVIEW
     if re.search(r"\b(?:terraza|interior|fondo|piso)\b", message, re.IGNORECASE):
         return None, "¿Te refieres al borde recto con nariz de la piscina o a otro producto?"
     latest_first = [message, *reversed(lead_texts)]
@@ -331,7 +340,7 @@ def border_plan(message: str, history: list[dict[str, Any]]) -> tuple[dict[str, 
             re.fullmatch(r"\s*no[.!? ]*", message, re.IGNORECASE)):
         return None, "Necesito revisar esta piscina antes de calcular las cantidades."
     if product is None:
-        return None, "¿Qué modelo de borde o pastelón quieres usar?"
+        return None, BORDER_MODEL_QUESTION
     shape = next((text for text in latest_first if _OTHER_SHAPE.search(text) or
                   re.search(r"\bno\s+(?:es\s+)?rectangular\b", text, re.IGNORECASE) or
                   _RECTANGULAR.search(text)), None)
@@ -343,7 +352,7 @@ def border_plan(message: str, history: list[dict[str, Any]]) -> tuple[dict[str, 
                   re.search(r"\bno\s+(?:es\s+)?rectangular\b", shape, re.IGNORECASE)):
         return None, "Necesito revisar la forma de esa piscina antes de calcular las piezas."
     if shape is None:
-        return None, "¿La piscina es rectangular?"
+        return None, POOL_SHAPE_QUESTION
     if dimensions is None:
         return None, _MEASUREMENT_QUESTION
     width, length = dimensions

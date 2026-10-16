@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from .config import (
+    LOSETASCHILE_CHOICE_STYLE,
     ACTIVE_MARKET_REGIONS,
     AVG_DEAL_VALUE_CLP,
     DEFAULT_VENDOR_ID,
@@ -50,10 +51,12 @@ from .losetas_polls import (DELIVERY_POLL_QUESTION as LOSETAS_DELIVERY_POLL_QUES
                             category_for_poll_choice, poll_answer_for_history,
                             direct_product_category, selected_category_from_history,
                             is_factory_pickup, FACTORY_ADDRESS, FACTORY_MAP_URL,
-                            paver_order_details)
+                            paver_order_details, canonical_choice, numbered_choices,
+                            BORDER_MODEL_QUESTION, POOL_SHAPE_QUESTION,
+                            WHATSAPP_WEB_POLL_KEYS)
 from .memory import SessionMemory
 from .quotes import compute_quote, extract_request, format_quote, normalize_pricing
-from .pool_border import (border_plan, catalog_requested, visual_catalog_category,
+from .pool_border import (WHALE_BORDER_REVIEW, border_plan, catalog_requested, visual_catalog_category,
                           delegates_piece_calculation,
                           format_product_quote, shipping_price_request,
                           border_model_followup, measurement_followup, pool_shape_followup,
@@ -1075,6 +1078,8 @@ class Zero:
             history = self.memory.get_conversation(
                 client_id, lead["key"], limit=None if local_whatsapp else 12)
         order_history = history or []
+        if client_id == "losetaschile" and channel == "whatsapp":
+            message = canonical_choice(message, order_history) or message
         greeting = whatsapp_greeting() if channel == "whatsapp" else ""
         if client_id == "losetaschile" and channel == "whatsapp" and _simple_greeting(message):
             introduced = _introduced_name(message)
@@ -1221,6 +1226,14 @@ class Zero:
                 if shipping_delivery_followup(message, order_history):
                     return {"reply": "Gracias, recibí los datos de entrega. El equipo revisará cobertura y flete.",
                             "intent": "info"}
+                if clarification == WHALE_BORDER_REVIEW:
+                    # No piece rule for this model yet: a person quotes it.
+                    return {"reply": "", "intent": "handoff",
+                            "review_reason": "Borde ballena: cotizar con el equipo"}
+                if clarification in (BORDER_MODEL_QUESTION, POOL_SHAPE_QUESTION):
+                    return {"reply": clarification, "intent": "qualification",
+                            "customer_poll": ("border_model" if clarification ==
+                                              BORDER_MODEL_QUESTION else "shape")}
                 return {"reply": clarification, "intent": "pricing"}
             if not selected_tone:
                 return {"reply": color_question(), "intent": "qualification",
@@ -1507,6 +1520,10 @@ class Zero:
             self.crm.save()
 
         client_id, key = rec["client_id"], rec["key"]
+        if client_id == "losetaschile" and channel == "whatsapp":
+            # «2» answers the numbered options; store the option itself, because
+            # later steps read the order back from the conversation.
+            text = canonical_choice(text, self.memory.get_conversation(client_id, key)) or text
         if name_from_profile and channel == "whatsapp":
             display_names = self.memory.clients.setdefault(client_id, {}).setdefault(
                 "whatsapp_display_names", {})
@@ -1747,7 +1764,8 @@ class Zero:
             reply = format_whatsapp_reply(reply)
         if channel == "whatsapp" and (intent == "handoff" or not reply.strip() or repeated or
                                       unsafe_shipping or unsupported_review or unsupported_count):
-            reason = ("El agente no entendió la consulta" if intent == "handoff" else
+            reason = ((res.get("review_reason") or "El agente no entendió la consulta")
+                      if intent == "handoff" else
                       "Respuesta sobre despacho requiere revisión" if unsafe_shipping else
                       "Revisión de consulta no comprobada" if unsupported_review else
                       "Cantidad de piezas sin presupuesto comprobado" if unsupported_count else
@@ -1763,7 +1781,8 @@ class Zero:
             # contestar. Se guarda la PREGUNTA, nunca el borrador: ese texto es
             # justo el que no sirvió. Una persona escribe la respuesta buena una
             # vez y entra a la ficha, que ya se consulta en cada conversación.
-            self.memory.add_knowledge_gap(client_id, text, reason)
+            if not res.get("review_reason"):
+                self.memory.add_knowledge_gap(client_id, text, reason)
             self.memory.save()
             if self.crm:
                 self.crm.log(client_id, key, "awaiting_human", reason)
@@ -1788,6 +1807,15 @@ class Zero:
                     "delivery": notice_delivery, **out}
         self.memory.add_turn(client_id, key, "lead", text)
 
+        numbered_key = (("delivery" if res.get("delivery_poll") else res.get("customer_poll"))
+                        if client_id == "losetaschile" and channel == "whatsapp" else None)
+        if (numbered_key and LOSETASCHILE_CHOICE_STYLE == "poll" and
+                numbered_key in WHATSAPP_WEB_POLL_KEYS):
+            numbered_key = None  # the bridge has a poll for this question
+        if numbered_key and reply:
+            reply = reply.rstrip() + "\n\n" + numbered_choices(str(numbered_key), reply)
+            res = {key_: value for key_, value in res.items()
+                   if key_ not in ("customer_poll", "delivery_poll")}
         delivery = {"status": "error", "error": "El agente no produjo una respuesta"}
         poll_delivery = None
         if reply:
@@ -1859,14 +1887,12 @@ class Zero:
                 if (client_id == "losetaschile" and channel == "whatsapp" and
                         res.get("customer_poll") and whatsapp_chat_id and to_phone_id):
                     try:
-                        from .losetas_polls import (COLOR_POLL_QUESTION,
-                                                    PRODUCT_POLL_QUESTION)
+                        from .losetas_polls import CHOICE_PROMPTS
                         from .whatsapp_web import send_choice_poll
                         poll_delivery = send_choice_poll(
                             client_id, to_phone_id, rec.get("phone") or from_contact,
                             whatsapp_chat_id, str(res["customer_poll"]))
-                        question = (PRODUCT_POLL_QUESTION if res["customer_poll"] == "product"
-                                    else COLOR_POLL_QUESTION)
+                        question = CHOICE_PROMPTS[str(res["customer_poll"])][0]
                         self.memory.add_turn(client_id, key, "agent", question)
                     except (RuntimeError, ValueError) as exc:
                         poll_delivery = {"status": "error", "error": str(exc)}

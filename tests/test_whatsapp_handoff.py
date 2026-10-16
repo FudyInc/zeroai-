@@ -163,6 +163,7 @@ class WhatsAppHandoffTest(unittest.TestCase):
         self.assertEqual(result["delivery"]["status"], "sent")
         self.assertNotIn("Hacemos despacho", self.zero._deliver.call_args.args[3]["body"])
 
+    @mock.patch("zero.orchestrator.LOSETASCHILE_CHOICE_STYLE", "poll")
     def test_verified_shipping_coverage_is_sent_without_handoff(self):
         from zero.whatsapp_format import format_whatsapp_reply
         self.memory.set_client_knowledge(
@@ -190,6 +191,7 @@ class WhatsAppHandoffTest(unittest.TestCase):
         self.assertFalse(second.get("manual_review", False))
         self.assertEqual(self.zero._deliver.call_count, 2)
 
+    @mock.patch("zero.orchestrator.LOSETASCHILE_CHOICE_STYLE", "poll")
     def test_poll_failure_keeps_text_answer_and_direct_location_option(self):
         with mock.patch("zero.whatsapp_web.send_delivery_poll",
                         side_effect=RuntimeError("resultado incierto")):

@@ -64,6 +64,15 @@ QUOTE_REVIEW_REQUIRED_CLIENT_IDS = frozenset({"pooledge"})
 LOSETASCHILE_FLETE_ORIGIN = "Los Granados 029, La Pintana"
 LOSETASCHILE_FLETE_CLP_PER_KM = 2000
 # Enlace copiado por Diego del catálogo de WhatsApp Business el 2026-10-08.
+# Cómo se ofrecen las opciones del flujo de LosetasChile (producto, color, entrega):
+#   "numbered" → en el mismo mensaje, «1. … 2. …»; el cliente responde con el
+#                número o el nombre.
+#   "poll"     → encuesta de WhatsApp Web.
+# Verificado el 2026-10-16: el número está en la Cloud API en coexistencia y
+# Meta entrega el voto de encuesta como `unsupported` (131051); nunca llega al
+# puente. Las encuestas quedan inservibles hasta pasar a botones oficiales.
+LOSETASCHILE_CHOICE_STYLE = "numbered"
+
 LOSETASCHILE_WHATSAPP_CATALOG_URL = "https://wa.me/c/56964537891"
 LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE = (
     "Catálogo\n" + LOSETASCHILE_WHATSAPP_CATALOG_URL
