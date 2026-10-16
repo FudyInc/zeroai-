@@ -198,16 +198,23 @@ function MetaAdsCard({ client }) {
   const connected = !!marketing?.metaads_connected
   const status = probe?.ok === false
     ? { label: 'Error de acceso', color: '#e11d48', icon: AlertCircle }
-    : connected
+    : probe?.ok && probe.check && !probe.check.ready
+      ? { label: 'Cuenta por revisar', color: '#d97706', icon: AlertCircle }
+      : connected
       ? { label: 'Configurado', color: '#16a34a', icon: CheckCircle2 }
       : { label: 'Sin conectar', color: '#8C929B', icon: WifiOff }
 
   const testConnection = async () => {
     setBusy(true)
     try {
-      const accounts = await api.metaadsAccounts(client)
-      setProbe({ ok: true, accounts })
-      toast.success('Conexión con Meta OK')
+      const result = await api.metaadsAccounts(client)
+      // Un backend sin diagnóstico (anterior a `check`) no es una cuenta con
+      // problemas: se trata como la prueba simple de siempre.
+      const check = result.check || null
+      setProbe({ ok: true, accounts: result.accounts || [], check })
+      if (!check) toast.success('Conexión con Meta OK')
+      else if (check.ready) toast.success('Cuenta e Insights de Meta verificados')
+      else toast.warning('El token responde, pero la cuenta asignada aún no está lista')
     } catch (e) {
       setProbe({ ok: false, error: e.message })
       toast.error('Conexión falló: ' + e.message)
@@ -240,7 +247,7 @@ function MetaAdsCard({ client }) {
       {isError && <p className="text-xs text-rose-600 mb-2">No se pudo leer la configuración de este negocio.</p>}
       {marketing?.config?.ad_account && <p className="text-xs text-zinc-500 mb-3">Cuenta asignada: <code>{marketing.config.ad_account}</code></p>}
 
-      {probe?.ok === false && (
+      {probe?.ok === false && probe.error && (
         <div className="text-xs text-rose-600 mb-2 break-words">{probe.error}</div>
       )}
 
@@ -252,6 +259,15 @@ function MetaAdsCard({ client }) {
         </div>
       </div>
 
+      {probe?.check && (
+        <div className="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 dark:bg-zinc-100 p-3 text-xs text-zinc-700 space-y-1">
+          <div>Cuenta asignada: {probe.check.assigned_account || 'falta asignar en Campañas'}</div>
+          {probe.check.assigned_account && <div>Acceso a la cuenta: {probe.check.account_found ? 'sí' : 'no — este token no la ve'}</div>}
+          {probe.check.account_found && <div>Estado: {probe.check.account_active ? 'activa' : 'no activa'} · Moneda: {probe.check.currency || 'desconocida'}</div>}
+          {probe.check.account_found && <div>Lectura de Insights: {probe.check.insights_readable ? 'correcta' : 'falló'}</div>}
+          {probe.check.error && <div role="alert" className="text-rose-600 break-words">{probe.check.error}</div>}
+        </div>
+      )}
       {probe?.ok && (
         <div className="mt-3 space-y-1">
           {probe.accounts.length === 0 && <div className="text-xs text-zinc-400">El token no ve cuentas publicitarias.</div>}

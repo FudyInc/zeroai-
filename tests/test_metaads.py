@@ -30,15 +30,68 @@ class MetaAdsCampaignsTest(unittest.TestCase):
         self.addCleanup(self.env.stop)
 
     def test_campaigns_ok_mapea(self):
-        body = json.dumps({"data": [
+        campaigns = json.dumps({"data": [
             {"id": "1", "name": "Camp A", "objective": "OUTCOME_LEADS",
              "effective_status": "ACTIVE", "daily_budget": "5000"},
         ]})
-        with mock.patch("zero.metaads.urllib.request.urlopen", return_value=_resp(body)):
+        insights = json.dumps({"data": [{"campaign_id": "1", "spend": "12500.00", "account_currency": "CLP",
+                                         "actions": [{"action_type": "lead", "value": "5"}]}]})
+        with mock.patch("zero.metaads.urllib.request.urlopen", side_effect=[_resp(campaigns), _resp(insights)]):
             out = metaads.MetaAds("act_1").campaigns("acme")
             self.assertEqual(out[0]["id"], "1")
             self.assertEqual(out[0]["status"], "active")
             self.assertEqual(out[0]["budget_clp"], 5000)
+            self.assertEqual((out[0]["spent_clp"], out[0]["leads"], out[0]["cpl_clp"]), (12500, 5, 2500))
+
+    def test_campaigns_no_muestra_usd_como_clp(self):
+        campaigns = json.dumps({"data": [{"id": "1", "name": "Camp A"}]})
+        insights = json.dumps({"data": [{"campaign_id": "1", "spend": "50",
+                                         "account_currency": "USD"}]})
+        with mock.patch("zero.metaads.urllib.request.urlopen", side_effect=[_resp(campaigns), _resp(insights)]):
+            with self.assertRaisesRegex(RuntimeError, "no usa CLP"):
+                metaads.MetaAds("act_1").campaigns("acme")
+
+    def test_campaigns_sin_insights_verifica_moneda_antes_de_mostrar_presupuesto(self):
+        campaigns = json.dumps({"data": [{"id": "1", "name": "Camp A", "daily_budget": "5000"}]})
+        empty_insights = json.dumps({"data": []})
+        usd_account = json.dumps({"currency": "USD"})
+        with mock.patch("zero.metaads.urllib.request.urlopen", side_effect=[
+            _resp(campaigns), _resp(empty_insights), _resp(usd_account),
+        ]):
+            with self.assertRaisesRegex(RuntimeError, "no usa CLP"):
+                metaads.MetaAds("act_1").campaigns("acme")
+
+    def test_campaigns_sin_moneda_conocida_no_asume_clp(self):
+        campaigns = json.dumps({"data": [{"id": "1", "name": "Camp A", "daily_budget": "5000"}]})
+        with mock.patch("zero.metaads.urllib.request.urlopen", side_effect=[
+            _resp(campaigns), _resp(json.dumps({"data": []})), _resp(json.dumps({})),
+        ]):
+            with self.assertRaisesRegex(RuntimeError, "no usa CLP"):
+                metaads.MetaAds("act_1").campaigns("acme")
+
+    def test_campaigns_sin_campanas_no_consulta_moneda(self):
+        with mock.patch("zero.metaads.urllib.request.urlopen", side_effect=[
+            _resp(json.dumps({"data": []})), _resp(json.dumps({"data": []})),
+        ]) as urlopen:
+            self.assertEqual(metaads.MetaAds("act_1").campaigns("acme"), [])
+            self.assertEqual(urlopen.call_count, 2)
+
+    def test_daily_spend_no_muestra_gasto_usd_como_clp(self):
+        insights = json.dumps({"data": [{"date_start": "2026-10-13", "spend": "50"}]})
+        usd_account = json.dumps({"currency": "USD"})
+        with mock.patch("zero.metaads.urllib.request.urlopen", side_effect=[
+            _resp(insights), _resp(usd_account),
+        ]):
+            with self.assertRaisesRegex(RuntimeError, "no usa CLP"):
+                metaads.MetaAds("act_1").daily_spend()
+
+    def test_daily_spend_clp_se_muestra(self):
+        insights = json.dumps({"data": [{"date_start": "2026-10-13", "spend": "4500"}]})
+        with mock.patch("zero.metaads.urllib.request.urlopen", side_effect=[
+            _resp(insights), _resp(json.dumps({"currency": "CLP"})),
+        ]):
+            self.assertEqual(metaads.MetaAds("act_1").daily_spend(),
+                             [{"date": "2026-10-13", "spent_clp": 4500}])
 
     def test_campaigns_respuesta_no_json_lanza_runtime_error(self):
         with mock.patch("zero.metaads.urllib.request.urlopen", return_value=_resp("<html>error</html>")):
@@ -53,7 +106,9 @@ class MetaAdsCampaignsTest(unittest.TestCase):
 
     def test_campaigns_ignora_items_no_dict(self):
         body = json.dumps({"data": ["oops", {"id": "1", "name": "Camp A"}]})
-        with mock.patch("zero.metaads.urllib.request.urlopen", return_value=_resp(body)):
+        with mock.patch("zero.metaads.urllib.request.urlopen", side_effect=[
+            _resp(body), _resp(json.dumps({"data": []})), _resp(json.dumps({"currency": "CLP"})),
+        ]):
             out = metaads.MetaAds("act_1").campaigns("acme")
             self.assertEqual(len(out), 1)
             self.assertEqual(out[0]["id"], "1")
@@ -159,3 +214,70 @@ class MakeMetaAdsRealTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MetaAccountsCheckTest(unittest.TestCase):
+    """GET /api/metaads/accounts: además de listar cuentas, diagnostica la asignada."""
+
+    def setUp(self):
+        import api
+        from zero.memory import SessionMemory
+        self.api = api
+        self.memory = SessionMemory()
+        self.memory.register_client("acme", "GROWTH")
+        patches = [
+            mock.patch.object(api, "make_memory", return_value=self.memory),
+            mock.patch("zero.metaads.client_token", return_value="tok"),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+    def _check(self, accounts, assigned="act_1", spend=None):
+        self.memory.set_client_meta("acme", {"ad_account": assigned} if assigned else {})
+        spend = spend if spend is not None else mock.Mock(return_value=[])
+        with mock.patch("zero.metaads.list_ad_accounts", return_value=accounts), \
+             mock.patch("zero.metaads.MetaAds.daily_spend", spend):
+            return self.api.metaads_accounts("acme")
+
+    def test_cuenta_lista(self):
+        out = self._check([{"id": "act_1", "name": "A", "status": 1, "currency": "CLP"}])
+        self.assertTrue(out["check"]["ready"])
+        self.assertTrue(out["check"]["insights_readable"])
+        self.assertEqual(out["accounts"][0]["id"], "act_1")
+
+    def test_sin_cuenta_asignada_no_esta_lista(self):
+        out = self._check([{"id": "act_1", "status": 1, "currency": "CLP"}], assigned=None)
+        self.assertFalse(out["check"]["ready"])
+        self.assertIsNone(out["check"]["assigned_account"])
+
+    def test_token_no_ve_la_cuenta_asignada(self):
+        out = self._check([{"id": "act_9", "status": 1, "currency": "CLP"}])
+        self.assertFalse(out["check"]["account_found"])
+        self.assertFalse(out["check"]["ready"])
+
+    def test_cuenta_inactiva_no_esta_lista(self):
+        out = self._check([{"id": "act_1", "status": 2, "currency": "CLP"}])
+        self.assertFalse(out["check"]["account_active"])
+        self.assertFalse(out["check"]["ready"])
+
+    def test_cuenta_en_usd_reporta_el_motivo(self):
+        spend = mock.Mock(side_effect=RuntimeError(metaads._NOT_CLP))
+        out = self._check([{"id": "act_1", "status": 1, "currency": "USD"}], spend=spend)
+        self.assertFalse(out["check"]["ready"])
+        self.assertIn("no usa CLP", out["check"]["error"])
+
+    def test_cuenta_guardada_sin_prefijo_act_se_reconoce(self):
+        out = self._check([{"id": "act_1", "status": 1, "currency": "CLP"}], assigned="1")
+        self.assertTrue(out["check"]["account_found"])
+        self.assertTrue(out["check"]["ready"])
+
+    def test_status_como_texto_cuenta_como_activa(self):
+        out = self._check([{"id": "act_1", "status": "1", "currency": "CLP"}])
+        self.assertTrue(out["check"]["account_active"])
+
+    def test_error_inesperado_en_insights_no_revienta(self):
+        out = self._check([{"id": "act_1", "status": 1, "currency": "CLP"}],
+                          spend=mock.Mock(side_effect=ValueError("raro")))
+        self.assertFalse(out["check"]["ready"])
+        self.assertIn("raro", out["check"]["error"])

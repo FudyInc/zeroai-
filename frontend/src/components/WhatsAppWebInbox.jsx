@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, MessageCircle, RefreshCw, Search, Send } from 'lucide-react'
 import { toast } from 'sonner'
@@ -16,11 +17,22 @@ function ChatAvatar({ name }) {
 }
 
 export default function WhatsAppWebInbox({ client, expectedNumber, responseMode }) {
+  const location = useLocation()
+  const nav = useNavigate()
   const [selected, setSelected] = useState('')
   const [draft, setDraft] = useState('')
   const [filter, setFilter] = useState('')
   const qc = useQueryClient()
   useEffect(() => { setSelected(''); setDraft(''); setFilter('') }, [client])
+  // "Abrir chat" desde el aviso global llega como location.state. Se consume una
+  // sola vez y se borra del historial: si no, atrás/adelante o F5 reabrirían el
+  // chat. Si el aviso era de otro negocio, no se selecciona un chat ajeno.
+  useEffect(() => {
+    const wanted = location.state?.waChat
+    if (!wanted) return
+    if (!location.state.client || location.state.client === client) setSelected(wanted)
+    nav(location.pathname, { replace: true, state: null })
+  }, [location.key])   // eslint-disable-line react-hooks/exhaustive-deps
   const status = useQuery({ queryKey: ['whatsapp-web-status', client], queryFn: () => api.whatsappWebStatus(client), refetchInterval: 5000, retry: false })
   const ready = status.data?.state === 'ready' && !!expectedNumber && status.data.account === expectedNumber
   const chats = useQuery({ queryKey: ['whatsapp-web-chats', client], queryFn: () => api.whatsappWebChats(client), enabled: ready, refetchInterval: 10000, retry: false })
