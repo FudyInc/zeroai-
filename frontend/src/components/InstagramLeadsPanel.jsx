@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Instagram, RefreshCw } from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
+import ChannelIcon from './ChannelIcon'
 import { api } from '../lib/api'
 import { Card, Button, Eyebrow, SectionTitle } from './ui'
 
@@ -88,7 +89,7 @@ export default function InstagramLeadsPanel({ client }) {
     <Card className="p-5 space-y-5">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3">
-          <div className="w-11 h-11 rounded-xl grid place-items-center bg-pewter/15 text-pewter"><Instagram size={20} /></div>
+          <div className="w-11 h-11 rounded-xl grid place-items-center bg-white border border-zinc-200"><ChannelIcon channel="ig" /></div>
           <div>
             <Eyebrow>Instagram · Lead Ads</Eyebrow>
             <SectionTitle>Leads desde formularios</SectionTitle>

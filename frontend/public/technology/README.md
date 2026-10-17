@@ -11,6 +11,7 @@ ZEROAI's existing logo.png and logo-mark.png are used without modification.
 - Gmail: original Google product icon, https://www.gstatic.com/images/branding/product/2x/gmail_2020q4_48dp.png (Google trademark).
 - Phone iOS: https://commons.wikimedia.org/wiki/File:Phone_iOS.svg (Apple phone app icon, Wikimedia vector reproduction).
 - WhatsApp: the existing Simple Icons mark, rendered in WhatsApp green.
+- Instagram (2026-10-16): Simple Icons mark (CC0), rendered with the Instagram gradient.
 These third-party assets are not covered by Simple Icons' CC0 license unless stated by their source.
 
 ## Model selector (2026-09-08)
