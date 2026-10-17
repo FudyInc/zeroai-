@@ -26,16 +26,18 @@
 //     borradores que dejaron las corridas automáticas; revisar y enviar
 //     outreach ya es trabajo de esos tres roles (mismo criterio que el
 //     POST /api/leads/{key}/send que ya tenían).
-//   - "operador" (Stefano): rol con alcance por cliente — Pipeline y Agentes
-//     (solo Instagram; más el modal "Buscar leads", que no es página). Ve únicamente los clientes que
+//   - "operador" (Stefano): rol con alcance por cliente — Leads, Pipeline y
+//     Agentes (solo Instagram; más el modal "Buscar leads", que no es página).
+//     Leads (Diego, 2026-10-16): GET /api/leads ya era suyo y _require_client
+//     lo acota a sus clientes — no abre nada nuevo en el backend. Ve únicamente los clientes que
 //     Diego le asigna en Equipo; la barrera real es el backend (404 fuera de
 //     alcance), esto evita mostrarle o pedirle nada de otros clientes.
 //   - Preferencias (2026-07-23): cro/cto/cco (y admin) — es personal (tema, por
 //     ahora), 100% cliente/localStorage, nada sensible ni de la agencia. El
-//     "operador" NO la tiene (decisión de Diego: solo Pipeline y Agentes por ahora).
+//     "operador" NO la tiene (decisión de Diego: Leads, Pipeline y Agentes por ahora).
 export const PAGE_ROLES = {
   '/': ['cro', 'cto', 'cco'],
-  '/leads': ['cto'],
+  '/leads': ['cto', 'operador'],
   '/pipeline': ['cro', 'cto', 'cco', 'operador'],
   '/forecast': ['cro', 'cto'],
   '/vender': ['cro', 'cco'],

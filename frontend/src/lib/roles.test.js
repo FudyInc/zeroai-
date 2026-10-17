@@ -2,9 +2,10 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { canSeePage, homePath, isScoped, ROLE_LABELS } from './roles.js'
 
-test('operador solo ve Pipeline', () => {
+test('operador ve Leads y Pipeline, nada más de la agencia', () => {
   assert.equal(canSeePage('/pipeline', 'operador', true), true)
-  for (const p of ['/', '/leads', '/forecast', '/equipo', '/clientes', '/aprobar']) {
+  assert.equal(canSeePage('/leads', 'operador', true), true)
+  for (const p of ['/', '/forecast', '/equipo', '/clientes', '/aprobar']) {
     assert.equal(canSeePage(p, 'operador', true), false, p)
   }
 })
