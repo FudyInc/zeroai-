@@ -43,6 +43,7 @@ from .inbox import Inbox, MockInbox
 from .losetas_color import (COLOR_CATALOG_IMAGE_PATH, color_preference,
                             color_question, latest_color_preference)
 from .losetas_budget import format_internal_budget
+from .losetas_text import normalize_customer_text
 from .losetas_shipping import (SHIPPING_COVERAGE_REPLY, SHIPPING_PRICE_REPLY,
                                delivery_detail, delivery_poll_choice_response,
                                shipping_coverage_request, shipping_delivery_followup)
@@ -98,7 +99,7 @@ def _same_reply(first: str, second: str) -> bool:
 # Saludos que se combinan entre sí: «Hola buenas tardes», «Hola, buenas noches,
 # ¿cómo están?». Visto en vivo (2026-10-15): «Hola buenas tardes» no estaba en la
 # lista cerrada anterior, llegó al modelo y nunca se mandó la encuesta de producto.
-_GREETING_WORD = (r"(?:hola+|holi|wena+s?|buenas|saludos|"
+_GREETING_WORD = (r"(?:h?o+la+s?|hla|holi+s?|w[ae]{1,2}na+s?|buenas|saludos|"
                   r"buen[oa]?s?\s+(?:d[ií]as?|tardes|noches)|"
                   r"qu[eé]\s+tal|c[oó]mo\s+(?:est[aá][sn]?|va)(?:\s+(?:ustedes|usted|todo))?)")
 _GREETING_SEP = r"[\s,!¡¿?.]+"
@@ -1081,6 +1082,8 @@ class Zero:
                 client_id, lead["key"], limit=None if local_whatsapp else 12)
         order_history = history or []
         if client_id == "losetaschile" and channel == "whatsapp":
+            # Typos fixed and loose sizes rewritten before any step reads it.
+            message = normalize_customer_text(message)
             message = canonical_choice(message, order_history) or message
         greeting = whatsapp_greeting() if channel == "whatsapp" else ""
         if client_id == "losetaschile" and channel == "whatsapp" and _simple_greeting(message):
@@ -1528,6 +1531,7 @@ class Zero:
         if client_id == "losetaschile" and channel == "whatsapp":
             # «2» answers the numbered options; store the option itself, because
             # later steps read the order back from the conversation.
+            text = normalize_customer_text(text)
             text = canonical_choice(text, self.memory.get_conversation(client_id, key)) or text
         if name_from_profile and channel == "whatsapp":
             display_names = self.memory.clients.setdefault(client_id, {}).setdefault(

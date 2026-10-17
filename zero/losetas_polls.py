@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import re
-import unicodedata
 from typing import Any
+
+from .losetas_text import closest, normalize_customer_text, plain
 
 
 PRODUCT_POLL_QUESTION = "¿Qué producto estás buscando?"
@@ -61,16 +62,79 @@ def numbered_choices(key: str, reply: str = "") -> str:
     return "\n".join(lines + ["", NUMBERED_HINT])
 
 
-def _plain(value: str) -> str:
-    text = unicodedata.normalize("NFKD", (value or "").casefold())
-    text = "".join(c for c in text if not unicodedata.combining(c))
-    return " ".join(re.findall(r"[a-z0-9]+", text))
-
+_plain = plain
 
 _KEYCAPS = {"1️⃣": "1", "2️⃣": "2", "3️⃣": "3", "4️⃣": "4", "5️⃣": "5", "6️⃣": "6", "7️⃣": "7"}
+_ORDINALS = {"uno": 1, "una": 1, "primero": 1, "primera": 1, "dos": 2, "segundo": 2,
+             "segunda": 2, "tres": 3, "tercero": 3, "tercera": 3, "cuatro": 4, "cuarto": 4,
+             "cuarta": 4, "cinco": 5, "quinto": 5, "quinta": 5, "seis": 6, "sexto": 6,
+             "sexta": 6, "siete": 7, "septimo": 7, "septima": 7}
+# Words around a menu answer that carry no choice of their own: «quiero el 2 porfa».
+_FILLER = frozenset("el la lo opcion numero nro n quiero prefiero elijo escojo me "
+                    "quedo con porfa por favor gracias ok oka okey ya esa ese esta este "
+                    "de seria sera mejor va dale bueno a al te mando paso yo voy".split())
+# Loose words that point to one option, per question («retiro», «el recto»).
+_ALIASES = {
+    "product": {"bordes": 0, "borde": 0, "piscina": 0, "pastelones": 1, "pastelon": 1},
+    "delivery": {"retiro": 2, "retirar": 2, "retiramos": 2, "fabrica": 2, "buscar": 2,
+                 "direccion": 1, "escribo": 1, "escribir": 1,
+                 "ubicacion": 0, "despacho": 0, "domicilio": 0, "envio": 0, "enviar": 0,
+                 "despachen": 0, "traigan": 0},
+    "border_model": {"recto": 0, "nariz": 0, "ballena": 1},
+    "paver_model": {"laja": 0, "espanola": 0, "ladrillo": 1, "cruzado": 1, "rustico": 3,
+                    "gregoriano": 4, "gregioriano": 4, "octagonal": 5, "piedra": 5},
+    "shape": {"si": 0, "s": 0, "sip": 0, "rectangular": 0, "correcto": 0,
+              "redonda": 1, "ovalada": 1, "irregular": 1, "circular": 1},
+}
 
 
-_YES_NO = {"si": 0, "s": 0, "rectangular": 0, "no": 1}
+# «¿hacen despacho a Rancagua?» names an option but asks about it.
+_QUESTION = re.compile(r"\?|^\s*¿|\b(?:cu[aá]nto|cuesta|cu[aá]l|qu[eé]|c[oó]mo|d[oó]nde|"
+                       r"hacen|tienen|hay|puedo|pueden|sirve|precio|valor)\b", re.IGNORECASE)
+_NEGATION = frozenset({"no", "sin", "pero", "nunca", "ninguno", "ninguna", "tampoco"})
+_UNSURE = re.compile(r"\b(?:no se|nose|ni idea|no estoy segur[oa]|los dos|las dos|"
+                     r"ambos|ambas|todos|todas)\b")
+
+
+def _menu_number(typed: str, size: int) -> int | None:
+    """«2», «el 2», «quiero la dos»: one number and nothing else meaningful."""
+    words = typed.split()
+    numbers = [int(w) if w.isdigit() else _ORDINALS[w] for w in words
+               if w.isdigit() or w in _ORDINALS]
+    rest = [w for w in words if not (w.isdigit() or w in _ORDINALS) and w not in _FILLER]
+    if len(numbers) == 1 and not rest and 1 <= numbers[0] <= size:
+        return numbers[0]
+    return None
+
+
+def _option_from_words(key: str, typed: str, options) -> str | None:
+    """An option named loosely: exact name, a distinctive word, or a near spelling."""
+    core = [w for w in typed.split() if w not in _FILLER]
+    text = " ".join(core)
+    by_plain = {_plain(option): option for option in options}
+    if text in by_plain:
+        return by_plain[text]
+    # A keyword only answers the list when it is (almost) the whole message:
+    # «no me gusta el recto» or «si pero tiene forma de L» must not pick it.
+    if len(core) > 2 or _NEGATION & set(core):
+        return None
+    aliases = _ALIASES.get(key, {})
+    hits = set()
+    for word in core:
+        if word in aliases:
+            hits.add(aliases[word])
+        elif len(word) >= 5 and (near := closest(word, aliases, cutoff=0.85)):
+            hits.add(aliases[near])  # «octogonal», «retiramo»
+    # «sol rústico» names option 4, but «sol» alone is option 3.
+    if key == "paver_model" and "sol" in core and not hits:
+        hits = {2}
+    if len(hits) == 1:
+        return options[hits.pop()]
+    if text and len(core) <= 3:
+        near = closest(text, by_plain, cutoff=0.8)
+        if near:
+            return by_plain[near]
+    return None
 
 
 def canonical_choice(message: str, history: list[dict[str, Any]]) -> str | None:
@@ -86,17 +150,18 @@ def canonical_choice(message: str, history: list[dict[str, Any]]) -> str | None:
         if turn.get("role") != "agent":
             continue
         prompt = str(turn.get("text") or "").casefold()
-        for question, options in CHOICE_PROMPTS.values():
+        for key, (question, options) in CHOICE_PROMPTS.items():
             if question.casefold() not in prompt:
                 continue
-            number = re.fullmatch(r"(?:(?:la\s+)?opci[oó]n\s+|n[uú]mero\s+)?(\d{1,2})\s*[.)]?",
-                                  value, re.IGNORECASE)
-            if number and 1 <= int(number.group(1)) <= len(options):
-                return options[int(number.group(1)) - 1]
-            typed = _plain(value)
-            if options is POOL_SHAPE_OPTIONS and typed in _YES_NO:
-                return options[_YES_NO[typed]]
-            return next((option for option in options if typed and _plain(option) == typed), None)
+            typed = _plain(normalize_customer_text(value))
+            if len(typed.split()) > 8 or _QUESTION.search(value) or _UNSURE.search(typed):
+                return None  # a question or a doubt, not an answer to the list
+            if key == "shape" and typed in ("no", "nop", "no es", "nopo"):
+                return options[1]
+            number = _menu_number(typed, len(options))
+            if number:
+                return options[number - 1]
+            return _option_from_words(key, typed, options)
         return None
     return None
 
