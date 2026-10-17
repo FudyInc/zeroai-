@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Instagram, Linkedin, Clock, Radio } from 'lucide-react'
+import { Linkedin, Clock, Radio } from 'lucide-react'
 import { api } from '../lib/api'
 import { repliedRecently } from '../lib/util'
 import ChannelIcon from '../components/ChannelIcon'
@@ -65,7 +65,7 @@ function AgentesGeneral({ client }) {
 
   const agents = [
     {
-      key: 'ig', name: 'Instagram · Formularios (Lead Ads)', icon: Instagram, chip: 'bg-pewter/15 text-pewter',
+      key: 'ig', name: 'Instagram · Formularios (Lead Ads)', branded: true, chip: 'bg-white border border-zinc-200',
       desc: 'Importa los leads de los formularios de tus anuncios. Los DMs en frío siguen no siendo viables (la plataforma los bloquea).',
       status: igStatus,
       onClick: () => setIgOpen((o) => !o), activity: null,
