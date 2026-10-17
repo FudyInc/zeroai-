@@ -26,16 +26,23 @@ FACTORY_ADDRESS = "Los Granados 029, La Pintana"
 FACTORY_MAP_URL = "https://maps.app.goo.gl/yd4CKEr1bqi7RwsZA"
 
 
-BORDER_MODEL_QUESTION = "¿Qué modelo de borde quieres?"
+BORDER_MODEL_QUESTION = "¿Qué modelo de borde te interesó más?"
 BORDER_MODEL_STRAIGHT = "Borde recto con nariz 50×50"
 BORDER_MODEL_WHALE = "Borde ballena 50×40"
 BORDER_MODEL_OPTIONS = (BORDER_MODEL_STRAIGHT, BORDER_MODEL_WHALE)
+
+PAVER_AREA_QUESTION = "¿Cuántos m² necesitas cubrir con pastelones?"
+PAVER_MODEL_QUESTION = "¿Qué pastelón del catálogo te interesó más?"
+# Same models, same order as the PDF (whatsapp-web-bridge/catalog-document.js).
+PAVER_MODEL_OPTIONS = ("Laja española", "Ladrillo cruzado", "Sol", "Sol rústico",
+                       "Gregioriano", "Octagonal Piedra")
 
 POOL_SHAPE_QUESTION = "¿La piscina es rectangular?"
 POOL_SHAPE_OPTIONS = ("Sí, es rectangular", "No es rectangular")
 
 CHOICE_PROMPTS = {
     "shape": (POOL_SHAPE_QUESTION, POOL_SHAPE_OPTIONS),
+    "paver_model": (PAVER_MODEL_QUESTION, PAVER_MODEL_OPTIONS),
     "border_model": (BORDER_MODEL_QUESTION, BORDER_MODEL_OPTIONS),
     "product": (PRODUCT_POLL_QUESTION, PRODUCT_POLL_OPTIONS),
     "color": (COLOR_POLL_QUESTION, COLOR_POLL_OPTIONS),
@@ -192,6 +199,9 @@ _PAVER_MODELS = (
 )
 
 
+_BARE_AREA = re.compile(r"(\d{1,4}(?:[.,]\d{1,2})?)\s*(?:m|mts?|metros?)?\.?", re.IGNORECASE)
+
+
 def paver_order_details(message: str, history: list[dict[str, Any]]) -> dict[str, str | None]:
     """Collect model and covered area only from answers after the paver prompt."""
     turns = list(history) + [{"role": "lead", "text": message}]
@@ -215,6 +225,12 @@ def paver_order_details(message: str, history: list[dict[str, Any]]) -> dict[str
         if turn.get("role") == "lead") if prompt_index >= 0 else ""
     model = next((label for label, pattern in _PAVER_MODELS if pattern.search(candidate_text)), None)
     area = _PAVER_AREA.search(candidate_text)
+    following = turns[prompt_index + 1] if 0 <= prompt_index < len(turns) - 1 else {}
+    if not area and following.get("role") == "lead":
+        # «20» alone answers «¿Cuántos m²…?» only as the very next message: a
+        # later «1» is a menu choice, not one square metre.
+        found = _BARE_AREA.fullmatch(str(following.get("text") or "").strip())
+        area = found if found and float(found.group(1).replace(",", ".")) > 0 else None
     return {"model": model, "area_m2": area.group(1).replace(",", ".") if area else None}
 
 
