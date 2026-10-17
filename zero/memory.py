@@ -289,8 +289,14 @@ class SessionMemory:
     # que nunca ocurrieron—, sino la pregunta, para que una persona escriba la
     # respuesta buena una sola vez y pase a la ficha.
     def add_knowledge_gap(self, client_id: str, question: str,
-                          reason: str = "") -> Optional[Dict[str, Any]]:
-        """Registra una pregunta que el agente no supo responder."""
+                          reason: str = "", chat_id: str = "", contacto: str = "",
+                          tipo: str = "pregunta", lead_key: str = "") -> Optional[Dict[str, Any]]:
+        """Registra lo que el agente no pudo resolver solo.
+
+        `tipo` = "pregunta" (no supo responder: se le enseña) o "pedido" (sí
+        entendió, pero lo tiene que cotizar una persona). `chat_id` y
+        `contacto` son del último cliente que lo pidió, para abrir su chat y
+        contestarle desde el módulo de atención del dashboard."""
         texto = " ".join(str(question or "").split())[:400]
         if not texto:
             return None
@@ -304,10 +310,19 @@ class SessionMemory:
             item["ultima"] = _now()
             if reason:
                 item["reason"] = reason[:200]
+            if item.get("estado") == "descartada":
+                item["estado"] = "abierta"   # volvió a pasar: no era ruido
         else:
             item = {"pregunta": texto, "reason": reason[:200], "veces": 1,
                     "primera": _now(), "ultima": _now(), "estado": "abierta"}
             huecos[clave] = item
+        item["tipo"] = tipo if tipo in ("pregunta", "pedido") else "pregunta"
+        if chat_id:
+            item["chat_id"] = str(chat_id)[:120]
+        if contacto:
+            item["contacto"] = " ".join(str(contacto).split())[:80]
+        if lead_key:
+            item["lead_key"] = str(lead_key)[:120]
         return item
 
     def list_knowledge_gaps(self, client_id: str,
@@ -316,6 +331,7 @@ class SessionMemory:
         huecos = self.clients.get(client_id, {}).get("knowledge_gaps") or {}
         salida = [dict(v, clave=k) for k, v in huecos.items()
                   if incluir_resueltas or (v or {}).get("estado") != "resuelta"]
+        salida = [h for h in salida if incluir_resueltas or h.get("estado") != "descartada"]
         return sorted(salida, key=lambda h: (-int(h.get("veces") or 1), h.get("primera") or ""))
 
     def resolve_knowledge_gap(self, client_id: str, clave: str,
@@ -328,6 +344,22 @@ class SessionMemory:
         item["estado"] = "resuelta"
         item["respuesta"] = " ".join(str(respuesta or "").split())[:600]
         item["resuelta_en"] = _now()
+        return True
+
+    def alias_knowledge_gap(self, client_id: str, clave: str, opcion: str) -> bool:
+        """Enseña que esa frase del cliente significa una opción del flujo."""
+        item = (self.clients.get(client_id, {}).get("knowledge_gaps") or {}).get(clave)
+        if not item:
+            return False
+        item.update(estado="resuelta", equivale=str(opcion)[:120], resuelta_en=_now())
+        return True
+
+    def dismiss_knowledge_gap(self, client_id: str, clave: str) -> bool:
+        """No era una pregunta (un «ok», un sticker): sale de la lista."""
+        item = (self.clients.get(client_id, {}).get("knowledge_gaps") or {}).get(clave)
+        if not item:
+            return False
+        item.update(estado="descartada", descartada_en=_now())
         return True
 
     # --- vendor catalog (Fernanda, Stéfano, ... each with their own WhatsApp) --

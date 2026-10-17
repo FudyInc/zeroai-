@@ -25,35 +25,10 @@ import os
 import sys
 from typing import Any, Dict, List
 
-# Tope de carga de la ficha; el mismo que aplica scripts/cargar_empresa.py.
-LIMITE_FICHA = 4000
-ENCABEZADO = "## Respuestas aprobadas"
-
-
-def seccion_respuestas(ficha: str) -> str:
-    """El bloque de respuestas aprobadas que ya tiene la ficha."""
-    if ENCABEZADO not in ficha:
-        return ""
-    return ficha.split(ENCABEZADO, 1)[1].strip()
-
-
-def agregar_respuesta(ficha: str, pregunta: str, respuesta: str) -> str:
-    """Devuelve la ficha con un par pregunta/respuesta más.
-
-    Si la pregunta ya estaba, se reemplaza su respuesta en vez de duplicarla:
-    una ficha con dos respuestas distintas a lo mismo le da al modelo una
-    contradicción, que es peor que no tener ninguna.
-    """
-    entrada = f"- **{pregunta.strip()}** {respuesta.strip()}"
-    base = ficha.rstrip()
-    if ENCABEZADO not in base:
-        return f"{base}\n\n{ENCABEZADO}\n{entrada}\n"
-    cabeza, cola = base.split(ENCABEZADO, 1)
-    lineas = [l for l in cola.strip().splitlines() if l.strip()]
-    marca = f"- **{pregunta.strip()}**"
-    lineas = [l for l in lineas if not l.startswith(marca)]
-    lineas.append(entrada)
-    return f"{cabeza.rstrip()}\n\n{ENCABEZADO}\n" + "\n".join(lineas) + "\n"
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from zero.attention import (ENCABEZADO, LIMITE_FICHA,  # noqa: E402  (mismo mecanismo
+                            agregar_respuesta, seccion_respuestas,  # que el dashboard)
+                            teach_answer)
 
 
 def _memoria(raiz: str):
@@ -90,16 +65,13 @@ def responder(memoria, client_id: str, clave: str, texto: str) -> int:
         print(f"No existe la clave {clave!r}. Córrela con --listar para ver las disponibles.",
               file=sys.stderr)
         return 1
-    ficha = memoria.get_client_knowledge(client_id)
-    nueva = agregar_respuesta(ficha, hueco.get("pregunta", clave), texto)
-    if len(nueva) > LIMITE_FICHA:
-        print(f"La ficha quedaría en {len(nueva)} caracteres y el tope es {LIMITE_FICHA}. "
-              f"Hay que acortar alguna respuesta antes de agregar esta.", file=sys.stderr)
+    error = teach_answer(memoria, client_id, clave, texto)
+    if error:
+        print(error, file=sys.stderr)
         return 1
-    memoria.set_client_knowledge(client_id, nueva)
-    memoria.resolve_knowledge_gap(client_id, clave, texto)
     memoria.save()
-    print(f"Listo. La ficha quedó en {len(nueva)} de {LIMITE_FICHA} caracteres.")
+    print(f"Listo. La ficha quedó en {len(memoria.get_client_knowledge(client_id))} "
+          f"de {LIMITE_FICHA} caracteres.")
     print("El motor ya la consulta en cada conversación: no hace falta reiniciar nada.")
     return 0
 

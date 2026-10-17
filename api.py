@@ -1532,6 +1532,88 @@ def whatsapp_web_reply(chat_id: str, body: WhatsAppWebReply,
     return result
 
 
+# --- Módulo de atención: lo que el agente no pudo resolver solo -------------
+# Ver zero/attention.py. Solo el equipo lo ve (rutas /api/whatsapp: admin y
+# cco; el operador no tiene WhatsApp). El cliente final solo recibe la
+# respuesta, y solo cuando el equipo la envía desde aquí.
+
+@app.get("/api/whatsapp/attention")
+def whatsapp_attention(client: str, include_resolved: bool = False):
+    from zero.attention import choice_options
+    memory = make_memory(STATE_PATH)
+    items = memory.list_knowledge_gaps(client, incluir_resueltas=include_resolved)
+    abiertas = [i for i in memory.list_knowledge_gaps(client) if i.get("estado") == "abierta"]
+    return {"client": client, "items": items, "open": len(abiertas),
+            "options": choice_options()}
+
+
+class AttentionAnswer(BaseModel):
+    clave: str
+    respuesta: str
+    send: bool = True
+
+
+@app.post("/api/whatsapp/attention/answer")
+def whatsapp_attention_answer(body: AttentionAnswer, client: str = Query(...)):
+    """«Enviar y enseñar»: la respuesta llega al cliente que esperaba y queda aprendida."""
+    from zero.attention import teach_answer
+    memory = make_memory(STATE_PATH)
+    item = next((i for i in memory.list_knowledge_gaps(client, incluir_resueltas=True)
+                 if i.get("clave") == body.clave), None)
+    if not item:
+        raise HTTPException(status_code=404, detail="Ese caso ya no existe")
+    texto = " ".join(body.respuesta.split())
+    if not texto or len(texto) > 600:
+        raise HTTPException(status_code=400, detail="Escribe una respuesta de hasta 600 caracteres")
+    sent = None
+    chat_id = item.get("chat_id") or ""
+    if body.send and chat_id.endswith(("@c.us", "@lid")):
+        # Enviar primero: si el puente falla, no se marca como resuelto algo
+        # que el cliente nunca recibió.
+        sent = _whatsapp_web_inbox_request(
+            "/chats/" + urllib.parse.quote(chat_id, safe="") + "/messages", {"text": texto},
+            client=client)
+    error = teach_answer(memory, client, body.clave, texto)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+    if sent and item.get("lead_key"):
+        memory.add_turn(client, item["lead_key"], "agent", texto)
+    memory.log("attention_answered", client=client, clave=body.clave, sent=bool(sent))
+    memory.save()
+    return {"ok": True, "sent": bool(sent), "chat_id": chat_id or None}
+
+
+class AttentionAlias(BaseModel):
+    clave: str
+    opcion: str
+
+
+@app.post("/api/whatsapp/attention/alias")
+def whatsapp_attention_alias(body: AttentionAlias, client: str = Query(...)):
+    """«Equivale a…»: la frase del cliente pasa a significar esa opción del flujo."""
+    from zero.attention import teach_alias
+    memory = make_memory(STATE_PATH)
+    error = teach_alias(memory, client, body.clave, body.opcion)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+    memory.log("attention_alias", client=client, clave=body.clave, opcion=body.opcion)
+    memory.save()
+    return {"ok": True}
+
+
+class AttentionDismiss(BaseModel):
+    clave: str
+
+
+@app.post("/api/whatsapp/attention/dismiss")
+def whatsapp_attention_dismiss(body: AttentionDismiss, client: str = Query(...)):
+    memory = make_memory(STATE_PATH)
+    if not memory.dismiss_knowledge_gap(client, body.clave):
+        raise HTTPException(status_code=404, detail="Ese caso ya no existe")
+    memory.save()
+    return {"ok": True}
+
+
 @app.get("/api/webhooks/whatsapp")
 def whatsapp_verify(mode: Optional[str] = Query(None, alias="hub.mode"),
                     token: Optional[str] = Query(None, alias="hub.verify_token"),

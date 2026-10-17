@@ -44,6 +44,7 @@ from .losetas_color import (COLOR_CATALOG_IMAGE_PATH, color_preference,
                             color_question, latest_color_preference)
 from .losetas_budget import format_internal_budget
 from .losetas_text import normalize_customer_text
+from .attention import learned_alias, learned_answer
 from .losetas_shipping import (SHIPPING_COVERAGE_REPLY, SHIPPING_PRICE_REPLY,
                                delivery_detail, delivery_poll_choice_response,
                                shipping_coverage_request, shipping_delivery_followup)
@@ -1084,7 +1085,16 @@ class Zero:
         if client_id == "losetaschile" and channel == "whatsapp":
             # Typos fixed and loose sizes rewritten before any step reads it.
             message = normalize_customer_text(message)
-            message = canonical_choice(message, order_history) or message
+            # A phrase the team taught as a synonym becomes that option.
+            message = learned_alias(self.memory, client_id, message) or message
+            chosen = canonical_choice(message, order_history)
+            if chosen:
+                message = chosen
+            else:
+                learned = learned_answer(self.memory, client_id, message)
+                if learned:
+                    # The team answered this question once from the dashboard.
+                    return {"reply": learned, "intent": "info", "flow_step": True}
         greeting = whatsapp_greeting() if channel == "whatsapp" else ""
         if client_id == "losetaschile" and channel == "whatsapp" and _simple_greeting(message):
             introduced = _introduced_name(message)
@@ -1233,7 +1243,8 @@ class Zero:
                 shipping_delivery_followup(message, order_history)):
             return {"reply": ("Gracias, recibí el modelo, los m² y la ubicación. "
                               "Debo confirmar el tamaño del modelo antes de calcular las cantidades."),
-                    "intent": "info"}
+                    "intent": "info",
+                    "attention": "Pastelones: confirmar el tamaño del modelo y cotizar"}
         if (client_id == "losetaschile" and channel == "whatsapp" and
                 (wants_border_budget(message) or pool_measurement_message(message) or measurement_followup(
                     message, order_history) or border_model_followup(message, order_history) or
@@ -1263,7 +1274,9 @@ class Zero:
                     return {"reply": clarification, "intent": "qualification",
                             "customer_poll": ("border_model" if clarification ==
                                               BORDER_MODEL_QUESTION else "shape")}
-                return {"reply": clarification, "intent": "pricing"}
+                return {"reply": clarification, "intent": "pricing",
+                        **({"attention": "Piscina que no es rectangular: cotizar con el equipo"}
+                           if clarification.startswith("Necesito revisar") else {})}
             if not selected_tone:
                 return {"reply": color_question(), "intent": "qualification",
                         "media_asset": COLOR_CATALOG_IMAGE_PATH,
@@ -1553,6 +1566,7 @@ class Zero:
             # «2» answers the numbered options; store the option itself, because
             # later steps read the order back from the conversation.
             text = normalize_customer_text(text)
+            text = learned_alias(self.memory, client_id, text) or text
             text = canonical_choice(text, self.memory.get_conversation(client_id, key)) or text
         if name_from_profile and channel == "whatsapp":
             display_names = self.memory.clients.setdefault(client_id, {}).setdefault(
@@ -1812,8 +1826,10 @@ class Zero:
             # contestar. Se guarda la PREGUNTA, nunca el borrador: ese texto es
             # justo el que no sirvió. Una persona escribe la respuesta buena una
             # vez y entra a la ficha, que ya se consulta en cada conversación.
-            if not res.get("review_reason"):
-                self.memory.add_knowledge_gap(client_id, text, reason)
+            self.memory.add_knowledge_gap(
+                client_id, text, reason, chat_id=whatsapp_chat_id or key,
+                contacto=rec.get("name") or rec.get("phone") or "", lead_key=key,
+                tipo="pedido" if res.get("review_reason") else "pregunta")
             self.memory.save()
             if self.crm:
                 self.crm.log(client_id, key, "awaiting_human", reason)
@@ -1914,6 +1930,12 @@ class Zero:
             if delivery["status"] == "sent":
 
                 self.memory.add_turn(client_id, key, "agent", reply)
+                if res.get("attention"):
+                    # Answered, but a person still has to act: it goes to the
+                    # dashboard's attention list with this chat attached.
+                    self.memory.add_knowledge_gap(
+                        client_id, text, res["attention"], chat_id=whatsapp_chat_id or key,
+                        contacto=rec.get("name") or rec.get("phone") or "", lead_key=key, tipo="pedido")
                 if (client_id == "losetaschile" and channel == "whatsapp" and
                         res.get("delivery_poll") and whatsapp_chat_id and to_phone_id):
                     try:
