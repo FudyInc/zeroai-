@@ -60,6 +60,36 @@ class EnseñarRespuestas(unittest.TestCase):
         self.assertEqual(result["reply"], "Sí, emitimos ambas.")
 
 
+    def test_cifras_distintas_no_reciben_la_respuesta(self):
+        memory, clave = _memory_with_gap("¿Cuánto cuesta el pastelón de 40x40 gris?")
+        teach_answer(memory, "losetaschile", clave, "Cuesta $1.600 la unidad.")
+        for otra in ("¿Cuánto cuesta el pastelón de 40x50 gris?",
+                     "¿Cuánto cuesta el pastelón de 30x30 gris?"):
+            with self.subTest(otra=otra):
+                self.assertIsNone(learned_answer(memory, "losetaschile", otra))
+        self.assertEqual(learned_answer(memory, "losetaschile",
+                                        "cuanto cuesta el pastelon de 40x40 gris"),
+                         "Cuesta $1.600 la unidad.")
+
+    def test_un_numero_suelto_nunca_activa_lo_aprendido(self):
+        memory, clave = _memory_with_gap("2")
+        memory.add_knowledge_gap("losetaschile", "2")
+        teach_answer(memory, "losetaschile", _gap_key("2"), "Respuesta para el 2")
+        self.assertIsNone(learned_answer(memory, "losetaschile", "2"))
+
+    def test_un_pedido_se_atiende_pero_no_se_aprende(self):
+        memory = SessionMemory(None)
+        memory.register_client("losetaschile", "STARTER")
+        memory.add_knowledge_gap("losetaschile", "Borde ballena 50×40", "Borde ballena: cotizar",
+                                 chat_id="56933333333@c.us", tipo="pedido")
+        clave = _gap_key("Borde ballena 50×40")
+        ficha = memory.get_client_knowledge("losetaschile")
+        self.assertIsNone(teach_answer(memory, "losetaschile", clave, "Son $250.000 en total."))
+        self.assertEqual(memory.get_client_knowledge("losetaschile"), ficha)
+        self.assertIsNone(learned_answer(memory, "losetaschile", "Borde ballena 50×40"))
+        self.assertEqual(memory.list_knowledge_gaps("losetaschile"), [])
+
+
 class EnseñarSinonimos(unittest.TestCase):
     def test_la_frase_ensenada_cuenta_como_la_opcion(self):
         memory, clave = _memory_with_gap("los de la orilla")
@@ -116,12 +146,19 @@ class RegistroDesdeConversaciones(unittest.TestCase):
         self.assertEqual([c["tipo"] for c in casos], ["pedido"])
         self.assertIn("Pastelones", casos[0]["reason"])
 
-    def test_descartado_vuelve_si_se_repite(self):
-        memory, clave = _memory_with_gap()
+    def test_descartado_no_vuelve_aunque_se_repita(self):
+        memory, clave = _memory_with_gap("ok")
         memory.dismiss_knowledge_gap("losetaschile", clave)
+        memory.add_knowledge_gap("losetaschile", "ok")
         self.assertEqual(memory.list_knowledge_gaps("losetaschile"), [])
-        memory.add_knowledge_gap("losetaschile", "¿Hacen boleta o factura?")
-        self.assertEqual(len(memory.list_knowledge_gaps("losetaschile")), 1)
+
+    def test_todos_los_que_esperan_quedan_anotados(self):
+        memory, clave = _memory_with_gap()
+        memory.add_knowledge_gap("losetaschile", "¿hacen boleta o factura?",
+                                 chat_id="56944444444@c.us", lead_key="k2")
+        caso = memory.list_knowledge_gaps("losetaschile")[0]
+        self.assertEqual([e["chat_id"] for e in caso["esperando"]],
+                         ["56933333333@c.us", "56944444444@c.us"])
 
 
 class RutasDelDashboard(unittest.TestCase):
@@ -170,7 +207,7 @@ class RutasDelDashboard(unittest.TestCase):
         out = self._call("/api/whatsapp/attention/answer?client=losetaschile",
                          {"clave": claves["¿Hacen boleta o factura?"],
                           "respuesta": "Sí, emitimos ambas.", "send": False})
-        self.assertEqual(out, {"ok": True, "sent": False, "chat_id": None})
+        self.assertEqual((out["ok"], out["sent"], out["learned"]), (True, False, True))
         self._call("/api/whatsapp/attention/alias?client=losetaschile",
                    {"clave": claves["los de la orilla"], "opcion": "Bordes de piscina"})
         self._call("/api/whatsapp/attention/dismiss?client=losetaschile",

@@ -1555,8 +1555,11 @@ class AttentionAnswer(BaseModel):
 
 @app.post("/api/whatsapp/attention/answer")
 def whatsapp_attention_answer(body: AttentionAnswer, client: str = Query(...)):
-    """«Enviar y enseñar»: la respuesta llega al cliente que esperaba y queda aprendida."""
-    from zero.attention import teach_answer
+    """«Enviar y enseñar»: la respuesta llega a quienes esperaban y queda aprendida.
+
+    Un pedido (cotización de una persona) se envía solo a ese cliente y se
+    cierra sin aprender: no debe repetirse a otro."""
+    from zero.attention import check_answer, teach_answer
     memory = make_memory(STATE_PATH)
     item = next((i for i in memory.list_knowledge_gaps(client, incluir_resueltas=True)
                  if i.get("clave") == body.clave), None)
@@ -1565,22 +1568,37 @@ def whatsapp_attention_answer(body: AttentionAnswer, client: str = Query(...)):
     texto = " ".join(body.respuesta.split())
     if not texto or len(texto) > 600:
         raise HTTPException(status_code=400, detail="Escribe una respuesta de hasta 600 caracteres")
-    sent = None
-    chat_id = item.get("chat_id") or ""
-    if body.send and chat_id.endswith(("@c.us", "@lid")):
-        # Enviar primero: si el puente falla, no se marca como resuelto algo
-        # que el cliente nunca recibió.
-        sent = _whatsapp_web_inbox_request(
-            "/chats/" + urllib.parse.quote(chat_id, safe="") + "/messages", {"text": texto},
-            client=client)
+    # Validar antes de enviar: si no se puede guardar, el cliente no recibe nada.
+    error = check_answer(memory, client, body.clave, texto)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+    esperando = item.get("esperando") or (
+        [{"chat_id": item["chat_id"], "lead_key": item.get("lead_key", "")}]
+        if item.get("chat_id") else [])
+    if item.get("tipo") == "pedido":
+        esperando = esperando[-1:]
+    destinos = [e for e in esperando if str(e.get("chat_id", "")).endswith(("@c.us", "@lid"))]
+    if body.send and esperando and not destinos:
+        raise HTTPException(status_code=400, detail="Este caso no tiene un chat de WhatsApp para enviar")
+    enviados = []
+    for destino in destinos if body.send else []:
+        _whatsapp_web_inbox_request(
+            "/chats/" + urllib.parse.quote(destino["chat_id"], safe="") + "/messages",
+            {"text": texto}, client=client)
+        enviados.append(destino)
+    # El envío tarda: recargar para no pisar lo que el agente guardó mientras tanto.
+    memory = make_memory(STATE_PATH)
     error = teach_answer(memory, client, body.clave, texto)
     if error:
         raise HTTPException(status_code=400, detail=error)
-    if sent and item.get("lead_key"):
-        memory.add_turn(client, item["lead_key"], "agent", texto)
-    memory.log("attention_answered", client=client, clave=body.clave, sent=bool(sent))
+    for destino in enviados:
+        if destino.get("lead_key"):
+            memory.add_turn(client, destino["lead_key"], "agent", texto)
+    memory.log("attention_answered", client=client, clave=body.clave, sent=len(enviados))
     memory.save()
-    return {"ok": True, "sent": bool(sent), "chat_id": chat_id or None}
+    return {"ok": True, "sent": bool(enviados), "sent_count": len(enviados),
+            "learned": item.get("tipo") != "pedido",
+            "chat_id": enviados[-1]["chat_id"] if enviados else None}
 
 
 class AttentionAlias(BaseModel):

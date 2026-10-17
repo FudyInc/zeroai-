@@ -310,8 +310,8 @@ class SessionMemory:
             item["ultima"] = _now()
             if reason:
                 item["reason"] = reason[:200]
-            if item.get("estado") == "descartada":
-                item["estado"] = "abierta"   # volvió a pasar: no era ruido
+            if item.get("estado") in ("resuelta", "atendida") and tipo == "pedido":
+                item["estado"] = "abierta"   # otro cliente con el mismo pedido
         else:
             item = {"pregunta": texto, "reason": reason[:200], "veces": 1,
                     "primera": _now(), "ultima": _now(), "estado": "abierta"}
@@ -319,6 +319,11 @@ class SessionMemory:
         item["tipo"] = tipo if tipo in ("pregunta", "pedido") else "pregunta"
         if chat_id:
             item["chat_id"] = str(chat_id)[:120]
+            # Everyone still waiting for this same answer, not only the last one.
+            esperando = [e for e in item.get("esperando") or [] if e.get("chat_id") != chat_id]
+            esperando.append({"chat_id": str(chat_id)[:120], "lead_key": str(lead_key)[:120],
+                              "contacto": " ".join(str(contacto).split())[:80], "at": _now()})
+            item["esperando"] = esperando[-10:]
         if contacto:
             item["contacto"] = " ".join(str(contacto).split())[:80]
         if lead_key:
@@ -331,7 +336,8 @@ class SessionMemory:
         huecos = self.clients.get(client_id, {}).get("knowledge_gaps") or {}
         salida = [dict(v, clave=k) for k, v in huecos.items()
                   if incluir_resueltas or (v or {}).get("estado") != "resuelta"]
-        salida = [h for h in salida if incluir_resueltas or h.get("estado") != "descartada"]
+        salida = [h for h in salida if incluir_resueltas or
+                  h.get("estado") not in ("descartada", "atendida")]
         return sorted(salida, key=lambda h: (-int(h.get("veces") or 1), h.get("primera") or ""))
 
     def resolve_knowledge_gap(self, client_id: str, clave: str,
@@ -344,6 +350,16 @@ class SessionMemory:
         item["estado"] = "resuelta"
         item["respuesta"] = " ".join(str(respuesta or "").split())[:600]
         item["resuelta_en"] = _now()
+        item.pop("equivale", None)
+        item["esperando"] = []
+        return True
+
+    def attend_knowledge_gap(self, client_id: str, clave: str) -> bool:
+        """Un pedido ya atendido por una persona: se cierra sin aprender nada."""
+        item = (self.clients.get(client_id, {}).get("knowledge_gaps") or {}).get(clave)
+        if not item:
+            return False
+        item.update(estado="atendida", atendida_en=_now(), esperando=[])
         return True
 
     def alias_knowledge_gap(self, client_id: str, clave: str, opcion: str) -> bool:
@@ -352,6 +368,7 @@ class SessionMemory:
         if not item:
             return False
         item.update(estado="resuelta", equivale=str(opcion)[:120], resuelta_en=_now())
+        item.pop("respuesta", None)
         return True
 
     def dismiss_knowledge_gap(self, client_id: str, clave: str) -> bool:

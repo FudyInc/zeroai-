@@ -19,6 +19,7 @@ ocurrieron, y guardarlas las convertiría en doctrina.
 from __future__ import annotations
 
 import difflib
+import re
 from typing import Any, Dict, List, Optional
 
 from .memory import _gap_key
@@ -29,7 +30,7 @@ ENCABEZADO = "## Respuestas aprobadas"
 # Qué tan parecida debe ser una pregunta nueva a una ya respondida para
 # contestarla con esa respuesta. Alto a propósito: una respuesta aprendida
 # aplicada a la pregunta equivocada es peor que pasar el caso a una persona.
-SIMILITUD_MINIMA = 0.9
+SIMILITUD_MINIMA = 0.92
 
 
 def seccion_respuestas(ficha: str) -> str:
@@ -62,20 +63,40 @@ def _gap(memory, client_id: str, clave: str) -> Optional[Dict[str, Any]]:
     return (memory.clients.get(client_id, {}).get("knowledge_gaps") or {}).get(clave)
 
 
-def teach_answer(memory, client_id: str, clave: str, respuesta: str) -> Optional[str]:
-    """Guarda la respuesta aprobada. Devuelve un motivo si no se pudo."""
+def check_answer(memory, client_id: str, clave: str, respuesta: str) -> Optional[str]:
+    """Lo que impediría guardar esta respuesta, antes de enviársela a nadie."""
     item = _gap(memory, client_id, clave)
     texto = " ".join(str(respuesta or "").split())
     if not item:
         return "Ese caso ya no existe."
     if not texto:
         return "Escribe la respuesta."
-    ficha = memory.get_client_knowledge(client_id)
-    nueva = agregar_respuesta(ficha, item.get("pregunta", clave), texto)
+    if item.get("tipo") == "pedido":
+        return None   # un pedido no se aprende: no toca la ficha
+    nueva = agregar_respuesta(memory.get_client_knowledge(client_id),
+                              item.get("pregunta", clave), texto)
     if len(nueva) > LIMITE_FICHA:
         return (f"La ficha quedaría en {len(nueva)} caracteres y el tope es {LIMITE_FICHA}. "
                 "Acorta alguna respuesta aprobada antes de agregar esta.")
-    memory.set_client_knowledge(client_id, nueva)
+    return None
+
+
+def teach_answer(memory, client_id: str, clave: str, respuesta: str) -> Optional[str]:
+    """Cierra el caso con la respuesta. Devuelve un motivo si no se pudo.
+
+    Una pregunta queda aprendida (ficha + respuesta exacta para la próxima vez).
+    Un pedido solo se marca atendido: la cotización de un cliente nunca debe
+    repetirse a otro."""
+    error = check_answer(memory, client_id, clave, respuesta)
+    if error:
+        return error
+    item = _gap(memory, client_id, clave)
+    texto = " ".join(str(respuesta or "").split())
+    if item.get("tipo") == "pedido":
+        memory.attend_knowledge_gap(client_id, clave)
+        return None
+    memory.set_client_knowledge(client_id, agregar_respuesta(
+        memory.get_client_knowledge(client_id), item.get("pregunta", clave), texto))
     memory.resolve_knowledge_gap(client_id, clave, texto)
     return None
 
@@ -98,9 +119,14 @@ def teach_alias(memory, client_id: str, clave: str, opcion: str) -> Optional[str
     return None
 
 
+def _digits(clave: str) -> list:
+    return re.findall(r"\d+", clave)
+
+
 def _learned(memory, client_id: str, text: str, campo: str) -> Optional[str]:
     clave = _gap_key(text)
-    if not clave:
+    # «2» or «40x40» alone are menu answers or sizes, never a taught question.
+    if not clave or len(clave.split()) < 2 or not re.search(r"[a-z]{3}", clave):
         return None
     resueltas = [(k, v) for k, v in (memory.clients.get(client_id, {})
                                      .get("knowledge_gaps") or {}).items()
@@ -108,8 +134,12 @@ def _learned(memory, client_id: str, text: str, campo: str) -> Optional[str]:
     exacta = next((v[campo] for k, v in resueltas if k == clave), None)
     if exacta:
         return exacta
+    # Near spellings count; different figures never do: the answer taught for
+    # «20 m2» must not be given for «30 m2».
     parecidas = sorted(((difflib.SequenceMatcher(None, clave, k).ratio(), v[campo])
-                        for k, v in resueltas), reverse=True)
+                        for k, v in resueltas
+                        if _digits(k) == _digits(clave) and len(k.split()) >= 3),
+                       reverse=True)
     if parecidas and parecidas[0][0] >= SIMILITUD_MINIMA:
         return parecidas[0][1]
     return None

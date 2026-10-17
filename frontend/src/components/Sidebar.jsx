@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { Link, NavLink } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  LayoutDashboard, Users, GitBranch, Bot, TrendingUp, Briefcase, Settings, Mail, Network, LogOut, Megaphone, X, User, Wallet, AlertTriangle, ShieldCheck, Terminal, SlidersHorizontal, Activity, CheckCheck, ClipboardList,
+  LayoutDashboard, Users, GitBranch, Bot, TrendingUp, Briefcase, Settings, Mail, Network, LogOut, Megaphone, X, User, Wallet, AlertTriangle, ShieldCheck, Terminal, SlidersHorizontal, Activity, CheckCheck, ClipboardList, MessageCircle,
 } from 'lucide-react'
 import { cn } from '../lib/util'
 import { api } from '../lib/api'
@@ -23,6 +24,7 @@ const SECTIONS = [
       { to: '/vender', label: 'Vender', icon: Mail },
       { to: '/campanas', label: 'Campañas', icon: Megaphone },
       { to: '/agentes', label: 'Agentes', icon: Bot },
+      { to: '/whatsapp', label: 'WhatsApp', icon: MessageCircle },
     ],
   },
   {
@@ -53,12 +55,18 @@ function Mark() {
 /* Escritorio: colapsado muestra solo íconos y se expande al pasar el mouse.
    Móvil (<md): drawer fijo fuera de pantalla; se abre con el botón del header
    (mobileOpen/onClose vienen de App) y se cierra al navegar o tocar el fondo. */
-export default function Sidebar({ mobileOpen = false, onClose = () => {}, username = null, fullName = null, role = null, authEnabled = false }) {
+export default function Sidebar({ mobileOpen = false, onClose = () => {}, username = null, fullName = null, role = null, authEnabled = false, client = null }) {
   const [hover, setHover] = useState(false)
   const open = hover || mobileOpen
   const visibleSections = SECTIONS
     .map((sec) => ({ ...sec, items: sec.items.filter((i) => canSeePage(i.to, role, authEnabled)) }))
     .filter((sec) => sec.items.length > 0)
+  // Misma queryKey que WhatsAppAttentionWatcher: comparten la petición.
+  const attention = useQuery({
+    queryKey: ['whatsapp-attention', client], queryFn: () => api.whatsappAttention(client),
+    enabled: !!client && canSeePage('/whatsapp', role, authEnabled), refetchInterval: 30000, retry: false,
+  })
+  const badges = { '/whatsapp': attention.data?.open || 0 }
   const noRoleAssigned = authEnabled && !role
   const reveal = (text) => (
     <motion.span animate={{ opacity: open ? 1 : 0, width: open ? 'auto' : 0 }} transition={{ duration: 0.2 }}
@@ -126,6 +134,10 @@ export default function Sidebar({ mobileOpen = false, onClose = () => {}, userna
                   )}>
                   <Icon size={18} className="shrink-0" />
                   {reveal(text)}
+                  {badges[to] > 0 && (
+                    <span className="wa-attn-count" title={`${badges[to]} casos esperan al equipo`}
+                      aria-label={`${badges[to]} casos pendientes`}>{badges[to]}</span>
+                  )}
                 </NavLink>
               ))}
             </div>

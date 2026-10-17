@@ -180,6 +180,20 @@ export const api = {
     req('/api/whatsapp/web/chats/' + q(chatId) + '/messages?client=' + q(c), {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }),
     }),
+  whatsappAttention: (c, includeResolved = false) =>
+    req('/api/whatsapp/attention?client=' + q(c) + (includeResolved ? '&include_resolved=true' : '')),
+  answerAttention: (c, clave, respuesta) =>
+    req('/api/whatsapp/attention/answer?client=' + q(c), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clave, respuesta, send: true }),
+    }),
+  aliasAttention: (c, clave, opcion) =>
+    req('/api/whatsapp/attention/alias?client=' + q(c), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clave, opcion }),
+    }),
+  dismissAttention: (c, clave) =>
+    req('/api/whatsapp/attention/dismiss?client=' + q(c), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clave }),
+    }),
   config: () => req('/api/config'),
   clientIntegrations: (c) => req('/api/integrations?client=' + q(c)),
   setClientIntegration: (c, channel, values) =>

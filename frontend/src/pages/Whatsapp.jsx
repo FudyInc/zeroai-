@@ -16,6 +16,7 @@ import CasesLab from '../components/CasesLab'
 import PricingCard from '../components/PricingCard'
 import ConversationThread from '../components/ConversationThread'
 import WhatsAppWebInbox from '../components/WhatsAppWebInbox'
+import AttentionCard from '../components/AttentionCard'
 import { rise, fade, surface } from '../lib/motion'
 import './whatsapp.css'
 
@@ -101,6 +102,7 @@ export default function Whatsapp() {
             </div>
             <nav className="wa-quick-nav" aria-label="Ir a secciones de WhatsApp">
               {connected && provider === 'web' && <a href="#wa-bandeja">Ir a la bandeja <ArrowUpRight size={15} /></a>}
+              <a href="#wa-atencion">Atención pendiente <ArrowUpRight size={15} /></a>
               <a href="#wa-configuracion">Configurar agente <ArrowUpRight size={15} /></a>
               <a href="#wa-pruebas">Pruebas y actividad <ArrowUpRight size={15} /></a>
             </nav>
@@ -134,8 +136,17 @@ export default function Whatsapp() {
         </section>
       )}
 
+      {client && (
+        <section id="wa-atencion" className="wa-section">
+          <div className="wa-section-heading"><div><span className="wa-section-kicker">{connected && provider === 'web' ? '02' : '01'} / Atención</span><h2>Lo que el agente no pudo resolver</h2><p>Respóndelo una vez: el cliente recibe tu mensaje y el agente lo aprende para la próxima.</p></div></div>
+          <motion.div variants={surface}>
+            <AttentionCard client={client} />
+          </motion.div>
+        </section>
+      )}
+
       <section id="wa-configuracion" className="wa-section">
-        <div className="wa-section-heading"><div><span className="wa-section-kicker">{connected && provider === 'web' ? '02' : '01'} / Agente</span><h2>Configuración del agente</h2><p>Define qué sabe, cómo responde y quién atiende a esta empresa.</p></div></div>
+        <div className="wa-section-heading"><div><span className="wa-section-kicker">{connected && provider === 'web' ? '03' : '02'} / Agente</span><h2>Configuración del agente</h2><p>Define qué sabe, cómo responde y quién atiende a esta empresa.</p></div></div>
       <div className="wa-config-grid grid grid-cols-1 xl:grid-cols-[minmax(0,1.15fr)_minmax(340px,.85fr)] gap-5 items-start">
         <motion.div className="space-y-4" variants={surface}>
           <motion.div variants={surface}>
@@ -192,7 +203,7 @@ export default function Whatsapp() {
           pantalla. Va después del chat de prueba porque es su versión sistemática: el
           chat sirve para tantear, esto para no romper lo que ya funcionaba. */}
       <section id="wa-pruebas" className="wa-section">
-        <div className="wa-section-heading"><div><span className="wa-section-kicker">{connected && provider === 'web' ? '03' : '02'} / Seguimiento</span><h2>Pruebas y actividad</h2><p>Compara respuestas antes de usar la configuración con mensajes reales.</p></div></div>
+        <div className="wa-section-heading"><div><span className="wa-section-kicker">{connected && provider === 'web' ? '04' : '03'} / Seguimiento</span><h2>Pruebas y actividad</h2><p>Compara respuestas antes de usar la configuración con mensajes reales.</p></div></div>
         <motion.div variants={surface} className="wa-card-shell"><CasesLab client={client} vendorId={currentId} /></motion.div>
         {connected && <motion.div variants={surface} className="mt-5"><ActivityCard leadsQ={leadsQ} client={client} /></motion.div>}
       </section>

@@ -23,3 +23,24 @@ export const needsPopup = (chat, responseMode) => !!attentionOf(chat, responseMo
 export function unseenHumanRequests(chats, seen, responseMode) {
   return humanChats(chats, responseMode).filter((chat) => needsPopup(chat, responseMode) && !seen.has(handoffKey(chat, responseMode)))
 }
+
+// Casos del módulo «Atención» (lo que el agente no pudo resolver). Un caso vuelve a
+// avisar si se repite: la clave incluye `ultima`.
+export const attentionCaseKey = (item) => `${item.clave}:${item.ultima || ''}`
+
+export const openAttentionCases = (items) => (items || []).filter((item) => item && item.estado === 'abierta')
+
+export function unseenAttentionCases(items, seen) {
+  return openAttentionCases(items).filter((item) => !seen.has(attentionCaseKey(item)))
+}
+
+// «hace 5 min», «hace 2 h», «hace 3 d». `now` se inyecta para poder probarlo.
+export function timeAgo(iso, now = Date.now()) {
+  const t = Date.parse(iso)
+  if (!iso || Number.isNaN(t)) return ''
+  const min = Math.max(0, Math.round((now - t) / 60000))
+  if (min < 1) return 'hace un momento'
+  if (min < 60) return `hace ${min} min`
+  if (min < 1440) return `hace ${Math.round(min / 60)} h`
+  return `hace ${Math.round(min / 1440)} d`
+}

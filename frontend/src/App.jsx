@@ -160,7 +160,7 @@ export default function App() {
   return (
     <AppCtx.Provider value={{ client, setClient, clients, openLead: setLeadKey, openRun: () => setRunOpen(true), runId, setRunId, scoped, role }}>
       <div className="min-h-screen flex text-zinc-900 bg-[radial-gradient(120%_120%_at_100%_0%,#f2f1ec_0%,#f4f4f4_45%,#f6f5f2_100%)] dark:bg-[radial-gradient(120%_120%_at_100%_0%,#121214_0%,#0B0B0C_45%,#08080A_100%)]">
-        <Sidebar mobileOpen={navOpen} onClose={() => setNavOpen(false)} username={username} fullName={fullName} role={role} authEnabled={authEnabled} />
+        <Sidebar client={client} mobileOpen={navOpen} onClose={() => setNavOpen(false)} username={username} fullName={fullName} role={role} authEnabled={authEnabled} />
         <div className="flex-1 min-w-0">
           <header className="h-[68px] sticky top-0 z-20 bg-white/80 dark:bg-zinc-50/80 backdrop-blur border-b border-zinc-200 flex items-center px-4 md:px-8 gap-3">
             <button onClick={() => setNavOpen(true)} aria-label="Abrir menú"
