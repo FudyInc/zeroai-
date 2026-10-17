@@ -53,10 +53,12 @@ from .losetas_polls import (DELIVERY_POLL_QUESTION as LOSETAS_DELIVERY_POLL_QUES
                             is_factory_pickup, FACTORY_ADDRESS, FACTORY_MAP_URL,
                             paver_order_details, canonical_choice, numbered_choices,
                             BORDER_MODEL_QUESTION, POOL_SHAPE_QUESTION,
+                            PAVER_AREA_QUESTION, PAVER_MODEL_QUESTION,
                             WHATSAPP_WEB_POLL_KEYS)
 from .memory import SessionMemory
 from .quotes import compute_quote, extract_request, format_quote, normalize_pricing
-from .pool_border import (WHALE_BORDER_REVIEW, border_plan, catalog_requested, visual_catalog_category,
+from .pool_border import (WHALE_BORDER_REVIEW, _MEASUREMENT_QUESTION as POOL_MEASUREMENT_QUESTION,
+                          border_plan, catalog_requested, visual_catalog_category,
                           delegates_piece_calculation,
                           format_product_quote, shipping_price_request,
                           border_model_followup, measurement_followup, pool_shape_followup,
@@ -1104,11 +1106,10 @@ class Zero:
                     selected_category_from_history(order_history[-6:]) != typed_category):
                 selected_category = typed_category
             if selected_category:
-                pricing = normalize_pricing(self.memory.get_client_pricing(client_id))
-                return {"reply": color_question(), "intent": "catalog",
-                        "catalog_document": {"category": selected_category, "pricing": pricing},
-                        "media_asset": COLOR_CATALOG_IMAGE_PATH,
-                        "customer_poll": "color"}
+                # Size first; the catalog follows with «which model did you like?».
+                return {"reply": (POOL_MEASUREMENT_QUESTION if selected_category == "bordes"
+                                  else PAVER_AREA_QUESTION),
+                        "intent": "qualification", "flow_step": True}
             if (_QUOTE_REQUEST_RE.search(message) and
                     not re.search(r"\b(?:bordes?\s+(?:de|para)\s+(?:la\s+)?piscina|pastelones?)\b",
                                   message, re.IGNORECASE) and not order_history):
@@ -1191,24 +1192,39 @@ class Zero:
         if (client_id == "losetaschile" and channel == "whatsapp" and selected_tone and
                 poll_answer_for_history(message, order_history) == "color" and
                 selected_category_from_history(order_history) == "pastelones"):
-            return {"reply": (f"Anoté el color {selected_tone}. ¿Qué modelo del catálogo "
-                              "te interesa y cuántos m² necesitas cubrir?"),
-                    "intent": "qualification"}
+            paver_details = paver_order_details(message, order_history)
+            if paver_details["model"] and paver_details["area_m2"]:
+                return {"reply": f"Anoté el color {selected_tone}. {LOSETAS_DELIVERY_POLL_QUESTION}",
+                        "intent": "qualification", "delivery_poll": True}
+            return {"reply": (f"Anoté el color {selected_tone}. " +
+                              (PAVER_AREA_QUESTION if paver_details["model"] else
+                               PAVER_MODEL_QUESTION)),
+                    "intent": "qualification", "flow_step": True,
+                    **({} if paver_details["model"] else {"customer_poll": "paver_model"})}
         if (client_id == "losetaschile" and channel == "whatsapp" and
                 selected_category_from_history(order_history) == "pastelones" and
                 not shipping_delivery_followup(message, order_history) and
                 any(turn.get("role") == "agent" and "cuántos m²" in
-                    str(turn.get("text") or "").casefold() for turn in order_history[-4:])):
+                    str(turn.get("text") or "").casefold() for turn in order_history[-6:])):
             paver_details = paver_order_details(message, order_history)
             if paver_details["model"] and paver_details["area_m2"]:
+                if not latest_color_preference(order_history):
+                    return {"reply": color_question(), "intent": "qualification",
+                            "media_asset": COLOR_CATALOG_IMAGE_PATH, "customer_poll": "color"}
                 return {"reply": LOSETAS_DELIVERY_POLL_QUESTION, "intent": "qualification",
                         "delivery_poll": True}
             if paver_details["model"]:
-                return {"reply": f"Anoté el modelo {paver_details['model']}. ¿Cuántos m² necesitas cubrir?",
-                        "intent": "qualification"}
+                return {"reply": f"Anoté el modelo {paver_details['model']}. {PAVER_AREA_QUESTION}",
+                        "intent": "qualification", "flow_step": True}
             if paver_details["area_m2"]:
-                return {"reply": f"Anoté {paver_details['area_m2']} m². ¿Qué modelo del catálogo te interesa?",
-                        "intent": "qualification"}
+                ask = {"reply": f"Anoté {paver_details['area_m2']} m². {PAVER_MODEL_QUESTION}",
+                       "intent": "qualification", "customer_poll": "paver_model"}
+                if any(turn.get("role") == "agent" and turn.get("text") == "Catálogo Pastelones"
+                       for turn in order_history[-8:]):
+                    return ask  # catalog already sent: ask again, never resend the PDF
+                pricing = normalize_pricing(self.memory.get_client_pricing(client_id))
+                return {**ask, "reply_after_document": True,
+                        "catalog_document": {"category": "pastelones", "pricing": pricing}}
         if (client_id == "losetaschile" and channel == "whatsapp" and
                 selected_category_from_history(order_history) == "pastelones" and
                 shipping_delivery_followup(message, order_history)):
@@ -1230,6 +1246,16 @@ class Zero:
                     # No piece rule for this model yet: a person quotes it.
                     return {"reply": "", "intent": "handoff",
                             "review_reason": "Borde ballena: cotizar con el equipo"}
+                if clarification == BORDER_MODEL_QUESTION and not any(
+                        turn.get("role") == "agent" and
+                        turn.get("text") == "Catálogo Bordes de Piscina"
+                        for turn in order_history[-8:]):
+                    # Measurements are in: now the catalog, asking which model.
+                    pricing = normalize_pricing(self.memory.get_client_pricing(client_id))
+                    return {"reply": clarification, "intent": "qualification",
+                            "customer_poll": "border_model",
+                            "catalog_document": {"category": "bordes", "pricing": pricing},
+                            "reply_after_document": True}
                 if clarification in (BORDER_MODEL_QUESTION, POOL_SHAPE_QUESTION):
                     return {"reply": clarification, "intent": "qualification",
                             "customer_poll": ("border_model" if clarification ==
@@ -1701,7 +1727,8 @@ class Zero:
             # A deterministic step that sends a poll is the flow asking its next
             # question, not the model looping; flagging it would hand the chat off.
             if (candidate in (SHIPPING_COVERAGE_REPLY, SHIPPING_PRICE_REPLY) or intent == "catalog"
-                    or res.get("customer_poll") or res.get("delivery_poll")):
+                    or res.get("customer_poll") or res.get("delivery_poll")
+                    or res.get("flow_step")):
                 return False
             return bool(channel == "whatsapp" and client_id == "losetaschile" and
                         (any(turn.get("role") == "agent" and _same_reply(candidate, turn.get("text"))
@@ -1815,6 +1842,12 @@ class Zero:
                                              "Catálogo Bordes de Piscina" if
                                              document["category"] == "bordes" else
                                              "Catálogo Pastelones")
+                        if res.get("reply_after_document"):
+                            delivery = self._deliver(
+                                client_id, key, rec.get("phone") or from_contact,
+                                {"channel": channel, "subject": None, "body": reply,
+                                 "whatsapp_from": to_phone_id,
+                                 "whatsapp_chat_id": whatsapp_chat_id}, wa_creds=wa_creds)
                         if res.get("media_asset"):
                             from .whatsapp_web import send_catalog_image
                             from pathlib import PurePosixPath
@@ -1826,6 +1859,13 @@ class Zero:
                                         "id": image["id"], "ack": image.get("ack")}
                     except (RuntimeError, ValueError) as exc:
                         delivery = {"status": "error", "error": str(exc)}
+                        if res.get("reply_after_document"):
+                            # The question still goes out: without it the chat stalls.
+                            delivery = self._deliver(
+                                client_id, key, rec.get("phone") or from_contact,
+                                {"channel": channel, "subject": None, "body": reply,
+                                 "whatsapp_from": to_phone_id,
+                                 "whatsapp_chat_id": whatsapp_chat_id}, wa_creds=wa_creds)
             elif client_id == "losetaschile" and channel == "whatsapp" and res.get("media_asset"):
                 if not whatsapp_chat_id or not to_phone_id:
                     delivery = {"status": "error", "error": "Falta chat Web para enviar imagen"}

@@ -31,6 +31,14 @@ class PaverOrderDetailsTest(unittest.TestCase):
                          {"model": None, "area_m2": None})
 
 
+    def test_bare_number_counts_only_right_after_the_area_question(self):
+        prompt = [{"role": "agent", "text": "¿Cuántos m² necesitas cubrir con pastelones?"}]
+        self.assertEqual(paver_order_details("20", prompt)["area_m2"], "20")
+        self.assertIsNone(paver_order_details("0", prompt)["area_m2"])
+        later = [*prompt, {"role": "lead", "text": "no sé"},
+                 {"role": "agent", "text": "¿Qué pastelón del catálogo te interesó más?"}]
+        self.assertIsNone(paver_order_details("1", later)["area_m2"])
+
 
 class NumberedChoiceTest(unittest.TestCase):
     def test_number_name_and_keycap_map_to_the_option(self):
