@@ -283,6 +283,13 @@ y la landing pública en curso, cada uno en su propia terminal (dashboard /
 landing). Backend: sin frentes de auditoría abiertos por ahora — ver
 "Pendientes de PAGO" arriba para lo que falta con presupuesto.
 
+## Pendiente — LosetasChile: pedir fecha de entrega automáticamente (anotado 2026-10-26)
+Tras el presupuesto en PRESUPUESTOS 💸, el agente publica en el grupo «Losetas Diego»
+el pedido para agendar (cliente, piezas, color, dirección, link de Maps) y pregunta la
+fecha. A Diego solo le queda la revisión final y enviar el presupuesto al cliente.
+Hoy se hace a mano. Falta resolver: el link de Maps (ubicación del cliente) y no
+publicar nunca con datos incompletos.
+
 ## Pendiente de diseño — dashboard a monocromo (anotado 2026-07-13, no hacer aún)
 El rework visual del dashboard (Card/Button/Eyebrow/SectionTitle, paleta slate/pewter/
 champagne gold) está completo en las 12 páginas. Queda una decisión de diseño abierta,
