@@ -27,11 +27,14 @@ from zero.whatsapp_inbound import parse_inbound as parse_meta
 
 
 class PoolBorderCountTest(unittest.TestCase):
-    def priced_memory(self, include_corner=True, include_tone=True):
+    def priced_memory(self, include_corner=True, include_tone=True, include_whale=False):
         memory = SessionMemory(None)
         memory.register_client("losetaschile", "STARTER")
         items = [{"id": "borde-recto-nariz-50x50", "name": "Borde recto con nariz 50x50",
                   "unit_price": 6000, "unit": "unidad"}]
+        if include_whale:
+            items.append({"id": "borde-ballena-50x40", "name": "Borde ballena 50x40",
+                          "unit_price": 5500, "unit": "unidad"})
         if include_corner:
             items.append({"id": "esquina-piscina-50x50", "name": "Esquina piscina 50x50",
                           "unit_price": 3600, "unit": "unidad"})
@@ -584,22 +587,67 @@ class PoolBorderCountTest(unittest.TestCase):
         self.assertIsNone(plan)
 
     def test_latest_product_overrides_old_straight_border(self):
-        history = [
-            {"role": "lead", "text": "Borde recto con nariz"},
-            {"role": "lead", "text": "Mejor quiero borde ballena"},
-            {"role": "lead", "text": "Mi piscina es rectangular 6x3"},
-        ]
-        plan, _ = border_plan("¿Cuántos bordes necesito?", history)
-        self.assertIsNone(plan)
+        for whale in ("Mejor quiero borde ballena", "Ahora quiero bordes ballena"):
+            with self.subTest(whale=whale):
+                history = [
+                    {"role": "lead", "text": "Borde recto con nariz"},
+                    {"role": "lead", "text": whale},
+                    {"role": "lead", "text": "Mi piscina es rectangular 6x3"},
+                ]
+                plan, _ = border_plan("¿Cuántos bordes necesito?", history)
+                # Same piece rule as the straight border, owner-confirmed 2026-10-26.
+                self.assertEqual((plan["border_id"], plan["straight"], plan["corners"]),
+                                 ("borde-ballena-50x40", 36, 4))
 
-    def test_plural_other_product_overrides_old_straight_border(self):
-        history = [
-            {"role": "lead", "text": "Borde recto con nariz"},
-            {"role": "lead", "text": "Ahora quiero bordes ballena"},
-            {"role": "lead", "text": "Mi piscina es rectangular 6x3"},
-        ]
-        plan, _ = border_plan("¿Cuántos bordes necesito?", history)
+    def test_latest_straight_border_overrides_old_whale(self):
+        history = [{"role": "lead", "text": "Borde ballena 50×40"},
+                   {"role": "lead", "text": "Mi piscina es rectangular 6x3"}]
+        plan, _ = border_plan("Perdon borde recto con nariz", history)
+        self.assertEqual(plan["border_id"], "borde-recto-nariz-50x50")
+
+    def test_model_size_is_never_read_as_the_pool(self):
+        # Real chat 2026-10-26: «Borde ballena 50×40» was read as a 50×40 m pool
+        # and the budget said 360 borders for an 8×4 pool.
+        history = [{"role": "lead", "text": "8x4"},
+                   {"role": "lead", "text": "Borde ballena 50×40"},
+                   {"role": "lead", "text": "Perdon borde recto con nariz"},
+                   {"role": "lead", "text": "Presupuesto"}]
+        plan, _ = border_plan("Sí, es rectangular", history)
+        self.assertEqual((plan["width"], plan["length"], plan["straight"]), (8, 4, 48))
+
+    def test_pool_size_after_a_model_word_is_still_the_pool(self):
+        for text in ("Bordes con 8x4 para mi piscina rectangular",
+                     "Piscina rectangular, bordes recto 8x4"):
+            with self.subTest(text=text):
+                plan, _ = border_plan(text, [{"role": "lead", "text": "Borde recto con nariz"}])
+                self.assertEqual(plan["straight"], 48)
+
+    def test_romana_that_is_not_the_pool_asks_nothing(self):
+        from zero.pool_border import POOL_PHOTO_REQUEST, roman_pool
+        history = [{"role": "agent", "text": "¿La piscina es rectangular?"}]
+        for text in ("no es romana, es rectangular", "Mi dirección es Plaza Romana 123",
+                     "¿venden lechuga romana?"):
+            with self.subTest(text=text):
+                self.assertFalse(roman_pool(text, history))
+        self.assertFalse(roman_pool("es romana", [{"role": "agent", "text": "¿Algo más?"}]))
+        _, ask = border_plan("Mi dirección es Plaza Romana 123",
+                             [{"role": "lead", "text": "8x4 rectangular borde recto"}])
+        self.assertNotEqual(ask, POOL_PHOTO_REQUEST)
+
+    def test_roman_pool_asks_for_a_photo_right_away(self):
+        from zero.pool_border import POOL_PHOTO_REQUEST
+        history = [{"role": "agent", "text": "¿Cuáles son las medidas de tu piscina?"}]
+        for text in ("Es romana", "mi piscina es romana de 8x4", "No es rectangular", "no"):
+            with self.subTest(text=text):
+                previous = [*history, {"role": "agent", "text": "¿La piscina es rectangular?"}]
+                plan, ask = border_plan(text, previous)
+                self.assertIsNone(plan)
+                self.assertEqual(ask, POOL_PHOTO_REQUEST)
+        plan, ask = border_plan("Presupuesto", [{"role": "lead", "text": "8x4"},
+                                                {"role": "lead", "text": "es romana"},
+                                                {"role": "lead", "text": "Borde recto con nariz"}])
         self.assertIsNone(plan)
+        self.assertEqual(ask, POOL_PHOTO_REQUEST)
 
     def test_dimensions_in_feet_are_not_treated_as_metres(self):
         plan, clarification = border_plan(
@@ -985,14 +1033,18 @@ class PoolBorderCountTest(unittest.TestCase):
         lead_turns = [t["text"] for t in turns if t["role"] == "lead"]
         self.assertEqual(lead_turns[1:], ["Bordes de piscina", "6x3"])
 
-    def _numbered_chat(self, answers):
-        memory = self.priced_memory(include_tone=False)
+    def _numbered_chat(self, answers, include_whale=False, full_history=False):
+        memory = self.priced_memory(include_tone=False, include_whale=include_whale)
         memory.set_client_agent_profile("losetaschile", {
             "whatsapp_number": "56911111111", "response_mode": "automatic"})
         crm = CRM(None)
         crm.upsert("losetaschile", {"phone": "56944444444", "source": "test"})
         zero = Zero(build_agents(mock=True), memory=memory, crm=crm)
         zero._deliver = mock.Mock(return_value={"status": "sent", "via": "whatsapp_web", "id": "t"})
+        if full_history:
+            # As api.py runs it: the WhatsApp prompt reads the whole chat, not 12 turns.
+            zero.agents["CONCIERGE"].prompt_file = "concierge-whatsapp-local.md"
+        self._last_zero = zero
         results = []
         with mock.patch("zero.whatsapp_web.send_catalog_document",
                         return_value={"id": "document-1", "ack": 0}), \
@@ -1019,18 +1071,56 @@ class PoolBorderCountTest(unittest.TestCase):
         self.assertIn(FACTORY_MAP_URL, budget)
         self.assertTrue(results[-1]["manual_review"])
 
-    def test_whale_border_goes_to_a_person_without_invented_count(self):
-        results, send_group = self._numbered_chat(["Hola", "1", "6x3", "2"])
-        send_group.assert_not_called()
+    def test_whale_border_is_quoted_with_the_same_rule(self):
+        results, send_group = self._numbered_chat(
+            ["Hola", "1", "6x3", "2", "Sí", "5", "3"], include_whale=True)
+        budget = send_group.call_args.args[3]
+        self.assertIn("36 × Borde ballena 50x40", budget)
+        self.assertIn("4 × Esquina piscina", budget)
         self.assertTrue(results[-1]["manual_review"])
+
+    def test_customer_corrects_the_model_and_the_quote_continues(self):
+        # Real chat 2026-10-26, 8×4 pool: whale first, then «Perdon borde recto con nariz».
+        results, send_group = self._numbered_chat(
+            ["Hola", "1", "8x4", "2", "Perdon borde recto con nariz", "Sí", "5", "3"],
+            include_whale=True, full_history=True)
+        budget = send_group.call_args.args[3]
+        self.assertIn("48 × Borde recto con nariz", budget)
+        self.assertNotIn("ballena", budget)
+        self.assertNotIn("360", budget)
+
+    def test_roman_pool_photo_request_alerts_the_owner(self):
+        from zero.pool_border import POOL_PHOTO_REQUEST
+        with mock.patch("zero.alerts.notify_owner", return_value={"status": "sent"}) as alert:
+            results, send_group = self._numbered_chat(
+                ["Hola", "1", "8x4", "1", "es romana", "[image]"], include_whale=True)
+        send_group.assert_not_called()
+        alert.assert_called_once()
+        self.assertIn("+56944444444", alert.call_args.args[0])
         self.assertEqual(results[-1]["intent"], "handoff")
+        self.assertTrue(results[-1]["manual_review"])
+        self.assertTrue(self._last_zero.memory.get_whatsapp_handoff(
+            "losetaschile", "56944444444@c.us"))
+        bodies = [c.args[3]["body"] for c in self._last_zero._deliver.call_args_list]
+        self.assertIn("foto de la piscina", bodies[-2])
+        self.assertIn("recibí la foto", bodies[-1])
+        [caso] = self._last_zero.memory.list_knowledge_gaps("losetaschile")
+        self.assertIn("foto", caso["reason"])
+
+    def test_photo_request_and_alert_are_not_repeated(self):
+        with mock.patch("zero.alerts.notify_owner", return_value={"status": "sent"}) as alert:
+            results, _ = self._numbered_chat(
+                ["Hola", "1", "8x4", "1", "es romana", "Presupuesto", "[image]"])
+        alert.assert_called_once()
+        bodies = [c.args[3]["body"] for c in self._last_zero._deliver.call_args_list]
+        self.assertIn("Quedo atento a la foto", bodies[-2])
+        self.assertIn("recibí la foto", bodies[-1])
+        self.assertEqual(len(self._last_zero.memory.list_knowledge_gaps("losetaschile")), 1)
 
     def test_question_about_whale_border_is_not_a_selection(self):
-        from zero.pool_border import WHALE_BORDER_REVIEW
-        _, ask = border_plan("¿Tienen borde ballena?", [])
-        self.assertNotEqual(ask, WHALE_BORDER_REVIEW)
-        _, choose = border_plan("Borde ballena 50×40", [])
-        self.assertEqual(choose, WHALE_BORDER_REVIEW)
+        plan, ask = border_plan("¿Tienen borde ballena?", [{"role": "lead", "text": "6x3"}])
+        self.assertIsNone(plan)
+        self.assertNotEqual(ask, "")
 
     def test_pastelon_catalog_is_not_resent_when_model_is_still_missing(self):
         zero = Zero(build_agents(mock=True), memory=self.priced_memory())

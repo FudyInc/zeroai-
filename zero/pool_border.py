@@ -2,6 +2,9 @@
 
 The business rule was confirmed by its owner on 2026-10-07: straight 50 cm
 borders cover the full perimeter and four corner pieces are added separately.
+On 2026-10-26 the owner confirmed the whale border follows the same rule; only
+a Roman (or otherwise non-rectangular) pool changes it: the customer sends a
+photo and the owner reviews it.
 """
 from __future__ import annotations
 
@@ -82,17 +85,23 @@ _SIZE = re.compile(
     r"(?:x|×|por)\s*(\d{1,3}(?:[.,]\d)?)\s*(?:m(?:etros?)?)?\b",
     re.IGNORECASE,
 )
+# «Borde ballena 50×40» names the piece, not the pool: reading it as the pool
+# once quoted 360 borders for an 8×4 pool.
 _ITEM_SIZE_PREFIX = re.compile(
-    r"\b(?:pastelones?|esquinas?|bordes?(?:\s+rectos?(?:\s+con\s+nariz)?)?)"
-    r"\s+(?:de\s+)?$", re.IGNORECASE)
+    r"\b(?:pastelones?|esquinas?|bordes?(?:\s+(?:rectos?(?:\s+con\s+nariz)?|"
+    r"ballena(?:\s+(?:nariz|curvo))?))?)\s+(?:de\s+)?$", re.IGNORECASE)
+# Piece sizes are in centimetres (50×40, 23×40); a pool side is at most 50 m,
+# so «bordes recto 8x4» is still the pool.
+_PIECE_SIDE_MIN = 20
 _REJECT_PASTELON = re.compile(
     r"\b(?:ya\s+)?no\s+(?:quiero|necesito|busco)\s+"
     r"(?:(?:los|unos?|algunos)\s+)?pastelones?\b", re.IGNORECASE)
 _WHALE = re.compile(r"\bbordes?\s+ballena\b", re.IGNORECASE)
-WHALE_BORDER_REVIEW = "whale-border-review"
 _PRODUCT = re.compile(r"\bbordes? rectos?(?: con nariz)?\b", re.IGNORECASE)
+# Same piece rule for both models; only the priced item changes.
+BORDER_ITEM_IDS = {"recto": "borde-recto-nariz-50x50", "ballena": "borde-ballena-50x40"}
 _OTHER_PRODUCT = re.compile(
-    r"\bbordes? ballena\b|\bpastel[oó]n(?:es)?\s+(?:sol|adoqu[ií]n|laja|ladrillo)\b"
+    r"\bpastel[oó]n(?:es)?\s+(?:sol|adoqu[ií]n|laja|ladrillo)\b"
     r"|\b40\s*[x×]\s*40\b", re.IGNORECASE)
 _REJECT_PRODUCT = re.compile(
     r"\b(?:ya\s+)?no\s+(?:quiero|necesito|uso|usar[eé]|me interesa)\b"
@@ -100,6 +109,17 @@ _REJECT_PRODUCT = re.compile(
     re.IGNORECASE)
 _RECTANGULAR = re.compile(r"\brectangular?\b|\brect[aá]ngulo\b", re.IGNORECASE)
 _OTHER_SHAPE = re.compile(r"\b(?:ovalad[ao]|circular|redond[ao]|irregular)\b", re.IGNORECASE)
+_ROMAN = re.compile(r"\bromanas?\b", re.IGNORECASE)
+_NOT_ROMAN = re.compile(
+    r"\bno\s+(?:es\s+)?(?:una\s+)?romana|"
+    r"\b(?:plaza|calle|avenida|av|villa|pasaje|poblaci[oó]n|lechugas?)\.?\s+romana",
+    re.IGNORECASE)
+_ROMAN_POOL = re.compile(r"\bpiscinas?\b.{0,25}\bromanas?\b|\bromanas?\b.{0,15}\bpiscinas?\b",
+                         re.IGNORECASE)
+POOL_PHOTO_REQUEST = ("Para calcular los bordes de una piscina que no es rectangular necesito "
+                      "ver su forma. ¿Me envías una foto de la piscina por este chat? "
+                      "La revisamos y te respondemos.")
+POOL_PHOTO_MARKER = "foto de la piscina"
 _OTHER_UNITS = re.compile(
     r"\b(?:cm|cent[ií]metros?|pies?|ft|pulgadas?|inches|yardas?|yd)\b",
     re.IGNORECASE,
@@ -281,8 +301,42 @@ def border_model_followup(message: str, history: list[dict[str, Any]]) -> bool:
         if turn.get("role") != "agent":
             continue
         prompt = str(turn.get("text") or "").casefold()
-        return ("modelo" in prompt and ("borde" in prompt or "piscina" in prompt) and
-                not re.search(r"\b(?:precio|medidas?)\b", prompt))
+        if ("modelo" in prompt and ("borde" in prompt or "piscina" in prompt) and
+                not re.search(r"\b(?:precio|medidas?)\b", prompt)):
+            return True
+        break
+    # «Perdón, borde recto con nariz» after the model was already asked: the
+    # customer changed their mind, and the quote continues with the new model.
+    return bool((_PRODUCT.search(content) or _WHALE.search(content)) and
+                any(turn.get("role") == "agent" and
+                    BORDER_MODEL_QUESTION in str(turn.get("text") or "")
+                    for turn in history))
+
+
+def _says_roman(text: str) -> bool:
+    return bool(_ROMAN.search(text or "") and not _NOT_ROMAN.search(text or ""))
+
+
+def roman_pool(message: str, history: list[dict[str, Any]]) -> bool:
+    """A Roman pool named in a pool conversation: ask for its photo right away."""
+    if not _says_roman(message) or "?" in (message or ""):
+        return False
+    if _ROMAN_POOL.search(message):
+        return True
+    # A short «es romana» counts only as an answer inside the pool flow.
+    last_agent = next((str(turn.get("text") or "") for turn in reversed(history)
+                       if turn.get("role") == "agent"), "")
+    return (len(message.split()) <= 5 and
+            bool(re.search(r"\b(?:piscinas?|bordes?)\b", last_agent, re.IGNORECASE)))
+
+
+def pool_photo_followup(message: str, history: list[dict[str, Any]]) -> bool:
+    """The customer sent the pool photo the agent asked for."""
+    if not re.fullmatch(r"\s*\[image\]\s*", message or "", re.IGNORECASE):
+        return False
+    for turn in reversed(history):
+        if turn.get("role") == "agent":
+            return POOL_PHOTO_MARKER in str(turn.get("text") or "")
     return False
 
 
@@ -305,18 +359,16 @@ def border_plan(message: str, history: list[dict[str, Any]]) -> tuple[dict[str, 
     message = normalize_pool_border_terms(message)
     lead_texts = [normalize_pool_border_terms(str(turn.get("text") or "")) for turn in history
                   if turn.get("role") == "lead"]
-    # The calculator only knows the straight border's piece rule. A whale border
-    # goes to the team instead of an invented count; checked before sizes so its
-    # «50×40» is never read as the pool.
-    if _WHALE.search(message) and "?" not in message:
-        return None, WHALE_BORDER_REVIEW
+    if roman_pool(message, history):
+        return None, POOL_PHOTO_REQUEST
     if re.search(r"\b(?:terraza|interior|fondo|piso)\b", message, re.IGNORECASE):
         return None, "¿Te refieres al borde recto con nariz de la piscina o a otro producto?"
     latest_first = [message, *reversed(lead_texts)]
     dimensions = None
     for text in latest_first:
         for match in _SIZE.finditer(text):
-            if _ITEM_SIZE_PREFIX.search(text[max(0, match.start() - 35):match.start()]):
+            if (_ITEM_SIZE_PREFIX.search(text[max(0, match.start() - 35):match.start()]) and
+                    min(Decimal(v.replace(",", ".")) for v in match.groups()) >= _PIECE_SIDE_MIN):
                 continue
             if _OTHER_UNITS.search(text[match.end():match.end() + 18]):
                 return None, "¿Las medidas de la piscina están en metros?"
@@ -333,24 +385,26 @@ def border_plan(message: str, history: list[dict[str, Any]]) -> tuple[dict[str, 
                       "¿Puedes confirmar el largo y ancho de tu piscina en metros?")
     product = next((text for text in latest_first if
                     _REJECT_PRODUCT.search(text) or _OTHER_PRODUCT.search(text) or
-                    _PRODUCT.search(text)), None)
+                    _PRODUCT.search(text) or
+                    (_WHALE.search(text) and "?" not in text)), None)
     if product and (_REJECT_PRODUCT.search(product) or _OTHER_PRODUCT.search(product)):
         return None, "¿Te refieres al borde recto con nariz de la piscina o a otro producto?"
     if (pool_shape_followup(message, history) and
-            re.fullmatch(r"\s*no[.!? ]*", message, re.IGNORECASE)):
-        return None, "Necesito revisar esta piscina antes de calcular las cantidades."
+            re.fullmatch(r"\s*no(?:\s+es\s+rectangular)?[.!? ]*", message, re.IGNORECASE)):
+        return None, POOL_PHOTO_REQUEST
     if product is None:
         return None, BORDER_MODEL_QUESTION
     shape = next((text for text in latest_first if _OTHER_SHAPE.search(text) or
+                  _says_roman(text) or
                   re.search(r"\bno\s+(?:es\s+)?rectangular\b", text, re.IGNORECASE) or
                   _RECTANGULAR.search(text)), None)
     if shape is None and pool_shape_followup(message, history) and \
             re.fullmatch(r"\s*(?:s[ií]|rectangular|es rectangular)[.!? ]*", message,
                          re.IGNORECASE):
         shape = "rectangular"
-    if shape and (_OTHER_SHAPE.search(shape) or
+    if shape and (_OTHER_SHAPE.search(shape) or _says_roman(shape) or
                   re.search(r"\bno\s+(?:es\s+)?rectangular\b", shape, re.IGNORECASE)):
-        return None, "Necesito revisar la forma de esa piscina antes de calcular las piezas."
+        return None, POOL_PHOTO_REQUEST
     if shape is None:
         return None, POOL_SHAPE_QUESTION
     if dimensions is None:
@@ -360,7 +414,9 @@ def border_plan(message: str, history: list[dict[str, Any]]) -> tuple[dict[str, 
         return None, "Necesito confirmar los cortes antes de darte una cantidad."
     perimeter = 2 * (width + length)
     straight = int(perimeter * 2)
-    return {"width": width, "length": length, "straight": straight, "corners": 4}, ""
+    model = "ballena" if _WHALE.search(product) else "recto"
+    return {"width": width, "length": length, "straight": straight, "corners": 4,
+            "border_id": BORDER_ITEM_IDS[model]}, ""
 
 
 def wants_border_budget(message: str) -> bool:
@@ -397,7 +453,7 @@ def shipping_price_request(message: str) -> bool:
 def format_product_quote(plan: dict[str, Any], quote: dict[str, Any]) -> str | None:
     """Present only the product subtotal; shipping has no verified price."""
     lines = {line["id"]: line for line in quote.get("lines", [])}
-    straight = lines.get("borde-recto-nariz-50x50")
+    straight = lines.get(plan.get("border_id") or BORDER_ITEM_IDS["recto"])
     corners = lines.get("esquina-piscina-50x50")
     if (quote.get("currency") != "CLP" or quote.get("iva_rate") != 0 or
             quote.get("unmatched") or not straight or not corners or
@@ -405,7 +461,7 @@ def format_product_quote(plan: dict[str, Any], quote: dict[str, Any]) -> str | N
         return None
     money = lambda value: "$" + f"{round(value):,}".replace(",", ".")
     return ("📋 *Presupuesto de productos*\n"
-            f"• Borde recto con nariz 50x50: {straight['qty']} × "
+            f"• {straight['name']}: {straight['qty']} × "
             f"{money(straight['unit_price'])} = {money(straight['subtotal'])}\n"
             f"• Esquina piscina 50x50: {corners['qty']} × "
             f"{money(corners['unit_price'])} = {money(corners['subtotal'])}\n"

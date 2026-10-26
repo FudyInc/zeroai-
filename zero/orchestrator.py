@@ -62,7 +62,8 @@ from .losetas_polls import (DELIVERY_POLL_QUESTION as LOSETAS_DELIVERY_POLL_QUES
                             WHATSAPP_WEB_POLL_KEYS)
 from .memory import SessionMemory
 from .quotes import compute_quote, extract_request, format_quote, normalize_pricing
-from .pool_border import (WHALE_BORDER_REVIEW, _MEASUREMENT_QUESTION as POOL_MEASUREMENT_QUESTION,
+from .pool_border import (POOL_PHOTO_MARKER, POOL_PHOTO_REQUEST, _MEASUREMENT_QUESTION as POOL_MEASUREMENT_QUESTION,
+                          pool_photo_followup, roman_pool,
                           border_plan, catalog_requested, visual_catalog_category,
                           delegates_piece_calculation,
                           format_product_quote, shipping_price_request,
@@ -1361,6 +1362,7 @@ class Zero:
                 (wants_border_budget(message) or pool_measurement_message(message) or measurement_followup(
                     message, order_history) or border_model_followup(message, order_history) or
                  pool_shape_followup(message, order_history) or
+                 roman_pool(message, order_history) or
                  color_preference(message, order_history) or
                  shipping_delivery_followup(message, order_history))):
             plan, clarification = border_plan(message, order_history)
@@ -1368,10 +1370,18 @@ class Zero:
                 if shipping_delivery_followup(message, order_history):
                     return {"reply": "Gracias, recibí los datos de entrega. El equipo revisará cobertura y flete.",
                             "intent": "info"}
-                if clarification == WHALE_BORDER_REVIEW:
-                    # No piece rule for this model yet: a person quotes it.
-                    return {"reply": "", "intent": "handoff",
-                            "review_reason": "Borde ballena: cotizar con el equipo"}
+                if clarification == POOL_PHOTO_REQUEST:
+                    last_agent = next((str(t.get("text") or "") for t in reversed(order_history)
+                                       if t.get("role") == "agent"), "")
+                    if POOL_PHOTO_MARKER in last_agent:
+                        # Already asked and alerted: no second case, no second alert.
+                        return {"reply": ("Quedo atento a la foto de la piscina; con ella "
+                                          "calculamos los bordes."),
+                                "intent": "pricing", "flow_step": True}
+                    # The piece rule assumes a rectangle: the owner reviews the photo.
+                    return {"reply": clarification, "intent": "pricing", "flow_step": True,
+                            "attention": "Piscina no rectangular: revisar la foto y cotizar",
+                            "owner_alert": "pool_photo"}
                 if clarification == BORDER_MODEL_QUESTION and not any(
                         turn.get("role") == "agent" and
                         turn.get("text") == "Catálogo Bordes de Piscina"
@@ -1386,9 +1396,7 @@ class Zero:
                     return {"reply": clarification, "intent": "qualification",
                             "customer_poll": ("border_model" if clarification ==
                                               BORDER_MODEL_QUESTION else "shape")}
-                return {"reply": clarification, "intent": "pricing",
-                        **({"attention": "Piscina que no es rectangular: cotizar con el equipo"}
-                           if clarification.startswith("Necesito revisar") else {})}
+                return {"reply": clarification, "intent": "pricing"}
             if not selected_tone:
                 return {"reply": color_question(), "intent": "qualification",
                         "media_asset": COLOR_CATALOG_IMAGE_PATH,
@@ -1396,7 +1404,7 @@ class Zero:
             if not delivery_detail(message, order_history):
                 return {"reply": LOSETAS_DELIVERY_POLL_QUESTION, "intent": "qualification",
                         "delivery_poll": True}
-            order = [{"id": "borde-recto-nariz-50x50", "qty": plan["straight"]},
+            order = [{"id": plan["border_id"], "qty": plan["straight"]},
                      {"id": "esquina-piscina-50x50", "qty": plan["corners"]}]
             product_quote = compute_quote(pricing, order)
             product_reply = format_product_quote(plan, product_quote or {})
@@ -1713,8 +1721,24 @@ class Zero:
         if channel == "whatsapp" and (_HUMAN_REQUEST_RE.search(text or "") or
                                        _unreadable_whatsapp_message(text, client_id)):
             self.memory.add_turn(client_id, key, "lead", text)
+            photo = (client_id == "losetaschile" and
+                     pool_photo_followup(text, self.memory.get_conversation(client_id, key)[:-1]))
             reason = ("El contacto pidió atención humana" if _HUMAN_REQUEST_RE.search(text or "") else
+                      "Foto de la piscina recibida: revisar y cotizar" if photo else
                       "Mensaje no interpretable por el agente")
+            if photo:
+                # The owner reviews the photo; the customer knows it arrived.
+                ack = "Gracias, recibí la foto. La revisamos y te respondemos por este chat."
+                ack_delivery = self._deliver(
+                    client_id, key, rec.get("phone") or rec.get("email"),
+                    {"channel": channel, "subject": None, "body": ack,
+                     "whatsapp_from": to_phone_id, "whatsapp_chat_id": whatsapp_chat_id},
+                    wa_creds=wa_creds)
+                if ack_delivery.get("status") == "sent":
+                    self.memory.add_turn(client_id, key, "agent", ack)
+                else:
+                    self.memory.log("pool_photo_ack_failed", client=client_id, lead=key,
+                                    error=ack_delivery.get("error"))
             self.memory.set_whatsapp_handoff(client_id, handoff_key, reason)
             self.memory.log("whatsapp_handoff", client=client_id, lead=key, reason=reason)
             self.memory.save()
@@ -2054,6 +2078,18 @@ class Zero:
                     self.memory.add_knowledge_gap(
                         client_id, text, res["attention"], chat_id=whatsapp_chat_id or key,
                         contacto=rec.get("name") or rec.get("phone") or "", lead_key=key, tipo="pedido")
+                if res.get("owner_alert") == "pool_photo":
+                    from .alerts import notify_owner
+                    # Every case is a different customer: no throttle window.
+                    alert = notify_owner(
+                        "Losetas Chile — piscina no rectangular.\n"
+                        f"Cliente: {name_from_profile or rec.get('name') or 'sin nombre'} "
+                        f"(+{rec.get('phone') or from_contact})\n"
+                        f"Escribió: {(text or '')[:200]}\n"
+                        "Se le pidió una foto de la piscina; revísala en el chat y cotiza.",
+                        kind="pool_photo", throttle_minutes=0)
+                    self.memory.log("owner_alert", client=client_id, lead=key,
+                                    kind="pool_photo", status=alert.get("status"))
                 if (client_id == "losetaschile" and channel == "whatsapp" and
                         res.get("delivery_poll") and whatsapp_chat_id and to_phone_id):
                     try:
