@@ -146,6 +146,56 @@ class RegistroDesdeConversaciones(unittest.TestCase):
         self.assertEqual([c["tipo"] for c in casos], ["pedido"])
         self.assertIn("Pastelones", casos[0]["reason"])
 
+    def _inbound(self, zero, text, draft_reply=None):
+        draft = SimpleNamespace(result={"reply": draft_reply or "", "intent": "general"},
+                                status="ok")
+        with mock.patch.object(zero, "dispatch", return_value=draft) as dispatch:
+            zero.handle_inbound("56933333333", text, to_phone_id="56911111111",
+                                whatsapp_chat_id="56933333333@c.us")
+        return dispatch
+
+    def test_tema_que_la_ficha_no_respalda_no_se_inventa(self):
+        zero, memory = self._zero()
+        dispatch = self._inbound(zero, "¿tienen garantía?", "Sí, 5 años de garantía.")
+        dispatch.assert_not_called()
+        [caso] = memory.list_knowledge_gaps("losetaschile")
+        self.assertEqual(caso["tipo"], "pregunta")
+        self.assertIn("garantía", caso["reason"])
+
+    def test_tema_que_la_ficha_respalda_lo_contesta_el_modelo(self):
+        zero, memory = self._zero()
+        memory.set_client_knowledge("losetaschile", "Emitimos boleta y factura.")
+        dispatch = self._inbound(zero, "¿hacen factura?", "Sí, emitimos factura.")
+        dispatch.assert_called()
+        self.assertEqual(memory.list_knowledge_gaps("losetaschile"), [])
+
+    def test_el_modelo_que_admite_no_saber_deja_caso(self):
+        zero, memory = self._zero()
+        self._inbound(zero, "¿los pastelones resisten heladas?",
+                      "Lo siento, no tenemos información disponible sobre eso.")
+        [caso] = memory.list_knowledge_gaps("losetaschile")
+        self.assertEqual(caso["reason"], "El agente no tenía la información")
+
+    def test_pedir_un_dato_no_es_admitir_no_saber(self):
+        zero, memory = self._zero()
+        self._inbound(zero, "¿cuántas piezas necesito?",
+                      "No puedo confirmar la cantidad sin las medidas de tu piscina.")
+        self.assertEqual(memory.list_knowledge_gaps("losetaschile"), [])
+
+    def test_pregunta_de_plazo_no_recibe_el_menu_de_productos(self):
+        zero, memory = self._zero()
+        memory.set_client_knowledge("losetaschile", "Despachos en 3 días hábiles a todo Chile.")
+        with mock.patch.object(zero, "dispatch"):
+            res = zero.converse_result("losetaschile", "¿cuánto demora el despacho a Rancagua?",
+                                       lead={"key": "k"}, channel="whatsapp", history=[])
+        self.assertNotEqual(res.get("customer_poll"), "product")
+
+    def test_plazo_sin_respaldo_en_la_ficha_deja_caso(self):
+        zero, memory = self._zero()
+        self._inbound(zero, "¿cuánto demora el despacho a Rancagua?")
+        [caso] = memory.list_knowledge_gaps("losetaschile")
+        self.assertIn("plazos de entrega", caso["reason"])
+
     def test_descartado_no_vuelve_aunque_se_repita(self):
         memory, clave = _memory_with_gap("ok")
         memory.dismiss_knowledge_gap("losetaschile", clave)
@@ -159,6 +209,26 @@ class RegistroDesdeConversaciones(unittest.TestCase):
         caso = memory.list_knowledge_gaps("losetaschile")[0]
         self.assertEqual([e["chat_id"] for e in caso["esperando"]],
                          ["56933333333@c.us", "56944444444@c.us"])
+
+
+class DetectorSinFalsosPositivos(unittest.TestCase):
+    """Los casos de la revisión: respuestas y pedidos normales no se vuelven casos."""
+
+    def test_respuestas_normales_no_son_admitir_no_saber(self):
+        from zero.orchestrator import _admits_not_knowing
+        for reply in ("El flete no se incluye en el precio.", "No se requiere permiso para retirar.",
+                      "Sin las medidas no puedo confirmar el precio."):
+            with self.subTest(reply=reply):
+                self.assertFalse(_admits_not_knowing(reply))
+        for reply in ("No lo sé.", "No puedo confirmar si resisten heladas."):
+            with self.subTest(reply=reply):
+                self.assertTrue(_admits_not_knowing(reply))
+
+    def test_cerrar_un_pedido_no_es_preguntar_por_el_tema(self):
+        from zero.orchestrator import _uncovered_topic
+        self.assertIsNone(_uncovered_topic("Retiro en fábrica, pago el viernes con efectivo", ""))
+        self.assertEqual(_uncovered_topic("aceptan tarjeta", ""), "medios de pago")
+        self.assertEqual(_uncovered_topic("cuanto se demora el despacho", ""), "plazos de entrega")
 
 
 class RutasDelDashboard(unittest.TestCase):

@@ -73,6 +73,29 @@ LOSETASCHILE_FLETE_CLP_PER_KM = 2000
 # puente. Las encuestas quedan inservibles hasta pasar a botones oficiales.
 LOSETASCHILE_CHOICE_STYLE = "numbered"
 
+# Temas en que el agente de LosetasChile NO improvisa. Si el cliente pregunta por
+# uno y la ficha no trae ninguna de sus palabras de respaldo, la consulta pasa al
+# módulo de Atención (el cliente recibe «necesito revisar tu consulta») en vez de
+# que el modelo invente. Verificado el 2026-10-25: «¿hacen boleta o factura?»
+# salía con un «Sí, podemos emitir…» inventado y sin dejar caso.
+# tema → (palabras de la pregunta, palabras que la ficha debe traer)
+LOSETASCHILE_TEMAS_SIN_INVENTAR = {
+    "boleta o factura": (("boleta", "factura"), ("boleta", "factura")),
+    "garantía": (("garantia",), ("garantia",)),
+    "devoluciones": (("devolucion", "devoluciones", "devolver", "reembolso"),
+                     ("devolucion", "reembolso")),
+    "medios de pago": (("transferencia", "tarjeta", "efectivo", "webpay", "cuotas",
+                        "medio de pago", "medios de pago", "forma de pago", "formas de pago",
+                        "como pago", "como se paga"),
+                       ("transferencia", "tarjeta", "efectivo", "webpay", "medios de pago")),
+    "horario": (("horario", "a que hora", "abren", "cierran"), ("horario",)),
+    "plazos de entrega": (("demora", "demoran", "tarda", "tardan", "cuantos dias",
+                           "plazo", "plazos"),
+                          # «plazo» solo no basta: la ficha lo nombra para prohibirlo
+                          # («No afirmar stock, plazo…»).
+                          ("dias habiles", "plazo de entrega", "plazo de despacho")),
+}
+
 LOSETASCHILE_WHATSAPP_CATALOG_URL = "https://wa.me/c/56964537891"
 LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE = (
     "Catálogo\n" + LOSETASCHILE_WHATSAPP_CATALOG_URL

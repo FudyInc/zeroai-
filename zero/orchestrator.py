@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .config import (
     LOSETASCHILE_CHOICE_STYLE,
+    LOSETASCHILE_TEMAS_SIN_INVENTAR,
     ACTIVE_MARKET_REGIONS,
     AVG_DEAL_VALUE_CLP,
     DEFAULT_VENDOR_ID,
@@ -43,7 +44,7 @@ from .inbox import Inbox, MockInbox
 from .losetas_color import (COLOR_CATALOG_IMAGE_PATH, color_preference,
                             color_question, latest_color_preference)
 from .losetas_budget import format_internal_budget
-from .losetas_text import normalize_customer_text
+from .losetas_text import normalize_customer_text, plain
 from .attention import learned_alias, learned_answer
 from .losetas_shipping import (SHIPPING_COVERAGE_REPLY, SHIPPING_PRICE_REPLY,
                                delivery_detail, delivery_poll_choice_response,
@@ -175,6 +176,57 @@ def _unverified_quote_review_claim(reply: str) -> bool:
         r"\b(?:revisad[oa]|verificad[oa]|confirmad[oa])\b",
         reply or "", re.IGNORECASE))
 
+
+
+_ASKS_RE = re.compile(
+    r"\?|^\s*¿|\b(?:c[oó]mo|cu[aá]nt[oa]s?|cu[aá]l(?:es)?|qu[eé]|aceptan|hacen|tienen|"
+    r"emiten|dan|reciben|se\s+puede|puedo|podr[ií]a)\b", re.IGNORECASE)
+
+
+def _uncovered_topic(message: str, knowledge: str):
+    """El tema de política que pregunta el cliente y que la ficha no respalda.
+
+    Sin respaldo en la ficha, cualquier respuesta del modelo sobre boleta,
+    garantía, pagos o plazos es inventada: mejor que la conteste una persona
+    una vez y quede aprendida."""
+    # Only a question: «pago el viernes con efectivo» closes an order, it asks nothing.
+    if not _ASKS_RE.search(message or ""):
+        return None
+    asked, ficha = f" {plain(message)} ", f" {plain(knowledge)} "
+    for topic, (words, evidence) in LOSETASCHILE_TEMAS_SIN_INVENTAR.items():
+        if (any(f" {w} " in asked for w in words) and
+                not any(f" {w} " in ficha for w in evidence)):
+            return topic
+    return None
+
+
+# The model saying it does not know is a case for a person, not a reply:
+# «no tenemos información» answers nothing and leaves no trace. «no sé» only
+# with its accent: «no se incluye» / «no se requiere» are ordinary answers.
+_ADMITS_NOT_KNOWING_RE = re.compile(
+    r"\bno\s+(?:tengo|tenemos|cuento|contamos|dispongo|disponemos|manejo|manejamos)\s+"
+    r"(?:con\s+|de\s+)?(?:esa\s+|la\s+|ese\s+|el\s+)?(?:informaci[oó]n|datos?|detalle)"
+    r"|\bno\s+(?:lo\s+)?sé\b|\bno\s+sabr[ií]a\b|\bno\s+estoy\s+segur[oa]\b"
+    r"|\bconsult(?:o|ar[eé]?|aremos)\s+con\s+(?:el\s+|nuestro\s+)?equipo\b",
+    re.IGNORECASE)
+_CANNOT_CONFIRM_RE = re.compile(
+    r"\bno\s+(?:puedo|podemos)\s+(?:confirmar|asegurar|indicar|decir)\w*", re.IGNORECASE)
+# «Sin las medidas no puedo confirmar el precio» asks for a fact; it is not ignorance.
+_MISSING_INPUT_RE = re.compile(r"\b(?:sin|hasta|mientras|antes|primero|necesito)\b",
+                               re.IGNORECASE)
+
+
+def _admits_not_knowing(reply: str) -> bool:
+    if _ADMITS_NOT_KNOWING_RE.search(reply or ""):
+        return True
+    return any(_CANNOT_CONFIRM_RE.search(sentence) and not _MISSING_INPUT_RE.search(sentence)
+               for sentence in re.split(r"(?<=[.!?\n])\s*", reply or ""))
+
+
+# «¿Cuánto demora el despacho?» asks for a fact, not for a price: it must not
+# get the product menu.
+_INFO_QUESTION_RE = re.compile(
+    r"\b(?:demora\w*|tarda\w*|plazos?|horarios?|garant[ií]a|boleta|factura)\b", re.IGNORECASE)
 
 
 def _has(text: str, *words: str) -> bool:
@@ -1095,6 +1147,10 @@ class Zero:
                 if learned:
                     # The team answered this question once from the dashboard.
                     return {"reply": learned, "intent": "info", "flow_step": True}
+                topic = _uncovered_topic(message, knowledge)
+                if topic:
+                    return {"reply": "", "intent": "handoff",
+                            "gap_reason": f"Pregunta sobre {topic}: no está en la ficha"}
         greeting = whatsapp_greeting() if channel == "whatsapp" else ""
         if client_id == "losetaschile" and channel == "whatsapp" and _simple_greeting(message):
             introduced = _introduced_name(message)
@@ -1123,7 +1179,7 @@ class Zero:
                 return {"reply": (POOL_MEASUREMENT_QUESTION if selected_category == "bordes"
                                   else PAVER_AREA_QUESTION),
                         "intent": "qualification", "flow_step": True}
-            if (_QUOTE_REQUEST_RE.search(message) and
+            if (_QUOTE_REQUEST_RE.search(message) and not _INFO_QUESTION_RE.search(message) and
                     not re.search(r"\b(?:bordes?\s+(?:de|para)\s+(?:la\s+)?piscina|pastelones?)\b",
                                   message, re.IGNORECASE) and not order_history):
                 return {"reply": PRODUCT_POLL_QUESTION, "intent": "qualification",
@@ -1189,11 +1245,7 @@ class Zero:
                 return {"reply": models_reply, "intent": "catalog"}
 
         if client_id == "losetaschile" and channel == "whatsapp":
-            if re.search(r"\b(?:c[oó]mo\s+(?:se\s+)?paga|formas?\s+de\s+pago|"
-                         r"medios?\s+de\s+pago)\b", message, re.IGNORECASE):
-                return {"reply": ("Las formas de pago aún no están confirmadas en este chat. "
-                                  "El equipo te las indicará antes de cerrar el pedido."),
-                        "intent": "info"}
+            # Payment methods are a «tema sin inventar» (config): a case, not a non-answer.
             if re.search(r"\bdescuentos?\b", message, re.IGNORECASE):
                 return {"reply": ("No tengo un descuento confirmado para este pedido. "
                                   "Debe confirmarse antes de incluirlo en el presupuesto."),
@@ -1807,10 +1859,16 @@ class Zero:
             repeated = False
         if client_id == "losetaschile" and channel == "whatsapp" and reply:
             reply = format_whatsapp_reply(reply)
+        not_known = (client_id == "losetaschile" and channel == "whatsapp" and
+                     intent != "handoff" and not res.get("flow_step") and
+                     _admits_not_knowing(reply))
         if channel == "whatsapp" and (intent == "handoff" or not reply.strip() or repeated or
-                                      unsafe_shipping or unsupported_review or unsupported_count):
-            reason = ((res.get("review_reason") or "El agente no entendió la consulta")
+                                      unsafe_shipping or unsupported_review or unsupported_count
+                                      or not_known):
+            reason = ((res.get("review_reason") or res.get("gap_reason") or
+                       "El agente no entendió la consulta")
                       if intent == "handoff" else
+                      "El agente no tenía la información" if not_known else
                       "Respuesta sobre despacho requiere revisión" if unsafe_shipping else
                       "Revisión de consulta no comprobada" if unsupported_review else
                       "Cantidad de piezas sin presupuesto comprobado" if unsupported_count else

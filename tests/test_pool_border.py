@@ -452,8 +452,13 @@ class PoolBorderCountTest(unittest.TestCase):
 
     def test_unverified_payment_and_discount_are_not_invented(self):
         zero = Zero(build_agents(mock=True), memory=self.priced_memory(include_tone=False))
-        for question, expected in (("como se paga?", "formas de pago"),
-                                   ("tienen algun descuento?", "descuento confirmado")):
+        with mock.patch.object(zero, "dispatch") as dispatch:
+            result = zero.converse_result("losetaschile", "como se paga?",
+                                          lead={"key": "new-lead"}, channel="whatsapp")
+        dispatch.assert_not_called()
+        self.assertEqual(result["intent"], "handoff")   # a person answers it once, then it is learned
+        self.assertIn("medios de pago", result["gap_reason"])
+        for question, expected in (("tienen algun descuento?", "descuento confirmado"),):
             with self.subTest(question=question), mock.patch.object(zero, "dispatch") as dispatch:
                 result = zero.converse_result("losetaschile", question,
                                               lead={"key": "new-lead"}, channel="whatsapp")
