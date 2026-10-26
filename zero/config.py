@@ -193,6 +193,14 @@ WHATSAPP_ENGINE = {
 # genera un aviso, no doscientos.
 ALERT_THROTTLE_MINUTES = 30
 
+# revisar-salud.py: correo/WhatsApp SOLO si algo urgente se cayó (servicio,
+# backend, túnel, motor, puente, mock en producción). Lo que espera revisión de
+# una persona (mensajes needs_review) va al módulo de Atención del dashboard,
+# no al correo: 25 mensajes repetidos cada 30 min llenaban la bandeja (2026-10-25).
+# El MISMO problema urgente se vuelve a avisar solo pasado este plazo; uno nuevo,
+# al tiro.
+SALUD_REPETIR_MISMO_AVISO_HORAS = 6
+
 # --- Mercado activo (2026-07-19) -----------------------------------------------
 # ZeroAI prospecta SOLO en Chile por ahora — decisión explícita de Diego mientras
 # se prueba con leads reales; otros países son plan a futuro (cuando eso cambie,

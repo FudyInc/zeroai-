@@ -4,7 +4,8 @@
 Sin IA a propósito: comprobar si un puerto responde no requiere criterio. La
 cuota de un modelo es lo escaso; gastarla acá sería quemar lo caro en lo barato.
 
-Solo avisa cuando algo FALLA — un aviso por cada revisión buena entrena a
+Solo avisa cuando algo URGENTE falla (ver SALUD_REPETIR_MISMO_AVISO_HORAS en
+zero/config.py) — un aviso por cada revisión buena entrena a
 ignorarlos, y el día que importe no lo vas a mirar. El antirrebote de
 `zero.alerts` evita además 48 avisos seguidos por una misma caída.
 
@@ -16,6 +17,7 @@ Solo stdlib.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import subprocess
@@ -29,8 +31,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from zero._env import load_env      # noqa: E402
 from zero.alerts import notify_owner  # noqa: E402
+from zero.config import SALUD_REPETIR_MISMO_AVISO_HORAS  # noqa: E402
 
 load_env()
+
+# Marca lo que espera a una persona pero no es una caída: se informa en consola
+# y en el dashboard (Atención), nunca por correo ni WhatsApp.
+NO_URGENTE = "[no urgente] "
 
 TUNEL = (os.environ.get("WHATSAPP_WEBHOOK_URL") or "https://handpick-monogamy-spiny.ngrok-free.dev/api/webhooks/whatsapp").strip()
 
@@ -148,7 +155,7 @@ def revisar() -> list:
             stats = inbox_stats()
             counts = stats["counts"]
             if counts.get("needs_review", 0):
-                fallas.append(f"WhatsApp: {counts['needs_review']} mensajes requieren revisión")
+                fallas.append(NO_URGENTE + f"WhatsApp: {counts['needs_review']} mensajes requieren revisión")
             oldest = stats.get("oldest_unfinished")
             if oldest and (datetime.now(timezone.utc) -
                            datetime.fromisoformat(oldest).replace(tzinfo=timezone.utc)).total_seconds() > 300:
@@ -177,9 +184,20 @@ def main() -> int:
         print("todo en orden")
         return 0
 
-    texto = "ZERO tiene problemas:\n· " + "\n· ".join(fallas)
+    urgentes = [f for f in fallas if not f.startswith(NO_URGENTE)]
+    for f in fallas:
+        if f.startswith(NO_URGENTE):
+            print("pendiente (sin aviso):", f[len(NO_URGENTE):])
+    if not urgentes:
+        return 0
+
+    texto = "ZERO tiene problemas:\n· " + "\n· ".join(urgentes)
     print(texto)
-    res = notify_owner(texto, kind="salud")
+    # Una ventana por cada conjunto de problemas: el mismo se repite cada
+    # SALUD_REPETIR_MISMO_AVISO_HORAS; uno distinto sale de inmediato.
+    firma = hashlib.sha1("\n".join(sorted(urgentes)).encode()).hexdigest()[:10]
+    res = notify_owner(texto, kind=f"salud:{firma}",
+                       throttle_minutes=SALUD_REPETIR_MISMO_AVISO_HORAS * 60)
     print("aviso →", res["status"], f"({res.get('reason')})" if res.get("reason") else "")
     return 1
 
