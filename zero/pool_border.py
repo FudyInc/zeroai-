@@ -81,8 +81,9 @@ _POOL_MEASUREMENTS = re.compile(
     re.IGNORECASE,
 )
 _SIZE = re.compile(
-    r"\b(\d{1,3}(?:[.,]\d)?)\s*(?:m(?:etros?)?\s*)?"
-    r"(?:x|×|por)\s*(\d{1,3}(?:[.,]\d)?)\s*(?:m(?:etros?)?)?\b",
+    # «4 mts x 8», «4 mt. x 8 mtrs»: how Chilean customers write metres.
+    r"\b(\d{1,3}(?:[.,]\d)?)\s*(?:m(?:ts?|trs?|etros?)?\.?\s*)?"
+    r"(?:x|×|por)\s*(\d{1,3}(?:[.,]\d)?)\s*(?:m(?:ts?|trs?|etros?)?)?\b",
     re.IGNORECASE,
 )
 # «Borde ballena 50×40» names the piece, not the pool: reading it as the pool

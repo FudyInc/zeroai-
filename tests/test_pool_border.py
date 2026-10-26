@@ -1072,6 +1072,15 @@ class PoolBorderCountTest(unittest.TestCase):
         self.assertIn(FACTORY_MAP_URL, budget)
         self.assertTrue(results[-1]["manual_review"])
 
+    def test_customer_asking_for_time_gets_no_reply_and_the_flow_resumes(self):
+        # Seen live: «Veo catálogo y respondo» got the model question repeated.
+        results, send_group = self._numbered_chat(
+            ["Hola", "1", "6x3", "Veo catálogo y respondo", "1", "Sí", "5", "3"])
+        self.assertTrue(results[3]["waiting"])
+        sent = [call.args[3]["body"] for call in self._last_zero._deliver.call_args_list]
+        self.assertEqual(sum("modelo de borde" in body for body in sent), 1)
+        self.assertIn("36 × Borde recto con nariz", send_group.call_args.args[3])
+
     def test_sizes_in_a_sentence_still_reach_the_budget_on_factory_pickup(self):
         results, send_group = self._numbered_chat(
             ["Hola", "quiero bordes para una piscina de 7 por 3,5", "1", "Sí", "gris", "3"],
@@ -1091,6 +1100,14 @@ class PoolBorderCountTest(unittest.TestCase):
         self.assertEqual(plan["straight"], 22)
         self.assertEqual(border_plan("6x3 pies", [])[1],
                          "¿Las medidas de la piscina están en metros?")
+
+    def test_metres_written_as_mts_are_read(self):
+        history = [{"role": "lead", "text": "Borde recto con nariz"},
+                   {"role": "lead", "text": "Sí, es rectangular"}]
+        for text in ("Piscina de 4 mts x 8 app..", "4 mt. x 8 mtrs", "4 mts por 8 mts"):
+            plan, _ = border_plan(text, history)
+            self.assertEqual((plan["width"], plan["length"], plan["straight"]),
+                             (4, 8, 48), text)
 
     def test_price_question_asks_measurements_before_shape(self):
         results, send_group = self._numbered_chat(

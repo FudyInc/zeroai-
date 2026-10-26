@@ -304,3 +304,19 @@ def paver_order_details(message: str, history: list[dict[str, Any]]) -> dict[str
 
 def is_factory_pickup(message: str) -> bool:
     return (message or "").strip() == DELIVERY_POLL_FACTORY_PICKUP
+
+
+# «Veo catálogo y respondo», «lo reviso y le aviso», «después te digo»: the
+# customer asked for time. Repeating the question there reads as a bot.
+_DEFERS = re.compile(
+    r"\b(?:(?:lo |la |el |los )?(?:veo|reviso|miro|leo|chequeo|analizo)|dejame (?:ver|revisar)|"
+    r"voy a (?:ver|revisar|mirar))\b.*\b(?:y (?:te |le |les )?(?:respondo|aviso|digo|cuento|"
+    r"escribo|confirmo)|luego|despues|mas (?:rato|tarde)|mañana|manana)\b"
+    r"|^(?:luego|despues|mas (?:rato|tarde)) (?:te |le |les )?(?:respondo|aviso|digo|cuento|"
+    r"escribo|confirmo)\b")
+
+
+def customer_defers(message: str) -> bool:
+    text = plain(message)
+    return (bool(text) and len(text.split()) <= 10 and "?" not in (message or "") and
+            not re.search(r"\d", text) and bool(_DEFERS.search(text)))

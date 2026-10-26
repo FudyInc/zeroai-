@@ -60,6 +60,7 @@ from .losetas_polls import (DELIVERY_POLL_QUESTION as LOSETAS_DELIVERY_POLL_QUES
                             direct_product_category, selected_category_from_history,
                             is_factory_pickup, FACTORY_ADDRESS, FACTORY_MAP_URL,
                             paver_order_details, canonical_choice, numbered_choices,
+                            customer_defers,
                             BORDER_MODEL_QUESTION, POOL_SHAPE_QUESTION,
                             PAVER_AREA_QUESTION, PAVER_MODEL_QUESTION,
                             WHATSAPP_WEB_POLL_KEYS)
@@ -1202,6 +1203,10 @@ class Zero:
         if client_id == "losetaschile" and channel == "whatsapp":
             # Typos fixed and loose sizes rewritten before any step reads it.
             message = normalize_customer_text(message)
+            if customer_defers(message) and any(
+                    turn.get("role") == "agent" for turn in order_history[-6:]):
+                # The customer asked for time: wait for them, send nothing.
+                return {"reply": "", "intent": "qualification", "wait": True}
             # A phrase the team taught as a synonym becomes that option.
             message = learned_alias(self.memory, client_id, message) or message
             chosen = canonical_choice(message, order_history)
@@ -1822,6 +1827,12 @@ class Zero:
                     self.crm.save()
                 return {"matched": True, "manual_review": True,
                         "company": rec.get("company"), **out}
+        if res.get("wait"):
+            self.memory.add_turn(client_id, key, "lead", text)
+            self.memory.log("inbound_waiting", client=client_id, lead=key, channel=channel)
+            self.memory.save()
+            return {"matched": True, "waiting": True, "intent": "qualification",
+                    "company": rec.get("company"), **out}
         reply, intent = res.get("reply") or "", res.get("intent") or "general"
         quote = res.get("quote")
         if client_id == "losetaschile" and channel == "whatsapp" and quote:
