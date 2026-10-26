@@ -227,8 +227,36 @@ class DetectorSinFalsosPositivos(unittest.TestCase):
     def test_cerrar_un_pedido_no_es_preguntar_por_el_tema(self):
         from zero.orchestrator import _uncovered_topic
         self.assertIsNone(_uncovered_topic("Retiro en fábrica, pago el viernes con efectivo", ""))
-        self.assertEqual(_uncovered_topic("aceptan tarjeta", ""), "medios de pago")
+        self.assertEqual(_uncovered_topic("aceptan tarjeta", ""), "tarjeta o efectivo")
         self.assertEqual(_uncovered_topic("cuanto se demora el despacho", ""), "plazos de entrega")
+
+
+class RespuestasFijas(unittest.TestCase):
+    FICHA = ("Vendemos pastelones.\n\n## Respuestas fijas\n### medios de pago\n"
+             "Aceptamos transferencia.\nCuenta Corriente: 19803074124\n\n## Otra sección\nx")
+
+    def _responder(self, texto):
+        memory = SessionMemory(None)
+        memory.register_client("losetaschile", "STARTER")
+        memory.set_client_knowledge("losetaschile", self.FICHA)
+        zero = Zero(build_agents(mock=True), memory=memory)
+        with mock.patch.object(zero, "dispatch") as dispatch:
+            res = zero.converse_result("losetaschile", texto, lead={"key": "k"},
+                                       channel="whatsapp", history=[])
+        return res, dispatch
+
+    def test_la_respuesta_fija_sale_tal_cual_sin_modelo(self):
+        for texto in ("¿aceptan transferencia?", "como pago?", "¿cuáles son los medios de pago?"):
+            with self.subTest(texto=texto):
+                res, dispatch = self._responder(texto)
+                dispatch.assert_not_called()
+                self.assertEqual(res["reply"],
+                                 "Aceptamos transferencia.\nCuenta Corriente: 19803074124")
+
+    def test_tarjeta_no_recibe_los_datos_de_transferencia(self):
+        res, _ = self._responder("¿aceptan tarjeta?")
+        self.assertEqual(res["intent"], "handoff")
+        self.assertIn("tarjeta o efectivo", res["gap_reason"])
 
 
 class RutasDelDashboard(unittest.TestCase):

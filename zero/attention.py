@@ -27,6 +27,7 @@ from .memory import _gap_key
 # Tope de la ficha; el mismo que aplica scripts/cargar_empresa.py.
 LIMITE_FICHA = 4000
 ENCABEZADO = "## Respuestas aprobadas"
+FIJAS = "## Respuestas fijas"
 # Qué tan parecida debe ser una pregunta nueva a una ya respondida para
 # contestarla con esa respuesta. Alto a propósito: una respuesta aprendida
 # aplicada a la pregunta equivocada es peor que pasar el caso a una persona.
@@ -57,6 +58,22 @@ def agregar_respuesta(ficha: str, pregunta: str, respuesta: str) -> str:
     lineas = [l for l in lineas if not l.startswith(marca)]
     lineas.append(entrada)
     return f"{cabeza.rstrip()}\n\n{ENCABEZADO}\n" + "\n".join(lineas) + "\n"
+
+
+def fixed_answer(ficha: str, tema: str) -> Optional[str]:
+    """El texto que el equipo dejó en la ficha para `tema`, tal cual.
+
+    Va bajo `## Respuestas fijas`, en un `### <tema>` con el nombre del tema de
+    LOSETASCHILE_TEMAS_SIN_INVENTAR (config). Se envía sin pasar por el modelo:
+    datos bancarios y montos no se reescriben."""
+    if not tema or FIJAS not in (ficha or ""):
+        return None
+    bloque = ficha.split(FIJAS, 1)[1].split("\n## ", 1)[0]
+    for parte in bloque.split("\n### ")[1:]:
+        titulo, _, cuerpo = parte.partition("\n")
+        if titulo.strip().casefold() == tema.casefold() and cuerpo.strip():
+            return cuerpo.strip()
+    return None
 
 
 def _gap(memory, client_id: str, clave: str) -> Optional[Dict[str, Any]]:

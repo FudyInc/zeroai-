@@ -45,7 +45,7 @@ from .losetas_color import (COLOR_CATALOG_IMAGE_PATH, color_preference,
                             color_question, latest_color_preference)
 from .losetas_budget import format_internal_budget
 from .losetas_text import normalize_customer_text, plain
-from .attention import learned_alias, learned_answer
+from .attention import fixed_answer, learned_alias, learned_answer
 from .losetas_shipping import (SHIPPING_COVERAGE_REPLY, SHIPPING_PRICE_REPLY,
                                delivery_detail, delivery_poll_choice_response,
                                shipping_coverage_request, shipping_delivery_followup)
@@ -183,21 +183,28 @@ _ASKS_RE = re.compile(
     r"emiten|dan|reciben|se\s+puede|puedo|podr[ií]a)\b", re.IGNORECASE)
 
 
+def _asked_topic(message: str):
+    """El tema de política por el que pregunta el cliente, o None."""
+    # Only a question: «pago el viernes con efectivo» closes an order, it asks nothing.
+    if not _ASKS_RE.search(message or ""):
+        return None
+    asked = f" {plain(message)} "
+    return next((topic for topic, (words, _) in LOSETASCHILE_TEMAS_SIN_INVENTAR.items()
+                 if any(f" {w} " in asked for w in words)), None)
+
+
 def _uncovered_topic(message: str, knowledge: str):
     """El tema de política que pregunta el cliente y que la ficha no respalda.
 
     Sin respaldo en la ficha, cualquier respuesta del modelo sobre boleta,
     garantía, pagos o plazos es inventada: mejor que la conteste una persona
     una vez y quede aprendida."""
-    # Only a question: «pago el viernes con efectivo» closes an order, it asks nothing.
-    if not _ASKS_RE.search(message or ""):
+    topic = _asked_topic(message)
+    if not topic:
         return None
-    asked, ficha = f" {plain(message)} ", f" {plain(knowledge)} "
-    for topic, (words, evidence) in LOSETASCHILE_TEMAS_SIN_INVENTAR.items():
-        if (any(f" {w} " in asked for w in words) and
-                not any(f" {w} " in ficha for w in evidence)):
-            return topic
-    return None
+    ficha = f" {plain(knowledge)} "
+    _, evidence = LOSETASCHILE_TEMAS_SIN_INVENTAR[topic]
+    return None if any(f" {w} " in ficha for w in evidence) else topic
 
 
 # The model saying it does not know is a case for a person, not a reply:
@@ -1147,6 +1154,11 @@ class Zero:
                 if learned:
                     # The team answered this question once from the dashboard.
                     return {"reply": learned, "intent": "info", "flow_step": True}
+                # Bank details and the like go out exactly as the team wrote them
+                # in the sheet: the model must never retype an account number.
+                fixed = fixed_answer(knowledge, _asked_topic(message) or "")
+                if fixed:
+                    return {"reply": fixed, "intent": "info", "flow_step": True}
                 topic = _uncovered_topic(message, knowledge)
                 if topic:
                     return {"reply": "", "intent": "handoff",
