@@ -79,6 +79,15 @@ LOSETASCHILE_CHOICE_STYLE = "numbered"
 # que el modelo invente. Verificado el 2026-10-25: «¿hacen boleta o factura?»
 # salía con un «Sí, podemos emitir…» inventado y sin dejar caso.
 # tema → (palabras de la pregunta, palabras que la ficha debe traer)
+# Las formas de «pagar» y «cómo cancelo» (pagar, en Chile). Cuentan como pregunta por
+# la forma de pago salvo que el mensaje pida precio o cancele un pedido: «¿cuánto
+# pago por 20 m2?» y «quiero cancelar el pedido» no llevan datos de transferencia.
+LOSETASCHILE_PAGO_GENERICO = ("pago", "pagos", "paga", "pagan", "pagar", "pagamos", "pagarles",
+                              "pagarle", "pague", "paguen", "pagaria",
+                              # «cancelar» solo también es anular («cancelar la visita»):
+                              # cuenta únicamente cuando pregunta cómo.
+                              "como cancelo", "como lo cancelo", "como les cancelo",
+                              "como se cancela", "como puedo cancelar", "cancelarles")
 LOSETASCHILE_TEMAS_SIN_INVENTAR = {
     "boleta o factura": (("boleta", "factura"), ("boleta", "factura")),
     "garantía": (("garantia",), ("garantia",)),
@@ -89,12 +98,22 @@ LOSETASCHILE_TEMAS_SIN_INVENTAR = {
     # medios de pago: «¿cómo pago con tarjeta?» recibe el link del abono con
     # tarjeta, y cualquier otra pregunta de pago (efectivo incluido) recibe la
     # transferencia. Así lo pidió Diego el 2026-10-26.
-    "tarjeta": (("tarjeta", "tarjetas", "webpay", "cuotas", "debito", "credito",
-                 "mercado pago", "mercadopago"),
+    "tarjeta": (("tarjeta", "tarjetas", "tarj", "targeta", "targetas", "trajeta", "tajeta",
+                 "trageta", "tragetas", "maquinita",
+                 "webpay", "cuotas", "debito", "credito", "redcompra", "mercado pago",
+                 "mercadopago", "visa", "mastercard", "prepago", "mach"),
                 ("tarjeta", "webpay", "mercado pago")),
-    "medios de pago": (("transferencia", "transferir", "transfiero", "abono", "medio de pago",
-                        "medios de pago", "forma de pago", "formas de pago", "como pago",
-                        "como se paga", "como pagar", "como pagamos", "efectivo"),
+    # Los clientes no preguntan «¿cuáles son los medios de pago?»: dicen «cómo les
+    # pago», «a qué cuenta deposito», «cómo lo cancelo» (pagar, en Chile). Las
+    # faltas de ortografía las cubre el mecanismo (orchestrator::_fix_topic_typos).
+    "medios de pago": (("transferencia", "transferir", "transfiero", "transfieren",
+                        "transferirles", "transfiere", "tranferencia", "trasferencia",
+                        "abono", "abonar", "abonan", "abonamos", "abonarles", "deposito",
+                        "depositar", "deposite", "depositan", "depositarles", "efectivo",
+                        "efectivos", "efectibo", "medio de pago", "medios de pago",
+                        "forma de pago", "formas de pago", "contra entrega", "la cuenta",
+                        "que cuenta", "numero de cuenta", "datos bancarios")
+                       + LOSETASCHILE_PAGO_GENERICO,
                        ("transferencia",)),
     "horario": (("horario", "a que hora", "abren", "cierran"), ("horario",)),
     "plazos de entrega": (("demora", "demoran", "tarda", "tardan", "cuantos dias",

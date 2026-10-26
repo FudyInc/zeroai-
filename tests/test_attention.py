@@ -271,6 +271,38 @@ class RespuestasFijas(unittest.TestCase):
         self.assertNotIn("mpago", res["reply"])
 
 
+class PreguntasDePagoComoLasEscribenLosClientes(unittest.TestCase):
+    """Nadie escribe «¿cuáles son los medios de pago?». Casos vistos o probables en chats."""
+
+    TARJETA = ("aceptan tarjeta", "puedo pagar con targeta", "tienen redcompra", "pago con debito",
+               "trajeta?", "se puede en 3 cuotas", "tiene webpay", "acepta mach",
+               "se puede pagar con debito o solo transferencia?", "pago con tarjeta al recibir?")
+    TRANSFERENCIA = ("como les pago?", "como lo cancelo", "a que cuenta deposito", "efectibo?",
+                     "transferensia?", "me pasas los datos para transferir", "y el pago?",
+                     "se paga todo al tiro o despues?", "hay que dejar algun abono?",
+                     "cuanto hay que abonar", "pago contra entrega?", "como hago el pago",
+                     "cuanto es el despacho y como pago", "quiero pagar")
+    NADA = ("cuanto pago por 20 m2 de pastelones?", "quiero cancelar el pedido",
+            "quiero cancelar mi compra", "ya pague", "ya transferi", "precio?", "gris", "2",
+            "Bordes de piscina", "Retiro en fábrica, pago con transferencia",
+            "pago el viernes con efectivo", "debido a la lluvia no puedo ir", "y el despacho?",
+            # pedidos y avisos, no preguntas (hallazgos de revisión del 2026-10-26)
+            "Quiero 20 m2 de pastelones grises, retiro en fábrica, pago con transferencia",
+            "necesito 30 m2 en Maipú, despacho, el pago lo hago el viernes",
+            "Hola quiero cotizar, despacho a Puente Alto, pago al recibir",
+            "quiero cambiar el color, ya hice el abono", "por favor 20 m2 gris, abono listo",
+            "necesito pastelones para mi pos", "quiero cancelar la visita", "cancelo mañana",
+            "quiero que me despachen en horario de mañana", "efectos del sol en el color")
+
+    def test_cada_pregunta_va_a_su_respuesta(self):
+        from zero.orchestrator import _asked_topic
+        for esperado, textos in (("tarjeta", self.TARJETA), ("medios de pago", self.TRANSFERENCIA),
+                                 (None, self.NADA)):
+            for texto in textos:
+                with self.subTest(texto=texto):
+                    self.assertEqual(_asked_topic(texto), esperado)
+
+
 class RutasDelDashboard(unittest.TestCase):
     """Las rutas reales, con uvicorn, sin auth y sin enviar nada (send=false)."""
 

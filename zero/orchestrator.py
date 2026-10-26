@@ -6,6 +6,7 @@ state change, and assembles the client deliverable.
 """
 from __future__ import annotations
 
+import difflib
 import json
 import hashlib
 
@@ -19,6 +20,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .config import (
     LOSETASCHILE_CHOICE_STYLE,
+    LOSETASCHILE_PAGO_GENERICO,
     LOSETASCHILE_TEMAS_SIN_INVENTAR,
     ACTIVE_MARKET_REGIONS,
     AVG_DEAL_VALUE_CLP,
@@ -179,18 +181,64 @@ def _unverified_quote_review_claim(reply: str) -> bool:
 
 
 _ASKS_RE = re.compile(
-    r"\?|^\s*¿|\b(?:c[oó]mo|cu[aá]nt[oa]s?|cu[aá]l(?:es)?|qu[eé]|aceptan|hacen|tienen|"
-    r"emiten|dan|reciben|se\s+puede|puedo|podr[ií]a)\b", re.IGNORECASE)
+    r"\?|^\s*¿|(?:^|\b(?:a|de|en|por|con)\s+)que\b|\bqué\b|"
+    r"\b(?:c[oó]mo|cu[aá]nt[oa]s?|cu[aá]l(?:es)?|aceptan?|aceptas|hacen|"
+    r"tienen?|emiten|dan|reciben|se\s+puede|puedo|podr[ií]a|d[oó]nde|me\s+pasa[sn]?|"
+    r"me\s+env[ií]a[sn]?|p[aá]same|p[aá]sanme|p[aá]senme|env[ií]a(?:me|nme))\b",
+    re.IGNORECASE)
+# A bare «que» is in every sentence («quiero que me despachen»): only «qué», or
+# «que» opening the message or after a preposition («a que cuenta deposito»).
+# «quiero», «necesito», «por favor» stay out: «Quiero 20 m2 gris, retiro en fábrica,
+# pago con transferencia» is an order, and it must not get the bank details back.
+# A message this short that names a topic is asking about it: «pago con débito»,
+# «efectivo». An order statement is longer: «Retiro en fábrica, pago con transferencia».
+_SHORT_QUESTION_WORDS = 4
+# «ya pagué», «listo, transferí»: the customer reports, it does not ask.
+_REPORTS_RE = re.compile(
+    r"^\W*(?:ya|listo|hice|hicimos)\b|\b(?:transfer[ií]|deposit[eé]|pagu[eé]|abon[eé])\b",
+    re.IGNORECASE)
+# Real words close to a topic word that are not typos of it.
+_NOT_TYPOS = frozenset({"efectiva", "efectivas", "efectivamente", "efecto", "efectos",
+                        "debido", "debida", "cancelar", "cancela", "cancelo", "cancele"})
+# «cuánto pago por 20 m2» asks a price; «cancelar el pedido» calls an order off.
+_PRICE_OR_CALL_OFF_RE = re.compile(
+    r"\bcu[aá]nt[oa]\b(?!.*\b(?:abon|transf|deposit|efectiv))|\bprecios?\b|\bvalor\b|"
+    r"\bcancel\w*\s+(?:el|la|mi|los|las|este|esta|ese|esa)?\s*"
+    r"(?:pedido|compra|orden|reserva|cotizaci)", re.IGNORECASE)
+
+
+_TOPIC_VOCABULARY = sorted({w for words, _ in LOSETASCHILE_TEMAS_SIN_INVENTAR.values()
+                            for w in words if " " not in w and len(w) >= 6})
+# «cuánto es el despacho y cómo pago» asks a price and also how to pay.
+_HOW_TO_PAY_RE = re.compile(r"\bc[oó]mo\b.{0,20}\b(?:pag|cancel)", re.IGNORECASE)
+
+
+def _fix_topic_typos(asked: str) -> str:
+    """«transferensia» → «transferencia», «efectvo» → «efectivo»: typos nobody listed."""
+    out = []
+    for w in asked.split():
+        if len(w) >= 6 and w not in _TOPIC_VOCABULARY and w not in _NOT_TYPOS:
+            # A typo keeps the first letter: «quiero» is not «crédito».
+            w = next(iter(difflib.get_close_matches(
+                w, [v for v in _TOPIC_VOCABULARY if v[0] == w[0]], n=1, cutoff=0.8)), w)
+        out.append(w)
+    return " ".join(out)
 
 
 def _asked_topic(message: str):
     """El tema de política por el que pregunta el cliente, o None."""
     # Only a question: «pago el viernes con efectivo» closes an order, it asks nothing.
-    if not _ASKS_RE.search(message or ""):
+    words = plain(message).split()
+    if not words or ("?" not in message and _REPORTS_RE.search(message)):
         return None
-    asked = f" {plain(message)} "
+    if len(words) > _SHORT_QUESTION_WORDS and not _ASKS_RE.search(message):
+        return None
+    asked = f" {_fix_topic_typos(' '.join(words))} "
+    generic_pay_only = bool(_PRICE_OR_CALL_OFF_RE.search(message)
+                            and not _HOW_TO_PAY_RE.search(message))
     return next((topic for topic, (words, _) in LOSETASCHILE_TEMAS_SIN_INVENTAR.items()
-                 if any(f" {w} " in asked for w in words)), None)
+                 if any(f" {w} " in asked for w in words
+                        if not (generic_pay_only and w in LOSETASCHILE_PAGO_GENERICO))), None)
 
 
 def _uncovered_topic(message: str, knowledge: str):
