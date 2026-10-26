@@ -146,13 +146,19 @@ def canonical_choice(message: str, history: list[dict[str, Any]]) -> str | None:
     value = (message or "").strip()
     for keycap, digit in _KEYCAPS.items():
         value = value.replace(keycap, digit)
+    answered = set()
     for turn in reversed(history):
         if turn.get("role") != "agent":
+            answered.add(str(turn.get("text") or "").strip().casefold())
             continue
         prompt = str(turn.get("text") or "").casefold()
         for key, (question, options) in CHOICE_PROMPTS.items():
             if question.casefold() not in prompt:
                 continue
+            if answered & {option.casefold() for option in options}:
+                # Already answered: a later «2» belongs to a question we failed
+                # to record (the color image), not to this one.
+                return None
             typed = _plain(normalize_customer_text(value))
             if len(typed.split()) > 8 or _QUESTION.search(value) or _UNSURE.search(typed):
                 return None  # a question or a doubt, not an answer to the list

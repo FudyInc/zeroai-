@@ -365,8 +365,6 @@ def border_plan(message: str, history: list[dict[str, Any]]) -> tuple[dict[str, 
     message = normalize_pool_border_terms(message)
     lead_texts = [normalize_pool_border_terms(str(turn.get("text") or "")) for turn in history
                   if turn.get("role") == "lead"]
-    if roman_pool(message, history):
-        return None, POOL_PHOTO_REQUEST
     if re.search(r"\b(?:terraza|interior|fondo|piso)\b", message, re.IGNORECASE):
         return None, "¿Te refieres al borde recto con nariz de la piscina o a otro producto?"
     latest_first = [message, *reversed(lead_texts)]
@@ -401,15 +399,21 @@ def border_plan(message: str, history: list[dict[str, Any]]) -> tuple[dict[str, 
                     (_WHALE.search(text) and "?" not in text)), None)
     if product and (_REJECT_PRODUCT.search(product) or _OTHER_PRODUCT.search(product)):
         return None, "¿Te refieres al borde recto con nariz de la piscina o a otro producto?"
-    if (pool_shape_followup(message, history) and
-            re.fullmatch(r"\s*no(?:\s+es\s+rectangular)?[.!? ]*", message, re.IGNORECASE)):
-        return None, POOL_PHOTO_REQUEST
     if product is None:
         return None, BORDER_MODEL_QUESTION
+    whale = bool(_WHALE.search(product))
+    # Only whale borders follow the pool's curves: a Roman pool is checked from
+    # a photo because no two are alike. Straight borders go on rectangular pools.
+    if whale and (roman_pool(message, history) or (
+            pool_shape_followup(message, history) and
+            re.fullmatch(r"\s*no(?:\s+es\s+rectangular)?[.!? ]*", message, re.IGNORECASE))):
+        return None, POOL_PHOTO_REQUEST
     shape = next((text for text in latest_first if _OTHER_SHAPE.search(text) or
                   _says_roman(text) or
                   re.search(r"\bno\s+(?:es\s+)?rectangular\b", text, re.IGNORECASE) or
                   _RECTANGULAR.search(text)), None)
+    if not whale:
+        shape = "rectangular"
     if shape is None and pool_shape_followup(message, history) and \
             re.fullmatch(r"\s*(?:s[ií]|rectangular|es rectangular)[.!? ]*", message,
                          re.IGNORECASE):
@@ -426,7 +430,7 @@ def border_plan(message: str, history: list[dict[str, Any]]) -> tuple[dict[str, 
         return None, "Necesito confirmar los cortes antes de darte una cantidad."
     perimeter = 2 * (width + length)
     straight = int(perimeter * 2)
-    model = "ballena" if _WHALE.search(product) else "recto"
+    model = "ballena" if whale else "recto"
     return {"width": width, "length": length, "straight": straight, "corners": 4,
             "border_id": BORDER_ITEM_IDS[model]}, ""
 
