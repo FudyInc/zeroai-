@@ -28,7 +28,7 @@ export default function Avances() {
       aside={!isLoading && !error ? { label: 'Avances registrados', value: entries.length.toLocaleString('es-CL'), detail: 'Total de entradas disponibles' } : undefined} />
 
     <section className="workspace-section max-w-4xl">
-      <WorkspaceSectionHeading eyebrow="Evidencia" title="Qué significa cada avance"
+      <WorkspaceSectionHeading eyebrow="01 / Evidencia" title="Qué significa cada avance"
         description="Consulta el alcance verificado antes de dar un cambio por activo." />
     <Card className="p-4 text-sm text-zinc-600">
       Cada avance indica dónde se verificó. «Código local» no significa que el cambio ya esté activo en producción.
@@ -36,7 +36,7 @@ export default function Avances() {
     </section>
 
     <section className="workspace-section max-w-4xl">
-      <WorkspaceSectionHeading eyebrow="Historial" title="Pedidos y decisiones"
+      <WorkspaceSectionHeading eyebrow="02 / Historial" title="Pedidos y decisiones"
         description="Filtra las entradas para seguir el trabajo realizado.">
         <Button variant="secondary" onClick={() => refetch()} disabled={isFetching}>
           <RefreshCw size={15} className={isFetching ? 'animate-spin' : ''} /> Actualizar
@@ -46,8 +46,8 @@ export default function Avances() {
       {FILTERS.map(([value, label]) => <button key={value} type="button" onClick={() => setFilter(value)}
         aria-pressed={filter === value}
         className={`rounded-full px-3 py-1.5 text-xs font-semibold border transition-colors ${filter === value
-          ? 'bg-zinc-900 text-white border-zinc-900'
-          : 'bg-white text-zinc-600 border-zinc-200 hover:border-zinc-400'}`}>
+          ? 'bg-zinc-900 text-white dark:text-zinc-50 border-zinc-900'
+          : 'bg-white dark:bg-zinc-50 text-zinc-600 border-zinc-200 hover:border-zinc-400'}`}>
         {label}
       </button>)}
     </div>

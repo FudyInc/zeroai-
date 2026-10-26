@@ -76,6 +76,20 @@
   --color-zinc-700: #D8D9DD;
   --color-zinc-800: #EAEAEC;
   --color-zinc-900: #F5F5F7;     /* texto principal */
+
+  /* Los tonos semánticos (aviso / error / éxito) tenían el mismo problema que el gris
+     antes de este bloque: `bg-amber-50 text-amber-800` es una pareja pensada para fondo
+     claro, y en oscuro dejaba una pastilla crema encendida o texto marrón sobre negro.
+     Se usaban en ~100 sitios sin variante `dark:`, así que se remapean aquí, con la misma
+     regla que el zinc: 50–200 son superficie y borde (tinte apagado), 500+ son texto
+     (claro). Así cada aviso se lee en ambos temas sin tocar la página. */
+  --color-amber-50: #211B10;  --color-amber-100: #2A2214;  --color-amber-200: #4A3A1E;
+  --color-amber-700: #F0C46E; --color-amber-800: #F4D08C; --color-amber-900: #F8E0B0;
+  --color-rose-50: #26151A;   --color-rose-200: #55262F;
+  --color-rose-500: #FB8195;  --color-rose-600: #FB8195;  --color-rose-700: #FDA4AF;
+  --color-red-700: #F87171;
+  --color-emerald-50: #0F221B; --color-emerald-600: #34D399; --color-emerald-800: #6EE7B7;
+  --color-green-700: #4ADE80;
 }
 
 :root { --brand: #2C3529; --brand-accent: #C9A45C; }

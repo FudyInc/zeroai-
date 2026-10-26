@@ -25,7 +25,7 @@ export default function Ciclo() {
           icon={Activity} />
       </motion.div>
       <section className="workspace-section max-w-3xl">
-        <WorkspaceSectionHeading eyebrow="Actividad" title="Trabajo y auditoría"
+        <WorkspaceSectionHeading eyebrow="01 / Actividad" title="Trabajo y auditoría"
           description="Consulta las tareas, la telemetría y los informes de salud del sistema." />
         <motion.div variants={fade}>
           <CicloPanel />

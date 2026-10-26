@@ -65,7 +65,7 @@ export default function Clientes() {
       </motion.div>
 
       <section className="workspace-section">
-        <WorkspaceSectionHeading eyebrow="Cartera" title="Negocios activos"
+        <WorkspaceSectionHeading eyebrow="01 / Cartera" title="Negocios activos"
           description="Consulta cada plan o entra al dashboard de un negocio." />
       {accounts.length === 0 ? (
         <motion.div className="py-16 text-center text-zinc-400" variants={fade}>

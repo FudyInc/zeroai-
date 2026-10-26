@@ -46,7 +46,11 @@ export function Badge({ color = '#71717a', children, className }) {
   const dark = useIsDark()
   return (
     <span className={cn('px-2 py-0.5 rounded-full text-xs font-semibold', className)}
-      style={{ background: color + (dark ? '33' : '1a'), color }}>
+      style={{ background: color + (dark ? '33' : '1a'),
+        // Los hex de estado son tonos para fondo claro: en oscuro, como texto, varios
+        // quedaban bajo 3:1 (el violeta, el verde de "aprobada"). Se aclaran mezclando
+        // con blanco; el fondo conserva el tono original para que el estado se reconozca.
+        color: dark ? `color-mix(in srgb, ${color} 55%, white)` : color }}>
       {children}
     </span>
   )

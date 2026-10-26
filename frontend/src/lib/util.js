@@ -10,7 +10,7 @@ export const STAGES = {
   qualified: { l: 'Calificados', c: '#0284c7' },
   disqualified: { l: 'Descartados', c: '#e11d48' },
   contacted: { l: 'Contactados', c: '#d97706' },
-  nurturing: { l: 'En seguimiento', c: '#db2777' },
+  nurturing: { l: 'En seguimiento', c: '#7c3aed' },  // violeta: el rosa se confundía con Descartados (rojo)
   replied: { l: 'Respondieron', c: '#2563eb' },
   meeting: { l: 'Reunión', c: '#059669' },
   won: { l: 'Ganados', c: '#16a34a' },

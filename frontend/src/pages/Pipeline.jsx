@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { Columns3 } from 'lucide-react'
 import { api } from '../lib/api'
-import { STAGES, ORDER, scoreColor } from '../lib/util'
+import { STAGES, LANE, scoreColor } from '../lib/util'
 import { Skeleton, pageState, StageSelect } from '../components/ui'
 import { Segmented } from '../components/Segmented'
 import { useApp } from '../App'
@@ -14,6 +14,11 @@ import LeadRoute from '../components/LeadRoute'
 import IncomeBadge from '../components/IncomeBadge'
 import { WorkspaceHero, WorkspaceSectionHeading } from '../components/WorkspaceHero'
 import PipelineRun from '../components/PipelineRun'
+
+/* Columnas del tablero: el camino del lead (LANE) y, al final, las dos salidas. ORDER
+   ponía "Descartados" en tercer lugar, en medio del flujo, y a 1440px el ojo leía una
+   salida como un paso; aquí las salidas quedan juntas a la derecha. Mismas 9 etapas. */
+const BOARD = [...LANE, 'disqualified', 'lost']
 
 const DENSITY = [{ value: 'comodo', label: 'Cómodo' }, { value: 'compacto', label: 'Compacto' }]
 
@@ -55,7 +60,7 @@ export default function Pipeline() {
   }
 
   // Mapa etapa → leads, y mostramos TODAS las etapas como columnas (para poder
-  // soltar incluso en una vacía). El orden lo da ORDER.
+  // soltar incluso en una vacía). El orden lo da BOARD.
   const byStage = Object.fromEntries((board?.stages || []).map((s) => [s.stage, s.leads]))
   const totalLeads = (board?.stages || []).reduce((total, stage) => total + stage.leads.length, 0)
 
@@ -76,7 +81,7 @@ export default function Pipeline() {
           aside={{
             label: 'Leads en el tablero',
             value: totalLeads.toLocaleString('es-CL'),
-            detail: `Distribuidos en ${ORDER.length} etapas`,
+            detail: `Distribuidos en ${BOARD.length} etapas`,
           }}
         />
       </motion.div>
@@ -88,14 +93,14 @@ export default function Pipeline() {
 
       <section className="workspace-section" aria-label="Tablero de etapas">
         <WorkspaceSectionHeading
-          eyebrow="Vista Kanban"
+          eyebrow="01 / Vista Kanban"
           title="Etapas del pipeline"
           description="Arrastra una tarjeta a otra columna o usa su menú para cambiarla de etapa. Tócala para ver el detalle."
         >
           <Segmented options={DENSITY} value={dense} onChange={setDense} />
         </WorkspaceSectionHeading>
         <motion.div className="flex min-w-0 w-full gap-3 sm:gap-4 overflow-x-auto rounded-2xl border border-zinc-200/70 bg-zinc-50/60 dark:bg-zinc-100/30 p-2 sm:p-3 pb-3" variants={stagger()} initial="hidden" animate="show">
-        {ORDER.map((stage) => {
+        {BOARD.map((stage) => {
           const m = STAGES[stage] || { l: stage, c: '#94a3b8' }
           const leads = byStage[stage] || []
           const isOver = over === stage

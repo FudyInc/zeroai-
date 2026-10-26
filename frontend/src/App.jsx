@@ -45,7 +45,7 @@ const TITLES = {
   '/leads': ['Leads', 'Todos los leads del cliente'],
   '/pipeline': ['Pipeline', 'El tablero por etapas'],
   '/agentes': ['Agentes', 'El estado de cada canal de contacto — elige uno para configurarlo'],
-  '/llamadas': ['Llamadas', 'Llamá a un prospecto con un agente de voz'],
+  '/llamadas': ['Llamadas', 'Llama a un prospecto con un agente de voz'],
   '/whatsapp': ['WhatsApp', 'En 3 pasos deja un agente atendiendo: ficha, quién atiende, desplegar — prueba, estado y actividad'],
   '/forecast': ['Forecast', 'Proyección de pipeline'],
   '/clientes': ['Clientes', 'Tus cuentas'],

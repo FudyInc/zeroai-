@@ -27,7 +27,7 @@ export default function Llamadas() {
     icon={Phone}
   />
   const sectionHeader = <WorkspaceSectionHeading
-    eyebrow="Contacto telefónico"
+    eyebrow="01 / Contacto telefónico"
     title="Iniciar llamada"
     description="Prueba primero con tu celular para comprobar la configuración del agente."
   />

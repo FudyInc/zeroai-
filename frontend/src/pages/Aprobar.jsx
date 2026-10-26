@@ -141,7 +141,7 @@ export default function Aprobar() {
           aside={{ label: 'Borradores pendientes', value: items.length.toLocaleString('es-CL'), detail: 'Esperando tu revisión' }} />
       </motion.div>
       <section className="workspace-section max-w-2xl">
-        <WorkspaceSectionHeading eyebrow="Bandeja" title="Borradores para revisar"
+        <WorkspaceSectionHeading eyebrow="01 / Bandeja" title="Borradores para revisar"
           description="Abre cada mensaje, ajusta el texto si hace falta y decide qué enviar." />
       {items.length === 0 ? (
         <motion.div variants={fade}>
@@ -149,7 +149,7 @@ export default function Aprobar() {
             <CheckCheck size={22} className="text-pewter mx-auto mb-2" />
             <p className="text-sm font-medium text-zinc-800">Todo despachado.</p>
             <p className="text-xs text-pewter mt-1">
-              No hay borradores esperando. Cuando una corrida automática redacte algo, aparece acá.
+              No hay borradores esperando. Cuando una corrida automática redacte algo, aparecerá aquí.
             </p>
           </Card>
         </motion.div>

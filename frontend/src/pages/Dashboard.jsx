@@ -59,7 +59,7 @@ export default function Dashboard() {
       </motion.div>
 
       <section className="workspace-section">
-        <WorkspaceSectionHeading eyebrow="Seguimiento" title="Pendientes de respuesta"
+        <WorkspaceSectionHeading eyebrow="01 / Seguimiento" title="Pendientes de respuesta"
           description="Respuestas recientes de tus clientes que esperan una acción humana." />
         <motion.div variants={fade}>
           <NeedsAttention clients={clients} setClient={setClient} />
@@ -67,7 +67,7 @@ export default function Dashboard() {
       </section>
 
       <section className="workspace-section">
-        <WorkspaceSectionHeading eyebrow="Indicadores" title="Rendimiento comercial"
+        <WorkspaceSectionHeading eyebrow="02 / Indicadores" title="Rendimiento comercial"
           description="Una vista rápida del volumen y el resultado de tu pipeline." />
       <motion.div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5" variants={stagger()} initial="hidden" animate="show">
         {cards.map((c) => {
@@ -94,11 +94,11 @@ export default function Dashboard() {
       </section>
 
       <section className="workspace-section">
-        <WorkspaceSectionHeading eyebrow="Embudo" title="Distribución y salud"
+        <WorkspaceSectionHeading eyebrow="03 / Embudo" title="Distribución y salud"
           description="Compara las etapas del CRM y revisa cuántos leads pasaron el filtro." />
       <motion.div className="grid grid-cols-1 lg:grid-cols-3 gap-5" variants={stagger()} initial="hidden" animate="show">
         <motion.div className="lg:col-span-2" variants={surface}>
-          <Card className="p-4">
+          <Card className="p-5">
             <div className="flex items-start justify-between gap-3 mb-4">
               <div>
                 <Eyebrow>Embudo</Eyebrow>
@@ -106,7 +106,7 @@ export default function Dashboard() {
               </div>
               <Segmented options={CHART_GROUPS} value={chartG} onChange={setChartG} />
             </div>
-            <div style={{ height: 300 }}>
+            <div className="h-52">
               {boardQ.isLoading ? (
                 <Skeleton className="h-full w-full" />
               ) : (
@@ -147,7 +147,7 @@ export default function Dashboard() {
               <motion.div className="h-full bg-gold rounded-full" {...meterFill(pct)} />
             </div>
             <div className="mt-5 space-y-3 text-sm">
-              <Row c="#10b981" l="En proceso" v={openN} />
+              <Row c="#64748b" l="En proceso" v={openN} />
               <Row c="#16a34a" l="Ganados" v={won} />
               <Row c="#e11d48" l="Descartados" v={disq} />
             </div>

@@ -28,8 +28,6 @@ export default function Config() {
     } catch (e) { toast.error('No se pudo guardar: ' + e.message) }
   }
 
-  if (isLoading) return <div className="max-w-xl space-y-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-28 w-full" />)}</div>
-  if (error) return <div className="max-w-xl py-16 text-center"><p className="text-rose-600">No se pudo cargar la configuración.</p><Button variant="soft" className="mt-3" onClick={() => refetch()}>Reintentar</Button></div>
 
   return (
     <motion.div className="workspace-page" initial="hidden" animate="show" variants={rise}>
@@ -39,9 +37,13 @@ export default function Config() {
           icon={Settings2} />
       </motion.div>
       <section className="workspace-section">
-        <WorkspaceSectionHeading eyebrow="Conexiones" title="Accesos e integraciones"
+        <WorkspaceSectionHeading eyebrow="01 / Conexiones" title="Accesos e integraciones"
           description="Gestiona credenciales, prueba conexiones y controla el envío real." />
-      <div className="w-full max-w-xl space-y-4">
+      {/* Carga y error dentro de la sección: el hero se ve siempre, así la página nunca
+          queda sin título mientras la configuración llega o falla. */}
+      {isLoading ? <div className="max-w-xl space-y-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-28 w-full" />)}</div>
+      : error ? <div className="max-w-xl py-10"><p className="text-rose-600 font-medium">No se pudo cargar la configuración.</p><p className="text-xs text-zinc-500 mt-1">{error.message}</p><Button variant="soft" className="mt-3" onClick={() => refetch()}>Reintentar</Button></div>
+      : <div className="w-full max-w-xl space-y-4">
       <motion.div variants={fade}>
         <CloudBackupBanner backedUp={cfg?.backed_up || []} supabase={cfg?.supabase} />
       </motion.div>
@@ -82,7 +84,7 @@ export default function Config() {
       </motion.div>
 
       <motion.div variants={surface}>
-        <IntegrationCard title="Anthropic (modo --live, opcional)" ok={cfg?.anthropic} hint="para correr el motor con Claude">
+        <IntegrationCard title="Anthropic · Claude (opcional)" ok={cfg?.anthropic} hint="para correr el motor con Claude">
           <div className="flex flex-col sm:flex-row gap-2">
             <Input type="password" placeholder="sk-ant-..." value={vals.an || ''} onChange={(e) => set('an', e.target.value)} />
             <Button onClick={() => vals.an && save({ anthropic_api_key: vals.an }, ['an'])}>Guardar</Button>
@@ -113,17 +115,17 @@ export default function Config() {
               <div className="text-xs text-zinc-400 mt-0.5">
                 {cfg?.outbox_live
                   ? 'Los mensajes se ENVÍAN de verdad por los canales conectados.'
-                  : 'Seguro: los mensajes se simulan (mock). Actívalo solo cuando quieras enviar de verdad.'}
+                  : 'Envío pausado: los mensajes se registran pero no llegan a los leads. Actívalo solo cuando quieras enviar de verdad.'}
               </div>
             </div>
             <Button variant={cfg?.outbox_live ? 'soft' : 'accent'}
               onClick={() => save({ outbox_live: !cfg?.outbox_live }, [])}>
-              {cfg?.outbox_live ? 'Volver a mock' : 'Activar envío real'}
+              {cfg?.outbox_live ? 'Pausar envío' : 'Activar envío real'}
             </Button>
           </div>
         </Card>
       </motion.div>
-      </div>
+      </div>}
       </section>
     </motion.div>
   )

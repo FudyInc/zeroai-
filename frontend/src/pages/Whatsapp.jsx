@@ -218,10 +218,10 @@ export default function Whatsapp() {
 function ConnectMetaBanner() {
   return (
     <Card className="wa-alert p-4 sm:p-5 flex items-start gap-3">
-      <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 grid place-items-center shrink-0">
+      <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 grid place-items-center shrink-0">
         <MessageCircle size={17} />
       </div>
-      <div className="text-sm text-amber-900 dark:text-amber-200">
+      <div className="text-sm text-amber-900">
         <b>Conexión de WhatsApp pendiente.</b> Puedes preparar la ficha, los precios y las reglas,
         y probar al agente aquí. Completa la conexión para atender mensajes reales en{' '}
         <a href="/config" className="underline font-semibold underline-offset-2">Configuración <ArrowUpRight size={13} className="inline" /></a>.
@@ -440,7 +440,7 @@ function DeployCard({ client, vendor, assignedId, knowledgeSaved, deploy, cfg })
           ? `${vendor.name} atenderá a los leads de ${client} usando la ficha guardada.`
           : 'Elige una personalidad en el paso 2.'} />
       {!knowledgeSaved && (
-        <div className="text-xs text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-900/20 rounded-xl px-3 py-2 mb-3">
+        <div className="text-xs text-amber-800 bg-amber-50 rounded-xl px-3 py-2 mb-3">
           Aún no guardas la ficha (paso 1). Puedes desplegar igual, pero el agente sabrá muy poco de la empresa.
         </div>
       )}

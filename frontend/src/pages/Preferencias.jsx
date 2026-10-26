@@ -32,7 +32,7 @@ export default function Preferencias() {
           icon={Icon} />
       </motion.div>
       <section className="workspace-section">
-        <WorkspaceSectionHeading eyebrow="Apariencia" title="Tema visual"
+        <WorkspaceSectionHeading eyebrow="01 / Apariencia" title="Tema visual"
           description="Elige una apariencia o sigue la configuración del sistema." />
       <div className="w-full max-w-xl">
       <motion.div variants={surface}>

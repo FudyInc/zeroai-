@@ -62,14 +62,15 @@ export default function Equipo() {
   }
   const { data: allClients = [] } = useQuery({ queryKey: ['clients'], queryFn: api.clients })
 
+  // El hero y el encabezado se pintan siempre: carga y error van DENTRO de la sección.
+  // Antes el gate devolvía antes del hero, y una lista vacía tapaba el aviso de
+  // `configured` — la pantalla decía "sin cuentas" sin decir que faltaba Supabase.
   const gate = pageState({
     isLoading, error, onRetry: refetch,
-    isEmpty: !data?.users?.length, emptyText: 'Sin cuentas todavía.',
     skeleton: <div className="space-y-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-16 w-full" />)}</div>,
   })
-  if (gate) return gate
-
-  const { users, configured } = data
+  const users = data?.users || []
+  const configured = data?.configured
 
   return (
     <motion.div className="workspace-page" initial="hidden" animate="show" variants={rise}>
@@ -77,14 +78,16 @@ export default function Equipo() {
         <WorkspaceHero eyebrow="Administración" title="Equipo"
           description="Revisa las cuentas del dashboard, sus roles, actividad reciente y trabajo pendiente."
           icon={ShieldCheck}
-          aside={{ label: 'Miembros registrados', value: users.length, detail: 'Administra el acceso desde cada perfil' }} />
+          aside={{ label: 'Miembros registrados', value: data ? users.length : '—', detail: 'Administra el acceso desde cada perfil' }} />
       </motion.div>
 
       <section className="workspace-section">
-        <WorkspaceSectionHeading eyebrow="Accesos" title="Miembros del equipo"
+        <WorkspaceSectionHeading eyebrow="01 / Accesos" title="Miembros del equipo"
           description="Las horas activas (meta CCO: 20 h por semana) son una aproximación de uso del dashboard; no incluyen llamadas, WhatsApp desde el celular ni reuniones." />
 
-      {!configured && (
+      {gate}
+
+      {data && !configured && (
         <motion.div variants={fade}>
           <Card className="p-4 flex items-start gap-3 bg-amber-50/60 border-amber-200">
           <AlertTriangle size={17} className="text-amber-700 shrink-0 mt-0.5" />
@@ -94,6 +97,12 @@ export default function Equipo() {
             </div>
           </Card>
         </motion.div>
+      )}
+
+      {data && configured && !users.length && (
+        <Card className="p-5 text-sm text-zinc-500">
+          Aún no hay cuentas en Supabase Auth. Cuando alguien se registre, aparecerá aquí para asignarle un rol.
+        </Card>
       )}
 
       <motion.div className="grid gap-4 max-w-4xl" variants={stagger()} initial="hidden" animate="show">

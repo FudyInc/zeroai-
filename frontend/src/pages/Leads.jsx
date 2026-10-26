@@ -121,7 +121,7 @@ export default function Leads() {
       )}
 
       <section className="workspace-section">
-        <WorkspaceSectionHeading eyebrow="Contactos" title="Explora tus leads"
+        <WorkspaceSectionHeading eyebrow="01 / Contactos" title="Explora tus leads"
           description="Filtra por estado o busca entre los registros cargados." />
       <motion.div className="flex flex-wrap items-center gap-2" variants={fade}>
         <div className="relative flex-1 min-w-[220px]">

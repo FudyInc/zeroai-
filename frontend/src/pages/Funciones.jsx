@@ -131,7 +131,7 @@ export default function Funciones() {
       </motion.div>
 
       <section className="workspace-section">
-        <WorkspaceSectionHeading eyebrow="Ejecución" title="Funciones del negocio"
+        <WorkspaceSectionHeading eyebrow="01 / Ejecución" title="Funciones del negocio"
           description="Cada función puede ejecutarse manualmente o con una programación periódica." />
       <motion.div variants={fade}>
         <Card className="p-5 flex items-start gap-3 bg-amber-50/60 border-amber-200 max-w-4xl">

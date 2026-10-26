@@ -100,13 +100,19 @@ function AgentesGeneral({ client }) {
       onClick: null, disabled: true, activity: null,
     },
   ]
+  // Cuántos canales están operativos de verdad, no cuántos existen: el "4" fijo se leía
+  // como "4 funcionando" aunque solo uno estuviera conectado.
+  const usable = agents.filter((a) => !a.disabled)
+  const connected = usable.filter((a) => a.status?.tone === 'ok').length
+  // Mientras cargan los estados, un "0 de 4" sería un dato falso que luego salta.
+  const statusLoading = igQ.isLoading || cfgQ.isLoading || integrationsQ.isLoading || readinessQ.isLoading
 
   return (
     <motion.div className="workspace-page" initial="hidden" animate="show" variants={rise}>
       <motion.div variants={surface}>
         <WorkspaceHero eyebrow="Canales de contacto" title="Agentes"
           description="Un agente por canal, todos con el mismo cerebro. Elige un canal para configurarlo o revisar su estado."
-          icon={Radio} aside={{ label: 'Canales disponibles', value: '4', detail: 'Instagram, email, llamadas y WhatsApp' }} />
+          icon={Radio} aside={{ label: 'Canales conectados', value: statusLoading ? '—' : `${connected} de ${usable.length}`, detail: 'Instagram, email, llamadas y WhatsApp' }} />
       </motion.div>
       {cfgQ.isError && (
         <motion.div variants={fade}>
@@ -117,7 +123,7 @@ function AgentesGeneral({ client }) {
         </motion.div>
       )}
       <section className="workspace-section">
-        <WorkspaceSectionHeading eyebrow="Operación" title="Elige un canal"
+        <WorkspaceSectionHeading eyebrow="01 / Operación" title="Elige un canal"
           description="Consulta su conexión, actividad reciente y configuración." />
       <motion.div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5" variants={stagger()} initial="hidden" animate="show">
         {agents.map((a) => (

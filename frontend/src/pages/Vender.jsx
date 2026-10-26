@@ -105,8 +105,8 @@ export default function Vender() {
                 <Button variant="accent" onClick={generate} disabled={genBusy}>
                   <Sparkles size={15} /> {genBusy ? 'Escribiendo…' : (subject ? 'Regenerar con IA' : 'Generar con IA')}
                 </Button>
-                {mode && <Badge color={mode === 'live' ? '#16a34a' : '#94a3b8'}>{mode === 'live' ? 'IA real' : 'mock (varía)'}</Badge>}
-                <span className="text-xs text-zinc-400">Cada generación es distinta — con modelo (Anthropic o local) es de verdad creativa.</span>
+                {mode && <Badge color={mode === 'live' ? '#16a34a' : '#94a3b8'}>{mode === 'live' ? 'IA real' : 'plantilla · sin IA'}</Badge>}
+                {mode !== 'mock' && <span className="text-xs text-zinc-400">Cada generación es distinta: la escribe el modelo (Anthropic o local).</span>}
               </div>
             </Card>
           </motion.div>
