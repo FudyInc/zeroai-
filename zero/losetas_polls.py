@@ -202,7 +202,10 @@ def selected_category_from_history(history: list[dict[str, Any]]) -> str | None:
         if turn.get("role") != "lead":
             continue
         choice = str(turn.get("text") or "").strip().casefold()
-        if re.search(r"\bbordes?\s+(?:de|para)\s+(?:la\s+)?piscina\b", choice):
+        # «bordes para una piscina de 7 por 3,5» or a border model picked by name
+        # is a border order too; missing them left factory pickup without a quote.
+        if re.search(r"\bbordes?\s+(?:de|para)\s+(?:(?:la|una|mi)\s+)?piscinas?\b"
+                     r"|\bbordes?\s+(?:rectos?|ballena)\b", choice):
             return "bordes"
         if re.search(r"\bpastelones?\b", choice):
             return "pastelones"

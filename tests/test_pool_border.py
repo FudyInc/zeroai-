@@ -1071,6 +1071,15 @@ class PoolBorderCountTest(unittest.TestCase):
         self.assertIn(FACTORY_MAP_URL, budget)
         self.assertTrue(results[-1]["manual_review"])
 
+    def test_sizes_in_a_sentence_still_reach_the_budget_on_factory_pickup(self):
+        results, send_group = self._numbered_chat(
+            ["Hola", "quiero bordes para una piscina de 7 por 3,5", "1", "Sí", "gris", "3"],
+            full_history=True)
+        budget = send_group.call_args.args[3]
+        self.assertIn("42 × Borde recto con nariz", budget)
+        self.assertIn("4 × Esquina piscina", budget)
+        self.assertTrue(results[-1]["manual_review"])
+
     def test_whale_border_is_quoted_with_the_same_rule(self):
         results, send_group = self._numbered_chat(
             ["Hola", "1", "6x3", "2", "Sí", "5", "3"], include_whale=True)
