@@ -318,10 +318,15 @@ def _says_roman(text: str) -> bool:
 
 
 def roman_pool(message: str, history: list[dict[str, Any]]) -> bool:
-    """A Roman pool named in a pool conversation: ask for its photo right away."""
-    if not _says_roman(message) or "?" in (message or ""):
+    """A Roman (or oval, round…) pool named in a pool conversation: ask for its photo
+    right away. «es ovalada» answering the measurements question used to fall to
+    manual review without the photo request."""
+    other_shape = _OTHER_SHAPE.search(message or "")
+    if not (_says_roman(message) or other_shape) or "?" in (message or ""):
         return False
-    if _ROMAN_POOL.search(message):
+    if _ROMAN_POOL.search(message) or (other_shape and re.search(
+            r"\bpiscinas?\b.{0,25}" + re.escape(other_shape.group(0)), message,
+            re.IGNORECASE)):
         return True
     # A short «es romana» counts only as an answer inside the pool flow.
     last_agent = next((str(turn.get("text") or "") for turn in reversed(history)
@@ -370,10 +375,16 @@ def border_plan(message: str, history: list[dict[str, Any]]) -> tuple[dict[str, 
             if (_ITEM_SIZE_PREFIX.search(text[max(0, match.start() - 35):match.start()]) and
                     min(Decimal(v.replace(",", ".")) for v in match.groups()) >= _PIECE_SIDE_MIN):
                 continue
-            if _OTHER_UNITS.search(text[match.end():match.end() + 18]):
+            sides = tuple(Decimal(value.replace(",", ".")) for value in match.groups())
+            unit = _OTHER_UNITS.search(text[match.end():match.end() + 18])
+            # «600x300» or «600x300 cm»: a pool side is at most 50 m, so three-digit
+            # sides are centimetres.
+            if (unit and unit.group(0).lower().startswith(("cm", "cent"))) or \
+                    (not unit and min(sides) >= 100):
+                sides = tuple(side / 100 for side in sides)
+            elif unit:
                 return None, "¿Las medidas de la piscina están en metros?"
-            dimensions = tuple(Decimal(value.replace(",", "."))
-                               for value in match.groups())
+            dimensions = sides
             break
         if dimensions is not None:
             break
@@ -405,10 +416,10 @@ def border_plan(message: str, history: list[dict[str, Any]]) -> tuple[dict[str, 
     if shape and (_OTHER_SHAPE.search(shape) or _says_roman(shape) or
                   re.search(r"\bno\s+(?:es\s+)?rectangular\b", shape, re.IGNORECASE)):
         return None, POOL_PHOTO_REQUEST
-    if shape is None:
-        return None, POOL_SHAPE_QUESTION
     if dimensions is None:
         return None, _MEASUREMENT_QUESTION
+    if shape is None:
+        return None, POOL_SHAPE_QUESTION
     width, length = dimensions
     if any((side * 2) % 1 for side in dimensions):
         return None, "Necesito confirmar los cortes antes de darte una cantidad."

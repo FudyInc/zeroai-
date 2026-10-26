@@ -18,9 +18,9 @@ from zero.losetas_shipping import (DELIVERY_ADDRESS_PROMPT, DELIVERY_LOCATION_PR
                                    shipping_delivery_followup, shipping_coverage_request)
 from zero.memory import SessionMemory
 from zero.orchestrator import Zero
-from zero.pool_border import (border_plan, delegates_piece_calculation,
+from zero.pool_border import (POOL_PHOTO_MARKER, border_plan, delegates_piece_calculation,
                               measurement_followup, normalize_pool_border_terms,
-                              pool_border_models_reply,
+                              pool_border_models_reply, roman_pool,
                               unquoted_piece_count,
                               wants_border_budget,
                               wants_product_quote)
@@ -1080,6 +1080,35 @@ class PoolBorderCountTest(unittest.TestCase):
         self.assertIn("42 × Borde recto con nariz", budget)
         self.assertIn("4 × Esquina piscina", budget)
         self.assertTrue(results[-1]["manual_review"])
+
+    def test_sizes_in_centimetres_are_read_as_metres(self):
+        results, send_group = self._numbered_chat(
+            ["Hola", "1", "600x300", "1", "Sí", "5", "3"])
+        self.assertIn("36 × Borde recto con nariz", send_group.call_args.args[3])
+        plan, _ = border_plan("350 x 200 cm", [
+            {"role": "lead", "text": "Borde recto con nariz"},
+            {"role": "lead", "text": "Sí, es rectangular"}])
+        self.assertEqual(plan["straight"], 22)
+        self.assertEqual(border_plan("6x3 pies", [])[1],
+                         "¿Las medidas de la piscina están en metros?")
+
+    def test_price_question_asks_measurements_before_shape(self):
+        results, send_group = self._numbered_chat(
+            ["Hola", "cuanto vale el borde recto?", "6x3", "Sí", "gris", "3"])
+        self.assertIn("medidas de tu piscina", results[1]["reply"])
+        self.assertIn("rectangular", results[2]["reply"])
+        self.assertIn("36 × Borde recto con nariz", send_group.call_args.args[3])
+
+    def test_oval_pool_answer_asks_for_the_photo(self):
+        results, _ = self._numbered_chat(["Hola", "1", "es ovalada"])
+        self.assertIn(POOL_PHOTO_MARKER, results[-1]["reply"])
+        self.assertFalse(roman_pool("quiero un pastelón redondo", [
+            {"role": "agent", "text": "¿Qué pastelón del catálogo te interesó más?"}]))
+
+    def test_color_typed_before_the_color_question_is_not_asked_again(self):
+        results, _ = self._numbered_chat(["Hola", "2", "20 m2", "gris", "3"])
+        self.assertNotIn("¿Qué color prefieres?", results[-1]["reply"])
+        self.assertIn("¿Cómo prefieres recibir tu pedido?", results[-1]["reply"])
 
     def test_whale_border_is_quoted_with_the_same_rule(self):
         results, send_group = self._numbered_chat(

@@ -75,4 +75,12 @@ def latest_color_preference(history: list[dict[str, Any]]) -> str | None:
                 if preference:
                     return preference
         return None  # A newer unanswered question supersedes an older choice.
+    # No color question yet: a bare «gris» typed earlier (to the model question,
+    # say) is still the customer's color, and asking it again looks deaf.
+    for turn in reversed(history):
+        text = str(turn.get("text") or "")
+        if turn.get("role") == "lead" and len(text.split()) <= 3:
+            preference = _parse_preference(text)
+            if preference:
+                return preference
     return None
