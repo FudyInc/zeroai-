@@ -1647,6 +1647,12 @@ def whatsapp_verify(mode: Optional[str] = Query(None, alias="hub.mode"),
     raise HTTPException(status_code=403, detail="verificación fallida")
 
 
+def _process_review_group_message(memory, message: dict) -> dict:
+    """La respuesta del dueño en el grupo de revisión: no es un cliente, no hay lead."""
+    from zero.losetas_review import handle_review_message
+    return handle_review_message(memory, message)
+
+
 def _process_inbound_messages(msgs: list) -> list:
     """El trabajo pesado de un mensaje entrante (match/crear lead, CONCIERGE,
     enviar la respuesta) — corre DESPUÉS de que el webhook ya respondió (ver
@@ -1663,7 +1669,8 @@ def _process_inbound_messages(msgs: list) -> list:
     # _agents_whatsapp y config.WHATSAPP_ENGINE.
     agents, _ = _agents_whatsapp()
     zero = Zero(agents, memory=memory, crm=crm, outbox=make_outbox())
-    return [zero.handle_inbound(m["from"], m["text"], to_phone_id=m.get("to_phone_id"),
+    return [_process_review_group_message(memory, m) if m.get("kind") == "review_group" else
+            zero.handle_inbound(m["from"], m["text"], to_phone_id=m.get("to_phone_id"),
                                 profile_name=m.get("profile_name"),
                                 whatsapp_chat_id=m.get("chat_id"))
             for m in msgs]
@@ -1705,11 +1712,14 @@ async def whatsapp_web_inbound(req: Request, background_tasks: BackgroundTasks):
         payload = json.loads(raw)
     except (ValueError, UnicodeDecodeError):
         raise HTTPException(status_code=400, detail="JSON inválido")
-    message = parse_message(payload)
+    memory = make_memory(STATE_PATH)
+    is_review = isinstance(payload, dict) and payload.get("kind") == "review_group"
+    message = parse_message(payload, memory.clients)
     if not message:
+        if is_review:
+            return {"received": 0, "ignored": True}   # not ours to read; no error for the bridge
         raise HTTPException(status_code=400, detail="mensaje inválido")
     destination = message["to_phone_id"]
-    memory = make_memory(STATE_PATH)
     ports = _client_ports()
     allowed = []
     for client in memory.clients:
@@ -1721,7 +1731,7 @@ async def whatsapp_web_inbound(req: Request, background_tasks: BackgroundTasks):
             DEFAULT_INBOUND_WHATSAPP_NUMBER if client == DEFAULT_INBOUND_CLIENT_ID else "")
         if "".join(ch for ch in str(assigned) if ch.isdigit()) == destination:
             allowed.append(client)
-    if len(allowed) != 1:
+    if len(allowed) != 1 or (is_review and allowed != [message["client"]]):
         raise HTTPException(status_code=409, detail="número Web no asignado de forma única")
     if not claim_event(message["id"], message):
         return {"received": 0, "duplicate": True}

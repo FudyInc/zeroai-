@@ -49,6 +49,7 @@ from .inbox import Inbox, MockInbox
 from .losetas_color import (COLOR_CATALOG_IMAGE_PATH, color_preference,
                             color_question, latest_color_preference)
 from .losetas_budget import format_internal_budget
+from .losetas_review import store_review_draft, today as review_today
 from .losetas_text import normalize_customer_text, plain
 from .attention import fixed_answer, learned_alias, learned_answer
 from .losetas_shipping import (SHIPPING_COVERAGE_REPLY, SHIPPING_PRICE_REPLY,
@@ -1862,6 +1863,13 @@ class Zero:
                     group_result = send_group_text(client_id, to_phone_id, group_id,
                                                    internal_budget)
                     signatures[key] = signature
+                    store_review_draft(self.memory, client_id, group_result["id"], {
+                        "lead": key, "name": " ".join((
+                            name_from_profile or self.memory.clients.get(client_id, {}).get(
+                                "whatsapp_display_names", {}).get(key) or "").split())[:80],
+                        "phone": re.sub(r"\D", "", from_contact or ""),
+                        "color": res.get("selected_tone"), "quote": quote,
+                        "issued": review_today().isoformat(), "text": internal_budget})
                     # Keep the group-send dedupe durable before sending the
                     # separate customer acknowledgment.
                     self.memory.save()

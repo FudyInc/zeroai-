@@ -337,6 +337,55 @@ client.on('message', msg => {
   void queueMessage(msg).catch(err => { lastError = `Cola entrante: ${err.message}`; console.error(lastError) })
 })
 
+// Grupo interno de revisión de presupuestos: se reenvían sus mensajes de texto
+// (recibidos y los escritos desde la cuenta vinculada). Sin ids, no hace nada.
+const reviewGroupIds = new Set(
+  (process.env.WHATSAPP_WEB_REVIEW_GROUP_IDS || process.env.LOSETASCHILE_REVIEW_GROUP_ID || '')
+    .split(',').map(item => item.trim()).filter(Boolean))
+const reviewSeen = new Set()
+const bridgeSent = new Set()
+const reviewSetLimit = 500
+const reviewOwnDelayMs = 1500
+function rememberBounded(set, value) {
+  set.add(value)
+  if (set.size > reviewSetLimit) set.delete(set.values().next().value)
+}
+
+async function forwardReviewGroupMessage(msg) {
+  const id = messageId(msg)
+  const chatId = String(msg.id?.remote?._serialized || msg.id?.remote ||
+    (msg.fromMe ? msg.to?._serialized || msg.to : msg.from?._serialized || msg.from) || '')
+  if (!id || !reviewGroupIds.has(chatId) || msg.type !== 'chat' || reviewSeen.has(id)) return
+  rememberBounded(reviewSeen, id)
+  // message_create puede dispararse antes de que sendMessage devuelva el id.
+  if (msg.fromMe) await new Promise(resolve => setTimeout(resolve, reviewOwnDelayMs))
+  let quotedId = null
+  let quotedText = null
+  if (msg.hasQuotedMsg) {
+    try {
+      const quoted = await msg.getQuotedMessage()
+      quotedId = messageId(quoted)
+      quotedText = typeof quoted?.body === 'string' ? quoted.body : null
+    } catch (err) {
+      const stanza = msg._data?.quotedStanzaID
+      if (stanza) quotedId = `false_${chatId}_${stanza}`
+    }
+  }
+  const payload = { kind: 'review_group', id, chat_id: chatId, from_me: !!msg.fromMe,
+    sent_by_bridge: bridgeSent.has(id), author: msg.author || null, text: String(msg.body || ''),
+    quoted_id: quotedId, quoted_text: quotedText, timestamp: msg.timestamp,
+    to_phone_id: account || client.info?.wid?.user || '' }
+  queuePayload(payload)
+}
+
+client.on('message_create', msg => {
+  if (!reviewGroupIds.size) return
+  void forwardReviewGroupMessage(msg).catch(err => {
+    lastError = `Grupo de revisión: ${err.message}`
+    console.error(lastError)
+  })
+})
+
 function noteVote(poll, choice, reject) {
   recentEvents.unshift({ at: new Date().toISOString(), type: 'vote', poll: poll || null,
                          choice: choice || null, forwarded: !reject, reason: reject || undefined })
@@ -647,6 +696,7 @@ const server = http.createServer(async (req, res) => {
         if (!group?.isGroup) return respond(res, 404, { error: 'group not found on this account' })
         const result = await sendAndConfirm(groupId, text, {}, message =>
           message.type === 'chat' && message.body === text, 'chat', text)
+        if (result?.id) rememberBounded(bridgeSent, result.id)
         return result ? respond(res, 200, result)
           : respond(res, 502, { error: 'Group send outcome uncertain; review chat before retry' })
       }

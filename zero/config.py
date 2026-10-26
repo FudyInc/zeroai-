@@ -89,6 +89,17 @@ QUOTE_REVIEW_REQUIRED_CLIENT_IDS = frozenset({"pooledge"})
 # por ruta y estar verificada antes de incluir un importe de flete.
 LOSETASCHILE_FLETE_ORIGIN = "Los Granados 029, La Pintana"
 LOSETASCHILE_FLETE_CLP_PER_KM = 2000
+# Abono que se pide para confirmar un pedido de LosetasChile (el resto va contra
+# entrega). Lo usa el presupuesto final que se publica en el grupo de revisión.
+LOSETASCHILE_DEPOSIT_CLP = 10000
+# Cuántos borradores de revisión (por cliente) se recuerdan para leer la respuesta
+# del dueño que los cita.
+REVIEW_DRAFTS_KEPT = 50
+# Una fecha de entrega sin año que cae hasta este número de días antes de hoy es un
+# error del dueño; más atrás se entiende como del año siguiente.
+REVIEW_DATE_ROLLOVER_DAYS = 60
+# Un monto de despacho menor a esto se considera mal leído (p.ej. «2 viajes»).
+REVIEW_MIN_SHIPPING_CLP = 1000
 # Enlace copiado por Diego del catálogo de WhatsApp Business el 2026-10-08.
 # Cómo se ofrecen las opciones del flujo de LosetasChile (producto, color, entrega):
 #   "numbered" → en el mismo mensaje, «1. … 2. …»; el cliente responde con el

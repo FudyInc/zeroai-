@@ -69,6 +69,12 @@ def _delivery_text(days: list[Date]) -> str:
     """Weekday names come from the date itself, so they can never disagree."""
     if len(days) == 1:
         text = _day(days[0])
+    elif len(days) > 2:
+        names = [f"{_WEEKDAYS[d.weekday()]} {d.day}" for d in days]
+        if days[0].month == days[-1].month:
+            text = f"{', '.join(names[:-1])} o {_day(days[-1])}"
+        else:
+            text = f"{', '.join(_day(d) for d in days[:-1])} o {_day(days[-1])}"
     elif days[0].month == days[-1].month:
         text = (f"{_WEEKDAYS[days[0].weekday()]} {days[0].day} o "
                 f"{_day(days[-1])}")
@@ -100,8 +106,13 @@ def format_customer_budget(quote: dict[str, Any], *, number: str, issued: Date,
                            color: str | None, pool: str | None,
                            shipping: float | None, shipping_label: str,
                            delivery: list[Date], deposit: float | None,
-                           map_url: str | None = None) -> str | None:
-    """The budget the customer receives, after a person reviewed it."""
+                           map_url: str | None = None,
+                           pickup: bool = False) -> str | None:
+    """The budget the customer receives, after a person reviewed it.
+
+    `pickup` swaps the shipping line for free factory pickup and delivers at the factory."""
+    if pickup:
+        shipping, address, map_url = 0, FACTORY_ADDRESS, FACTORY_MAP_URL
     digits = re.sub(r"\D", "", phone or "")
     if (quote.get("currency") != "CLP" or not quote.get("lines") or
             quote.get("unmatched") or not 8 <= len(digits) <= 15 or
@@ -125,6 +136,7 @@ def format_customer_budget(quote: dict[str, Any], *, number: str, issued: Date,
                       f"{item['qty']} un. × {_money(item['unit_price'])} = *{_money(item['subtotal'])}*"])
     lines.extend(["", f"Total piezas: {pieces}", _RULE,
                   f"Subtotal productos: {_money(quote['total'])}",
+                  "Retiro en fábrica: sin costo" if pickup else
                   f"{shipping_label}: {_money(shipping)}" if shipping is not None
                   else f"{shipping_label}: por cotizar",
                   f"*TOTAL: {_money(total)}*"])

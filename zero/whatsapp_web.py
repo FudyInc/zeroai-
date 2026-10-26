@@ -156,9 +156,47 @@ def verify_signature(raw: bytes, header: Optional[str]) -> bool:
     return hmac.compare_digest(header, f"sha256={expected}")
 
 
-def parse_message(payload: Dict[str, Any]) -> Optional[Dict[str, str]]:
+# Publications of the agent itself in a review group; never read them as the owner's answer.
+_AGENT_POSTS = ("*PRESUPUESTO", "*POOLEDGE*", "Para confirmar su pedido", "Falta:",
+                "No cuadra:", "Falta en la ficha")
+
+
+def review_group_client(chat_id: str, clients) -> Optional[str]:
+    """The client whose <CLIENT>_REVIEW_GROUP_ID env var names this group."""
+    for client in clients:
+        configured = (os.environ.get(f"{client.upper()}_REVIEW_GROUP_ID") or "").strip()
+        if configured and configured == chat_id:
+            return client
+    return None
+
+
+def parse_review_group_message(payload: Dict[str, Any], clients) -> Optional[Dict[str, str]]:
+    """A message in a client's internal review group; None if it must be ignored."""
+    event_id = str(payload.get("id") or "")
+    chat_id = str(payload.get("chat_id") or "")
+    destination = str(payload.get("to_phone_id") or "")
+    text = str(payload.get("text") or "")[:4096]
+    if (not event_id or not re.fullmatch(r"[0-9-]{8,40}@g\.us", chat_id)
+            or payload.get("sent_by_bridge") or text.lstrip().startswith(_AGENT_POSTS)):
+        return None
+    client = review_group_client(chat_id, clients)
+    if not client:
+        return None
+    if not destination.isdigit() or not 8 <= len(destination) <= 15:
+        logging.warning("Mensaje de grupo de revisión de %s ignorado: to_phone_id inválido (%s)",
+                        client, event_id)
+        return None
+    return {"kind": "review_group", "client": client, "id": event_id, "chat_id": chat_id,
+            "text": text, "to_phone_id": destination,
+            "quoted_id": str(payload.get("quoted_id") or "")[:200],
+            "quoted_text": str(payload.get("quoted_text") or "")[:4096]}
+
+
+def parse_message(payload: Dict[str, Any], clients=()) -> Optional[Dict[str, str]]:
     if not isinstance(payload, dict):
         return None
+    if payload.get("kind") == "review_group":
+        return parse_review_group_message(payload, clients)
     event_id = str(payload.get("id") or "")
     phone = str(payload.get("from") or "")
     destination = str(payload.get("to_phone_id") or "")
