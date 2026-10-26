@@ -18,7 +18,8 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from .config import LOSETASCHILE_WHATSAPP_CATALOG_URL
+from .config import LOSETASCHILE_WHATSAPP_CATALOG_URL, WHATSAPP_HUMAN_DELIVERY
+from .whatsapp_format import split_whatsapp_parts, typing_ms
 
 
 _bridge_stop = threading.Event()
@@ -466,7 +467,35 @@ class WhatsAppWebSender:
                    "chat_id": msg.get("whatsapp_chat_id") or ""}
         if client_id == "losetaschile" and LOSETASCHILE_WHATSAPP_CATALOG_URL in msg["body"]:
             payload["link_preview"] = False
-        result = bridge_request("/send", payload, client_id=client_id)
+        cfg = WHATSAPP_HUMAN_DELIVERY
+        if msg.get("humanize") and cfg["enabled"]:
+            parts = split_whatsapp_parts(payload["text"], cfg["max_parts"], cfg["min_split_chars"])
+            sent_parts = []
+            for number, part in enumerate(parts):
+                try:
+                    result = bridge_request(
+                        "/send", {**payload, "text": part, "typing_ms": typing_ms(part, cfg)},
+                        client_id=client_id)
+                    failure = None if result.get("id") and result.get("ack") != -1 else \
+                        "El puente no confirmó la aceptación del mensaje"
+                except Exception as exc:  # noqa: BLE001 — see below
+                    if number == 0:
+                        raise
+                    failure = str(exc)
+                if failure and number > 0:
+                    # Part 1 is already in the chat: report instead of raising, so the
+                    # outbox does not retry the whole message and duplicate it.
+                    outcome = _result("whatsapp", to, "error", via=self.name,
+                                      error=f"envío parcial: salieron {len(sent_parts)} de "
+                                            f"{len(parts)} partes ({failure})")
+                    outcome["partial"] = True
+                    outcome["sent_text"] = "\n\n".join(sent_parts)
+                    return outcome
+                if failure:
+                    break
+                sent_parts.append(part)
+        else:
+            result = bridge_request("/send", payload, client_id=client_id)
         if not result.get("id") or result.get("ack") == -1:
             return _result("whatsapp", to, "error", error="El puente no confirmó la aceptación del mensaje", via=self.name)
         outcome = _result("whatsapp", to, "sent", id=result["id"], via=self.name)

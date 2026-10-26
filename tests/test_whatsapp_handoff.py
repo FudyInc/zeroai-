@@ -6,6 +6,8 @@ from unittest import mock
 
 from zero.agents import build_agents
 from zero.crm import CRM
+from zero.config import (WHATSAPP_FALLBACK_GREETINGS, WHATSAPP_FALLBACK_GREETINGS_NAMED,
+                         WHATSAPP_REVIEW_NOTICES)
 from zero.contracts import AgentResponse
 from zero.memory import SessionMemory
 from zero.losetas_shipping import (DELIVERY_LOCATION_PROMPT, DELIVERY_POLL_LOCATION,
@@ -69,7 +71,7 @@ class WhatsAppHandoffTest(unittest.TestCase):
         self.assertEqual(first["delivery"]["status"], "sent")
         self.assertTrue(second["manual_review"])
         self.assertEqual(second["delivery"]["status"], "sent")
-        self.assertIn("Necesito revisar", self.zero._deliver.call_args.args[3]["body"])
+        self.assertIn(self.zero._deliver.call_args.args[3]["body"], WHATSAPP_REVIEW_NOTICES)
         self.assertEqual(self.zero._deliver.call_count, 2)
         self.assertIsNone(self.zero.memory.get_whatsapp_handoff(
             "losetaschile", "56933333333@c.us"))
@@ -95,8 +97,8 @@ class WhatsAppHandoffTest(unittest.TestCase):
         self.assertFalse(result.get("manual_review", False))
         self.assertEqual(result["delivery"]["status"], "sent")
         self.assertEqual(draft.call_count, 1)
-        self.assertEqual(self.zero._deliver.call_args.args[3]["body"],
-                         "¡Buenas noches! Estoy aquí para ayudarte. ¿Qué necesitas hoy?")
+        self.assertIn(self.zero._deliver.call_args.args[3]["body"],
+                      [v.format(greeting="Buenas noches") for v in WHATSAPP_FALLBACK_GREETINGS])
         self.assertIsNone(self.memory.get_whatsapp_handoff(
             "losetaschile", "56933333333@c.us"))
 
@@ -114,8 +116,9 @@ class WhatsAppHandoffTest(unittest.TestCase):
         self.assertFalse(result.get("manual_review", False))
         self.assertEqual(draft.call_count, 1)
         self.assertEqual(result["delivery"]["status"], "sent")
-        self.assertEqual(self.zero._deliver.call_args.args[3]["body"],
-                         "¡Buenas noches, Diego! ¿En qué puedo ayudarte?")
+        self.assertIn(self.zero._deliver.call_args.args[3]["body"],
+                      [v.format(greeting="Buenas noches", name="Diego")
+                       for v in WHATSAPP_FALLBACK_GREETINGS_NAMED])
         self.assertEqual(self.crm.get("losetaschile", "56933333333")["name"], "Diego")
         self.assertIsNone(self.memory.get_whatsapp_handoff(
             "losetaschile", "56933333333@c.us"))
@@ -147,7 +150,7 @@ class WhatsAppHandoffTest(unittest.TestCase):
         self.assertEqual(dispatch.call_count, 2)
         self.assertTrue(result["manual_review"])
         body = self.zero._deliver.call_args.args[3]["body"]
-        self.assertIn("Necesito revisar", body)
+        self.assertIn(body, WHATSAPP_REVIEW_NOTICES)
         self.assertNotIn("$99.000", body)
 
     def test_supplied_measurements_are_not_requested_again(self):

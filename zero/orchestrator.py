@@ -37,6 +37,9 @@ from .config import (
     min_icp_score,
     project_funnel,
     tier_config,
+    WHATSAPP_FALLBACK_GREETINGS,
+    WHATSAPP_FALLBACK_GREETINGS_NAMED,
+    WHATSAPP_REVIEW_NOTICES,
 )
 from .channels import Outbox
 from .agent_rules import check_reply
@@ -73,7 +76,7 @@ from .pool_border import (POOL_PHOTO_MARKER, POOL_PHOTO_REQUEST, _MEASUREMENT_QU
                           pool_border_models_reply, pool_measurement_message)
 from .vendors import credentials_for
 from .whatsapp_context import select_history, select_knowledge
-from .whatsapp_format import format_whatsapp_reply
+from .whatsapp_format import format_whatsapp_reply, pick_variant
 from .whatsapp_greeting import align_opening_greeting, whatsapp_greeting
 
 # --- pending offers (the CONCIERGE promises, ZERO fulfills) -------------------
@@ -511,6 +514,12 @@ class Zero:
                 return None
         return DEFAULT_INBOUND_CLIENT_ID or None
 
+
+    def _last_agent_text(self, client_id: str, lead_key: str) -> str:
+        for turn in reversed(self.memory.get_conversation(client_id, lead_key)):
+            if turn.get("role") == "agent":
+                return turn.get("text") or ""
+        return ""
 
     # --- sending (OUTREACH/TRACKER draft; the outbox delivers) ---------------
     def _deliver(self, client_id: str, lead_key: str, to: Optional[str],
@@ -1871,7 +1880,7 @@ class Zero:
                     customer_ack = self._deliver(
                         client_id, key, rec.get("phone") or from_contact,
                         {"channel": channel, "subject": None, "body": acknowledgment,
-                         "whatsapp_from": to_phone_id, "whatsapp_chat_id": whatsapp_chat_id},
+                         "whatsapp_from": to_phone_id, "whatsapp_chat_id": whatsapp_chat_id, "humanize": True},
                         wa_creds=wa_creds)
                 except (RuntimeError, ValueError) as exc:
                     customer_ack = {"status": "error", "error": str(exc)}
@@ -1937,8 +1946,10 @@ class Zero:
             # Un saludo nuevo no debe silenciar el chat por una respuesta anterior igual.
             # Responder sin repetir preguntas viejas ni inventar datos del negocio.
             greeting = whatsapp_greeting()
-            reply = (f"¡{greeting}, {introduced_name}! ¿En qué puedo ayudarte?" if introduced_name
-                     else f"¡{greeting}! Estoy aquí para ayudarte. ¿Qué necesitas hoy?")
+            reply = (pick_variant(WHATSAPP_FALLBACK_GREETINGS_NAMED, key, self._last_agent_text(client_id, key),
+                                  greeting=greeting, name=introduced_name) if introduced_name
+                     else pick_variant(WHATSAPP_FALLBACK_GREETINGS, key,
+                                       self._last_agent_text(client_id, key), greeting=greeting))
             intent, quote = "general", None
             repeated = False
         if client_id == "losetaschile" and channel == "whatsapp" and reply:
@@ -1976,12 +1987,12 @@ class Zero:
             if self.crm:
                 self.crm.log(client_id, key, "awaiting_human", reason)
                 self.crm.save()
-            notice = ("Recibí tu mensaje. Necesito revisar tu consulta antes de "
-                      "responderte bien; quedó pendiente en este chat.")
+            notice = pick_variant(WHATSAPP_REVIEW_NOTICES, key,
+                                  self._last_agent_text(client_id, key))
             notice_delivery = self._deliver(
                 client_id, key, rec.get("phone") or rec.get("email"),
                 {"channel": channel, "subject": None, "body": notice,
-                 "whatsapp_from": to_phone_id, "whatsapp_chat_id": whatsapp_chat_id},
+                 "whatsapp_from": to_phone_id, "whatsapp_chat_id": whatsapp_chat_id, "humanize": True},
                 wa_creds=wa_creds)
             if notice_delivery["status"] == "sent":
                 self.memory.add_turn(client_id, key, "agent", notice)
@@ -2030,7 +2041,7 @@ class Zero:
                                 client_id, key, rec.get("phone") or from_contact,
                                 {"channel": channel, "subject": None, "body": reply,
                                  "whatsapp_from": to_phone_id,
-                                 "whatsapp_chat_id": whatsapp_chat_id}, wa_creds=wa_creds)
+                                 "whatsapp_chat_id": whatsapp_chat_id, "humanize": True}, wa_creds=wa_creds)
                         if res.get("media_asset"):
                             from .whatsapp_web import send_catalog_image
                             from pathlib import PurePosixPath
@@ -2048,7 +2059,7 @@ class Zero:
                                 client_id, key, rec.get("phone") or from_contact,
                                 {"channel": channel, "subject": None, "body": reply,
                                  "whatsapp_from": to_phone_id,
-                                 "whatsapp_chat_id": whatsapp_chat_id}, wa_creds=wa_creds)
+                                 "whatsapp_chat_id": whatsapp_chat_id, "humanize": True}, wa_creds=wa_creds)
             elif client_id == "losetaschile" and channel == "whatsapp" and res.get("media_asset"):
                 if not whatsapp_chat_id or not to_phone_id:
                     delivery = {"status": "error", "error": "Falta chat Web para enviar imagen"}
@@ -2068,7 +2079,15 @@ class Zero:
                 delivery = self._deliver(client_id, key, rec.get("phone") or rec.get("email"),
                               {"channel": channel, "subject": None, "body": reply,
                                "whatsapp_from": to_phone_id,
-                               "whatsapp_chat_id": whatsapp_chat_id}, wa_creds=wa_creds)
+                               "whatsapp_chat_id": whatsapp_chat_id, "humanize": True}, wa_creds=wa_creds)
+            if delivery.get("partial"):
+                # Part of the reply is already in the chat: keep what went out and
+                # leave the case for a person, not for an automatic retry.
+                self.memory.add_turn(client_id, key, "agent", delivery.get("sent_text") or "")
+                self.memory.log("whatsapp_review_required", client=client_id, lead=key,
+                                reason=delivery.get("error") or "envío parcial")
+                if self.crm:
+                    self.crm.log(client_id, key, "awaiting_human", delivery.get("error") or "envío parcial")
             if delivery["status"] == "sent":
 
                 self.memory.add_turn(client_id, key, "agent", reply)

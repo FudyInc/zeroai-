@@ -54,6 +54,32 @@ WHATSAPP_MORNING_START_HOUR = 5
 WHATSAPP_AFTERNOON_START_HOUR = 12
 WHATSAPP_EVENING_START_HOUR = 20
 
+# Entrega "humana" de las respuestas AUTOMÁTICAS del agente por WhatsApp Web: un
+# bloque único y instantáneo delata a un bot. Se parte en pocos mensajes y se
+# muestra "escribiendo..." un rato proporcional al largo. Las respuestas manuales
+# de una persona nunca se humanizan. Cotizaciones, links y listas no se parten.
+WHATSAPP_HUMAN_DELIVERY = {"enabled": True, "ms_per_char": 35, "min_typing_ms": 800,
+                           "max_typing_ms": 4000, "max_parts": 3, "min_split_chars": 120}
+
+# Variantes de textos de respaldo (deterministas: se elige por índice estable,
+# ver whatsapp_format.pick_variant). La primera es la redacción histórica.
+WHATSAPP_FALLBACK_GREETINGS_NAMED = (
+    "¡{greeting}, {name}! ¿En qué puedo ayudarte?",
+    "¡{greeting}, {name}! Cuéntame, ¿en qué te puedo ayudar?",
+    "¡{greeting}, {name}! ¿Qué estás buscando?",
+)
+WHATSAPP_FALLBACK_GREETINGS = (
+    "¡{greeting}! ¿En qué te puedo ayudar?",
+    "¡{greeting}! Cuéntame, ¿qué estás buscando?",
+    "¡{greeting}! Dime, ¿en qué te ayudo?",
+)
+# Ninguna promete plazos ni dice que una persona ya lo vio.
+WHATSAPP_REVIEW_NOTICES = (
+    "Recibí tu mensaje. Necesito revisar tu consulta antes de responderte bien; quedó pendiente en este chat.",
+    "Gracias por escribir. Voy a revisar tu consulta con cuidado y te respondo por este mismo chat.",
+    "Recibí tu consulta y la voy a revisar para responderte bien; la respuesta te llega por este chat.",
+)
+
 # PoolEdge requiere dirección completa y despacho revisado por una persona antes
 # de emitir un total final (ficha confirmada el 2026-09-29). El cotizador genérico
 # solo suma productos e IVA; no debe enviar ese subtotal como presupuesto final.

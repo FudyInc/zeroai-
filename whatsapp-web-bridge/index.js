@@ -38,6 +38,7 @@ const QRCode = require('qrcode')
 const { serializedVoterId } = require('./delivery-poll')
 const { polls, pollForQuestion } = require('./poll-definitions')
 const { isCustomerMessageType } = require('./customer-message')
+const { safeTypingMs } = require('./humanize')
 const { recentInbound } = require('./recovery')
 const { CATALOGS, makeCatalogPdf } = require('./catalog-document')
 const { actsFor } = require('./account-scope')
@@ -731,6 +732,17 @@ const server = http.createServer(async (req, res) => {
     }
     if (!/^\d{8,20}@(c\.us|lid)$/.test(chatId)) {
       return respond(res, 400, { error: 'invalid chat id' })
+    }
+    const typingMs = safeTypingMs(body.typing_ms)
+    if (typingMs > 0) {
+      // Best-effort: a typing failure must never block the message itself.
+      try {
+        const chat = await client.getChatById(chatId)
+        await chat.sendStateTyping()
+        await new Promise(resolve => setTimeout(resolve, typingMs))
+      } catch (err) {
+        console.error(`typing indicator failed: ${err.message}`)
+      }
     }
     // This library can resolve sendMessage() with undefined after the message was
     // created in WhatsApp. Listen before sending so that result is not lost.

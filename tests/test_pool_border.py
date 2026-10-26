@@ -5,7 +5,8 @@ from unittest import mock
 
 from zero.agents import build_agents
 from zero.config import (LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE,
-                         LOSETASCHILE_WHATSAPP_CATALOG_URL)
+                         LOSETASCHILE_WHATSAPP_CATALOG_URL,
+                         WHATSAPP_REVIEW_NOTICES)
 from zero.crm import CRM
 from zero.losetas_color import color_question
 from zero.losetas_polls import (PAVER_AREA_QUESTION, PAVER_MODEL_QUESTION,
@@ -393,7 +394,7 @@ class PoolBorderCountTest(unittest.TestCase):
         self.assertIn(LOSETASCHILE_WHATSAPP_CATALOG_URL, second["reply"])
         self.assertIn(LOSETASCHILE_WHATSAPP_CATALOG_URL,
                       zero._deliver.call_args.args[3]["body"])
-        self.assertNotIn("Necesito revisar", second["reply"])
+        self.assertFalse(any(n in second["reply"] for n in WHATSAPP_REVIEW_NOTICES))
 
     def test_repeated_catalog_request_sends_only_link(self):
         for question in ("Catalogo", "¿Tienen catálogo y hacen despacho?",
