@@ -227,18 +227,19 @@ class DetectorSinFalsosPositivos(unittest.TestCase):
     def test_cerrar_un_pedido_no_es_preguntar_por_el_tema(self):
         from zero.orchestrator import _uncovered_topic
         self.assertIsNone(_uncovered_topic("Retiro en fábrica, pago el viernes con efectivo", ""))
-        self.assertEqual(_uncovered_topic("aceptan tarjeta", ""), "tarjeta o efectivo")
+        self.assertEqual(_uncovered_topic("aceptan tarjeta", ""), "tarjeta")
         self.assertEqual(_uncovered_topic("cuanto se demora el despacho", ""), "plazos de entrega")
 
 
 class RespuestasFijas(unittest.TestCase):
     FICHA = ("Vendemos pastelones.\n\n## Respuestas fijas\n### medios de pago\n"
              "Aceptamos transferencia.\nCuenta Corriente: 19803074124\n\n## Otra sección\nx")
+    TARJETA = "\n### tarjeta\nAbono con tarjeta: https://mpago.la/x"
 
-    def _responder(self, texto):
+    def _responder(self, texto, ficha=None):
         memory = SessionMemory(None)
         memory.register_client("losetaschile", "STARTER")
-        memory.set_client_knowledge("losetaschile", self.FICHA)
+        memory.set_client_knowledge("losetaschile", ficha or self.FICHA)
         zero = Zero(build_agents(mock=True), memory=memory)
         with mock.patch.object(zero, "dispatch") as dispatch:
             res = zero.converse_result("losetaschile", texto, lead={"key": "k"},
@@ -246,17 +247,28 @@ class RespuestasFijas(unittest.TestCase):
         return res, dispatch
 
     def test_la_respuesta_fija_sale_tal_cual_sin_modelo(self):
-        for texto in ("¿aceptan transferencia?", "como pago?", "¿cuáles son los medios de pago?"):
+        for texto in ("¿aceptan transferencia?", "como pago?", "¿cuáles son los medios de pago?",
+                      "¿se puede pagar en efectivo?"):
             with self.subTest(texto=texto):
                 res, dispatch = self._responder(texto)
                 dispatch.assert_not_called()
                 self.assertEqual(res["reply"],
                                  "Aceptamos transferencia.\nCuenta Corriente: 19803074124")
 
-    def test_tarjeta_no_recibe_los_datos_de_transferencia(self):
+    def test_tarjeta_sin_respuesta_fija_pasa_a_una_persona(self):
         res, _ = self._responder("¿aceptan tarjeta?")
         self.assertEqual(res["intent"], "handoff")
-        self.assertIn("tarjeta o efectivo", res["gap_reason"])
+        self.assertIn("tarjeta", res["gap_reason"])
+
+    def test_quien_pide_tarjeta_recibe_solo_el_link(self):
+        ficha = self.FICHA.replace("\n\n## Otra", self.TARJETA + "\n\n## Otra")
+        for texto in ("¿aceptan tarjeta?", "¿cómo pago con tarjeta?", "puedo pagar en cuotas?"):
+            with self.subTest(texto=texto):
+                res, dispatch = self._responder(texto, ficha)
+                dispatch.assert_not_called()
+                self.assertEqual(res["reply"], "Abono con tarjeta: https://mpago.la/x")
+        res, _ = self._responder("como pago?", ficha)
+        self.assertNotIn("mpago", res["reply"])
 
 
 class RutasDelDashboard(unittest.TestCase):

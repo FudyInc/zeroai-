@@ -85,15 +85,17 @@ LOSETASCHILE_TEMAS_SIN_INVENTAR = {
     "devoluciones": (("devolucion", "devoluciones", "devolver", "reembolso"),
                      ("devolucion", "reembolso")),
     # Si la ficha trae «## Respuestas fijas» con un «### <tema>», ese texto se
-    # envía tal cual (zero/attention.py::fixed_answer). Así va la transferencia.
+    # envía tal cual (zero/attention.py::fixed_answer). Tarjeta va antes que
+    # medios de pago: «¿cómo pago con tarjeta?» recibe el link del abono con
+    # tarjeta, y cualquier otra pregunta de pago (efectivo incluido) recibe la
+    # transferencia. Así lo pidió Diego el 2026-10-26.
+    "tarjeta": (("tarjeta", "tarjetas", "webpay", "cuotas", "debito", "credito",
+                 "mercado pago", "mercadopago"),
+                ("tarjeta", "webpay", "mercado pago")),
     "medios de pago": (("transferencia", "transferir", "transfiero", "abono", "medio de pago",
                         "medios de pago", "forma de pago", "formas de pago", "como pago",
-                        "como se paga", "como pagar", "como pagamos"),
+                        "como se paga", "como pagar", "como pagamos", "efectivo"),
                        ("transferencia",)),
-    # Tarjeta y efectivo aparte: contestarles con los datos de transferencia
-    # daría a entender que no se aceptan, y eso no está confirmado.
-    "tarjeta o efectivo": (("tarjeta", "efectivo", "webpay", "cuotas", "debito", "credito"),
-                           ("tarjeta", "efectivo", "webpay")),
     "horario": (("horario", "a que hora", "abren", "cierran"), ("horario",)),
     "plazos de entrega": (("demora", "demoran", "tarda", "tardan", "cuantos dias",
                            "plazo", "plazos"),
