@@ -1741,7 +1741,8 @@ class Zero:
                 ack_delivery = self._deliver(
                     client_id, key, rec.get("phone") or rec.get("email"),
                     {"channel": channel, "subject": None, "body": ack,
-                     "whatsapp_from": to_phone_id, "whatsapp_chat_id": whatsapp_chat_id},
+                     "whatsapp_from": to_phone_id, "whatsapp_chat_id": whatsapp_chat_id,
+                     "humanize": True},
                     wa_creds=wa_creds)
                 if ack_delivery.get("status") == "sent":
                     self.memory.add_turn(client_id, key, "agent", ack)
