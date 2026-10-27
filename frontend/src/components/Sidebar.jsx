@@ -132,9 +132,14 @@ export default function Sidebar({ mobileOpen = false, onClose = () => {}, userna
                     'flex items-center gap-3 px-3 py-1.5 rounded-xl text-sm transition-colors',
                     isActive ? 'bg-zinc-100 text-zinc-900 font-semibold' : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-800',
                   )}>
-                  <Icon size={18} className="shrink-0" />
+                  {/* Cerrado, el menú mide 76 px y el número no cabe junto al ícono: quedaba
+                      cortado en el borde. Ahí basta un punto; el número va con el menú abierto. */}
+                  <span className="relative shrink-0">
+                    <Icon size={18} />
+                    {badges[to] > 0 && !open && <span className="wa-attn-dot" aria-hidden="true" />}
+                  </span>
                   {reveal(text)}
-                  {badges[to] > 0 && (
+                  {badges[to] > 0 && open && (
                     <span className="wa-attn-count" title={`${badges[to]} casos esperan al equipo`}
                       aria-label={`${badges[to]} casos pendientes`}>{badges[to]}</span>
                   )}
