@@ -560,7 +560,8 @@ class PoolBorderCountTest(unittest.TestCase):
         self.assertIn("¿Cuántos m²", only_model["reply"])
         self.assertNotIn("delivery_poll", only_model)
         self.assertTrue(both.get("delivery_poll"))
-        self.assertIn("confirmar el tamaño", pickup["reply"])
+        self.assertIn("retiro en fábrica", pickup["reply"])
+        self.assertNotIn("tamaño del modelo", pickup["reply"])
 
     def test_negated_product_does_not_get_straight_border_count(self):
         plan, _ = border_plan(

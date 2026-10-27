@@ -1681,10 +1681,11 @@ async def whatsapp_inbound(req: Request, background_tasks: BackgroundTasks):
     """Receive inbound WhatsApp messages from Meta → match to lead → reply via
     CONCIERGE. Responde de inmediato (Meta espera confirmación rápida) y
     procesa cada mensaje en segundo plano — ver _process_inbound_messages."""
-    from zero.whatsapp_inbound import parse_inbound, verify_meta_signature
+    from zero.whatsapp_inbound import drop_web_served, parse_inbound, verify_meta_signature
     from zero.client_integrations import credentials, whatsapp_provider
     raw = await req.body()
-    clients = make_memory(STATE_PATH).clients
+    memory = make_memory(STATE_PATH)
+    clients = memory.clients
     signed = [c for c in clients if whatsapp_provider(c) == "meta" and
               verify_meta_signature(raw, req.headers.get("x-hub-signature-256"),
                                     credentials(c, "whatsapp").get("WHATSAPP_APP_SECRET") or "")]
@@ -1694,9 +1695,18 @@ async def whatsapp_inbound(req: Request, background_tasks: BackgroundTasks):
     msgs = parse_inbound(payload)
     allowed = {credentials(c, "whatsapp").get("WHATSAPP_PHONE_ID") for c in signed}
     msgs = [m for m in msgs if m.get("to_phone_id") in allowed and m.get("to_phone_id")]
-    if msgs:
-        background_tasks.add_task(_process_inbound_messages, msgs)
-    return {"received": len(msgs)}
+    web_numbers = {digits for c in clients if whatsapp_provider(c) == "web"
+                   if (digits := "".join(ch for ch in str(
+                       memory.get_client_agent_profile(c).get("whatsapp_number") or "")
+                       if ch.isdigit()))}
+    # Ese número lo atiende el puente Web; si el puente cae, Meta no es respaldo.
+    kept = drop_web_served(msgs, web_numbers)
+    if len(kept) < len(msgs):
+        logging.getLogger("zero.api").info("whatsapp meta: %d copias de un número Web descartadas",
+                                           len(msgs) - len(kept))
+    if kept:
+        background_tasks.add_task(_process_inbound_messages, kept)
+    return {"received": len(kept), "ignored_web_copies": len(msgs) - len(kept)}
 
 
 @app.post("/api/webhooks/whatsapp-web")

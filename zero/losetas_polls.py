@@ -172,6 +172,33 @@ def canonical_choice(message: str, history: list[dict[str, Any]]) -> str | None:
     return None
 
 
+def invalid_choice(message: str, history: list[dict[str, Any]]) -> str | None:
+    """The open numbered question when the reply is a bare number outside it.
+
+    «8» to a seven-colour list went to the model, which improvised a reply that
+    then hid the question from every later step (seen live 2026-10-27).
+    """
+    value = (message or "").strip()
+    for keycap, digit in _KEYCAPS.items():
+        value = value.replace(keycap, digit)
+    # One digit only: «20» or «14» is more likely m² or a quantity than a menu slip.
+    if not re.fullmatch(r"\d", value):
+        return None
+    answered = set()
+    for turn in reversed(history):
+        if turn.get("role") != "agent":
+            answered.add(str(turn.get("text") or "").strip().casefold())
+            continue
+        prompt = str(turn.get("text") or "").casefold()
+        for key, (question, options) in CHOICE_PROMPTS.items():
+            if question.casefold() in prompt:
+                if answered & {option.casefold() for option in options}:
+                    return None  # same guard as canonical_choice
+                return None if 1 <= int(value) <= len(options) else key
+        return None
+    return None
+
+
 def _previous_poll(message: str, history: list[dict[str, Any]]) -> str | None:
     choice = (message or "").strip()
     for turn in reversed(history):

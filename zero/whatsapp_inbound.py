@@ -65,6 +65,9 @@ def parse_inbound(payload: Dict[str, Any]) -> List[Dict[str, str]]:
                 continue
             metadata = value.get("metadata") or {}
             to_phone_id = str((metadata.get("phone_number_id") if isinstance(metadata, dict) else None) or "")
+            to_number = "".join(ch for ch in str((metadata.get("display_phone_number")
+                                                  if isinstance(metadata, dict) else None) or "")
+                                if ch.isdigit())
             profiles: Dict[str, str] = {}
             contacts = value.get("contacts") or []
             if not isinstance(contacts, list):
@@ -112,7 +115,20 @@ def parse_inbound(payload: Dict[str, Any]) -> List[Dict[str, str]]:
                 else:
                     text = f"[{mtype or 'mensaje'}]"
                 parsed = {"from": frm, "text": text, "to_phone_id": to_phone_id}
+                if to_number:
+                    parsed["to_number"] = to_number
                 if profiles.get(frm):
                     parsed["profile_name"] = profiles[frm]
                 out.append(parsed)
     return out
+
+
+def drop_web_served(msgs: List[Dict[str, str]], web_numbers: set) -> List[Dict[str, str]]:
+    """Discard Meta copies of messages to a number the WhatsApp Web bridge serves.
+
+    In coexistence the same number lives on the WABA and in WhatsApp Web, so
+    Meta delivers every inbound the bridge already queued. Answering both made
+    two processors save the shared memory at once and erase each other's turns
+    (measured live 2026-10-26: unanswered steps and repeated-reply reviews).
+    `web_numbers` holds digits only; a message without `to_number` is kept."""
+    return [m for m in msgs if not (m.get("to_number") and m["to_number"] in web_numbers)]

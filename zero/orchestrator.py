@@ -61,7 +61,7 @@ from .losetas_polls import (DELIVERY_POLL_QUESTION as LOSETAS_DELIVERY_POLL_QUES
                             direct_product_category, selected_category_from_history,
                             is_factory_pickup, FACTORY_ADDRESS, FACTORY_MAP_URL,
                             paver_order_details, canonical_choice, numbered_choices,
-                            customer_defers,
+                            customer_defers, invalid_choice,
                             BORDER_MODEL_QUESTION, POOL_SHAPE_QUESTION,
                             PAVER_AREA_QUESTION, PAVER_MODEL_QUESTION,
                             WHATSAPP_WEB_POLL_KEYS)
@@ -96,7 +96,17 @@ _QUOTE_REQUEST_RE = re.compile(
 
 _HUMAN_REQUEST_RE = re.compile(
     r"\b(?:hablar|conversar|comunicarme|contactarme|atenderme)\s+con\s+(?:un[ao]?\s+)?(?:humano|persona|asesor[ae]?|vendedor[ae]?)\b"
-    r"|\b(?:quiero|necesito|prefiero)\s+(?:que\s+me\s+atienda\s+)?(?:un[ao]?\s+)?(?:humano|persona|asesor[ae]?)\b",
+    r"|\b(?:quiero|necesito|prefiero)\s+(?:que\s+me\s+atienda\s+)?(?:un[ao]?\s+)?(?:humano|persona|asesor[ae]?)\b"
+    # «contactame con unsuperior», «pásame con el encargado» (seen live 2026-10-27).
+    r"|\b(?:contact|comunic|p[aá]s|habl)[a-záéíóú]*\s+con\s+(?:(?:un[ao]?|el|la|alg[uú]n[ao]?)\s*)?"
+    r"(?:superior|supervisor[a]?|encargad[oa]|jef[ea]|gerente)\b",
+    re.IGNORECASE,
+)
+# An angry customer needs a person, not the next menu (seen live 2026-10-27).
+_UPSET_RE = re.compile(
+    r"\b(?:put[ao]\s+que\s+te\s+pari[oó]|hij[oa]\s+de\s+puta|concha\s*(?:de\s*)?(?:tu|su)\s*madre|"
+    r"conche?tu?ma[dr]+e|ctm|no\s+me\s+(?:sirves|serv[ií]s)|idiota|imb[eé]cil|"
+    r"est[uú]pid[oa])\b",
     re.IGNORECASE,
 )
 
@@ -1211,8 +1221,13 @@ class Zero:
             # A phrase the team taught as a synonym becomes that option.
             message = learned_alias(self.memory, client_id, message) or message
             chosen = canonical_choice(message, order_history)
+            stray = None if chosen else invalid_choice(message, order_history)
             if chosen:
                 message = chosen
+            elif stray:
+                # Same question again, never a model guess about what «8» meant.
+                return {"reply": "Ese número no está en la lista.",
+                        "intent": "qualification", "customer_poll": stray}
             else:
                 learned = learned_answer(self.memory, client_id, message)
                 if learned:
@@ -1369,8 +1384,10 @@ class Zero:
         if (client_id == "losetaschile" and channel == "whatsapp" and
                 selected_category_from_history(order_history) == "pastelones" and
                 shipping_delivery_followup(message, order_history)):
-            return {"reply": ("Gracias, recibí el modelo, los m² y la ubicación. "
-                              "Debo confirmar el tamaño del modelo antes de calcular las cantidades."),
+            received = ("el retiro en fábrica" if is_factory_pickup(message)
+                        else "los datos de entrega")
+            return {"reply": (f"Gracias, recibí el modelo, los m² y {received}. "
+                              "El equipo arma el presupuesto y te escribe por este chat."),
                     "intent": "info",
                     "attention": "Pastelones: confirmar el tamaño del modelo y cotizar"}
         if (client_id == "losetaschile" and channel == "whatsapp" and
@@ -1734,11 +1751,13 @@ class Zero:
                     "company": rec.get("company"), **out}
 
         if channel == "whatsapp" and (_HUMAN_REQUEST_RE.search(text or "") or
+                                       _UPSET_RE.search(text or "") or
                                        _unreadable_whatsapp_message(text, client_id)):
             self.memory.add_turn(client_id, key, "lead", text)
             photo = (client_id == "losetaschile" and
                      pool_photo_followup(text, self.memory.get_conversation(client_id, key)[:-1]))
             reason = ("El contacto pidió atención humana" if _HUMAN_REQUEST_RE.search(text or "") else
+                      "Cliente molesto: atender personalmente" if _UPSET_RE.search(text or "") else
                       "Foto de la piscina recibida: revisar y cotizar" if photo else
                       "Mensaje no interpretable por el agente")
             if photo:
