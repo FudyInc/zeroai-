@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .config import WHATSAPP_REVIEW_NOTICES
 from .losetas_text import closest, normalize_customer_text, plain
 
 
@@ -187,6 +188,14 @@ def invalid_choice(message: str, history: list[dict[str, Any]]) -> str | None:
     # One digit only: «20» or «14» is more likely m² or a quantity than a menu slip.
     if not re.fullmatch(r"\d", value):
         return None
+    key = open_choice(history)
+    if key is None:
+        return None
+    return None if 1 <= int(value) <= len(CHOICE_PROMPTS[key][1]) else key
+
+
+def open_choice(history: list[dict[str, Any]]) -> str | None:
+    """The numbered question the latest agent turn left open, if any."""
     answered = set()
     for turn in reversed(history):
         if turn.get("role") != "agent":
@@ -197,9 +206,26 @@ def invalid_choice(message: str, history: list[dict[str, Any]]) -> str | None:
             if question.casefold() in prompt:
                 if answered & {option.casefold() for option in options}:
                     return None  # same guard as canonical_choice
-                return None if 1 <= int(value) <= len(options) else key
+                return key
         return None
     return None
+
+
+def reasks_open_choice(result: dict[str, Any], message: str,
+                       history: list[dict[str, Any]]) -> str | None:
+    """The open menu when a step would send it again for a message that is not
+    an option: «¿Tiene otros modelos?» got the same list three times (live,
+    2026-10-27). That message is a question to answer, not a missing choice."""
+    key = open_choice(history)
+    if key is None or canonical_choice(message, history):
+        return None
+    last = next((str(turn.get("text") or "") for turn in reversed(history)
+                 if turn.get("role") == "agent"), "")
+    # Only the very same message again: a step that answers something (the
+    # shipping price, a typed size) and re-attaches the menu is doing its job.
+    # The stored turn also carries the numbered options the sender appended.
+    reply = " ".join(str(result.get("reply") or "").split())
+    return key if reply and " ".join(last.split()).startswith(reply) else None
 
 
 CHOICE_SLIP_MARK = "no está entre las opciones"
@@ -212,16 +238,27 @@ def choice_slip_reply(message: str, key: str) -> str:
     return f"El {_without_keycaps(message)} {CHOICE_SLIP_MARK}. Elige {valid}."
 
 
+# Closes an answer given mid-menu: the menu stays open for the next number.
+MENU_ASIDE_CLOSING = "Para seguir, elige una opción de la lista con su número."
+
+
 def without_choice_slips(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """History as the steps read it: a wrong number and our «choose a valid
-    option» notice are dropped, so the original question stays the open one."""
+    """History as the steps read it, with the open menu still the last question.
+
+    A wrong number and our «choose a valid option» notice are dropped together.
+    An answer given mid-menu, or a review notice, is dropped alone: the
+    customer's message stays, since it may carry m² or measurements.
+    """
     out: list[dict[str, Any]] = []
     for turn in history:
-        if turn.get("role") == "agent" and CHOICE_SLIP_MARK in str(turn.get("text") or ""):
-            while out and out[-1].get("role") != "agent":
-                out.pop()  # the slip itself (and anything sent alongside it)
-            continue
-        out.append(turn)
+        text = str(turn.get("text") or "")
+        if turn.get("role") != "agent":
+            out.append(turn)
+        elif CHOICE_SLIP_MARK in text:
+            if out and out[-1].get("role") != "agent":
+                out.pop()  # the wrong number itself, nothing older
+        elif MENU_ASIDE_CLOSING not in text and text.strip() not in WHATSAPP_REVIEW_NOTICES:
+            out.append(turn)
     return out
 
 

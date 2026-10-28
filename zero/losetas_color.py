@@ -60,6 +60,11 @@ def color_preference(message: str, history: list[dict[str, Any]]) -> str | None:
     return None
 
 
+def names_color(message: str) -> str | None:
+    """A color the lead wrote, whether or not the color question was asked yet."""
+    return _parse_preference(message)
+
+
 def latest_color_preference(history: list[dict[str, Any]]) -> str | None:
     """Return the most recent recognized answer recorded after a color question."""
     for index in range(len(history) - 1, -1, -1):

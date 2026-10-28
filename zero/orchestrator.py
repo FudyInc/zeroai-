@@ -47,7 +47,7 @@ from .contracts import AgentResponse, Constraints, Lead, TaskPayload
 from .icp import describe_icp, is_empty, normalize_icp
 from .inbox import Inbox, MockInbox
 from .losetas_color import (COLOR_CATALOG_IMAGE_PATH, color_preference,
-                            color_question, latest_color_preference)
+                            color_question, latest_color_preference, names_color)
 from .losetas_budget import format_internal_budget
 from .losetas_review import store_review_draft, today as review_today
 from .losetas_text import normalize_customer_text, plain
@@ -62,7 +62,9 @@ from .losetas_polls import (DELIVERY_POLL_QUESTION as LOSETAS_DELIVERY_POLL_QUES
                             is_factory_pickup, FACTORY_ADDRESS, FACTORY_MAP_URL,
                             paver_order_details, canonical_choice, numbered_choices,
                             customer_defers, invalid_choice, choice_slip_reply,
-                            without_choice_slips,
+                            without_choice_slips, reasks_open_choice, MENU_ASIDE_CLOSING,
+                            open_choice,
+                            CHOICE_PROMPTS as LOSETAS_CHOICE_PROMPTS,
                             BORDER_MODEL_QUESTION, POOL_SHAPE_QUESTION,
                             PAVER_AREA_QUESTION, PAVER_MODEL_QUESTION,
                             WHATSAPP_WEB_POLL_KEYS)
@@ -1178,7 +1180,7 @@ class Zero:
                         channel: str = "whatsapp",
                         history: Optional[List[Dict[str, Any]]] = None,
                         vendor: Optional[Dict[str, Any]] = None,
-                        feedback: str = "") -> Dict[str, Any]:
+                        feedback: str = "", open_menu: str = "") -> Dict[str, Any]:
         """Draft a reply to an inbound message using the client's business context
         (ICP + base de conocimiento + historial del diálogo). Pure drafting —
         doesn't send. Returns the full CONCIERGE result ({reply, intent}) so
@@ -1234,23 +1236,25 @@ class Zero:
                 learned = learned_answer(self.memory, client_id, message)
                 if learned:
                     # The team answered this question once from the dashboard.
-                    return {"reply": learned, "intent": "info", "flow_step": True}
+                    return {"reply": learned, "intent": "info", "flow_step": True, "aside": "verbatim"}
                 # Bank details and the like go out exactly as the team wrote them
                 # in the sheet: the model must never retype an account number.
                 fixed = fixed_answer(knowledge, _asked_topic(message) or "")
                 if fixed:
-                    return {"reply": fixed, "intent": "info", "flow_step": True}
+                    return {"reply": fixed, "intent": "info", "flow_step": True, "aside": "verbatim"}
                 topic = _uncovered_topic(message, knowledge)
                 if topic:
                     return {"reply": "", "intent": "handoff",
                             "gap_reason": f"Pregunta sobre {topic}: no está en la ficha"}
         greeting = whatsapp_greeting() if channel == "whatsapp" else ""
-        if client_id == "losetaschile" and channel == "whatsapp" and _simple_greeting(message):
+        # A question asked mid-menu skips the fixed steps: they would only send the menu again.
+        losetas_steps = client_id == "losetaschile" and channel == "whatsapp" and not open_menu
+        if losetas_steps and _simple_greeting(message):
             introduced = _introduced_name(message)
             salutation = f"¡{greeting}, {introduced}!" if introduced else f"¡{greeting}!"
             return {"reply": f"{salutation} ¿En qué puedo ayudarte?", "intent": "general",
                     "customer_poll": "product"}
-        if client_id == "losetaschile" and channel == "whatsapp":
+        if losetas_steps:
             visual_category = visual_catalog_category(message)
             if visual_category:
                 title = ("Catálogo Bordes de Piscina" if visual_category == "bordes"
@@ -1289,11 +1293,11 @@ class Zero:
             )
             if choice_reply and not factory_order_ready:
                 return {"reply": choice_reply, "intent": "info"}
-        if (client_id == "losetaschile" and channel == "whatsapp" and
+        if (losetas_steps and
                 shipping_price_request(message)):
             return {"reply": SHIPPING_PRICE_REPLY, "intent": "pricing",
                     "delivery_poll": True}
-        if (client_id == "losetaschile" and channel == "whatsapp" and
+        if (losetas_steps and
                 shipping_coverage_request(message) and
                 not wants_product_quote(message) and
                 not wants_border_budget(message)):
@@ -1312,6 +1316,10 @@ class Zero:
                         bool(re.fullmatch(r"\s*[¿]?\s*cu[aá]nto\s+(?:sale|cuesta)\s*[?]?\s*",
                                           message, re.I)))
             retrieval_query = message
+            if open_menu:
+                # «¿Tiene otros modelos?» is about the menu's product, not the whole sheet.
+                retrieval_query += " " + " ".join(
+                    [LOSETAS_CHOICE_PROMPTS[open_menu][0], *LOSETAS_CHOICE_PROMPTS[open_menu][1]])
             if followup:
                 retrieval_query += " " + " ".join(
                     str(turn.get("text") or "")[:180] for turn in (history or [])[-2:])
@@ -1332,12 +1340,12 @@ class Zero:
         pricing = normalize_pricing(self.memory.get_client_pricing(client_id)) \
             if client_id else {"items": []}
 
-        if client_id == "losetaschile" and channel == "whatsapp":
+        if losetas_steps:
             models_reply = pool_border_models_reply(message, order_history, pricing)
             if models_reply:
                 return {"reply": models_reply, "intent": "catalog"}
 
-        if client_id == "losetaschile" and channel == "whatsapp":
+        if losetas_steps:
             # Payment methods are a «tema sin inventar» (config): a case, not a non-answer.
             if re.search(r"\bdescuentos?\b", message, re.IGNORECASE):
                 return {"reply": ("No tengo un descuento confirmado para este pedido. "
@@ -1347,7 +1355,7 @@ class Zero:
         selected_tone = (color_preference(message, order_history) or
                          latest_color_preference(order_history)) \
             if client_id == "losetaschile" and channel == "whatsapp" else None
-        if (client_id == "losetaschile" and channel == "whatsapp" and selected_tone and
+        if (losetas_steps and selected_tone and
                 poll_answer_for_history(message, order_history) == "color" and
                 selected_category_from_history(order_history) == "pastelones"):
             paver_details = paver_order_details(message, order_history)
@@ -1359,7 +1367,7 @@ class Zero:
                                PAVER_MODEL_QUESTION)),
                     "intent": "qualification", "flow_step": True,
                     **({} if paver_details["model"] else {"customer_poll": "paver_model"})}
-        if (client_id == "losetaschile" and channel == "whatsapp" and
+        if (losetas_steps and
                 selected_category_from_history(order_history) == "pastelones" and
                 not shipping_delivery_followup(message, order_history) and
                 any(turn.get("role") == "agent" and "cuántos m²" in
@@ -1383,7 +1391,7 @@ class Zero:
                 pricing = normalize_pricing(self.memory.get_client_pricing(client_id))
                 return {**ask, "reply_after_document": True,
                         "catalog_document": {"category": "pastelones", "pricing": pricing}}
-        if (client_id == "losetaschile" and channel == "whatsapp" and
+        if (losetas_steps and
                 selected_category_from_history(order_history) == "pastelones" and
                 shipping_delivery_followup(message, order_history)):
             received = ("el retiro en fábrica" if is_factory_pickup(message)
@@ -1392,7 +1400,7 @@ class Zero:
                               "El equipo arma el presupuesto y te escribe por este chat."),
                     "intent": "info",
                     "attention": "Pastelones: confirmar el tamaño del modelo y cotizar"}
-        if (client_id == "losetaschile" and channel == "whatsapp" and
+        if (losetas_steps and
                 (wants_border_budget(message) or pool_measurement_message(message) or measurement_followup(
                     message, order_history) or border_model_followup(message, order_history) or
                  pool_shape_followup(message, order_history) or
@@ -1476,6 +1484,12 @@ class Zero:
                              "no repetir saludos, explicaciones, preguntas ni listas de medidas "
                              "ya solicitadas. Pide solo el dato que falta. Si no logras entender "
                              "la consulta, usa intent handoff.")
+        if open_menu:
+            instructions += (" El cliente escribió esto en vez de elegir una opción de la "
+                             "pregunta abierta «" + LOSETAS_CHOICE_PROMPTS[open_menu][0] +
+                             "». Responde solo su duda, en una o dos frases y con la ficha; "
+                             "no saludes, no repitas la lista de opciones ni hagas otra "
+                             "pregunta. Si la ficha no responde la duda, usa intent handoff.")
         if feedback:
             instructions += " Corrección obligatoria de la respuesta anterior: " + feedback[:450]
         if greeting:
@@ -1538,6 +1552,8 @@ class Zero:
             reply = (result.get("reply") or "").strip()
             result["reply"] = (reply + "\n\n" if reply else "") + format_quote(quote)
             result["quote"] = quote
+        if not quote:
+            result["aside"] = True  # the model answered; no step moved the order on
         return result
 
     def converse(self, client_id: str, message: str,
@@ -1833,6 +1849,18 @@ class Zero:
         # son solo los turnos previos (el mensaje actual viaja aparte en `message`).
         prior_turns = self.memory.get_conversation(client_id, key)
         res = self.converse_result(client_id, text, lead=rec, channel=channel)
+        menu_turns = (without_choice_slips(prior_turns)
+                      if client_id == "losetaschile" and channel == "whatsapp" else [])
+        # A bare color («gris») keeps the old behaviour, which the flow reads later on.
+        open_menu = (reasks_open_choice(res, text, menu_turns)
+                     if menu_turns and not _simple_greeting(text) and
+                     not (names_color(text) and "?" not in text) else None)
+        if open_menu:
+            res = self.converse_result(client_id, text, lead=rec, channel=channel,
+                                       open_menu=open_menu)
+        # Any answer that is not a flow step leaves the open menu open.
+        aside_kind = res.get("aside")
+        aside_menu = open_menu or (open_choice(menu_turns) if aside_kind else None)
         # A teammate may take the chat while the local model is drafting. Reload
         # persisted state before sending, so that takeover wins over the draft.
         if channel == "whatsapp" and whatsapp_chat_id and (
@@ -1970,6 +1998,7 @@ class Zero:
         if ((repeated and not _simple_greeting(text)) or unsafe_shipping or unsupported_review) and intent != "handoff":
             revised = self.converse_result(
                 client_id, text, lead=rec, channel=channel, history=prior_turns,
+                open_menu=open_menu or "",
                 feedback="El cliente ya entregó medidas o esa respuesta ya se dio. "
                          "Responde la pregunta nueva usando esos datos. No vuelvas a pedir medidas "
                          "ni repitas la respuesta anterior. No afirmes que revisaste una consulta, "
@@ -1978,6 +2007,9 @@ class Zero:
                          "usa intent handoff.")
             reply, intent = revised.get("reply") or "", revised.get("intent") or "general"
             quote = revised.get("quote")
+            aside_kind = revised.get("aside")  # the closing follows the reply that goes out
+            if not aside_kind:
+                aside_menu = None
             repeated = repetition(reply)
             unsafe_shipping = _unverified_shipping_claim(
                 text, reply, self.memory.get_client_knowledge(client_id))
@@ -1994,6 +2026,18 @@ class Zero:
                                        self._last_agent_text(client_id, key), greeting=greeting))
             intent, quote = "general", None
             repeated = False
+        if aside_menu and intent != "handoff" and reply.strip() and not repeated:
+            # The marker keeps the menu open: the next number still answers it.
+            answer = reply.rstrip()
+            if aside_kind != "verbatim":  # the team's own words go out untouched
+                # A closing question of its own would compete with the open menu.
+                answer = (re.sub(r"(^|[.!\n])\s*¿[^¿?]*\?[^\w¿?]*$", r"\1", answer).strip()
+                          or answer)
+                # Mid-conversation, «Buenas noches Diego.» reads as a restart.
+                answer = re.sub(r"^¡?\s*(?i:buen[oa]s\s+(?:d[ií]as|tardes|noches)|hola)"
+                                r"(?:,?\s+[A-ZÁÉÍÓÚÑ]\w*)?\s*[,.!]\s*", "", answer) or answer
+                answer = answer[:1].upper() + answer[1:]
+            reply = answer + "\n\n" + MENU_ASIDE_CLOSING
         if client_id == "losetaschile" and channel == "whatsapp" and reply:
             reply = format_whatsapp_reply(reply)
         not_known = (client_id == "losetaschile" and channel == "whatsapp" and

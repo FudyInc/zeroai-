@@ -8,7 +8,9 @@ from zero.agents import build_agents
 from zero.crm import CRM
 from zero.losetas_polls import (COLOR_POLL_OPTIONS, COLOR_POLL_QUESTION,
                                 CHOICE_SLIP_MARK, DELIVERY_POLL_FACTORY_PICKUP,
-                                invalid_choice)
+                                MENU_ASIDE_CLOSING, PAVER_MODEL_QUESTION, invalid_choice,
+                                reasks_open_choice)
+from zero.contracts import AgentResponse
 from zero.memory import SessionMemory
 from zero.orchestrator import Zero
 
@@ -74,6 +76,70 @@ class LiveErrorsTest(unittest.TestCase):
             self.inbound("6")
         self.assertIn("color gris", sent[0])
         self.assertIn("recibir tu pedido", sent[0])
+
+    def test_reasks_open_choice_only_when_the_step_would_send_the_menu_again(self):
+        history = [{"role": "agent", "text": f"Anoté 20 m². {PAVER_MODEL_QUESTION}"}]
+        again = {"reply": f"Anoté 20 m². {PAVER_MODEL_QUESTION}", "customer_poll": "paver_model"}
+        self.assertEqual(reasks_open_choice(again, "Tiene otros modelos?", history), "paver_model")
+        self.assertIsNone(reasks_open_choice(again, "2", history))  # a real choice
+        self.assertIsNone(reasks_open_choice({"reply": "¿Qué color prefieres?"},
+                                             "Tiene otros modelos?", history))
+        self.assertIsNone(reasks_open_choice(again, "hola", [{"role": "agent", "text": "Hola"}]))
+
+    def test_question_mid_menu_is_answered_and_the_menu_stays_open(self):
+        # Live 2026-10-27: «Tiene otros modelos?» got the same list three times.
+        sent = []
+        self.zero._deliver.side_effect = lambda *a, **k: (
+            sent.append(a[3]["body"]) or {"status": "sent", "via": "whatsapp_web"})
+        answer = AgentResponse(agent="CONCIERGE", task_id="t", status="ok", result={
+            "reply": "También hay Sol rústico y Flor de lis. ¿Te interesa alguno?",
+            "intent": "info"})
+        with mock.patch("zero.whatsapp_web.send_catalog_document", return_value={"id": "d"}), \
+             mock.patch("zero.whatsapp_web.send_catalog_image", return_value={"id": "i"}), \
+             mock.patch.object(self.zero, "dispatch", return_value=answer) as dispatch:
+            for text in ("Hola", "2", "20"):
+                self.inbound(text)
+            dispatch.assert_not_called()
+            sent.clear()
+            self.inbound("Tiene otros modelos?")
+            self.assertEqual(len(sent), 1)
+            self.assertIn("Flor de lis", sent[0])
+            self.assertTrue(sent[0].endswith(MENU_ASIDE_CLOSING))
+            self.assertNotIn("¿", sent[0])  # neither the menu nor a question of its own
+            self.assertIn(PAVER_MODEL_QUESTION, dispatch.call_args.args[1].instructions)
+            result = self.inbound("2")  # still answers the model menu
+        self.assertEqual(dispatch.call_count, 1)
+        self.assertIn("¿Qué color prefieres?", result["reply"])
+
+    def test_steps_keep_the_menu_open_after_an_aside_or_a_review_notice(self):
+        from zero.config import WHATSAPP_REVIEW_NOTICES
+        from zero.losetas_polls import open_choice, without_choice_slips
+        menu = {"role": "agent", "text": f"Anoté 20 m². {PAVER_MODEL_QUESTION}"}
+        history = [menu, {"role": "lead", "text": "mejor 30 m2, ¿tiene otros?"},
+                   {"role": "agent", "text": f"Hay Flor de lis.\n\n{MENU_ASIDE_CLOSING}"},
+                   {"role": "lead", "text": "y cuánto demora?"},
+                   {"role": "agent", "text": WHATSAPP_REVIEW_NOTICES[0]}]
+        kept = without_choice_slips(history)
+        self.assertEqual(open_choice(kept), "paver_model")
+        # The customer's own words stay: they may carry m² or measurements.
+        self.assertIn("mejor 30 m2, ¿tiene otros?", [t["text"] for t in kept])
+
+    def test_a_slip_after_an_aside_drops_only_the_wrong_number(self):
+        from zero.losetas_polls import open_choice, without_choice_slips
+        history = [{"role": "agent", "text": PAVER_MODEL_QUESTION},
+                   {"role": "lead", "text": "son 4x8"},
+                   {"role": "agent", "text": f"Anotado.\n\n{MENU_ASIDE_CLOSING}"},
+                   {"role": "lead", "text": "9"},
+                   {"role": "agent", "text": f"El 9 {CHOICE_SLIP_MARK}."}]
+        kept = [t["text"] for t in without_choice_slips(history)]
+        self.assertEqual(kept, [PAVER_MODEL_QUESTION, "son 4x8"])
+        self.assertEqual(open_choice(without_choice_slips(history)), "paver_model")
+
+    def test_a_fixed_shipping_answer_on_the_delivery_menu_is_not_replaced(self):
+        from zero.losetas_polls import DELIVERY_POLL_QUESTION
+        history = [{"role": "agent", "text": DELIVERY_POLL_QUESTION}]
+        result = {"reply": "El despacho se cotiza por separado.", "delivery_poll": True}
+        self.assertIsNone(reasks_open_choice(result, "¿cuánto sale el despacho?", history))
 
     def test_invalid_choice_only_for_bare_numbers_outside_the_open_list(self):
         history = [{"role": "agent", "text": COLOR_POLL_QUESTION}]
