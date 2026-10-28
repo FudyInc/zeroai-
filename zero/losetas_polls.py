@@ -80,7 +80,9 @@ _ORDINALS = {"uno": 1, "una": 1, "primero": 1, "primera": 1, "dos": 2, "segundo"
 # Words around a menu answer that carry no choice of their own: «quiero el 2 porfa».
 _FILLER = frozenset("el la lo opcion numero nro n quiero prefiero elijo escojo me "
                     "quedo con porfa por favor gracias ok oka okey ya esa ese esta este "
-                    "de seria sera mejor va dale bueno a al te mando paso yo voy".split())
+                    "de seria sera mejor va dale bueno a al te mando paso yo voy "
+                    # «6 perdón»: a corrected pick is still a pick (seen live 2026-10-28).
+                    "perdon disculpa disculpe sorry era es".split())
 # Loose words that point to one option, per question («retiro», «el recto»).
 _ALIASES = {
     "product": {"bordes": 0, "borde": 0, "piscina": 0, "pastelones": 1, "pastelon": 1},
@@ -395,7 +397,60 @@ def paver_order_details(message: str, history: list[dict[str, Any]]) -> dict[str
         # later «1» is a menu choice, not one square metre.
         found = _BARE_AREA.fullmatch(str(following.get("text") or "").strip())
         area = found if found and float(found.group(1).replace(",", ".")) > 0 else None
+    # Our own «Anoté 80 m².» is the latest word: a corrected area replaces the first.
+    noted = [found.group(1) for turn in turns[prompt_index + 1:]
+             if turn.get("role") == "agent"
+             for found in [_NOTED_AREA.match(str(turn.get("text") or ""))] if found]
+    if prompt_index >= 0 and noted:
+        return {"model": model, "area_m2": noted[-1].replace(",", ".")}
     return {"model": model, "area_m2": area.group(1).replace(",", ".") if area else None}
+
+
+_NOTED_AREA = re.compile(r"Anoté (\d+(?:[.,]\d+)?) m²")
+
+
+def area_correction(message: str, history: list[dict[str, Any]]) -> str | None:
+    """The new m² when the customer corrects the area while the model menu is open.
+
+    «80» to a six-model list is not a slip: it is the area again (seen live
+    2026-10-28, where it ended in human review and froze the chat).
+    """
+    if open_choice(history) != "paver_model":
+        return None
+    if canonical_choice(message, history) or any(
+            pattern.search(message) for _, pattern in _PAVER_MODELS):
+        return None  # «laja española, 40 m2» picks the model: the step reads both
+    value = _without_keycaps(message).strip()
+    area = _PAVER_AREA.search(value)
+    if area:
+        rest = re.sub(r"\b(?:son|eran|mejor)\b", " ", _PAVER_AREA.sub(" ", value))
+        if canonical_choice(re.sub(r"[\s,.;]+", " ", rest).strip(), history):
+            return None  # «el 2, son 30 m2» picks a model too
+        return area.group(1).replace(",", ".")
+    bare = re.fullmatch(r"(?:(?:mejor|son|eran|perd[oó]n|no|corrijo)[\s,]+)*"
+                        r"(\d{1,4}(?:[.,]\d{1,2})?)\s*(?:m|mts?|metros?)?\.?", value,
+                        re.IGNORECASE)
+    # Two digits at least: a lone «7» is a slip on a six-item list, not 7 m².
+    if bare and 10 <= float(bare.group(1).replace(",", ".")) <= 5000:
+        return bare.group(1).replace(",", ".")
+    return None
+
+
+def current_order(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The turns since the latest product menu: a new order starts there.
+
+    A «Gris» from last week's border order skipped the colour of today's
+    pavers (seen live 2026-10-28).
+    """
+    for index in range(len(history) - 1, -1, -1):
+        turn = history[index]
+        if (turn.get("role") == "agent" and
+                PRODUCT_POLL_QUESTION in str(turn.get("text") or "")):
+            # The message that opened it stays: «hola, piscina de 4x8» carries data.
+            while index and history[index - 1].get("role") != "agent":
+                index -= 1
+            return list(history[index:])
+    return list(history)
 
 
 def is_factory_pickup(message: str) -> bool:

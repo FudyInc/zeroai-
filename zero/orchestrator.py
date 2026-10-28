@@ -63,7 +63,7 @@ from .losetas_polls import (DELIVERY_POLL_QUESTION as LOSETAS_DELIVERY_POLL_QUES
                             paver_order_details, canonical_choice, numbered_choices,
                             customer_defers, invalid_choice, choice_slip_reply,
                             without_choice_slips, reasks_open_choice, MENU_ASIDE_CLOSING,
-                            open_choice,
+                            open_choice, area_correction, current_order,
                             CHOICE_PROMPTS as LOSETAS_CHOICE_PROMPTS,
                             BORDER_MODEL_QUESTION, POOL_SHAPE_QUESTION,
                             PAVER_AREA_QUESTION, PAVER_MODEL_QUESTION,
@@ -1215,7 +1215,7 @@ class Zero:
                 client_id, lead["key"], limit=None if local_whatsapp else 12)
         order_history = history or []
         if client_id == "losetaschile" and channel == "whatsapp":
-            order_history = without_choice_slips(order_history)
+            order_history = without_choice_slips(current_order(order_history))
             # Typos fixed and loose sizes rewritten before any step reads it.
             message = normalize_customer_text(message)
             if customer_defers(message) and any(
@@ -1224,6 +1224,10 @@ class Zero:
                 return {"reply": "", "intent": "qualification", "wait": True}
             # A phrase the team taught as a synonym becomes that option.
             message = learned_alias(self.memory, client_id, message) or message
+            new_area = area_correction(message, order_history)
+            if new_area:
+                return {"reply": f"Anoté {new_area} m². {PAVER_MODEL_QUESTION}",
+                        "intent": "qualification", "customer_poll": "paver_model"}
             chosen = canonical_choice(message, order_history)
             stray = None if chosen else invalid_choice(message, order_history)
             if chosen:
@@ -1370,8 +1374,9 @@ class Zero:
         if (losetas_steps and
                 selected_category_from_history(order_history) == "pastelones" and
                 not shipping_delivery_followup(message, order_history) and
-                any(turn.get("role") == "agent" and "cuántos m²" in
-                    str(turn.get("text") or "").casefold() for turn in order_history[-6:])):
+                (open_choice(order_history) == "paver_model" or  # after area corrections too
+                 any(turn.get("role") == "agent" and "cuántos m²" in
+                     str(turn.get("text") or "").casefold() for turn in order_history[-6:]))):
             paver_details = paver_order_details(message, order_history)
             if paver_details["model"] and paver_details["area_m2"]:
                 if not latest_color_preference(order_history):

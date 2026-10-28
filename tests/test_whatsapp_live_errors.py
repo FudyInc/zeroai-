@@ -15,7 +15,7 @@ from zero.memory import SessionMemory
 from zero.orchestrator import Zero
 
 
-class LiveErrorsTest(unittest.TestCase):
+class _LiveChat(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -39,6 +39,8 @@ class LiveErrorsTest(unittest.TestCase):
     def sent(self):
         return [c.args[3]["body"] for c in self.zero._deliver.call_args_list]
 
+
+class LiveErrorsTest(_LiveChat):
     def test_number_outside_the_colour_list_asks_for_a_valid_option(self):
         self.turns(("lead", "Pastelones"),
                    ("agent", f"Te comparto la gama de colores. {COLOR_POLL_QUESTION}"))
@@ -186,6 +188,64 @@ class LiveErrorsTest(unittest.TestCase):
         self.assertIn("retiro en fábrica", result["reply"])
         self.assertNotIn("ubicación", result["reply"])
         self.assertNotIn("tamaño del modelo", result["reply"])
+
+
+
+class SecondLiveTestErrors(_LiveChat):
+    """Prueba en vivo del 2026-10-28: m² corregidos, «6 perdón» y un color viejo."""
+
+    def paver_menu(self, area="30"):
+        from zero.losetas_polls import PAVER_AREA_QUESTION, PRODUCT_POLL_QUESTION
+        return (("agent", f"¡Buenas noches! ¿En qué puedo ayudarte?\n\n{PRODUCT_POLL_QUESTION}"),
+                ("lead", "Pastelones"), ("agent", PAVER_AREA_QUESTION), ("lead", area),
+                ("agent", f"Anoté {area} m². {PAVER_MODEL_QUESTION}"))
+
+    def history(self):
+        return self.memory.get_conversation("losetaschile", "56933333333")
+
+    def test_a_larger_number_on_the_model_menu_corrects_the_area(self):
+        from zero.losetas_polls import paver_order_details
+        self.turns(*self.paver_menu())
+        result = self.zero.converse_result("losetaschile", "80", history=self.history())
+        self.assertTrue(result["reply"].startswith("Anoté 80 m²."))
+        self.assertEqual(result.get("customer_poll"), "paver_model")
+        self.turns(("lead", "80"), ("agent", result["reply"]))
+        self.assertEqual(paver_order_details("6", self.history())["area_m2"], "80")
+
+    def test_a_pick_with_an_apology_is_still_a_pick(self):
+        from zero.losetas_polls import canonical_choice
+        history = [{"role": "agent", "text": PAVER_MODEL_QUESTION}]
+        for text in ("6 perdon", "6 perdón", "el 6, disculpa"):
+            self.assertEqual(canonical_choice(text, history), "Octagonal Piedra", text)
+
+    def test_a_colour_from_an_earlier_order_does_not_skip_the_colour_question(self):
+        self.turns(("agent", COLOR_POLL_QUESTION), ("lead", "Gris"),
+                   ("agent", "Gracias, recibí los datos de entrega."), *self.paver_menu())
+        result = self.zero.converse_result("losetaschile", "6", history=self.history())
+        self.assertEqual(result.get("customer_poll"), "color")
+
+    def test_the_message_that_opened_the_order_stays_in_it(self):
+        from zero.losetas_polls import PRODUCT_POLL_QUESTION, current_order
+        history = [{"role": "lead", "text": "Gris"}, {"role": "agent", "text": "Gracias."},
+                   {"role": "lead", "text": "hola, piscina de 4x8"},
+                   {"role": "agent", "text": PRODUCT_POLL_QUESTION}]
+        self.assertEqual([t["text"] for t in current_order(history)][0], "hola, piscina de 4x8")
+
+    def test_area_correction_leaves_slips_and_named_models_alone(self):
+        from zero.losetas_polls import area_correction
+        history = [{"role": "agent", "text": f"Anoté 30 m². {PAVER_MODEL_QUESTION}"}]
+        self.assertIsNone(area_correction("7", history))
+        self.assertIsNone(area_correction("laja española, 40 m2", history))
+        self.assertIsNone(area_correction("el 2, son 30 m2", history))
+        self.assertEqual(area_correction("mejor 80", history), "80")
+
+    def test_two_area_corrections_still_reach_the_colour(self):
+        self.turns(*self.paver_menu())
+        for area in ("80", "100"):
+            reply = self.zero.converse_result("losetaschile", area, history=self.history())["reply"]
+            self.turns(("lead", area), ("agent", reply))
+        result = self.zero.converse_result("losetaschile", "2", history=self.history())
+        self.assertEqual(result.get("customer_poll"), "color")
 
 
 if __name__ == "__main__":
