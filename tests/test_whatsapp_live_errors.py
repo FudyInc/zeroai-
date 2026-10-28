@@ -7,7 +7,8 @@ from unittest import mock
 from zero.agents import build_agents
 from zero.crm import CRM
 from zero.losetas_polls import (COLOR_POLL_OPTIONS, COLOR_POLL_QUESTION,
-                                DELIVERY_POLL_FACTORY_PICKUP, invalid_choice)
+                                CHOICE_SLIP_MARK, DELIVERY_POLL_FACTORY_PICKUP,
+                                invalid_choice)
 from zero.memory import SessionMemory
 from zero.orchestrator import Zero
 
@@ -36,13 +37,43 @@ class LiveErrorsTest(unittest.TestCase):
     def sent(self):
         return [c.args[3]["body"] for c in self.zero._deliver.call_args_list]
 
-    def test_number_outside_the_colour_list_asks_the_same_question(self):
+    def test_number_outside_the_colour_list_asks_for_a_valid_option(self):
         self.turns(("lead", "Pastelones"),
                    ("agent", f"Te comparto la gama de colores. {COLOR_POLL_QUESTION}"))
         result = self.zero.converse_result(
             "losetaschile", "8", history=self.memory.get_conversation("losetaschile", "56933333333"))
-        self.assertEqual(result.get("customer_poll"), "color")
-        self.assertIn("no está en la lista", result["reply"])
+        self.assertIn(CHOICE_SLIP_MARK, result["reply"])
+        self.assertIn(f"del 1 al {len(COLOR_POLL_OPTIONS)}", result["reply"])
+        self.assertNotIn(COLOR_POLL_QUESTION, result["reply"])
+        self.assertIsNone(result.get("customer_poll"))
+
+    def test_slip_notice_reads_keycaps_and_short_lists_plainly(self):
+        from zero.losetas_polls import choice_slip_reply
+        history = [{"role": "agent", "text": COLOR_POLL_QUESTION}]
+        self.assertEqual(invalid_choice("9️⃣", history), "color")
+        self.assertIsNone(invalid_choice("6️⃣", history))
+        self.assertEqual(choice_slip_reply("9️⃣", "color"),
+                         f"El 9 {CHOICE_SLIP_MARK}. Elige un número del 1 al 7.")
+        self.assertTrue(choice_slip_reply("5", "product").endswith("Elige 1 o 2."))
+
+    def test_after_a_slip_the_next_valid_number_answers_the_open_question(self):
+        sent = []
+        self.zero._deliver.side_effect = lambda *a, **k: (
+            sent.append(a[3]["body"]) or {"status": "sent", "via": "whatsapp_web"})
+        with mock.patch("zero.whatsapp_web.send_catalog_document", return_value={"id": "d"}), \
+             mock.patch("zero.whatsapp_web.send_catalog_image", return_value={"id": "i"}), \
+             mock.patch.object(self.zero, "dispatch", side_effect=AssertionError("LLM")):
+            for text in ("Hola", "2", "20", "1"):
+                self.inbound(text)
+            sent.clear()
+            self.inbound("9")
+            self.assertEqual(len(sent), 1)
+            self.assertIn(CHOICE_SLIP_MARK, sent[0])
+            self.assertNotIn("¿", sent[0])
+            sent.clear()
+            self.inbound("6")
+        self.assertIn("color gris", sent[0])
+        self.assertIn("recibir tu pedido", sent[0])
 
     def test_invalid_choice_only_for_bare_numbers_outside_the_open_list(self):
         history = [{"role": "agent", "text": COLOR_POLL_QUESTION}]

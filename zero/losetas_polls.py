@@ -64,7 +64,14 @@ def numbered_choices(key: str, reply: str = "") -> str:
 
 _plain = plain
 
-_KEYCAPS = {"1️⃣": "1", "2️⃣": "2", "3️⃣": "3", "4️⃣": "4", "5️⃣": "5", "6️⃣": "6", "7️⃣": "7"}
+_KEYCAP_RE = re.compile("([0-9])\ufe0f?\u20e3")
+
+
+def _without_keycaps(message: str) -> str:
+    """«9️⃣» as «9»: every keycap digit, not only the ones a list offers."""
+    return _KEYCAP_RE.sub(r"\1", (message or "").strip())
+
+
 _ORDINALS = {"uno": 1, "una": 1, "primero": 1, "primera": 1, "dos": 2, "segundo": 2,
              "segunda": 2, "tres": 3, "tercero": 3, "tercera": 3, "cuatro": 4, "cuarto": 4,
              "cuarta": 4, "cinco": 5, "quinto": 5, "quinta": 5, "seis": 6, "sexto": 6,
@@ -143,9 +150,7 @@ def canonical_choice(message: str, history: list[dict[str, Any]]) -> str | None:
     Only an answer to the latest agent prompt counts: a later agent message
     closes the question, as with poll votes.
     """
-    value = (message or "").strip()
-    for keycap, digit in _KEYCAPS.items():
-        value = value.replace(keycap, digit)
+    value = _without_keycaps(message)
     answered = set()
     for turn in reversed(history):
         if turn.get("role") != "agent":
@@ -178,9 +183,7 @@ def invalid_choice(message: str, history: list[dict[str, Any]]) -> str | None:
     «8» to a seven-colour list went to the model, which improvised a reply that
     then hid the question from every later step (seen live 2026-10-27).
     """
-    value = (message or "").strip()
-    for keycap, digit in _KEYCAPS.items():
-        value = value.replace(keycap, digit)
+    value = _without_keycaps(message)
     # One digit only: «20» or «14» is more likely m² or a quantity than a menu slip.
     if not re.fullmatch(r"\d", value):
         return None
@@ -197,6 +200,29 @@ def invalid_choice(message: str, history: list[dict[str, Any]]) -> str | None:
                 return None if 1 <= int(value) <= len(options) else key
         return None
     return None
+
+
+CHOICE_SLIP_MARK = "no está entre las opciones"
+
+
+def choice_slip_reply(message: str, key: str) -> str:
+    """Ask for a valid option without repeating the whole question."""
+    count = len(CHOICE_PROMPTS[key][1])
+    valid = "1 o 2" if count == 2 else f"un número del 1 al {count}"
+    return f"El {_without_keycaps(message)} {CHOICE_SLIP_MARK}. Elige {valid}."
+
+
+def without_choice_slips(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """History as the steps read it: a wrong number and our «choose a valid
+    option» notice are dropped, so the original question stays the open one."""
+    out: list[dict[str, Any]] = []
+    for turn in history:
+        if turn.get("role") == "agent" and CHOICE_SLIP_MARK in str(turn.get("text") or ""):
+            while out and out[-1].get("role") != "agent":
+                out.pop()  # the slip itself (and anything sent alongside it)
+            continue
+        out.append(turn)
+    return out
 
 
 def _previous_poll(message: str, history: list[dict[str, Any]]) -> str | None:

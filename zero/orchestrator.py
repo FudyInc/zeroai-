@@ -61,7 +61,8 @@ from .losetas_polls import (DELIVERY_POLL_QUESTION as LOSETAS_DELIVERY_POLL_QUES
                             direct_product_category, selected_category_from_history,
                             is_factory_pickup, FACTORY_ADDRESS, FACTORY_MAP_URL,
                             paver_order_details, canonical_choice, numbered_choices,
-                            customer_defers, invalid_choice,
+                            customer_defers, invalid_choice, choice_slip_reply,
+                            without_choice_slips,
                             BORDER_MODEL_QUESTION, POOL_SHAPE_QUESTION,
                             PAVER_AREA_QUESTION, PAVER_MODEL_QUESTION,
                             WHATSAPP_WEB_POLL_KEYS)
@@ -1212,6 +1213,7 @@ class Zero:
                 client_id, lead["key"], limit=None if local_whatsapp else 12)
         order_history = history or []
         if client_id == "losetaschile" and channel == "whatsapp":
+            order_history = without_choice_slips(order_history)
             # Typos fixed and loose sizes rewritten before any step reads it.
             message = normalize_customer_text(message)
             if customer_defers(message) and any(
@@ -1225,9 +1227,9 @@ class Zero:
             if chosen:
                 message = chosen
             elif stray:
-                # Same question again, never a model guess about what «8» meant.
-                return {"reply": "Ese número no está en la lista.",
-                        "intent": "qualification", "customer_poll": stray}
+                # Ask for a valid option; never a model guess about what «8» meant.
+                return {"reply": choice_slip_reply(message, stray),
+                        "intent": "qualification", "flow_step": True}
             else:
                 learned = learned_answer(self.memory, client_id, message)
                 if learned:
@@ -1719,7 +1721,8 @@ class Zero:
             # later steps read the order back from the conversation.
             text = normalize_customer_text(text)
             text = learned_alias(self.memory, client_id, text) or text
-            text = canonical_choice(text, self.memory.get_conversation(client_id, key)) or text
+            text = canonical_choice(text, without_choice_slips(
+                self.memory.get_conversation(client_id, key))) or text
         if name_from_profile and channel == "whatsapp":
             display_names = self.memory.clients.setdefault(client_id, {}).setdefault(
                 "whatsapp_display_names", {})
