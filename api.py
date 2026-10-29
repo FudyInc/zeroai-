@@ -12,12 +12,13 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import os
 import subprocess
 import threading
 import time
 import urllib.parse
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -846,6 +847,40 @@ def campaigns(client: str):
             "source": source, "error": error,
         },
     }
+
+
+@app.get("/api/campaigns/ads")
+def campaign_ads(request: Request, client: str, since: Optional[str] = None):
+    """Anuncios ya pagados del cliente: post/creatividad + métricas reales (solo lectura).
+
+    Sin cuenta, sin token o con error de Graph responde 200 con source="unavailable",
+    items=[] y el motivo — nunca anuncios de mock."""
+    from zero.metaads import client_token, make_metaads, today_chile
+    _require_client(request, client)
+    if since is not None:
+        try:
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", since) or date.fromisoformat(since) > today_chile():
+                raise ValueError
+        except ValueError:
+            raise HTTPException(status_code=400, detail="since debe ser una fecha YYYY-MM-DD no futura")
+    cfg = _client_meta_cfg(client)
+
+    def unavailable(reason: str) -> dict:
+        return {"client": client, "source": "unavailable", "reason": reason,
+                "currency": "CLP", "items": []}
+
+    if not cfg.get("ad_account"):
+        return unavailable("Este cliente no tiene cuenta publicitaria de Meta asignada")
+    if not client_token(client):
+        return unavailable("Meta no conectado para este cliente (falta su token)")
+    src = make_metaads(cfg, client_id=client)
+    if not getattr(src, "live", False):
+        return unavailable("Meta no conectado para este cliente")
+    try:
+        items = src.ads(client, cfg, since=since)
+    except Exception as e:   # token inválido, cuenta sin acceso, moneda no CLP, red...
+        return unavailable(str(e)[:300])
+    return {"client": client, "source": "live", "reason": None, "currency": "CLP", "items": items}
 
 
 @app.post("/api/campaigns/sync-leads")

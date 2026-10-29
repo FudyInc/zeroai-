@@ -11,6 +11,7 @@ import json
 import os
 import unittest
 import urllib.error
+import urllib.parse
 from unittest import mock
 
 from zero import metaads
@@ -320,3 +321,133 @@ class MetaAccountsCheckTest(unittest.TestCase):
                           spend=mock.Mock(side_effect=ValueError("raro")))
         self.assertFalse(out["check"]["ready"])
         self.assertIn("raro", out["check"]["error"])
+
+
+_AD_INSIGHTS = json.dumps({"data": [
+    {"ad_id": "11", "ad_name": "Post A", "campaign_id": "1", "campaign_name": "Camp A",
+     "spend": "12000", "impressions": "4000", "reach": "3000", "clicks": "80", "ctr": "2.0",
+     "account_currency": "CLP", "actions": [{"action_type": "lead", "value": "4"}]},
+    {"ad_id": "12", "ad_name": "Post B", "campaign_id": "1", "campaign_name": "Camp A",
+     "spend": "5000", "impressions": "900", "reach": "800", "clicks": "9", "ctr": "1.0",
+     "account_currency": "CLP", "actions": []},
+    {"ad_id": "13", "ad_name": "Sin gasto", "spend": "0", "account_currency": "CLP"},
+]})
+_ADS = json.dumps({"data": [
+    {"id": "11", "name": "Post A", "campaign_id": "1", "campaign": {"name": "Camp A"},
+     "effective_status": "ACTIVE",
+     "creative": {"title": "Pisos para piscina", "body": "Cotiza hoy", "image_url": "https://img/a.jpg",
+                  "thumbnail_url": "https://img/a_t.jpg", "call_to_action_type": "LEARN_MORE",
+                  "effective_object_story_id": "page_post11"}},
+]})
+
+
+class MetaAdsAdsTest(unittest.TestCase):
+    """Anuncios pagados: Insights a nivel anuncio unidos con la creatividad de /ads."""
+
+    def _ads(self, *bodies, since=None):
+        with mock.patch("zero.metaads.urllib.request.urlopen",
+                        side_effect=[_resp(b) for b in bodies]) as urlopen:
+            out = metaads.MetaAds("act_1", token="tok").ads("acme", since=since)
+        return out, [c.args[0].full_url for c in urlopen.call_args_list]
+
+    def test_une_insights_con_creatividad_por_ad_id(self):
+        out, _urls = self._ads(_AD_INSIGHTS, _ADS)
+        a = out[0]
+        self.assertEqual((a["ad_id"], a["status"], a["post_id"]), ("11", "active", "page_post11"))
+        self.assertEqual(a["creative"], {"title": "Pisos para piscina", "body": "Cotiza hoy",
+                                         "image_url": "https://img/a.jpg",
+                                         "thumbnail_url": "https://img/a_t.jpg",
+                                         "call_to_action": "LEARN_MORE"})
+        self.assertEqual((a["spend"], a["impressions"], a["reach"], a["clicks"], a["ctr"],
+                          a["leads"], a["cpl"]), (12000, 4000, 3000, 80, 2.0, 4, 3000))
+        self.assertEqual(set(a), set(metaads.MockMetaAds().ads("acme")[0]))   # mock fiel al contrato
+
+    def test_cpl_none_con_cero_leads_y_anuncio_fuera_de_ads_no_se_pierde(self):
+        out, _urls = self._ads(_AD_INSIGHTS, _ADS)
+        self.assertEqual([a["ad_id"] for a in out], ["11", "12"])     # el de gasto 0 no es pagado
+        b = out[1]
+        self.assertEqual((b["leads"], b["cpl"]), (0, None))
+        self.assertEqual((b["ad_name"], b["campaign_name"], b["status"], b["post_id"]),
+                         ("Post B", "Camp A", None, None))
+        self.assertEqual(set(b["creative"].values()), {None})
+
+    def test_cuenta_en_usd_se_declara(self):
+        usd = json.dumps({"data": [{"ad_id": "11", "spend": "50", "account_currency": "USD"}]})
+        with mock.patch("zero.metaads.urllib.request.urlopen", side_effect=[_resp(usd)]):
+            with self.assertRaisesRegex(RuntimeError, "no usa CLP"):
+                metaads.MetaAds("act_1", token="tok").ads("acme")
+
+    def test_since_usa_time_range_y_sin_since_todo_el_historial(self):
+        _out, urls = self._ads(json.dumps({"data": []}))
+        self.assertIn("date_preset=maximum", urls[0])
+        self.assertIn("level=ad", urls[0])
+        _out, urls = self._ads(json.dumps({"data": []}), since="2026-10-01")
+        self.assertIn("time_range=", urls[0])
+        self.assertIn("2026-10-01", urllib.parse.unquote(urls[0]))
+        self.assertEqual(len(urls), 1)                  # sin anuncios pagados no pide /ads
+
+
+    def test_lee_todas_las_paginas_de_insights_y_pide_archivados(self):
+        page1 = json.dumps({"data": [{"ad_id": "11", "spend": "100", "account_currency": "CLP"}],
+                            "paging": {"next": "https://x", "cursors": {"after": "c1"}}})
+        page2 = json.dumps({"data": [{"ad_id": "12", "spend": "300", "account_currency": "CLP"}]})
+        out, urls = self._ads(page1, page2, _ADS)
+        self.assertEqual([a["ad_id"] for a in out], ["12", "11"])      # mayor gasto primero
+        self.assertIn("after=c1", urls[1])
+        self.assertIn("ARCHIVED", urllib.parse.unquote(urls[2]))
+
+    def test_since_formato_raro_es_400(self):
+        import api
+        from fastapi import HTTPException
+        for since in ("20261001", "2026-W40-1", "2999-01-01"):
+            with mock.patch.object(api, "_require_client"), self.assertRaises(HTTPException) as caught:
+                api.campaign_ads(mock.Mock(), "acme", since=since)
+            self.assertEqual(caught.exception.status_code, 400, since)
+
+
+class CampaignAdsEndpointTest(unittest.TestCase):
+    """GET /api/campaigns/ads: nunca mock, y nunca el token de otro cliente."""
+
+    def setUp(self):
+        import api
+        self.api = api
+        patches = [mock.patch.object(api, "_require_client"),
+                   mock.patch.object(api, "_client_meta_cfg", return_value={"ad_account": "act_1"}),
+                   mock.patch.dict(os.environ, {"META_ADS_TOKEN": "global-tok",
+                                                metaads.client_token_key("otro"): "tok-otro",
+                                                metaads.client_token_key("acme"): ""})]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+    def test_sin_token_propio_es_unavailable_sin_items_aunque_otro_cliente_tenga(self):
+        with mock.patch("zero.metaads.urllib.request.urlopen") as urlopen:
+            out = self.api.campaign_ads(mock.Mock(), "acme")
+        urlopen.assert_not_called()
+        self.assertEqual((out["source"], out["items"]), ("unavailable", []))
+        self.assertIn("Meta no conectado", out["reason"])
+
+    def test_usa_el_token_del_cliente_pedido(self):
+        with mock.patch.dict(os.environ, {metaads.client_token_key("acme"): "tok-acme"}), \
+             mock.patch("zero.metaads.urllib.request.urlopen",
+                        side_effect=[_resp(_AD_INSIGHTS), _resp(_ADS)]) as urlopen:
+            out = self.api.campaign_ads(mock.Mock(), "acme")
+        self.assertEqual((out["source"], out["reason"], out["currency"]), ("live", None, "CLP"))
+        self.assertEqual(len(out["items"]), 2)
+        auth = {c.args[0].get_header("Authorization") for c in urlopen.call_args_list}
+        self.assertEqual(auth, {"Bearer tok-acme"})
+
+    def test_error_de_graph_es_unavailable_con_el_motivo(self):
+        err = urllib.error.HTTPError("u", 400, "bad", {}, mock.Mock(read=lambda: json.dumps(
+            {"error": {"message": "Invalid OAuth access token"}}).encode()))
+        with mock.patch.dict(os.environ, {metaads.client_token_key("acme"): "tok-acme"}), \
+             mock.patch("zero.metaads.urllib.request.urlopen", side_effect=err):
+            out = self.api.campaign_ads(mock.Mock(), "acme")
+        self.assertEqual((out["source"], out["items"]), ("unavailable", []))
+        self.assertIn("Invalid OAuth access token", out["reason"])
+
+    def test_sin_cuenta_asignada_es_unavailable(self):
+        with mock.patch.object(self.api, "_client_meta_cfg", return_value={}):
+            out = self.api.campaign_ads(mock.Mock(), "acme")
+        self.assertEqual((out["source"], out["items"]), ("unavailable", []))
+        self.assertIn("cuenta publicitaria", out["reason"])

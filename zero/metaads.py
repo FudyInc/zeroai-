@@ -10,6 +10,12 @@ Marketing API) que se enchufa con credenciales.
 Contrato de una campaña:
   {id, name, objective, status, region, budget_clp, spent_clp, leads, cpl_clp}
 
+Contrato de un anuncio pagado (`ads`):
+  {ad_id, ad_name, campaign_id, campaign_name, status, post_id,
+   creative: {title, body, image_url, thumbnail_url, call_to_action},
+   spend, impressions, reach, clicks, ctr, leads, cpl}
+  `cpl` es None sin leads: nunca se divide por cero ni se inventa un 0.
+
 En HTTP, cada negocio necesita su token y cuenta publicitaria propios.
 """
 from __future__ import annotations
@@ -23,6 +29,7 @@ import urllib.request
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 from ._env import load_env
 from .config import LEAD_ADS_CURSOR_MARGIN_SECONDS
@@ -30,7 +37,8 @@ from .config import LEAD_ADS_CURSOR_MARGIN_SECONDS
 load_env()
 
 # Referencia B2B Chile (CLP) — para contexto/optimización; no es dato real de cuenta.
-CHILE = {"default_region": "Santiago (RM)", "good_cpl_clp": 6000, "currency": "CLP"}
+CHILE = {"default_region": "Santiago (RM)", "good_cpl_clp": 6000, "currency": "CLP",
+         "timezone": "America/Santiago"}
 
 
 class MockMetaAds:
@@ -59,6 +67,27 @@ class MockMetaAds:
                 "name": name, "objective": obj, "status": status, "region": region,
                 "budget_clp": budget, "spent_clp": spent, "leads": leads, "cpl_clp": cpl,
             })
+        return out
+
+    def ads(self, client_id: str, cfg: Optional[Dict[str, Any]] = None,
+            since: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Anuncios pagados deterministas — misma forma que MetaAds.ads. Solo suite."""
+        seed = sum(ord(c) for c in (client_id or "demo"))
+        out: List[Dict[str, Any]] = []
+        for i, camp in enumerate(self.campaigns(client_id, cfg)):
+            spend = camp["spent_clp"]
+            impressions = 1000 + (seed * (i + 3)) % 9000
+            clicks = 10 + (seed + i * 7) % 90
+            leads = camp["leads"]
+            out.append(_ad_item(
+                ad_id=f"mock-ad-{client_id}-{i}", ad_name=f"Anuncio demo {i + 1}",
+                campaign_id=camp["id"], campaign_name=camp["name"], status=camp["status"],
+                post_id=f"mock-page_mock-post-{i}",
+                creative={"title": f"Anuncio demo {i + 1}", "body": "Texto de ejemplo del post",
+                          "image_url": None, "thumbnail_url": None,
+                          "call_to_action": "LEARN_MORE"},
+                spend=spend, impressions=impressions, reach=int(impressions * 0.7),
+                clicks=clicks, ctr=round(clicks / impressions * 100, 2), leads=leads))
         return out
 
     failed_forms: List[Dict[str, str]] = []     # misma forma que MetaAds
@@ -163,6 +192,68 @@ class MetaAds:
                 "created_at": c.get("created_time"),
                 "currency": insight.get("account_currency") or CHILE["currency"],
             })
+        return out
+
+    def ads(self, client_id: str, cfg: Optional[Dict[str, Any]] = None,
+            since: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Anuncios ya pagados de la cuenta, con su post/creatividad y sus métricas.
+
+        Solo lectura. La base son los Insights a nivel anuncio (gasto > 0): así un
+        anuncio archivado que sí gastó no desaparece. La lista de /ads solo aporta
+        estado y creatividad; si un anuncio no aparece ahí, su creatividad va en None.
+        `since` = "YYYY-MM-DD" acota los Insights desde esa fecha hasta hoy; sin
+        `since`, todo el historial (date_preset=maximum).
+        """
+        params: Dict[str, Any] = {
+            "fields": "ad_id,ad_name,campaign_id,campaign_name,spend,impressions,reach,"
+                      "clicks,ctr,actions,account_currency",
+            "level": "ad", "limit": 100,
+        }
+        if since:
+            params["time_range"] = json.dumps({"since": since, "until": today_chile().isoformat()})
+        else:
+            params["date_preset"] = "maximum"
+        insights = _graph_pages(f"{self.account}/insights", self.token, params, strict=True)
+        # Misma regla que campaigns(): los montos se entregan como CLP, así que una
+        # cuenta en otra moneda se declara en vez de convertirse en silencio.
+        currencies = {str(r.get("account_currency")) for r in insights if r.get("account_currency")}
+        if not currencies and insights:
+            currencies = {str(_graph(self.account, self.token, {"fields": "currency"}).get("currency"))}
+        if currencies and currencies != {"CLP"}:
+            raise RuntimeError(_NOT_CLP)
+        paid = [r for r in insights if r.get("ad_id") and _amount(r.get("spend")) > 0]
+        if not paid:
+            return []
+        rows = _graph_pages(f"{self.account}/ads", self.token, {
+            "fields": "id,name,campaign_id,campaign{name},effective_status,"
+                      "creative{title,body,image_url,thumbnail_url,call_to_action_type,"
+                      "effective_object_story_id}",
+            # Sin este filtro Graph omite ARCHIVED/DELETED, justo los que ya gastaron.
+            "filtering": json.dumps([{"field": "effective_status", "operator": "IN",
+                                      "value": _AD_STATUSES}]),
+            "limit": 100,
+        }, strict=True)
+        by_ad = {str(r.get("id")): r for r in rows if r.get("id")}
+        out: List[Dict[str, Any]] = []
+        for ins in paid:
+            ad = by_ad.get(str(ins.get("ad_id"))) or {}
+            creative = ad.get("creative") if isinstance(ad.get("creative"), dict) else {}
+            campaign = ad.get("campaign") if isinstance(ad.get("campaign"), dict) else {}
+            status = ad.get("effective_status")
+            out.append(_ad_item(
+                ad_id=str(ins.get("ad_id")), ad_name=ad.get("name") or ins.get("ad_name"),
+                campaign_id=ad.get("campaign_id") or ins.get("campaign_id"),
+                campaign_name=campaign.get("name") or ins.get("campaign_name"),
+                status=str(status).lower() if status else None,
+                post_id=creative.get("effective_object_story_id"),
+                creative={"title": creative.get("title"), "body": creative.get("body"),
+                          "image_url": creative.get("image_url"),
+                          "thumbnail_url": creative.get("thumbnail_url"),
+                          "call_to_action": creative.get("call_to_action_type")},
+                spend=_amount(ins.get("spend")), impressions=_amount(ins.get("impressions")),
+                reach=_amount(ins.get("reach")), clicks=_amount(ins.get("clicks")),
+                ctr=_ratio(ins.get("ctr")), leads=_lead_count(ins.get("actions"))))
+        out.sort(key=lambda a: a["spend"], reverse=True)
         return out
 
     def daily_spend(self) -> List[Dict[str, Any]]:
@@ -287,6 +378,16 @@ def _parse_graph_time(value: Any) -> Optional[datetime]:
 
 _API = "https://graph.facebook.com/v20.0"
 
+# Todos los effective_status de un anuncio en Graph v20.0 (para no perder archivados).
+_AD_STATUSES = ["ACTIVE", "PAUSED", "DELETED", "PENDING_REVIEW", "DISAPPROVED", "PREAPPROVED",
+                "PENDING_BILLING_INFO", "CAMPAIGN_PAUSED", "ARCHIVED", "ADSET_PAUSED",
+                "IN_PROCESS", "WITH_ISSUES"]
+
+
+def today_chile():
+    """Fecha de hoy en Chile: el `until` de Insights no depende de la zona del servidor."""
+    return datetime.now(ZoneInfo(CHILE["timezone"])).date()
+
 # Campos de contacto estándar de un formulario; cualquier otro es una pregunta propia.
 _CONTACT_FIELDS = frozenset({"full_name", "first_name", "last_name", "email", "phone_number",
                              "company_name", "job_title"})
@@ -304,6 +405,24 @@ def _amount(value: Any) -> int:
         return int(Decimal(str(value or 0)).quantize(Decimal("1")))
     except (InvalidOperation, ValueError):
         return 0
+
+
+def _ratio(value: Any) -> Optional[float]:
+    """CTR de Graph ("1.2345", en %) -> float; None si no viene (no se inventa 0)."""
+    try:
+        return round(float(Decimal(str(value))), 4) if value not in (None, "") else None
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _ad_item(*, ad_id, ad_name, campaign_id, campaign_name, status, post_id, creative,
+             spend: int, impressions: int, reach: int, clicks: int, ctr, leads: int) -> Dict[str, Any]:
+    """Un anuncio pagado con la forma del contrato; real y mock pasan por aquí."""
+    return {"ad_id": ad_id, "ad_name": ad_name, "campaign_id": campaign_id,
+            "campaign_name": campaign_name, "status": status, "post_id": post_id,
+            "creative": creative, "spend": spend, "impressions": impressions, "reach": reach,
+            "clicks": clicks, "ctr": ctr, "leads": leads,
+            "cpl": round(spend / leads) if leads else None}
 
 
 def _lead_count(actions: Any) -> int:
@@ -353,10 +472,10 @@ def _graph_pages(path: str, token: str, params: Dict[str, Any], max_pages: int =
         items = data.get("data")
         if not isinstance(items, list):
             if strict:
-                raise RuntimeError("Meta devolvió una lista de formularios/leads inválida")
+                raise RuntimeError("Meta devolvió una lista inválida")
             return out
         if strict and any(not isinstance(x, dict) for x in items):
-            raise RuntimeError("Meta devolvió un formulario/lead con forma inválida")
+            raise RuntimeError("Meta devolvió un elemento con forma inválida")
         out.extend(x for x in items if isinstance(x, dict))
         paging = data.get("paging") or {}
         if not isinstance(paging, dict):

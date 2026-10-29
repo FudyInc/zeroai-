@@ -227,6 +227,15 @@ class ApiHttpTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(body["ok"])
 
+    def test_campaign_ads_sin_meta_es_unavailable_sin_items(self):
+        status, body = self._get("/api/campaigns/ads?client=acme")
+        self.assertEqual(status, 200)
+        self.assertEqual((body["source"], body["items"], body["currency"]), ("unavailable", [], "CLP"))
+        self.assertTrue(body["reason"])
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self._get("/api/campaigns/ads?client=acme&since=ayer")
+        self.assertEqual(caught.exception.code, 400)
+
     def test_pooledge_direct_quote_requires_shipping_review(self):
         request = urllib.request.Request(
             f"{self.base}/api/quote",
