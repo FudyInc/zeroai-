@@ -11,6 +11,7 @@ import { useApp } from '../App'
 import { NoClient } from './Dashboard'
 import { rise, fade, surface, stagger, staggerDense } from '../lib/motion'
 import { WorkspaceHero, WorkspaceSectionHeading } from '../components/WorkspaceHero'
+import { PaidAdsPanel } from '../components/PaidAdsPanel'
 
 const FILTERS = [
   { value: 'todas', label: 'Todas' },
@@ -181,9 +182,11 @@ export default function Campanas() {
         </motion.div>
       </section>
 
+      <PaidAdsPanel client={client} eyebrow="02 / Anuncios" />
+
       {hasTrend && (
         <section className="workspace-section">
-          <WorkspaceSectionHeading eyebrow="02 / Evolución" title="Tendencias"
+          <WorkspaceSectionHeading eyebrow="03 / Evolución" title="Tendencias"
             description="Gasto diario y distribución de leads por objetivo." />
           <motion.div className="grid grid-cols-1 lg:grid-cols-3 gap-4" variants={stagger()} initial="hidden" animate="show">
             <motion.div className="lg:col-span-2" variants={surface}>
@@ -238,7 +241,7 @@ export default function Campanas() {
       )}
 
       <section className="workspace-section">
-        <WorkspaceSectionHeading eyebrow={hasTrend ? '03 / Detalle' : '02 / Detalle'} title="Campañas registradas"
+        <WorkspaceSectionHeading eyebrow={hasTrend ? '04 / Detalle' : '03 / Detalle'} title="Campañas registradas"
           description="Estado, presupuesto y resultados de cada campaña.">
           {campaigns.length > 0 && <Segmented options={FILTERS} value={filter} onChange={setFilter} />}
         </WorkspaceSectionHeading>

@@ -77,6 +77,8 @@ export const api = {
   icp: (c) => req('/api/icp?client=' + q(c)).then((d) => d.icp),
   campaigns: (c) => req('/api/campaigns?client=' + q(c)),
   optimizeCampaigns: (c) => req('/api/campaigns/optimize?client=' + q(c)),
+  campaignAds: (c) => req('/api/campaigns/ads?client=' + q(c)),
+  suggestAd: (c, id) => req('/api/campaigns/ads/suggest?client=' + q(c) + '&ad_id=' + q(id)),
   syncAdLeads: (c) => req('/api/campaigns/sync-leads?client=' + q(c), { method: 'POST' }),
   instagramStatus: (c) => req('/api/instagram/status?client=' + q(c)),
   setInstagramForms: (c, ids) =>
