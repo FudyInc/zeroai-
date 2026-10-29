@@ -150,6 +150,152 @@ class MediaBuyerContractTest(unittest.TestCase):
         self.assertTrue(resp.result["plan"])
 
 
+class MediaBuyerImproveAdTest(unittest.TestCase):
+    """MEDIABUYER improve_ad: sugiere cómo mejorar UN anuncio pagado, sin inventar cifras."""
+
+    _AD = {"ad_id": "a1", "ad_name": "Losetas verano", "campaign_name": "Leads RM", "status": "ACTIVE",
+           "creative": {"title": "Losetas Chile", "body": "Calidad y buen precio.",
+                        "image_url": "https://x/img.jpg", "call_to_action": "LEARN_MORE"},
+           "spend": 50000, "impressions": 12000, "reach": 9000, "clicks": 60, "ctr": 0.5,
+           "leads": 4, "cpl": 12500}
+
+    def _run(self, ad):
+        m = _agents()["MEDIABUYER"]
+        task = TaskPayload(agent="MEDIABUYER", client_id="acme", client_tier="GROWTH",
+                           instructions="x", data={"action": "improve_ad", "ad": ad,
+                                                   "good_cpl_clp": 6000},
+                           constraints=Constraints())
+        return m.run(task)
+
+    def test_contract_shape(self):
+        resp = self._run(self._AD)
+        self.assertTrue(resp.ok)
+        r = resp.result
+        self.assertTrue(r["diagnostico"])
+        self.assertFalse(r["pocos_datos"])
+        self.assertTrue(r["sugerencias"])
+        for s in r["sugerencias"]:
+            self.assertIn(s["campo"], ("title", "body", "call_to_action", "imagen"))
+            for k in ("actual", "propuesta", "por_que"):
+                self.assertIsInstance(s[k], str)
+            self.assertTrue(s["propuesta"] and s["por_que"])
+        # `actual` es la creatividad real del anuncio, no lo que diga el modelo.
+        por_campo = {s["campo"]: s["actual"] for s in r["sugerencias"]}
+        self.assertEqual(por_campo.get("title"), "Losetas Chile")
+        self.assertEqual(por_campo.get("imagen"), "https://x/img.jpg")
+        nombres = {m["metrica"] for m in r["metricas_usadas"]}
+        self.assertTrue({"ctr", "cpl"} <= nombres)
+
+    def test_deterministic(self):
+        self.assertEqual(self._run(self._AD).result, self._run(self._AD).result)
+
+    def test_few_impressions_says_so(self):
+        ad = dict(self._AD, impressions=400)
+        r = self._run(ad).result
+        self.assertTrue(r["pocos_datos"])
+        self.assertIn("pocos datos para concluir", r["diagnostico"].lower())
+
+    def test_missing_impressions_counts_as_few(self):
+        ad = {k: v for k, v in self._AD.items() if k != "impressions"}
+        self.assertTrue(self._run(ad).result["pocos_datos"])
+
+    def test_no_figures_absent_from_item(self):
+        from zero.agents.mediabuyer import cifras_ajenas, _contexto_ad
+        for ad in (self._AD, dict(self._AD, impressions=300), dict(self._AD, leads=0, cpl=None),
+                   dict(self._AD, ctr=2.4, cpl=3000)):
+            task = TaskPayload(agent="MEDIABUYER", client_id="acme", client_tier="", instructions="x",
+                               data={"action": "improve_ad", "ad": ad, "good_cpl_clp": 6000})
+            r = _agents()["MEDIABUYER"].run(task).result
+            self.assertEqual(cifras_ajenas(r, ad, _contexto_ad(task)), [], ad)
+
+    def test_validator_catches_invented_figures(self):
+        from zero.agents.mediabuyer import cifras_ajenas, _contexto_ad
+        task = TaskPayload(agent="MEDIABUYER", client_id="acme", client_tier="", instructions="x",
+                           data={"action": "improve_ad", "ad": self._AD, "good_cpl_clp": 6000})
+        r = {"diagnostico": "CPL $12.500 sobre $6.000 y CTR 0,5%.",
+             "sugerencias": [{"campo": "body", "actual": "", "propuesta": "Ofrece 20% de descuento",
+                              "por_que": "Subiría el CTR a 1,8%"}]}
+        self.assertEqual(cifras_ajenas(r, self._AD, _contexto_ad(task)), ["20", "1,8"])
+
+    def _ajenas(self, ad, texto):
+        from zero.agents.mediabuyer import cifras_ajenas, _contexto_ad
+        task = TaskPayload(agent="MEDIABUYER", client_id="acme", client_tier="", instructions="x",
+                           data={"action": "improve_ad", "ad": ad, "good_cpl_clp": 6000})
+        return cifras_ajenas({"diagnostico": texto, "sugerencias": []}, ad, _contexto_ad(task))
+
+    def test_validator_does_not_read_ctr_times_100_as_allowed(self):
+        # Con CTR 0.5, «50» no puede pasar por «el CTR en otra escala».
+        self.assertEqual(self._ajenas(self._AD, "Ofrece 50% de descuento"), ["50"])
+
+    def test_validator_is_strict_on_small_values(self):
+        self.assertEqual(self._ajenas(self._AD, "CTR 0,55%"), ["0,55"])
+        self.assertEqual(self._ajenas(dict(self._AD, ctr=0.534), "CTR 0,53% (0,5%)"), [])
+
+    def test_validator_reads_chilean_formats(self):
+        ad = dict(self._AD, cpl=12500.5, spend=1234567)
+        self.assertEqual(self._ajenas(ad, "CPL $12.500,5 · gasto $1.234.567 · objetivo $6.000"), [])
+
+    def test_validator_allows_numbers_in_the_ad_name(self):
+        self.assertEqual(self._ajenas(dict(self._AD, ad_name="Verano 2025"), "«Verano 2025»"), [])
+
+    def test_ctr_as_fraction_is_detected_and_cited_as_percent(self):
+        ad = dict(self._AD, ctr=0.005)   # 60 / 12000 = 0.5 %
+        r = self._run(ad).result
+        self.assertIn("0,5%", " ".join(s["por_que"] for s in r["sugerencias"]))
+        self.assertEqual(self._ajenas(ad, "CTR 0,5%"), [])
+
+    def test_every_por_que_cites_a_metric_even_if_the_model_did_not(self):
+        class Vago:
+            def complete(self, system, user, model):
+                return '{"diagnostico": "CTR bajo", "sugerencias": [' \
+                       '{"campo": "title", "propuesta": "Nuevo", "por_que": "No llama la atención."},' \
+                       '{"campo": "body", "propuesta": "Nuevo", "por_que": "No convierte."}]}'
+        m = build_agents(backend=Vago())["MEDIABUYER"]
+        r = m.run(TaskPayload(agent="MEDIABUYER", client_id="acme", client_tier="", instructions="x",
+                              data={"action": "improve_ad", "ad": self._AD, "good_cpl_clp": 6000})).result
+        por_que = {s["campo"]: s["por_que"] for s in r["sugerencias"]}
+        self.assertIn("CTR 0,5%", por_que["title"])
+        self.assertIn("CPL $12.500 vs objetivo de $6.000", por_que["body"])
+        self.assertEqual({x["metrica"] for x in r["metricas_usadas"]}, {"ctr", "cpl"})
+
+    def test_signals_reach_the_model(self):
+        seen = {}
+
+        class Spy:
+            def complete(self, system, user, model):
+                seen["user"] = user
+                return '{"diagnostico": "ok", "sugerencias": []}'
+        m = build_agents(backend=Spy())["MEDIABUYER"]
+        m.run(TaskPayload(agent="MEDIABUYER", client_id="acme", client_tier="", instructions="x",
+                          data={"action": "improve_ad", "ad": self._AD, "good_cpl_clp": 6000}))
+        self.assertIn('"ctr_bajo": true', seen["user"])
+        self.assertIn('"cpl_sobre_objetivo": true', seen["user"])
+
+    def test_real_path_rejects_invented_figures_instead_of_showing_them(self):
+        class Fake:
+            def complete(self, system, user, model):
+                return '{"diagnostico": "CTR 0.5%", "sugerencias": [{"campo": "title", ' \
+                       '"propuesta": "Ahorra 30%", "por_que": "CTR 0.5%"}]}'
+        m = build_agents(backend=Fake())["MEDIABUYER"]
+        resp = m.run(TaskPayload(agent="MEDIABUYER", client_id="acme", client_tier="",
+                                 instructions="x", data={"action": "improve_ad", "ad": self._AD,
+                                                         "good_cpl_clp": 6000}))
+        self.assertEqual(resp.status, "error")
+        self.assertIn("30", resp.notes)
+
+    def test_helper_raises_on_engine_error(self):
+        from zero.agents.mediabuyer import improve_ad
+
+        class Down:
+            def complete(self, *a, **k):
+                raise ConnectionError("ollama caído")
+        from zero.memory import SessionMemory
+        from zero.orchestrator import Zero
+        z = Zero(build_agents(backend=Down()), memory=SessionMemory())
+        with self.assertRaises(RuntimeError):
+            improve_ad(z, self._AD, 6000, "acme")
+
+
 class OutreachContractTest(unittest.TestCase):
     """OUTREACH: one first-touch message per lead, channel within the allowed set."""
 

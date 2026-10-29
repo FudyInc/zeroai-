@@ -425,6 +425,14 @@ def min_icp_score(tier: Optional[str]) -> int:
     validate_lead sin tier)."""
     return MIN_ICP_SCORE_BY_TIER.get(tier or "", MIN_ICP_SCORE)
 
+# --- MEDIABUYER · mejorar un anuncio pagado (2026-10-28) ---------------------
+# Bajo este número de impresiones las métricas de un anuncio son ruido: MEDIABUYER
+# igual sugiere, pero el diagnóstico dice "pocos datos para concluir".
+MEDIABUYER_MIN_IMPRESSIONS = 1000
+# CTR (en %, como lo entrega Meta) bajo el cual el problema es que el anuncio no
+# llama la atención —título/imagen—, no lo que pasa después del clic.
+MEDIABUYER_LOW_CTR_PCT = 1.0
+
 # --- Follow-up cadence (TRACKER) ---------------------------------------------
 # After OUTREACH sends the first touch (step 0), TRACKER advances a lead through
 # these steps. `day` is the offset from the first touch; the sequence closes
