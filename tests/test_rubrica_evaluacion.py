@@ -106,6 +106,49 @@ class HandoffIndebido(unittest.TestCase):
         self.assertEqual(rubrica.handoff_indebido("Catalogo", {"manual_review": False}), [])
 
 
+class NoEntendio(unittest.TestCase):
+    ESPERADO = {"entiende": "pregunta",
+                "chequeos": {"debe": [r"(?i)ballena"], "no_debe": [r"(?i)datos de entrega"],
+                             "handoff": False}}
+
+    def test_responder_lo_que_se_pregunto_no_deja_hallazgo(self):
+        self.assertEqual(rubrica.no_entendio(
+            self.ESPERADO, {"reply": "Tenemos borde recto con nariz y borde ballena."}), [])
+
+    def test_responder_otra_cosa_es_no_entender(self):
+        # El caso real: «que modelos hay?» contestado como datos de entrega.
+        hallazgos = rubrica.no_entendio(
+            self.ESPERADO, {"reply": "Gracias, recibí los datos de entrega."})
+        self.assertEqual(len(hallazgos), 2)
+
+    def test_derivar_cuando_no_correspondia(self):
+        hallazgos = rubrica.no_entendio(
+            self.ESPERADO, {"reply": "Hay borde ballena.", "manual_review": True})
+        self.assertEqual(hallazgos, ["derivó a revisión sin que correspondiera"])
+
+    def test_no_derivar_cuando_pedían_una_persona(self):
+        esperado = {"entiende": "pide_humano", "chequeos": {"handoff": True}}
+        self.assertEqual(rubrica.no_entendio(esperado, {"reply": "Hola"}),
+                         ["no derivó a una persona y correspondía"])
+
+    def test_quedarse_callado_es_no_entender(self):
+        esperado = {"entiende": "rechaza", "chequeos": {"no_debe": [r"(?i)elige"]}}
+        self.assertEqual(rubrica.no_entendio(esperado, {"reply": ""}), ["no respondió"])
+
+    def test_ante_spam_el_silencio_vale(self):
+        esperado = {"entiende": "spam", "chequeos": {"handoff": False, "silencio_ok": True}}
+        self.assertEqual(rubrica.no_entendio(esperado, {"reply": ""}), [])
+
+    def test_sin_anotacion_no_se_adivina(self):
+        self.assertEqual(rubrica.no_entendio(None, {"reply": "lo que sea"}), [])
+
+    def test_evaluar_la_incluye(self):
+        caso = {"id": "x", "mensaje": "que modelos hay?", "historial": [],
+                "esperado": self.ESPERADO}
+        salida = rubrica.evaluar(caso, {"reply": "Gracias, recibí los datos de entrega."})
+        self.assertIn("no_entendio", salida["hallazgos"])
+
+
 class Evaluar(unittest.TestCase):
     def test_un_turno_limpio_no_deja_hallazgos(self):
         caso = {"id": "x-1", "mensaje": "¿Tienen bordes?", "historial": []}

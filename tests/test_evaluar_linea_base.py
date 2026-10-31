@@ -5,7 +5,9 @@ modelo, y resumir una corrida. Son las dos que, si se equivocan, hacen que el
 informe mienta — y el informe es todo el entregable de esta etapa.
 
 El arnés en sí no se prueba acá: necesita modelo y GPU. Lo que sí se garantiza
-es que no pueda enviar nada, porque reemplaza `_deliver` antes de correr.
+es que no pueda enviar nada: reemplaza `_deliver`, simula el puente de WhatsApp
+Web y bloquea toda salida de red que no vaya al motor local —socket y SMTP
+incluidos, no solo `urlopen`—.
 """
 import importlib.util
 import unittest
@@ -51,6 +53,59 @@ def _fila(tokens, latencia, limpio=True, handoff=False, error="", familia=None):
     }
 
 
+def _expectativas(test, casos):
+    import json, os, tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        json.dump({"casos": casos}, f)
+    test.addCleanup(os.unlink, f.name)
+    return f.name
+
+
+class Expectativas(unittest.TestCase):
+    CASO = {"id": "c-569123456-001", "mensaje": "que modelos hay?",
+            "historial": [{"role": "agent", "text": "¿Medidas?"}]}
+
+    def test_se_pegan_por_huella_y_no_por_id(self):
+        ruta = _expectativas(self, {arnes.huella(self.CASO): {"entiende": "pregunta"}})
+        otro = {**self.CASO, "mensaje": "hola"}
+        casos = arnes.con_expectativas([self.CASO, otro], ruta)
+        self.assertEqual(casos[0]["esperado"]["entiende"], "pregunta")
+        self.assertNotIn("esperado", casos[1])
+
+    def test_la_huella_cambia_si_cambia_lo_que_se_le_dijo(self):
+        # Si la ventana de memoria corre el historial, la anotación no se
+        # pega a otro mensaje: queda huérfana y se avisa.
+        movido = {**self.CASO, "historial": [{"role": "agent", "text": "¿Color?"}]}
+        self.assertNotEqual(arnes.huella(self.CASO), arnes.huella(movido))
+
+    def test_la_huella_no_lleva_el_telefono(self):
+        self.assertNotIn("123456", arnes.huella(self.CASO))
+
+    def test_una_anotacion_huerfana_se_avisa(self):
+        import contextlib, io
+        ruta = _expectativas(self, {"000000000000": {"entiende": "saludo"}})
+        error = io.StringIO()
+        with contextlib.redirect_stderr(error):
+            arnes.con_expectativas([self.CASO], ruta)
+        self.assertIn("1 anotaciones sin caso", error.getvalue())
+
+    def test_un_patron_invalido_falla_al_cargar(self):
+        ruta = _expectativas(self, {"x": {"chequeos": {"debe": ["(?i)abre("]}}})
+        with self.assertRaises(ValueError):
+            arnes.con_expectativas([self.CASO], ruta)
+
+    def test_el_archivo_versionado_compila_entero(self):
+        ruta = REPO / "docs" / "evaluacion" / "expectativas-whatsapp.json"
+        import json
+        anotados = json.loads(ruta.read_text(encoding="utf-8"))["casos"]
+        self.assertGreater(len(anotados), 0)
+        import re
+        for clave, esperado in anotados.items():
+            self.assertRegex(clave, r"^[0-9a-f]{12}$")
+            for patron in esperado["chequeos"].get("debe", []) + esperado["chequeos"].get("no_debe", []):
+                re.compile(patron)
+
+
 class Resumen(unittest.TestCase):
     def test_cuenta_limpios_errores_y_handoff(self):
         filas = [_fila(1000, 1.0), _fila(2000, 2.0, limpio=False, familia="cifras_inventadas"),
@@ -60,6 +115,19 @@ class Resumen(unittest.TestCase):
         self.assertEqual(r["errores"], 1)
         self.assertEqual(r["handoff"], 1)
         self.assertEqual(r["hallazgos_por_familia"], {"cifras_inventadas": 1})
+
+    def test_cuenta_los_anotados_y_los_entendidos(self):
+        bien = {**_fila(100, 1.0), "entiende": "saludo"}
+        mal = {**_fila(100, 1.0, limpio=False, familia="no_entendio"), "entiende": "pregunta"}
+        r = arnes.resumir([bien, mal, _fila(100, 1.0)], 4096, 0)
+        self.assertEqual((r["anotados"], r["entendidos"]), (2, 1))
+
+    def test_un_turno_caido_no_cuenta_como_no_entendido(self):
+        caida = {**_fila(0, 1.0, limpio=False, error="boom", familia="no_entendio"),
+                 "entiende": "saludo"}
+        r = arnes.resumir([caida], 4096, 0)
+        self.assertEqual(r["hallazgos_por_familia"], {})
+        self.assertEqual((r["anotados"], r["entendidos"]), (0, 0))
 
     def test_un_turno_con_error_no_cuenta_como_limpio(self):
         r = arnes.resumir([_fila(0, 1.0, error="boom")], 4096, 0)
@@ -107,6 +175,99 @@ class NoEnvia(unittest.TestCase):
         self.assertNotIn("FallbackBackend(", fuente)
         self.assertNotIn("AnthropicBackend", fuente)
         self.assertNotIn("OpenAIBackend", fuente)
+
+
+class SinSalidaAlMundo(unittest.TestCase):
+    """El 2026-10-30 el arnés publicó borradores de prueba en el grupo de
+    revisión real: el borrador sale por el puente, no por `_deliver`."""
+
+    def test_la_red_solo_deja_pasar_al_motor(self):
+        llamadas = []
+        red = arnes.RedSoloMotor("http://localhost:11434/v1",
+                                 original=lambda req, *a, **k: llamadas.append(req) or "ok")
+        self.assertEqual(red("http://localhost:11434/v1/chat/completions"), "ok")
+        for url in ("http://127.0.0.1:8810/send-group",          # el puente: mismo host, otro puerto
+                    "https://graph.facebook.com/v20.0/x/messages",
+                    "https://abc.supabase.co/rest/v1/clients"):
+            with self.assertRaises(arnes.urllib.error.URLError):
+                red(arnes.urllib.request.Request(url, data=b"{}"))
+        self.assertEqual(len(llamadas), 1)
+        self.assertEqual(len(red.bloqueados), 3)
+
+    def test_el_puente_simulado_anota_y_no_envia(self):
+        puente = arnes.PuenteSimulado("+56 9 6453 7891")
+        self.assertEqual(puente("/status"), {"state": "ready", "account": "56964537891"})
+        respuesta = puente("/send-group", {"group_id": "g", "text": "borrador"})
+        self.assertEqual(respuesta["ack"], 1)
+        self.assertEqual(puente.enviados, [{"path": "/send-group",
+                                            "body": {"group_id": "g", "text": "borrador"}}])
+
+    def test_aislar_cierra_toda_salida_salvo_el_motor(self):
+        """Se prueba el efecto, no el texto: abre un "motor" de verdad en un puerto
+        local y comprueba qué conecta y qué no, por cada puerta conocida."""
+        import os, smtplib, socket, tempfile
+        from zero import channels, whatsapp_web
+
+        motor = socket.socket()
+        motor.bind(("127.0.0.1", 0))
+        motor.listen(1)
+        puerto = motor.getsockname()[1]
+        self.addCleanup(motor.close)
+        previos = (whatsapp_web.bridge_request, socket.socket.connect, smtplib.SMTP)
+        tmp = Path(tempfile.mkdtemp())
+        os.environ["OUTBOX_LIVE"] = "1"              # como lo trae el .env de producción
+        self.addCleanup(os.environ.pop, "OUTBOX_LIVE", None)
+
+        salidas, restaurar = arnes.aislar(tmp, f"http://127.0.0.1:{puerto}/v1", "56900000001")
+        try:
+            permitido = socket.create_connection(("127.0.0.1", puerto), timeout=2)
+            permitido.close()
+            with self.assertRaises(OSError):         # el puente real: mismo host, otro puerto
+                socket.create_connection(("127.0.0.1", 8810), timeout=2)
+            with self.assertRaises(arnes.urllib.error.URLError):
+                arnes.urllib.request.urlopen("https://graph.facebook.com/v20.0/x")
+            with self.assertRaises(smtplib.SMTPException):   # el aviso al dueño
+                smtplib.SMTP("smtp.gmail.com", 587)
+            self.assertEqual(channels.make_outbox().real, {})   # sin remitentes reales
+            whatsapp_web.bridge_request("/send-group", {"group_id": "g", "text": "borrador"})
+            self.assertEqual(salidas["puente"][0]["path"], "/send-group")
+            self.assertTrue(os.environ["ALERTAS_PATH"].startswith(str(tmp)))
+            self.assertTrue(os.environ["AGENT_TELEMETRY_PATH"].startswith(str(tmp)))
+            self.assertEqual(len(salidas["red"]), 3)
+        finally:
+            restaurar()
+        self.assertEqual((whatsapp_web.bridge_request, socket.socket.connect, smtplib.SMTP),
+                         previos)
+        self.assertEqual(os.environ["OUTBOX_LIVE"], "1")
+        self.assertNotIn("ALERTAS_PATH", os.environ)
+
+
+class LoQueLeyoElCliente(unittest.TestCase):
+    def test_suma_imagen_y_encuesta_enviadas_por_el_puente(self):
+        puente = [
+            {"path": "/send-catalog-image", "body": {"to": "56900000003", "caption": "Te comparto la gama"}},
+            {"path": "/send-poll", "body": {"to": "56900000003", "poll_key": "color"}},
+        ]
+        texto = arnes.lo_que_leyo_el_cliente({"reply": ""}, [], puente, "56900000003")
+        self.assertIn("Te comparto la gama", texto)
+        self.assertIn("¿Qué color prefieres?", texto)
+        self.assertIn("Anaranjado", texto)
+
+    def test_suma_lo_entregado_por_deliver_sin_duplicar(self):
+        deliver = [{"to": "56900000003", "body": "Tu presupuesto está pendiente de revisión"}]
+        texto = arnes.lo_que_leyo_el_cliente(
+            {"reply": "Tu presupuesto está pendiente de revisión"}, deliver, [], "56900000003")
+        self.assertEqual(texto, "Tu presupuesto está pendiente de revisión")
+
+    def test_el_grupo_de_revision_no_cuenta_como_respuesta(self):
+        puente = [{"path": "/send-group", "body": {"group_id": "g", "text": "PRESUPUESTO interno"}}]
+        deliver = [{"to": "56900000099", "body": "a otro cliente"}]
+        self.assertEqual(arnes.lo_que_leyo_el_cliente({}, deliver, puente, "56900000003"), "")
+
+    def test_encuesta_de_despacho(self):
+        puente = [{"path": "/send-delivery-poll", "body": {"to": "56900000003"}}]
+        self.assertIn("Retiro en fábrica",
+                      arnes.lo_que_leyo_el_cliente({}, [], puente, "56900000003"))
 
 
 if __name__ == "__main__":

@@ -8,7 +8,9 @@ esta rúbrica es un escape, no un borrador malo.
 
 Las cuatro familias son las que pidió el informe de AUDIT del 2026-10-15:
 cifras inventadas, afirmaciones de revisión sin evidencia, volver a pedir un
-dato ya entregado, y handoff indebido.
+dato ya entregado, y handoff indebido. La quinta, «no entendió», llegó el
+2026-10-28: compara cada respuesta con lo que el cliente quiso decir, anotado a
+mano en `docs/evaluacion/expectativas-whatsapp.json`.
 
 Todo es función pura sobre (caso, resultado) para poder probarlo sin red ni
 modelo. El arnés las aplica; acá no se decide nada más.
@@ -132,8 +134,37 @@ def handoff_indebido(mensaje: str, resultado: Dict[str, Any]) -> List[str]:
     return []
 
 
+def no_entendio(esperado: Dict[str, Any] | None, resultado: Dict[str, Any]) -> List[str]:
+    """Contrasta la respuesta con lo que un humano anotó para ese mensaje.
+
+    Las otras familias buscan errores que valen para cualquier turno; esta
+    pregunta si el agente respondió a lo que el cliente dijo. `debe` son
+    patrones que tienen que calzar todos, `no_debe` ninguno, y `handoff` es
+    si correspondía derivar. Quedarse callado solo vale si la anotación lo
+    permite (`silencio_ok`: spam, ruido). Sin anotación no se adivina.
+    """
+    chequeos = (esperado or {}).get("chequeos") or {}
+    reply = str((resultado or {}).get("reply") or "")
+    hallazgos: List[str] = []
+    if esperado and not reply.strip() and not chequeos.get("silencio_ok"):
+        return ["no respondió"]
+    for patron in chequeos.get("debe") or []:
+        if not re.search(patron, reply):
+            hallazgos.append(f"faltó {patron!r}")
+    for patron in chequeos.get("no_debe") or []:
+        encontrado = re.search(patron, reply)
+        if encontrado:
+            hallazgos.append(f"dijo {encontrado.group(0)!r}")
+    if "handoff" in chequeos:
+        derivo = bool((resultado or {}).get("manual_review"))
+        if derivo != bool(chequeos["handoff"]):
+            hallazgos.append("derivó a revisión sin que correspondiera" if derivo
+                             else "no derivó a una persona y correspondía")
+    return hallazgos
+
+
 def evaluar(caso: Dict[str, Any], resultado: Dict[str, Any]) -> Dict[str, Any]:
-    """Aplica las cuatro familias a un turno y devuelve sus hallazgos."""
+    """Aplica las familias a un turno y devuelve sus hallazgos."""
     reply = str((resultado or {}).get("reply") or "")
     presupuesto = bool((resultado or {}).get("quote") or (resultado or {}).get("presupuesto"))
     revisado = bool((resultado or {}).get("manual_review") or presupuesto)
@@ -143,6 +174,7 @@ def evaluar(caso: Dict[str, Any], resultado: Dict[str, Any]) -> Dict[str, Any]:
         "repite_dato_ya_dado": repite_dato_ya_dado(reply, caso.get("historial") or [],
                                                    caso.get("mensaje") or ""),
         "handoff_indebido": handoff_indebido(caso.get("mensaje") or "", resultado),
+        "no_entendio": no_entendio(caso.get("esperado"), resultado),
     }
     return {
         "id": caso.get("id"),

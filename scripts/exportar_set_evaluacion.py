@@ -79,6 +79,16 @@ _INCIDENTES = {
 }
 
 
+# Palabras del rubro que aparecen en nombres de empresa del CRM pero no
+# identifican a nadie.
+_VOCABULARIO = frozenset("""
+piscina piscinas borde bordes pastelon pastelón pastelones loseta losetas
+chile hola buenas ventas fibra casa jardin jardín patio construccion
+construcción constructora spa ltda limitada empresa empresas servicios
+del de la las los el y sur norte centro
+""".split())
+
+
 def _seudonimo_telefono(indice: int) -> str:
     """Un número que no existe: el rango 56 9 0000 00xx no está asignado."""
     return f"56900000{indice:03d}"
@@ -92,8 +102,11 @@ def construir_mapa(conversaciones: Dict[str, List[Dict[str, Any]]],
         digitos = re.sub(r"\D", "", str(clave))
         if digitos:
             mapa[digitos] = _seudonimo_telefono(indice)
-    for indice, nombre in enumerate(sorted({n.strip() for n in nombres_conocidos if n and n.strip()}),
-                                    start=1):
+    candidatos = {n.strip() for n in nombres_conocidos if n and n.strip()}
+    # Un lead registrado como «Piscinas del Sur» no convierte «piscina» en un
+    # nombre: sustituirla deja el texto ilegible para el modelo que se evalúa.
+    candidatos = {n for n in candidatos if n.casefold() not in _VOCABULARIO}
+    for indice, nombre in enumerate(sorted(candidatos), start=1):
         mapa[nombre.strip()] = f"CLIENTE{indice:02d}"
     return mapa
 
@@ -118,7 +131,9 @@ def anonimizar(texto: str, mapa: Dict[str, str]) -> Tuple[str, List[str]]:
     # otro, gana el completo.
     for real in sorted(mapa, key=len, reverse=True):
         if real:
-            fuera = re.sub(re.escape(real), mapa[real], fuera, flags=re.IGNORECASE)
+            # Borde de letra, no de palabra: «Juan123» también es Juan.
+            fuera = re.sub(rf"(?<![^\W\d_]){re.escape(real)}(?![^\W\d_])", mapa[real], fuera,
+                           flags=re.IGNORECASE)
     def _chat(m: re.Match) -> str:
         digitos = m.group(1)
         if _SEUDONIMO.match(digitos):

@@ -36,6 +36,31 @@ class Anonimizacion(unittest.TestCase):
         fuera, _ = exportar.anonimizar("Mi piscina mide 6 x 3 metros", self.mapa)
         self.assertEqual(fuera, "Mi piscina mide 6 x 3 metros")
 
+    def test_una_palabra_del_rubro_en_el_crm_no_se_vuelve_nombre(self):
+        # Pasó con el set real: un lead con «Piscina» en el nombre convertía
+        # cada «piscina» del historial en CLIENTE21.
+        mapa = exportar.construir_mapa({}, ["Piscina", "Bordes Piscina Soto", "Soto"])
+        fuera, _ = exportar.anonimizar("Necesito bordes para mi piscina, Soto", mapa)
+        self.assertIn("bordes para mi piscina", fuera)
+        self.assertNotIn("Soto", fuera)
+
+    def test_un_nombre_no_se_reemplaza_dentro_de_otra_palabra(self):
+        mapa = exportar.construir_mapa({}, ["Ana"])
+        fuera, _ = exportar.anonimizar("Ana quiere una ventana anaranjada", mapa)
+        self.assertEqual(fuera, "CLIENTE01 quiere una ventana anaranjada")
+
+    def test_los_conectores_de_un_nombre_de_empresa_no_se_reemplazan(self):
+        nombres = exportar.nombres_de_crm([{"company": "Piscinas del Sur"},
+                                           {"name": "Bordes Los Andes"}])
+        mapa = exportar.construir_mapa({}, nombres)
+        fuera, _ = exportar.anonimizar("la piscina del patio, de los andes", mapa)
+        self.assertIn("la piscina del patio, de los", fuera)
+
+    def test_un_nombre_pegado_a_digitos_tambien_se_reemplaza(self):
+        mapa = exportar.construir_mapa({}, ["Juan"])
+        fuera, _ = exportar.anonimizar("soy Juan123 y juan_23", mapa)
+        self.assertNotIn("juan", fuera.lower())
+
     def test_el_precio_sobrevive(self):
         fuera, _ = exportar.anonimizar("¿El borde sale $5.500 por unidad?", self.mapa)
         self.assertIn("5.500", fuera)

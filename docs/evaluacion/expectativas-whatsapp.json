@@ -1,0 +1,988 @@
+{
+ "version": 2,
+ "unidad": "un mensaje real de cliente, por huella: sha256 del último turno del agente y el mensaje, anonimizados",
+ "como_se_usa": "scripts/evaluar_linea_base.py --expectativas; chequeos: debe (todas calzan), no_debe (ninguna calza), handoff (manual_review esperado), silencio_ok (no responder es válido)",
+ "casos": {
+  "78fa9528cc00": {
+   "entiende": "fuera_de_rubro",
+   "nota": "azulejos para baño",
+   "chequeos": {
+    "debe": [
+     "(?i)azulejo|no (?:vendemos|trabajamos|tenemos)|bordes|pastel"
+    ],
+    "no_debe": [
+     "\\$\\s?\\d"
+    ],
+    "handoff": false
+   }
+  },
+  "6b57efc39ab1": {
+   "entiende": "fuera_de_rubro",
+   "nota": "broma: pastel de manzana",
+   "chequeos": {
+    "no_debe": [
+     "(?i)s[íi],? tenemos"
+    ],
+    "handoff": false
+   }
+  },
+  "66312991be89": {
+   "entiende": "difiere",
+   "chequeos": {
+    "no_debe": [
+     "(?i)responde con el n[úu]mero|elige una opci[óo]n",
+     "(?i)medidas|largo|ancho"
+    ],
+    "handoff": false
+   }
+  },
+  "b6c7c3f0329d": {
+   "entiende": "saludo",
+   "chequeos": {
+    "debe": [
+     "(?is)bordes.*pastelones"
+    ],
+    "handoff": false
+   }
+  },
+  "b2c2eb0d9268": {
+   "entiende": "elige_opcion",
+   "chequeos": {
+    "debe": [
+     "(?i)medidas|largo|ancho"
+    ],
+    "handoff": false
+   }
+  },
+  "ced614aaafde": {
+   "entiende": "dato_absurdo",
+   "nota": "piscina de 200 x 150 m",
+   "chequeos": {
+    "debe": [
+     "(?i)confirm|segur|correct|cent[íi]metros|revis|¿\\s*\\d+"
+    ],
+    "no_debe": [
+     "(?i)recib[íi] los datos de entrega",
+     "(?i)recto con nariz|ballena"
+    ]
+   }
+  },
+  "0a9a1462208a": {
+   "entiende": "dato_absurdo",
+   "chequeos": {
+    "debe": [
+     "(?i)confirm|segur|correct|cent[íi]metros|revis|¿\\s*\\d+"
+    ],
+    "no_debe": [
+     "(?i)recto con nariz|ballena"
+    ]
+   }
+  },
+  "ffbc298e3b0f": {
+   "entiende": "dato_absurdo",
+   "chequeos": {
+    "debe": [
+     "(?i)confirm|segur|correct|cent[íi]metros|revis|¿\\s*\\d+"
+    ],
+    "no_debe": [
+     "(?i)recib[íi] los datos de entrega",
+     "(?i)recto con nariz|ballena"
+    ]
+   }
+  },
+  "38c744a039dc": {
+   "entiende": "elige_opcion",
+   "nota": "50 x 50 tras pedir el modelo = borde recto 50×50",
+   "chequeos": {
+    "debe": [
+     "(?i)rectangular|forma"
+    ],
+    "no_debe": [
+     "(?i)medidas|largo|ancho"
+    ],
+    "handoff": false
+   }
+  },
+  "1531df3413d2": {
+   "entiende": "ofensivo",
+   "chequeos": {
+    "no_debe": [
+     "(?i)recib[íi] tu consulta y la voy a revisar",
+     "(?i)responde con el n[úu]mero|elige una opci[óo]n"
+    ]
+   }
+  },
+  "2863d0b12672": {
+   "entiende": "rechaza",
+   "chequeos": {
+    "no_debe": [
+     "(?i)responde con el n[úu]mero|elige una opci[óo]n"
+    ],
+    "handoff": false
+   }
+  },
+  "249bd922de68": {
+   "entiende": "rechaza",
+   "chequeos": {
+    "no_debe": [
+     "(?i)responde con el n[úu]mero|elige una opci[óo]n"
+    ],
+    "handoff": false
+   }
+  },
+  "de9446663a8c": {
+   "entiende": "rechaza",
+   "chequeos": {
+    "no_debe": [
+     "(?i)responde con el n[úu]mero|elige una opci[óo]n"
+    ],
+    "handoff": false
+   }
+  },
+  "a16f197b577f": {
+   "entiende": "reiniciar",
+   "chequeos": {
+    "debe": [
+     "(?is)bordes.*pastelones"
+    ],
+    "handoff": false
+   }
+  },
+  "6293c2d98183": {
+   "entiende": "reiniciar",
+   "chequeos": {
+    "debe": [
+     "(?i)pastelones|medidas|inicio|empe"
+    ],
+    "handoff": false
+   }
+  },
+  "8e3b3d01b357": {
+   "entiende": "corrige_dato",
+   "nota": "quiere volver a dar las medidas",
+   "chequeos": {
+    "debe": [
+     "(?i)medidas|largo|ancho"
+    ],
+    "handoff": false
+   }
+  },
+  "1642eb0c7ea5": {
+   "entiende": "elige_opcion",
+   "chequeos": {
+    "debe": [
+     "(?i)rectangular|forma"
+    ],
+    "handoff": false
+   }
+  },
+  "8c6b4f7ed2b9": {
+   "entiende": "elige_opcion",
+   "chequeos": {
+    "debe": [
+     "(?i)rectangular|forma"
+    ],
+    "handoff": false
+   }
+  },
+  "1575e3382d63": {
+   "entiende": "opcion_invalida",
+   "chequeos": {
+    "debe": [
+     "(?i)1 al 7|1 y 7|no est[áa]"
+    ],
+    "no_debe": [
+     "(?i)el color 8"
+    ],
+    "handoff": false
+   }
+  },
+  "cdee264a4f97": {
+   "entiende": "elige_opcion",
+   "chequeos": {
+    "debe": [
+     "(?i)despacho|retiro|entrega"
+    ],
+    "no_debe": [
+     "(?i)el color 3 est[áa] disponible"
+    ],
+    "handoff": false
+   }
+  },
+  "9c70df539533": {
+   "entiende": "entrega_dato",
+   "nota": "dirección en Argentina",
+   "chequeos": {
+    "debe": [
+     "(?i)(?<![a-z])chile|argentin|no (?:despachamos|llegamos|hacemos)|fuera"
+    ]
+   }
+  },
+  "583c0fb03b62": {
+   "entiende": "saludo",
+   "nota": "saludo con el menú de colores abierto",
+   "chequeos": {
+    "debe": [
+     "(?i)color|anaranjado"
+    ],
+    "handoff": false
+   }
+  },
+  "c99989364f49": {
+   "entiende": "elige_opcion",
+   "chequeos": {
+    "debe": [
+     "(?i)m²|m2|metros cuadrados"
+    ],
+    "handoff": false
+   }
+  },
+  "9e48e54f4e4b": {
+   "entiende": "entrega_dato",
+   "chequeos": {
+    "debe": [
+     "(?i)laja"
+    ],
+    "handoff": false
+   }
+  },
+  "62ae84af47c2": {
+   "entiende": "opcion_invalida",
+   "chequeos": {
+    "debe": [
+     "(?i)1 al 6|1 y 6|no est[áa]"
+    ],
+    "handoff": false
+   }
+  },
+  "0fb3206646d2": {
+   "entiende": "elige_opcion",
+   "chequeos": {
+    "debe": [
+     "(?i)color|anaranjado"
+    ],
+    "handoff": false
+   }
+  },
+  "09e36b9f5d67": {
+   "entiende": "elige_opcion",
+   "chequeos": {
+    "debe": [
+     "(?i)despacho|retiro|entrega"
+    ],
+    "handoff": false
+   }
+  },
+  "edf52bc8b05c": {
+   "entiende": "elige_opcion",
+   "chequeos": {
+    "debe": [
+     "(?i)despacho|retiro|entrega"
+    ],
+    "handoff": false
+   }
+  },
+  "416fb4aa3e26": {
+   "entiende": "no_se_entiende",
+   "nota": "«7» cuando se pidió la comuna",
+   "chequeos": {
+    "debe": [
+     "(?i)comuna"
+    ],
+    "no_debe": [
+     "(?i)recib[íi] los datos de entrega"
+    ],
+    "handoff": false
+   }
+  },
+  "3ca058fb1557": {
+   "entiende": "no_se_entiende",
+   "chequeos": {
+    "debe": [
+     "(?i)comuna"
+    ],
+    "no_debe": [
+     "(?i)recib[íi] los datos de entrega"
+    ],
+    "handoff": false
+   }
+  },
+  "26317fa95656": {
+   "entiende": "pide_humano",
+   "chequeos": {
+    "handoff": true
+   }
+  },
+  "59522f7c26de": {
+   "entiende": "ruido",
+   "chequeos": {
+    "no_debe": [
+     "(?i)recib[íi] tu consulta y la voy a revisar"
+    ],
+    "silencio_ok": true
+   }
+  },
+  "a2f54773a0ab": {
+   "entiende": "ruido",
+   "chequeos": {
+    "no_debe": [
+     "(?i)recib[íi] tu consulta y la voy a revisar"
+    ],
+    "silencio_ok": true
+   }
+  },
+  "5bb242efd287": {
+   "entiende": "ofensivo",
+   "chequeos": {
+    "no_debe": [
+     "(?i)recib[íi] tu consulta y la voy a revisar",
+     "(?i)responde con el n[úu]mero|elige una opci[óo]n"
+    ]
+   }
+  },
+  "52867c6bee70": {
+   "entiende": "pide_humano",
+   "chequeos": {
+    "handoff": true
+   }
+  },
+  "33d64632115c": {
+   "entiende": "saludo",
+   "chequeos": {
+    "debe": [
+     "(?is)bordes.*pastelones"
+    ],
+    "handoff": false
+   }
+  },
+  "8dc1de367d78": {
+   "entiende": "elige_opcion",
+   "chequeos": {
+    "debe": [
+     "(?i)medidas|largo|ancho"
+    ],
+    "handoff": false
+   }
+  },
+  "7b5476ec3492": {
+   "entiende": "entrega_dato",
+   "chequeos": {
+    "debe": [
+     "(?i)recto con nariz|ballena"
+    ],
+    "handoff": false
+   }
+  },
+  "5f17ed6aa196": {
+   "entiende": "difiere",
+   "chequeos": {
+    "no_debe": [
+     "(?i)no est[áa] entre las opciones",
+     "(?i)responde con el n[úu]mero|elige una opci[óo]n"
+    ],
+    "handoff": false
+   }
+  },
+  "a75676ffa57f": {
+   "entiende": "elige_opcion",
+   "chequeos": {
+    "debe": [
+     "(?i)color|anaranjado"
+    ],
+    "handoff": false
+   }
+  },
+  "83aa6d5385a0": {
+   "entiende": "corrige_dato",
+   "chequeos": {
+    "debe": [
+     "(?i)foto|forma"
+    ],
+    "handoff": false
+   }
+  },
+  "857267760a64": {
+   "entiende": "corrige_dato",
+   "nota": "vuelve a decir que es rectangular",
+   "chequeos": {
+    "debe": [
+     "(?i)color|rectangular"
+    ],
+    "handoff": false
+   }
+  },
+  "0133e1c335ca": {
+   "entiende": "confirma",
+   "chequeos": {
+    "no_debe": [
+     "(?i)recib[íi] tu consulta y la voy a revisar"
+    ]
+   }
+  },
+  "74271b603785": {
+   "entiende": "entrega_dato",
+   "chequeos": {
+    "debe": [
+     "(?i)comuna|direcci|recib"
+    ],
+    "handoff": false
+   }
+  },
+  "25f2eb061fa4": {
+   "entiende": "entrega_dato",
+   "chequeos": {
+    "no_debe": [
+     "(?i)en qu[ée] comuna"
+    ],
+    "handoff": false
+   }
+  },
+  "58ee504e6e29": {
+   "entiende": "confirma",
+   "nota": "ya dio la comuna",
+   "chequeos": {
+    "no_debe": [
+     "(?i)en qu[ée] comuna"
+    ]
+   }
+  },
+  "cb3dc9618090": {
+   "entiende": "ruido",
+   "chequeos": {
+    "handoff": false,
+    "silencio_ok": true
+   }
+  },
+  "b3c660f81ad8": {
+   "entiende": "spam",
+   "chequeos": {
+    "handoff": false,
+    "silencio_ok": true
+   }
+  },
+  "cd43402dcb0b": {
+   "entiende": "spam",
+   "chequeos": {
+    "handoff": false,
+    "silencio_ok": true
+   }
+  },
+  "cef30849b3ef": {
+   "entiende": "saludo",
+   "chequeos": {
+    "debe": [
+     "(?is)bordes.*pastelones"
+    ],
+    "handoff": false
+   }
+  },
+  "6fff52513561": {
+   "entiende": "entrega_dato",
+   "chequeos": {
+    "debe": [
+     "(?i)laja"
+    ],
+    "handoff": false
+   }
+  },
+  "73407e4e7231": {
+   "entiende": "elige_opcion",
+   "chequeos": {
+    "debe": [
+     "(?i)color|anaranjado"
+    ],
+    "handoff": false
+   }
+  },
+  "55b00fc8a879": {
+   "entiende": "elige_opcion",
+   "chequeos": {
+    "debe": [
+     "(?i)color|anaranjado"
+    ],
+    "handoff": false
+   }
+  },
+  "c455853bf293": {
+   "entiende": "elige_opcion",
+   "chequeos": {
+    "debe": [
+     "(?i)despacho|retiro|entrega"
+    ],
+    "handoff": false
+   }
+  },
+  "c530ee5b5e90": {
+   "entiende": "elige_opcion",
+   "chequeos": {
+    "debe": [
+     "(?i)retiro|presupuesto|revis|resumen"
+    ],
+    "no_debe": [
+     "(?i)ubicaci[óo]n|tama[ñn]o"
+    ]
+   }
+  },
+  "980037cc0102": {
+   "entiende": "confirma",
+   "chequeos": {
+    "debe": [
+     "(?is)bordes.*pastelones"
+    ]
+   }
+  },
+  "7a1cb5c392b5": {
+   "entiende": "confirma",
+   "chequeos": {
+    "debe": [
+     "(?is)bordes.*pastelones"
+    ]
+   }
+  },
+  "eaef301c7d5c": {
+   "entiende": "ruido",
+   "chequeos": {
+    "handoff": false,
+    "silencio_ok": true
+   }
+  },
+  "975f0218d139": {
+   "entiende": "saludo",
+   "chequeos": {
+    "debe": [
+     "(?is)bordes.*pastelones"
+    ],
+    "handoff": false
+   }
+  },
+  "a1f528b980eb": {
+   "entiende": "entrega_dato",
+   "chequeos": {
+    "debe": [
+     "(?i)recto con nariz|ballena"
+    ],
+    "handoff": false
+   }
+  },
+  "f50af62d4242": {
+   "entiende": "elige_opcion",
+   "chequeos": {
+    "debe": [
+     "(?i)rectangular|forma"
+    ],
+    "handoff": false
+   }
+  },
+  "8392c6d81dd9": {
+   "entiende": "corrige_dato",
+   "nota": "cambia ballena por recto con nariz",
+   "chequeos": {
+    "debe": [
+     "(?i)rectangular|forma"
+    ],
+    "handoff": false
+   }
+  },
+  "4ce55f80da00": {
+   "entiende": "pide_presupuesto",
+   "chequeos": {
+    "debe": [
+     "(?i)rectangular|forma|color|medidas"
+    ],
+    "no_debe": [
+     "\\$\\s?\\d"
+    ],
+    "handoff": false
+   }
+  },
+  "91e08fb7f036": {
+   "entiende": "elige_opcion",
+   "chequeos": {
+    "debe": [
+     "(?i)despacho|retiro|entrega"
+    ],
+    "handoff": false
+   }
+  },
+  "205468c87d00": {
+   "entiende": "elige_opcion",
+   "chequeos": {
+    "debe": [
+     "(?i)ubicaci[óo]n"
+    ],
+    "handoff": false
+   }
+  },
+  "1a0df58a22f0": {
+   "entiende": "entrega_dato",
+   "chequeos": {
+    "debe": [
+     "(?i)recib|presupuesto|revis"
+    ],
+    "no_debe": [
+     "(?i)tama[ñn]o"
+    ]
+   }
+  },
+  "36c2c65055ce": {
+   "entiende": "confirma",
+   "chequeos": {
+    "no_debe": [
+     "(?i)responde con el n[úu]mero|elige una opci[óo]n",
+     "\\$\\s?\\d"
+    ],
+    "handoff": false
+   }
+  },
+  "c1a81376b4dc": {
+   "entiende": "pregunta",
+   "nota": "estado del presupuesto",
+   "chequeos": {
+    "debe": [
+     "(?i)revis|pendiente|equipo|pronto"
+    ],
+    "no_debe": [
+     "\\$\\s?\\d",
+     "(?i)deseas proceder"
+    ]
+   }
+  },
+  "57e7dd9e8f65": {
+   "entiende": "pregunta",
+   "nota": "catálogo + origen + despacho + datos",
+   "chequeos": {
+    "debe": [
+     "(?i)cat[áa]logo|despach|f[áa]brica|limache"
+    ],
+    "no_debe": [
+     "\\$\\s?\\d"
+    ]
+   }
+  },
+  "79528836c422": {
+   "entiende": "saludo",
+   "chequeos": {
+    "debe": [
+     "(?i)ayud|producto|bordes|despacho|retiro"
+    ],
+    "handoff": false
+   }
+  },
+  "45dbebf9bd11": {
+   "entiende": "entrega_dato",
+   "chequeos": {
+    "debe": [
+     "(?i)laja"
+    ],
+    "handoff": false
+   }
+  },
+  "efc8eb4a286f": {
+   "entiende": "opcion_invalida",
+   "chequeos": {
+    "debe": [
+     "(?i)1 al 6|1 y 6|no est[áa]"
+    ],
+    "handoff": false
+   }
+  },
+  "c38f9e2e89db": {
+   "entiende": "pregunta",
+   "chequeos": {
+    "debe": [
+     "(?i)modelos|laja|disponibles|solo|estos"
+    ],
+    "no_debe": [
+     "(?i)no est[áa] entre las opciones"
+    ],
+    "handoff": false
+   }
+  },
+  "84975a231ff6": {
+   "entiende": "pregunta",
+   "chequeos": {
+    "debe": [
+     "(?i)modelos|laja|disponibles|solo|estos"
+    ],
+    "no_debe": [
+     "(?i)no est[áa] entre las opciones"
+    ],
+    "handoff": false
+   }
+  },
+  "72ed704b5e71": {
+   "entiende": "saludo",
+   "chequeos": {
+    "debe": [
+     "(?i)modelo|laja|ayud"
+    ],
+    "handoff": false
+   }
+  },
+  "006762a2411a": {
+   "entiende": "entrega_dato",
+   "chequeos": {
+    "debe": [
+     "(?i)laja"
+    ],
+    "handoff": false
+   }
+  },
+  "f9431439d640": {
+   "entiende": "corrige_dato",
+   "chequeos": {
+    "debe": [
+     "(?<!\\d)80\\s?m"
+    ],
+    "handoff": false
+   }
+  },
+  "7283e3050906": {
+   "entiende": "elige_opcion",
+   "chequeos": {
+    "debe": [
+     "(?i)color|anaranjado"
+    ],
+    "handoff": false
+   }
+  },
+  "cd88dd7c1d19": {
+   "entiende": "elige_opcion",
+   "chequeos": {
+    "debe": [
+     "(?i)color|anaranjado"
+    ],
+    "handoff": false
+   }
+  },
+  "9074aa751b85": {
+   "entiende": "saludo",
+   "chequeos": {
+    "debe": [
+     "(?is)bordes.*pastelones"
+    ],
+    "handoff": false
+   }
+  },
+  "8731fab59393": {
+   "entiende": "elige_opcion",
+   "chequeos": {
+    "debe": [
+     "(?i)medidas|largo|ancho"
+    ],
+    "handoff": false
+   }
+  },
+  "d25bb1a81553": {
+   "entiende": "pregunta",
+   "nota": "qué modelos hay",
+   "chequeos": {
+    "debe": [
+     "(?i)recto con nariz|ballena"
+    ],
+    "no_debe": [
+     "(?i)recib[íi] los datos de entrega"
+    ],
+    "handoff": false
+   }
+  },
+  "5b5d01b5789b": {
+   "entiende": "dato_absurdo",
+   "nota": "piscina de 10 x 200 m",
+   "chequeos": {
+    "debe": [
+     "(?i)confirm|segur|correct|cent[íi]metros|revis|¿\\s*\\d+"
+    ],
+    "no_debe": [
+     "(?i)recib[íi] los datos de entrega"
+    ]
+   }
+  },
+  "16b8e153c712": {
+   "entiende": "pregunta",
+   "nota": "cobertura",
+   "chequeos": {
+    "debe": [
+     "(?i)despach|lleg|comuna"
+    ],
+    "no_debe": [
+     "(?i)recib[íi] los datos de entrega"
+    ]
+   }
+  },
+  "f7ab40ded1ec": {
+   "entiende": "pregunta",
+   "chequeos": {
+    "debe": [
+     "(?i)descuento"
+    ],
+    "no_debe": [
+     "(?i)recib[íi] los datos de entrega"
+    ]
+   }
+  },
+  "8c9253bccdba": {
+   "entiende": "pregunta",
+   "chequeos": {
+    "debe": [
+     "(?i)despach|lleg|comuna"
+    ],
+    "no_debe": [
+     "(?i)recib[íi] los datos de entrega"
+    ]
+   }
+  },
+  "0fa3fffa9ccd": {
+   "entiende": "pregunta",
+   "chequeos": {
+    "debe": [
+     "(?i)despach|lleg|comuna"
+    ],
+    "no_debe": [
+     "(?i)recib[íi] los datos de entrega"
+    ]
+   }
+  },
+  "80f418a10bff": {
+   "entiende": "saludo",
+   "chequeos": {
+    "debe": [
+     "(?is)bordes.*pastelones"
+    ],
+    "handoff": false
+   }
+  },
+  "16bb64b81300": {
+   "entiende": "elige_opcion",
+   "chequeos": {
+    "debe": [
+     "(?i)medidas|largo|ancho"
+    ],
+    "handoff": false
+   }
+  },
+  "e87ee33feb35": {
+   "entiende": "saludo",
+   "chequeos": {
+    "debe": [
+     "(?is)bordes.*pastelones"
+    ],
+    "handoff": false
+   }
+  },
+  "247a909971af": {
+   "entiende": "saludo",
+   "chequeos": {
+    "debe": [
+     "(?is)bordes.*pastelones"
+    ],
+    "handoff": false
+   }
+  },
+  "0f708aaa891a": {
+   "entiende": "elige_opcion",
+   "chequeos": {
+    "debe": [
+     "(?i)m²|m2|metros cuadrados"
+    ],
+    "no_debe": [
+     "(?i)modelo o foto|cantidad requerida"
+    ],
+    "handoff": false
+   }
+  },
+  "93b3d57234ef": {
+   "entiende": "saludo",
+   "chequeos": {
+    "debe": [
+     "(?is)bordes.*pastelones"
+    ],
+    "handoff": false
+   }
+  },
+  "b7ee869ea7ef": {
+   "entiende": "saludo",
+   "chequeos": {
+    "debe": [
+     "(?i)ayud|producto|bordes"
+    ],
+    "handoff": false
+   }
+  },
+  "de3d0e0b1f2c": {
+   "entiende": "ruido",
+   "chequeos": {
+    "handoff": false,
+    "silencio_ok": true
+   }
+  },
+  "6698496552cd": {
+   "entiende": "pide_catalogo",
+   "chequeos": {
+    "no_debe": [
+     "(?i)esquinas|comuna"
+    ],
+    "handoff": false,
+    "silencio_ok": true
+   }
+  },
+  "68d649891034": {
+   "entiende": "saludo",
+   "nota": "lead real 2026-10-30, flujo completo",
+   "chequeos": {
+    "debe": [
+     "(?is)bordes.*pastelones"
+    ],
+    "handoff": false
+   }
+  },
+  "4165a3ceeb19": {
+   "entiende": "entrega_dato",
+   "nota": "elige bordes en texto libre",
+   "chequeos": {
+    "debe": [
+     "(?i)medidas|largo|ancho"
+    ],
+    "no_debe": [
+     "(?i)qu[ée] producto"
+    ],
+    "handoff": false
+   }
+  },
+  "ec20497aeb5a": {
+   "entiende": "entrega_dato",
+   "nota": "medidas sin unidad, plausibles en metros",
+   "chequeos": {
+    "debe": [
+     "(?i)modelo"
+    ],
+    "no_debe": [
+     "(?i)medidas|largo|ancho"
+    ],
+    "handoff": false
+   }
+  },
+  "9e8c61353115": {
+   "entiende": "elige_opcion",
+   "chequeos": {
+    "debe": [
+     "(?i)calle|direcci[óo]n|comuna"
+    ],
+    "handoff": false
+   }
+  },
+  "e17771e6a89f": {
+   "entiende": "entrega_dato",
+   "nota": "dirección completa: cierra a revisión humana sin precio",
+   "chequeos": {
+    "debe": [
+     "(?i)revisi[óo]n|equipo"
+    ],
+    "no_debe": [
+     "\\$\\s?\\d",
+     "(?i)elige una opci[óo]n"
+    ]
+   }
+  }
+ }
+}
