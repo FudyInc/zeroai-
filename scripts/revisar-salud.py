@@ -142,20 +142,36 @@ GOLDEN_URGENTE_HORAS = 50      # dos días sin prueba ya no es un atraso: es una
 GOLDEN_REINTENTO_MIN = 120     # no relanzar en cada revisión si la anterior sigue fallando
 
 
-def _ultima_prueba_completa():
-    """Epoch (s) del último "Finished" de zero-golden en el journal, o None si nunca.
+# Lo que probar-agente.py imprime SOLO cuando corrió los casos contra el motor (exit 0
+# o 1). Con el motor caído sale con 2 sin imprimirlo, y systemd igual registra
+# "Finished" (SuccessExitStatus=0 1 2): esa corrida terminó, pero no probó nada.
+_GOLDEN_PROBO = ("casos dentro de las reglas", "regla(s) rota(s)")
 
-    Una corrida que termina —pase, rompa una regla o encuentre el motor caído
-    (SuccessExitStatus=0 1 2)— queda como JOB_RESULT=done. Una que mataron, no.
-    Levanta si el journal no se puede leer: un detector mudo diría "todo bien"."""
-    r = subprocess.run(["journalctl", "--user", f"USER_UNIT={GOLDEN_UNIT}", "JOB_TYPE=start",
-                        "JOB_RESULT=done", "-o", "json", "-r", "-n", "1", "--no-pager"],
+
+def _journal(*args: str) -> str:
+    r = subprocess.run(["journalctl", "--user", "--no-pager", *args],
                        capture_output=True, text=True, timeout=30)
     if r.returncode != 0:
         raise RuntimeError((r.stderr or "journalctl falló").strip()[:200])
-    for linea in r.stdout.splitlines():
-        if linea.strip():
-            return int(json.loads(linea)["__REALTIME_TIMESTAMP"]) / 1e6
+    return r.stdout
+
+
+def _ultima_prueba_completa():
+    """Epoch (s) de la última corrida de zero-golden que PROBÓ al agente, o None.
+
+    Completa = systemd la registró como terminada (JOB_RESULT=done; las que mataron con
+    'signal' no) Y su propia salida dice que corrió los casos (`_GOLDEN_PROBO`).
+    Levanta si el journal no se puede leer: un detector mudo diría "todo bien"."""
+    salida = _journal(f"USER_UNIT={GOLDEN_UNIT}", "JOB_TYPE=start", "JOB_RESULT=done",
+                      "-o", "json", "-r", "-n", "20")
+    for linea in salida.splitlines():
+        if not linea.strip():
+            continue
+        d = json.loads(linea)
+        inv = d.get("USER_INVOCATION_ID") or d.get("INVOCATION_ID")
+        if inv and any(m in _journal(f"_SYSTEMD_INVOCATION_ID={inv}", "-o", "cat")
+                       for m in _GOLDEN_PROBO):
+            return int(d["__REALTIME_TIMESTAMP"]) / 1e6
     return None
 
 
@@ -164,6 +180,8 @@ def _estado_golden():
     r = subprocess.run(["systemctl", "--user", "show", GOLDEN_UNIT, "--timestamp=unix",
                         "-p", "ActiveState", "-p", "InactiveExitTimestamp"],
                        capture_output=True, text=True, timeout=30)
+    if r.returncode != 0:
+        raise RuntimeError((r.stderr or "systemctl show falló").strip()[:200])
     props = dict(l.split("=", 1) for l in r.stdout.splitlines() if "=" in l)
     ts = props.get("InactiveExitTimestamp", "").lstrip("@")
     return props.get("ActiveState", ""), (float(ts) if ts.replace(".", "").isdigit() else None)
@@ -182,7 +200,7 @@ def _prueba_diaria() -> list:
     horas = None if ultima is None else (ahora - ultima) / 3600
     if horas is not None and horas <= GOLDEN_MAX_HORAS:
         return []
-    desde = ("nunca completó una corrida" if ultima is None else
+    desde = ("nunca completó una corrida que probara al agente" if ultima is None else
              "sin corrida completa desde " + datetime.fromtimestamp(ultima).strftime("%Y-%m-%d %H:%M"))
     # Lo urgente va con texto ESTABLE: main() agrupa los avisos por su texto, y uno que
     # cambia en cada revisión (horas, estado) saltaría el antirrebote cada 30 min.

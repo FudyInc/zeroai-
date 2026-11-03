@@ -48,9 +48,6 @@ class AvisosSoloUrgentes(unittest.TestCase):
         self.assertNotEqual(a.call_args.kwargs["kind"], b.call_args.kwargs["kind"])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class PruebaDiariaDelAgente(unittest.TestCase):
     """La última prueba COMPLETA de zero-golden se lee del journal; si es vieja, se relanza.
@@ -63,13 +60,17 @@ class PruebaDiariaDelAgente(unittest.TestCase):
     def setUp(self):
         self.salud = _cargar()
 
-    def _correr(self, ultima, estado="inactive", arranque=None, start_rc=0, journal_rc=0):
+    def _correr(self, ultima, estado="inactive", arranque=None, start_rc=0, journal_rc=0,
+                salida="6/6 casos dentro de las reglas"):
         llamadas = []
 
         def run(cmd, **kw):
             llamadas.append(cmd)
             if cmd[0] == "journalctl":
-                out = "" if ultima is None else '{"__REALTIME_TIMESTAMP": "%d"}\n' % int(ultima * 1e6)
+                if any(a.startswith("_SYSTEMD_INVOCATION_ID=inv1") for a in cmd):
+                    return mock.Mock(returncode=0, stdout=f"motor:   qwen\n{salida}\n", stderr="")
+                out = "" if ultima is None else (
+                    '{"__REALTIME_TIMESTAMP": "%d", "USER_INVOCATION_ID": "inv1"}\n' % int(ultima * 1e6))
                 return mock.Mock(returncode=journal_rc, stdout=out, stderr="sin journal")
             if "show" in cmd:
                 ts = "" if arranque is None else f"@{arranque:.0f}"
@@ -121,5 +122,24 @@ class PruebaDiariaDelAgente(unittest.TestCase):
         fallas = self._correr(self.AHORA - 30 * 3600, start_rc=5)
         self.assertIn("no se pudo relanzar", self._urgentes(fallas)[0])
 
+    def test_corrida_con_el_motor_caido_no_cuenta_como_prueba(self):
+        # exit 2: systemd la registra "Finished", pero no corrió ningún caso
+        fallas = self._correr(self.AHORA - 3 * 3600, salida="⚠ saludo: el motor no respondió (timeout)")
+        self.assertIn("nunca completó", self._urgentes(fallas)[0])
+        self.assertEqual(len(self.starts), 1)
+
+    def test_una_regla_rota_si_cuenta_como_prueba_completa(self):
+        self.assertEqual(self._correr(self.AHORA - 3600, salida="1 regla(s) rota(s) en 6 casos"), [])
+
     def test_revisar_incluye_la_prueba_diaria(self):
-        self.assertIn("_prueba_diaria()", _RUTA.read_text())
+        s = self.salud
+        with mock.patch.object(s, "_servicio", return_value=True), \
+             mock.patch.object(s, "_http", return_value=True), \
+             mock.patch.object(s, "_ollama_responde", return_value=True), \
+             mock.patch.object(s, "_corrio_en_mock", return_value=[]), \
+             mock.patch.object(s, "_prueba_diaria", return_value=["CENTINELA"]):
+            self.assertIn("CENTINELA", s.revisar())
+
+
+if __name__ == "__main__":
+    unittest.main()

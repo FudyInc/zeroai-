@@ -849,11 +849,12 @@ def campaigns(client: str):
     }
 
 
-def _paid_ads(client: str, since: Optional[str] = None) -> dict:
+def _paid_ads(client: str, since: Optional[str] = None, fill_posts: bool = True):
     """Anuncios ya pagados del cliente con el token de ESE cliente; nunca mock.
 
     Lo comparten /api/campaigns/ads y /api/campaigns/ads/suggest: los dos ven
-    exactamente el mismo anuncio."""
+    exactamente el mismo anuncio. Devuelve (sobre, graph_falló): el segundo separa
+    "Meta no está conectado" de "Meta está conectado pero la lectura falló"."""
     from zero.metaads import client_token, make_metaads
     cfg = _client_meta_cfg(client)
 
@@ -862,17 +863,17 @@ def _paid_ads(client: str, since: Optional[str] = None) -> dict:
                 "currency": "CLP", "items": []}
 
     if not cfg.get("ad_account"):
-        return unavailable("Este cliente no tiene cuenta publicitaria de Meta asignada")
+        return unavailable("Este cliente no tiene cuenta publicitaria de Meta asignada"), False
     if not client_token(client):
-        return unavailable("Meta no conectado para este cliente (falta su token)")
+        return unavailable("Meta no conectado para este cliente (falta su token)"), False
     src = make_metaads(cfg, client_id=client)
     if not getattr(src, "live", False):
-        return unavailable("Meta no conectado para este cliente")
+        return unavailable("Meta no conectado para este cliente"), False
     try:
-        items = src.ads(client, cfg, since=since)
+        items = src.ads(client, cfg, since=since, fill_posts=fill_posts)
     except Exception as e:   # token inválido, cuenta sin acceso, moneda no CLP, red...
-        return unavailable(str(e)[:300])
-    return {"client": client, "source": "live", "reason": None, "currency": "CLP", "items": items}
+        return unavailable(str(e)[:300]), True
+    return {"client": client, "source": "live", "reason": None, "currency": "CLP", "items": items}, False
 
 
 @app.get("/api/campaigns/ads")
@@ -889,7 +890,7 @@ def campaign_ads(request: Request, client: str, since: Optional[str] = None):
                 raise ValueError
         except ValueError:
             raise HTTPException(status_code=400, detail="since debe ser una fecha YYYY-MM-DD no futura")
-    return _paid_ads(client, since)
+    return _paid_ads(client, since)[0]
 
 
 @app.get("/api/campaigns/ads/suggest")
@@ -899,21 +900,24 @@ def suggest_ad(request: Request, client: str, ad_id: str):
     Respuestas:
     - 200 → lo que entrega MEDIABUYER {diagnostico, pocos_datos, sugerencias,
       metricas_usadas} + ad_id y mode (el motor que respondió, visible en pantalla).
-    - 409 → el cliente no tiene Meta disponible (sin cuenta, sin token o Graph falló),
-      con el mismo motivo que /ads daría como `reason`. Sin el anuncio real no hay
-      nada que mejorar, así que no es un 200 vacío.
+    - 409 → el cliente no tiene Meta conectado (sin cuenta o sin token), con el mismo
+      motivo que /ads daría como `reason`. Sin el anuncio real no hay nada que
+      mejorar, así que no es un 200 vacío.
+    - 502 → Meta está conectado pero la lectura falló (token vencido, red, moneda), o
+      el motor de IA respondió mal; el detalle dice cuál.
     - 404 → ese ad_id no está entre los anuncios pagados de la cuenta del cliente.
-    - 503 → no hay motor de IA real (nunca una plantilla de mock fuera de la suite).
-    - 502 → el motor respondió pero falló o no entregó sugerencias válidas."""
+    - 503 → no hay motor de IA real (nunca una plantilla de mock fuera de la suite)."""
     from zero.agents.mediabuyer import improve_ad
-    from zero.metaads import CHILE
+    from zero.metaads import CHILE, client_token, fill_from_posts
     _require_client(request, client)
-    ads = _paid_ads(client)
+    ads, graph_fallo = _paid_ads(client, fill_posts=False)
     if ads["source"] != "live":
-        raise HTTPException(status_code=409, detail=ads["reason"])
+        raise HTTPException(status_code=502 if graph_fallo else 409,
+                            detail=("Meta falló: " if graph_fallo else "") + ads["reason"])
     item = next((a for a in ads["items"] if str(a.get("ad_id")) == ad_id), None)
     if item is None:
         raise HTTPException(status_code=404, detail="ese anuncio no está entre los anuncios pagados de este cliente")
+    fill_from_posts([item], client_token(client))   # el post solo de ESTE anuncio
 
     def run(z):
         return improve_ad(z, item, CHILE["good_cpl_clp"], client)

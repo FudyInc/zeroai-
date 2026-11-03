@@ -70,7 +70,7 @@ class MockMetaAds:
         return out
 
     def ads(self, client_id: str, cfg: Optional[Dict[str, Any]] = None,
-            since: Optional[str] = None) -> List[Dict[str, Any]]:
+            since: Optional[str] = None, fill_posts: bool = True) -> List[Dict[str, Any]]:
         """Anuncios pagados deterministas — misma forma que MetaAds.ads. Solo suite."""
         seed = sum(ord(c) for c in (client_id or "demo"))
         out: List[Dict[str, Any]] = []
@@ -195,8 +195,11 @@ class MetaAds:
         return out
 
     def ads(self, client_id: str, cfg: Optional[Dict[str, Any]] = None,
-            since: Optional[str] = None) -> List[Dict[str, Any]]:
+            since: Optional[str] = None, fill_posts: bool = True) -> List[Dict[str, Any]]:
         """Anuncios ya pagados de la cuenta, con su post/creatividad y sus métricas.
+
+        `fill_posts=False` omite leer los posts (quien pide UN anuncio lo completa con
+        `fill_from_posts([item], token)` en vez de leer los de toda la cuenta).
 
         Solo lectura. La base son los Insights a nivel anuncio (gasto > 0): así un
         anuncio archivado que sí gastó no desaparece. La lista de /ads solo aporta
@@ -254,7 +257,8 @@ class MetaAds:
                 spend=_amount(ins.get("spend")), impressions=_amount(ins.get("impressions")),
                 reach=_amount(ins.get("reach")), clicks=_amount(ins.get("clicks")),
                 ctr=_ratio(ins.get("ctr")), leads=_lead_count(ins.get("actions"))))
-        _fill_from_posts(out, self.token)
+        if fill_posts:
+            fill_from_posts(out, self.token)
         out.sort(key=lambda a: a["spend"], reverse=True)
         return out
 
@@ -396,10 +400,6 @@ _CONTACT_FIELDS = frozenset({"full_name", "first_name", "last_name", "email", "p
 # Palabras que delatan la pregunta de renta (en minúsculas, comparadas con casefold).
 _INCOME_TERMS = ("renta", "ingres", "income", "sueldo", "salario")
 
-_LEAD_ACTION_TYPES = (
-    "onsite_conversion.lead_grouped", "onsite_conversion.lead",
-    "lead", "offsite_conversion.fb_pixel_lead",
-)
 
 
 def _amount(value: Any) -> int:
@@ -428,13 +428,17 @@ def _ad_item(*, ad_id, ad_name, campaign_id, campaign_name, status, post_id, cre
 
 
 def _lead_count(actions: Any) -> int:
-    """Elige una métrica de lead: sumar action types duplicaría conversiones."""
+    """Leads según LEAD_DEFINITION (zero/config.py): por grupo, el primer tipo presente.
+
+    Se lee de config en cada llamada: cambiar qué cuenta como lead es cambiar la
+    política, no esta función."""
+    from . import config
     values = {a.get("action_type"): _amount(a.get("value"))
               for a in actions if isinstance(a, dict)} if isinstance(actions, list) else {}
-    for kind in _LEAD_ACTION_TYPES:
-        if kind in values:
-            return values[kind]
-    return 0
+    total = 0
+    for _name, kinds in config.LEAD_DEFINITION:
+        total += next((values[k] for k in kinds if k in values), 0)
+    return total
 
 
 _POST_FIELDS = "message,full_picture,permalink_url"
@@ -444,25 +448,31 @@ _THUMB_PX = 1080
 # Error de permiso de Graph: si el token no puede leer un post de la página, no
 # podrá leer los demás; seguir sería N llamadas fallidas en cada carga de /ads.
 _PERMISSION_ERRORS = ("(#10)", "(#200)", "pages_read_engagement")
+# Fallos seguidos de cualquier otro tipo (timeouts, 5xx) tras los que se deja de leer.
+_MAX_POST_FAILS = 3
 
 
 def _read_posts(post_ids: List[str], token: str) -> Dict[str, Dict[str, Any]]:
     """Lee los posts por id, uno por uno (solo lectura; `?ids=` está obsoleto en Graph).
 
     Nunca levanta: un post ilegible deja su texto/imagen en None, no rompe la lista.
-    Se detiene ante el primer error de permiso (el token no ve los posts de la página).
+    Se detiene ante el primer error de permiso (el token no ve los posts de la página)
+    o tras `_MAX_POST_FAILS` fallos seguidos (Graph lento o caído).
     """
     out: Dict[str, Dict[str, Any]] = {}
+    fails = 0
     for pid in post_ids[:_MAX_POST_READS]:
         try:
             out[pid] = _graph(pid, token, {"fields": _POST_FIELDS})
+            fails = 0
         except Exception as e:   # noqa: BLE001 — este post queda sin texto/imagen
-            if any(m in str(e) for m in _PERMISSION_ERRORS):
+            fails += 1
+            if any(m in str(e) for m in _PERMISSION_ERRORS) or fails >= _MAX_POST_FAILS:
                 break
     return out
 
 
-def _fill_from_posts(items: List[Dict[str, Any]], token: str) -> None:
+def fill_from_posts(items: List[Dict[str, Any]], token: str) -> None:
     """Completa creative.body / image_url desde el post del anuncio cuando faltan.
 
     Los anuncios que promueven un post existente (p.ej. WhatsApp) traen la

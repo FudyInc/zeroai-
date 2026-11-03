@@ -501,6 +501,12 @@ class MetaAdsPostTest(unittest.TestCase):
         self.assertEqual(out["11"]["spend"], 12000)                 # las métricas siguen ahí
         self.assertEqual(len(urls), 4)                               # un error común no corta: lee el siguiente
 
+    def test_tres_fallos_seguidos_dejan_de_leer(self):
+        errs = [_http_error(500, "Service temporarily unavailable")] * 4
+        with mock.patch("zero.metaads.urllib.request.urlopen", side_effect=errs) as urlopen:
+            self.assertEqual(metaads._read_posts(["p1", "p2", "p3", "p4"], "tok"), {})
+        self.assertEqual(urlopen.call_count, 3)
+
     def test_sin_permiso_de_pagina_corta_al_primer_post(self):
         out, urls = self._run(_resp(_AD_INSIGHTS), _resp(_ADS_POST), _http_error(
             400, "(#10) Object does not exist ... requires the 'pages_read_engagement' permission"))
@@ -540,11 +546,11 @@ class CampaignAdSuggestTest(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
 
-    def _call(self, ad_id, env=None):
+    def _call(self, ad_id, env=None, effects=None):
         from fastapi import HTTPException
         with mock.patch.dict(os.environ, env or {}), \
              mock.patch("zero.metaads.urllib.request.urlopen",
-                        side_effect=[_resp(_AD_INSIGHTS), _resp(_ADS)]) as urlopen:
+                        side_effect=effects or [_resp(_AD_INSIGHTS), _resp(_ADS)]) as urlopen:
             try:
                 out, err = self.api.suggest_ad(mock.Mock(), "acme", ad_id), None
             except HTTPException as e:
@@ -593,5 +599,61 @@ class CampaignAdSuggestTest(unittest.TestCase):
         self.assertEqual(err.status_code, 502)
         self.assertIn("no entregó sugerencias válidas", err.detail)
 
+    def test_graph_conectado_que_falla_es_502_no_409(self):
+        out, err = self._call("11", env={"ZERO_PIPELINE_MOCK_OK": "1"},
+                              effects=[_http_error(500, "Service temporarily unavailable")])
+        self.assertEqual(err.status_code, 502)
+        self.assertIn("Meta falló", err.detail)
+
+    def test_lee_solo_el_post_del_anuncio_pedido(self):
+        out, err = self._call("11", env={"ZERO_PIPELINE_MOCK_OK": "1"},
+                              effects=[_resp(_AD_INSIGHTS), _resp(_ADS_POST), _resp(_POST_1)])
+        self.assertIsNone(err)
+        urls = [c.args[0].full_url for c in self.urlopen.call_args_list]
+        self.assertEqual(len(urls), 3)                                # no lee el post de "12"
+        self.assertTrue(urls[2].split("?")[0].endswith("/pg_1"))
+        auth = {c.args[0].get_header("Authorization") for c in self.urlopen.call_args_list}
+        self.assertEqual(auth, {"Bearer tok-acme"})
+
     def test_operador_no_tiene_acceso(self):
         self.assertFalse(self.api._role_may_access("operador", "GET", "/api/campaigns/ads/suggest"))
+
+
+class LeadDefinitionTest(unittest.TestCase):
+    """Lead = formulario O conversación iniciada (Diego, 2026-11-03; regla en zero/config.py)."""
+
+    def _ad(self, actions, spend="25000"):
+        ins = json.dumps({"data": [{"ad_id": "11", "spend": spend, "impressions": "19234",
+                                    "account_currency": "CLP", "actions": actions}]})
+        with mock.patch("zero.metaads.urllib.request.urlopen", side_effect=[_resp(ins), _resp(_ADS)]):
+            return metaads.MetaAds("act_1", token="tok").ads("acme")[0]
+
+    def test_conversaciones_iniciadas_cuentan_como_leads_y_dan_cpl(self):
+        a = self._ad([{"action_type": "onsite_conversion.messaging_conversation_started_7d", "value": "30"},
+                      # etapas más profundas de la misma conversación: no se suman
+                      {"action_type": "onsite_conversion.messaging_first_reply", "value": "12"},
+                      {"action_type": "onsite_conversion.messaging_user_depth_2_message_send", "value": "9"}])
+        self.assertEqual((a["leads"], a["cpl"]), (30, 833))        # 25000 / 30
+
+    def test_formulario_y_conversacion_se_suman_pero_sin_duplicar_dentro_del_grupo(self):
+        a = self._ad([{"action_type": "lead", "value": "4"},
+                      {"action_type": "onsite_conversion.lead_grouped", "value": "4"},
+                      {"action_type": "onsite_conversion.messaging_conversation_started_7d", "value": "6"}],
+                     spend="10000")
+        self.assertEqual((a["leads"], a["cpl"]), (10, 1000))
+
+    def test_sin_conversaciones_ni_formularios_cpl_none(self):
+        a = self._ad([{"action_type": "link_click", "value": "666"}])
+        self.assertEqual((a["leads"], a["cpl"]), (0, None))
+
+    def test_la_regla_se_lee_desde_config(self):
+        from zero import config
+        acts = [{"action_type": "onsite_conversion.messaging_conversation_started_7d", "value": "30"}]
+        with mock.patch.object(config, "LEAD_DEFINITION", (("formulario", ("lead",)),)):
+            self.assertEqual(metaads._lead_count(acts), 0)
+        self.assertEqual(metaads._lead_count(acts), 30)
+        self.assertNotIn("_LEAD_ACTION_TYPES", vars(metaads))     # una sola fuente de verdad
+
+    def test_campanas_tambien_cuentan_conversaciones(self):
+        self.assertEqual(metaads._lead_count(
+            [{"action_type": "onsite_conversion.messaging_conversation_started_7d", "value": "7"}]), 7)

@@ -433,6 +433,27 @@ MEDIABUYER_MIN_IMPRESSIONS = 1000
 # llama la atención —título/imagen—, no lo que pasa después del clic.
 MEDIABUYER_LOW_CTR_PCT = 1.0
 
+# --- Qué cuenta como lead en un anuncio de Meta (decidido por Diego, 2026-11-03) ---
+# "Es lead todo cliente que llega por WhatsApp o que consulta al negocio que usa el
+# dashboard": toda conversación iniciada por un cliente cuenta, igual que un formulario.
+# Antes solo contaban formularios, y las campañas que llevan a WhatsApp mostraban
+# leads=0 y CPL vacío aunque trajeran decenas de conversaciones.
+#
+# Cada grupo es UNA forma de llegar; dentro del grupo se toma el PRIMER tipo de acción
+# que Meta entregue (son la misma conversión con distinto nombre, sumarlos la
+# duplicaría). Los grupos sí se suman: un formulario y una conversación son dos
+# consultas distintas.
+#
+# Conversaciones: solo `messaging_conversation_started_7d`. Las demás métricas de
+# mensajería que entrega Meta (`messaging_first_reply`, `..._user_depth_2/3_message_send`,
+# `total_messaging_connection`) son etapas más profundas de esa misma conversación o se
+# traslapan con ella — sumarlas contaría dos veces a la misma persona.
+LEAD_DEFINITION = (
+    ("formulario", ("onsite_conversion.lead_grouped", "onsite_conversion.lead",
+                    "lead", "offsite_conversion.fb_pixel_lead")),
+    ("conversacion", ("onsite_conversion.messaging_conversation_started_7d",)),
+)
+
 # --- Follow-up cadence (TRACKER) ---------------------------------------------
 # After OUTREACH sends the first touch (step 0), TRACKER advances a lead through
 # these steps. `day` is the offset from the first touch; the sequence closes
