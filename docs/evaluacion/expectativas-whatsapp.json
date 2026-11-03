@@ -983,6 +983,21 @@
      "(?i)elige una opci[óo]n"
     ]
    }
+  },
+  "b1a869ffb9b9": {
+   "entiende": "ubicacion_fabrica",
+   "nota": "lead real 2026-10-31; el modelo respondió «Santiago, Chile»",
+   "chequeos": {
+    "debe": [
+     "Los Granados 029",
+     "La Pintana",
+     "maps\\.app\\.goo\\.gl/"
+    ],
+    "no_debe": [
+     "(?i)santiago,\\s*chile"
+    ],
+    "handoff": false
+   }
   }
  }
 }

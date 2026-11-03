@@ -118,3 +118,47 @@ def delivery_detail(message: str, history: list[dict]) -> str | None:
         if shipping_delivery_followup(content, turns[:index]):
             return f"Destino indicado: {content[:200]}"
     return None
+
+
+# «¿Dónde están?» asks for the factory; «mi dirección es…» gives the customer's own.
+# Each form must end the question or name the factory: «dónde están mis losetas»
+# asks about an order, «tienen tienda online» about something else.
+_END = r"\s*(?:[?!.,¿]|$)"
+_PLACE = r"(?:f[aá]brica|tienda|local|bodega|planta)"
+_FACTORY_LOCATION_QUESTION = re.compile(
+    r"\bd[oó]nde\s+(?:est[aá]n|quedan|se\s+(?:ubican|encuentran))"
+    r"(?:\s+(?:ubicad[oa]s|ustedes))?" + _END +
+    r"|\bd[oó]nde\s+(?:est[aá]|queda)\s+(?:ubicad[oa]\s+)?(?:la\s+|su\s+|tu\s+|el\s+)?" + _PLACE +
+    r"|\bd[oó]nde\s+(?:(?:puedo|se\s+puede)\s+)?(?:ir\s+a\s+)?(?:retir[oa]r?|retirarl[oa]s?|se\s+retira)"
+    r"(?:\s+(?:mi|el)\s+pedido|\s+la\s+compra|\s+(?:las|los)\s+(?:losetas|pastelones|bordes))?" + _END +
+    r"|\b(?:cu[aá]l|qu[eé])\s+es\s+(?:su|tu)\s+(?:ubicaci[oó]n|direcci[oó]n)\b"
+    r"|\b(?:ubicaci[oó]n|direcci[oó]n)\s+de\s+(?:la\s+|su\s+|tu\s+)?(?:" + _PLACE[3:-1] +
+    r"|ustedes|empresa)\b"
+    r"|\ben\s+qu[eé]\s+(?:parte|comuna|sector)\s+(?:est[aá]n|quedan|se\s+ubican)" + _END +
+    r"|\bde\s+d[oó]nde\s+son" + _END +
+    r"|\b(?:tienen|hay)\s+(?:un\s+)?(?:local|tienda|showroom|sala\s+de\s+ventas)" + _END,
+    re.IGNORECASE,
+)
+_OWN_ADDRESS = re.compile(
+    r"\b(?:mi|nuestra)\s+(?:direcci[oó]n|ubicaci[oó]n|casa|comuna)\b"
+    r"|\b(?:vivo|estoy|soy)\s+(?:en|de)\b"
+    r"|\b(?:factura|comprobante|boleta|transferencia)\b",
+    re.IGNORECASE)
+
+
+def factory_location_question(message: str) -> bool:
+    """Recognize a question about where the factory is.
+
+    A message that also names shipping goes to the shipping flow instead."""
+    content = (message or "").strip()
+    if not content or _LOCATION_MARKER.match(content) or _OWN_ADDRESS.search(content):
+        return False
+    if _SHIPPING_TOPIC.search(content):
+        return False
+    return bool(_FACTORY_LOCATION_QUESTION.search(content))
+
+
+def factory_location_reply() -> str:
+    """The confirmed factory address, with the map link when there is one."""
+    pin = f"\nUbicación en Maps: {FACTORY_MAP_URL}" if FACTORY_MAP_URL else ""
+    return f"Nuestra fábrica está en {FACTORY_ADDRESS}.{pin}"

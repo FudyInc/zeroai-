@@ -54,6 +54,7 @@ from .losetas_text import normalize_customer_text, plain
 from .attention import fixed_answer, learned_alias, learned_answer
 from .losetas_shipping import (SHIPPING_COVERAGE_REPLY, SHIPPING_PRICE_REPLY,
                                delivery_detail, delivery_poll_choice_response,
+                               factory_location_question, factory_location_reply,
                                shipping_coverage_request, shipping_delivery_followup)
 from .losetas_polls import (DELIVERY_POLL_QUESTION as LOSETAS_DELIVERY_POLL_QUESTION,
                             PRODUCT_POLL_QUESTION,
@@ -1246,6 +1247,11 @@ class Zero:
                 fixed = fixed_answer(knowledge, _asked_topic(message) or "")
                 if fixed:
                     return {"reply": fixed, "intent": "info", "flow_step": True, "aside": "verbatim"}
+                # Diego confirmed the address (2026-11-03): the model once answered
+                # «Santiago, Chile» to a real lead, so this never reaches the model.
+                if factory_location_question(message):
+                    return {"reply": factory_location_reply(), "intent": "info",
+                            "flow_step": True, "aside": "verbatim"}
                 topic = _uncovered_topic(message, knowledge)
                 if topic:
                     return {"reply": "", "intent": "handoff",
