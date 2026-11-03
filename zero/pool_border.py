@@ -101,6 +101,8 @@ _WHALE = re.compile(r"\bbordes?\s+ballena\b", re.IGNORECASE)
 _PRODUCT = re.compile(r"\bbordes? rectos?(?: con nariz)?\b", re.IGNORECASE)
 # Same piece rule for both models; only the priced item changes.
 BORDER_ITEM_IDS = {"recto": "borde-recto-nariz-50x50", "ballena": "borde-ballena-50x40"}
+BORDER_WHALE_PATTERN = _WHALE      # public aliases for other modules
+BORDER_STRAIGHT_PATTERN = _PRODUCT
 _OTHER_PRODUCT = re.compile(
     r"\bpastel[oó]n(?:es)?\s+(?:sol|adoqu[ií]n|laja|ladrillo)\b"
     r"|\b40\s*[x×]\s*40\b", re.IGNORECASE)

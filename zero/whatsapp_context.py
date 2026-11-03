@@ -112,6 +112,49 @@ def select_knowledge(knowledge: str, question: str, max_chars: int = 1600) -> st
     return result[:max_chars]
 
 
+def find_measurement(text: str) -> re.Match[str] | None:
+    return re.search(
+        r"\b\d+(?:[.,]\d+)?\s*(?:x|×|por)\s*\d+(?:[.,]\d+)?\b"
+        r"|\b\d+(?:[.,]\d+)?\s*(?:m2|m²|metros?|mts?|cm)\b",
+        text, re.IGNORECASE)
+
+
+def find_model(text: str) -> re.Match[str] | None:
+    return re.search(
+        r"\b(?:borde\s+(?:recto|ballena)|"
+        r"pastel[oó]n(?:es)?\s+(?:sol|adoqu[ií]n|laja|ladrillo)|"
+        r"esquina\s+piscina|deck\s+madera)\b",
+        text, re.IGNORECASE)
+
+
+def find_location(content: str, previous_agent_text: str | None = None) -> re.Match[str] | None:
+    """A stated place; a bare name counts only as the answer to an agent's question."""
+    found = re.search(
+        r"\b(?:estoy|estamos|vivo|queda|est[aá]|ubicad[oa]s?)\s+en\s+\w+"
+        r"|\b(?:comuna|direcci[oó]n)\s+(?:es|de|en)\b",
+        content, re.IGNORECASE)
+    if found:
+        return found
+    if (previous_agent_text is not None and
+            re.search(r"\b(?:comuna|direcci[oó]n|ubicaci[oó]n)\b",
+                      previous_agent_text, re.IGNORECASE) and
+            content.strip().casefold() not in {"hola", "gracias", "sí", "si", "no"}):
+        return re.fullmatch(r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ\s-]{2,40}", content.strip())
+    return None
+
+
+def has_measurement(text: str) -> bool:
+    return bool(find_measurement(text))
+
+
+def has_model(text: str) -> bool:
+    return bool(find_model(text))
+
+
+def has_location(content: str, previous_agent_text: str | None = None) -> bool:
+    return bool(find_location(content, previous_agent_text))
+
+
 def select_history(turns: List[Dict[str, Any]], question: str,
                    max_turns: int = 4) -> List[Dict[str, str]]:
     """Keep the latest exchange and the last confirmed order facts."""
@@ -126,32 +169,15 @@ def select_history(turns: List[Dict[str, Any]], question: str,
                        if turns[i].get("role") == "lead"]
 
         def measurement(index: int) -> bool:
-            return bool(re.search(
-                r"\b\d+(?:[.,]\d+)?\s*(?:x|×|por)\s*\d+(?:[.,]\d+)?\b"
-                r"|\b\d+(?:[.,]\d+)?\s*(?:m2|m²|metros?|mts?|cm)\b",
-                str(turns[index].get("text") or ""), re.IGNORECASE))
+            return has_measurement(str(turns[index].get("text") or ""))
 
         def model(index: int) -> bool:
-            return bool(re.search(
-                r"\b(?:borde\s+(?:recto|ballena)|"
-                r"pastel[oó]n(?:es)?\s+(?:sol|adoqu[ií]n|laja|ladrillo)|"
-                r"esquina\s+piscina|deck\s+madera)\b",
-                str(turns[index].get("text") or ""), re.IGNORECASE))
+            return has_model(str(turns[index].get("text") or ""))
 
         def location(index: int) -> bool:
-            content = str(turns[index].get("text") or "")
-            if re.search(
-                r"\b(?:estoy|estamos|vivo|queda|est[aá]|ubicad[oa]s?)\s+en\s+\w+"
-                r"|\b(?:comuna|direcci[oó]n)\s+(?:es|de|en)\b",
-                content, re.IGNORECASE):
-                return True
-            if (index > 0 and turns[index - 1].get("role") == "agent" and
-                    re.search(r"\b(?:comuna|direcci[oó]n|ubicaci[oó]n)\b",
-                              str(turns[index - 1].get("text") or ""), re.IGNORECASE) and
-                    re.fullmatch(r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ\s-]{2,40}", content.strip()) and
-                    content.strip().casefold() not in {"hola", "gracias", "sí", "si", "no"}):
-                return True
-            return False
+            previous = (str(turns[index - 1].get("text") or "")
+                        if index > 0 and turns[index - 1].get("role") == "agent" else None)
+            return has_location(str(turns[index].get("text") or ""), previous)
 
         selected = set(recent)
         facts = (measurement, location, model)

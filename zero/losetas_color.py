@@ -47,6 +47,9 @@ def _parse_preference(message: str) -> str | None:
     return None
 
 
+parse_color = _parse_preference  # public alias for other modules
+
+
 def color_preference(message: str, history: list[dict[str, Any]]) -> str | None:
     """Read a lead's answer only after the catalog question was sent.
 

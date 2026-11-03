@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from .config import (
+    WHATSAPP_HISTORY_TURNS,
     LOSETASCHILE_CHOICE_STYLE,
     LOSETASCHILE_PAGO_GENERICO,
     LOSETASCHILE_TEMAS_SIN_INVENTAR,
@@ -78,6 +79,7 @@ from .pool_border import (POOL_PHOTO_MARKER, POOL_PHOTO_REQUEST, _MEASUREMENT_QU
                           pool_border_models_reply, pool_measurement_message)
 from .vendors import credentials_for
 from .whatsapp_context import select_history, select_knowledge
+from .whatsapp_state import build_conversation_state
 from .whatsapp_format import format_whatsapp_reply, pick_variant
 from .whatsapp_greeting import align_opening_greeting, whatsapp_greeting
 
@@ -1285,6 +1287,7 @@ class Zero:
         # El contexto de Ollama en WhatsApp es pequeño. Un prompt de 11 KB más
         # toda la ficha del CRM hacía que Ollama recortara el mensaje entrante.
         lead_context = lead or {}
+        conversation_state = None
         if local_whatsapp:
             lead_context = {key: lead_context[key] for key in ("name", "role", "company")
                             if lead_context.get(key)}
@@ -1299,7 +1302,9 @@ class Zero:
                 retrieval_query += " " + " ".join(
                     str(turn.get("text") or "")[:180] for turn in (history or [])[-2:])
             knowledge = select_knowledge(knowledge, retrieval_query, max_chars=1600)
-            history = select_history(history or [], message, max_turns=6)
+            conversation_state = build_conversation_state(client_id, message, order_history)
+            history = select_history(history or [], message,
+                                     max_turns=WHATSAPP_HISTORY_TURNS)
         else:
             knowledge = knowledge[:4000]
         # Persona del vendedor asignado (Fernanda/Stéfano/...): solo name/tone, para
@@ -1480,7 +1485,9 @@ class Zero:
             instructions=instructions,
             data={"message": message, "lead": lead_context, "icp": _icp_para_outreach(icp), "vendor": persona,
                   "knowledge": knowledge, "history": history or [],
-                  "quote": quote or {}, "greeting": greeting},
+                  "quote": quote or {}, "greeting": greeting,
+                  **({"conversation_state": conversation_state}
+                     if conversation_state else {})},
             constraints=Constraints(channels=[channel]),
         )
         resp = self.dispatch("CONCIERGE", task)

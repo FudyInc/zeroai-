@@ -270,6 +270,24 @@ WHATSAPP_ENGINE = {
     "fallback_to_paid": False,                # política cero gasto: nunca Anthropic
 }
 
+# Estado de la conversación que recibe el modelo local (zero/whatsapp_state.py).
+# Cada lista va en el orden en que el flujo de LosetasChile pide los datos; `falta`
+# es el primer dato requerido que aún no tiene valor.
+WHATSAPP_REQUIRED_FIELDS = {
+    "losetaschile": {
+        "borde de piscina": ("medidas", "modelo", "forma", "color", "entrega"),
+        "pastelones": ("m2", "modelo", "color", "entrega"),
+    },
+}
+WHATSAPP_STATE_EVIDENCE_CHARS = 80   # largo máximo de cada dato citado del cliente
+# Turnos de historial que ve el modelo local, y presupuesto del request completo
+# (system + user, en caracteres). Ollama usa una ventana de 4096 tokens y recorta
+# el principio (las reglas) sin avisar. Medido con una conversación de 30 turnos
+# de LosetasChile (tests/test_whatsapp_state.py): con 10 turnos y estado el request
+# mide ~8.500 caracteres. Tope: (3500 tokens - 300 de respuesta) * 3 car/token.
+WHATSAPP_HISTORY_TURNS = 10
+WHATSAPP_PROMPT_BUDGET_CHARS = 9600
+
 # --- Avisos al dueño (zero/alerts.py) -----------------------------------------
 # Caer al motor pagado es exactamente el evento que no debe pasar inadvertido:
 # empieza a costar plata sin que nadie lo haya pedido. Se avisa al celular por el
