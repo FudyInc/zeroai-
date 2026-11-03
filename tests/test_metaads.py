@@ -654,6 +654,21 @@ class LeadDefinitionTest(unittest.TestCase):
         self.assertEqual(metaads._lead_count(acts), 30)
         self.assertNotIn("_LEAD_ACTION_TYPES", vars(metaads))     # una sola fuente de verdad
 
+    def _campaign(self, actions):
+        camps = json.dumps({"data": [{"id": "1", "name": "WhatsApp", "objective": "OUTCOME_ENGAGEMENT",
+                                      "effective_status": "ACTIVE", "daily_budget": "5000"}]})
+        ins = json.dumps({"data": [{"campaign_id": "1", "spend": "7000", "account_currency": "CLP",
+                                    "actions": actions}]})
+        with mock.patch.dict(os.environ, {"META_ADS_TOKEN": "tok"}), \
+             mock.patch("zero.metaads.urllib.request.urlopen", side_effect=[_resp(camps), _resp(ins)]):
+            return metaads.MetaAds("act_1").campaigns("acme")[0]
+
     def test_campanas_tambien_cuentan_conversaciones(self):
-        self.assertEqual(metaads._lead_count(
-            [{"action_type": "onsite_conversion.messaging_conversation_started_7d", "value": "7"}]), 7)
+        c = self._campaign([{"action_type": "onsite_conversion.messaging_conversation_started_7d", "value": "7"}])
+        self.assertEqual((c["leads"], c["cpl_clp"]), (7, 1000))
+
+    def test_campanas_sin_leads_mantienen_cpl_cero_y_anuncios_none(self):
+        # Asimetría deliberada: campaigns() conserva su contrato previo (cpl_clp=0);
+        # ads() es nuevo y nunca muestra un CPL que no se midió (cpl=None).
+        self.assertEqual(self._campaign([])["cpl_clp"], 0)
+        self.assertIsNone(self._ad([])["cpl"])

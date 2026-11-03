@@ -131,6 +131,13 @@ class PruebaDiariaDelAgente(unittest.TestCase):
     def test_una_regla_rota_si_cuenta_como_prueba_completa(self):
         self.assertEqual(self._correr(self.AHORA - 3600, salida="1 regla(s) rota(s) en 6 casos"), [])
 
+    def test_las_marcas_que_busca_son_las_que_imprime_probar_agente(self):
+        # Si alguien cambia el texto de probar-agente.py, este test lo ata: sin él, la
+        # salud dejaría de reconocer toda corrida y relanzaría la prueba cada 2 h.
+        fuente = (_RUTA.parent / "probar-agente.py").read_text()
+        for marca in self.salud._GOLDEN_PROBO:
+            self.assertIn(marca, fuente)
+
     def test_revisar_incluye_la_prueba_diaria(self):
         s = self.salud
         with mock.patch.object(s, "_servicio", return_value=True), \
