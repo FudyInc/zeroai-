@@ -849,20 +849,12 @@ def campaigns(client: str):
     }
 
 
-@app.get("/api/campaigns/ads")
-def campaign_ads(request: Request, client: str, since: Optional[str] = None):
-    """Anuncios ya pagados del cliente: post/creatividad + métricas reales (solo lectura).
+def _paid_ads(client: str, since: Optional[str] = None) -> dict:
+    """Anuncios ya pagados del cliente con el token de ESE cliente; nunca mock.
 
-    Sin cuenta, sin token o con error de Graph responde 200 con source="unavailable",
-    items=[] y el motivo — nunca anuncios de mock."""
-    from zero.metaads import client_token, make_metaads, today_chile
-    _require_client(request, client)
-    if since is not None:
-        try:
-            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", since) or date.fromisoformat(since) > today_chile():
-                raise ValueError
-        except ValueError:
-            raise HTTPException(status_code=400, detail="since debe ser una fecha YYYY-MM-DD no futura")
+    Lo comparten /api/campaigns/ads y /api/campaigns/ads/suggest: los dos ven
+    exactamente el mismo anuncio."""
+    from zero.metaads import client_token, make_metaads
     cfg = _client_meta_cfg(client)
 
     def unavailable(reason: str) -> dict:
@@ -881,6 +873,58 @@ def campaign_ads(request: Request, client: str, since: Optional[str] = None):
     except Exception as e:   # token inválido, cuenta sin acceso, moneda no CLP, red...
         return unavailable(str(e)[:300])
     return {"client": client, "source": "live", "reason": None, "currency": "CLP", "items": items}
+
+
+@app.get("/api/campaigns/ads")
+def campaign_ads(request: Request, client: str, since: Optional[str] = None):
+    """Anuncios ya pagados del cliente: post/creatividad + métricas reales (solo lectura).
+
+    Sin cuenta, sin token o con error de Graph responde 200 con source="unavailable",
+    items=[] y el motivo — nunca anuncios de mock."""
+    from zero.metaads import today_chile
+    _require_client(request, client)
+    if since is not None:
+        try:
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", since) or date.fromisoformat(since) > today_chile():
+                raise ValueError
+        except ValueError:
+            raise HTTPException(status_code=400, detail="since debe ser una fecha YYYY-MM-DD no futura")
+    return _paid_ads(client, since)
+
+
+@app.get("/api/campaigns/ads/suggest")
+def suggest_ad(request: Request, client: str, ad_id: str):
+    """MEDIABUYER sugiere cómo mejorar UN anuncio pagado (recomienda; no edita en Meta).
+
+    Respuestas:
+    - 200 → lo que entrega MEDIABUYER {diagnostico, pocos_datos, sugerencias,
+      metricas_usadas} + ad_id y mode (el motor que respondió, visible en pantalla).
+    - 409 → el cliente no tiene Meta disponible (sin cuenta, sin token o Graph falló),
+      con el mismo motivo que /ads daría como `reason`. Sin el anuncio real no hay
+      nada que mejorar, así que no es un 200 vacío.
+    - 404 → ese ad_id no está entre los anuncios pagados de la cuenta del cliente.
+    - 503 → no hay motor de IA real (nunca una plantilla de mock fuera de la suite).
+    - 502 → el motor respondió pero falló o no entregó sugerencias válidas."""
+    from zero.agents.mediabuyer import improve_ad
+    from zero.metaads import CHILE
+    _require_client(request, client)
+    ads = _paid_ads(client)
+    if ads["source"] != "live":
+        raise HTTPException(status_code=409, detail=ads["reason"])
+    item = next((a for a in ads["items"] if str(a.get("ad_id")) == ad_id), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail="ese anuncio no está entre los anuncios pagados de este cliente")
+
+    def run(z):
+        return improve_ad(z, item, CHILE["good_cpl_clp"], client)
+
+    try:
+        result, mode = _agent_op(run)
+    except HTTPException:
+        raise                       # 503 sin motor, tal cual
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"MEDIABUYER falló: {str(e)[:300]}")
+    return {**result, "ad_id": ad_id, "mode": mode}
 
 
 @app.post("/api/campaigns/sync-leads")

@@ -226,7 +226,8 @@ class MetaAds:
             return []
         rows = _graph_pages(f"{self.account}/ads", self.token, {
             "fields": "id,name,campaign_id,campaign{name},effective_status,"
-                      "creative{title,body,image_url,thumbnail_url,call_to_action_type,"
+                      f"creative.thumbnail_width({_THUMB_PX}).thumbnail_height({_THUMB_PX})"
+                      "{title,body,image_url,thumbnail_url,call_to_action_type,"
                       "effective_object_story_id}",
             # Sin este filtro Graph omite ARCHIVED/DELETED, justo los que ya gastaron.
             "filtering": json.dumps([{"field": "effective_status", "operator": "IN",
@@ -253,6 +254,7 @@ class MetaAds:
                 spend=_amount(ins.get("spend")), impressions=_amount(ins.get("impressions")),
                 reach=_amount(ins.get("reach")), clicks=_amount(ins.get("clicks")),
                 ctr=_ratio(ins.get("ctr")), leads=_lead_count(ins.get("actions"))))
+        _fill_from_posts(out, self.token)
         out.sort(key=lambda a: a["spend"], reverse=True)
         return out
 
@@ -433,6 +435,52 @@ def _lead_count(actions: Any) -> int:
         if kind in values:
             return values[kind]
     return 0
+
+
+_POST_FIELDS = "message,full_picture,permalink_url"
+_MAX_POST_READS = 100   # tope de lecturas de posts por carga de /ads
+# Miniatura de la creatividad en tamaño legible: sin esto Graph la entrega de 64 px.
+_THUMB_PX = 1080
+# Error de permiso de Graph: si el token no puede leer un post de la página, no
+# podrá leer los demás; seguir sería N llamadas fallidas en cada carga de /ads.
+_PERMISSION_ERRORS = ("(#10)", "(#200)", "pages_read_engagement")
+
+
+def _read_posts(post_ids: List[str], token: str) -> Dict[str, Dict[str, Any]]:
+    """Lee los posts por id, uno por uno (solo lectura; `?ids=` está obsoleto en Graph).
+
+    Nunca levanta: un post ilegible deja su texto/imagen en None, no rompe la lista.
+    Se detiene ante el primer error de permiso (el token no ve los posts de la página).
+    """
+    out: Dict[str, Dict[str, Any]] = {}
+    for pid in post_ids[:_MAX_POST_READS]:
+        try:
+            out[pid] = _graph(pid, token, {"fields": _POST_FIELDS})
+        except Exception as e:   # noqa: BLE001 — este post queda sin texto/imagen
+            if any(m in str(e) for m in _PERMISSION_ERRORS):
+                break
+    return out
+
+
+def _fill_from_posts(items: List[Dict[str, Any]], token: str) -> None:
+    """Completa creative.body / image_url desde el post del anuncio cuando faltan.
+
+    Los anuncios que promueven un post existente (p.ej. WhatsApp) traen la
+    creatividad vacía y una miniatura de 64 px; el texto y la imagen viven en el
+    post. Solo rellena lo que falta: lo que la creatividad sí trae manda."""
+    pending = [a for a in items if a.get("post_id") and isinstance(a.get("creative"), dict)
+               and (not a["creative"].get("body") or not a["creative"].get("image_url"))]
+    ids = list(dict.fromkeys(str(a["post_id"]) for a in pending))
+    if not ids:
+        return
+    posts = _read_posts(ids, token)
+    for a in pending:
+        post = posts.get(str(a["post_id"])) or {}
+        cr = a["creative"]
+        if not cr.get("body") and isinstance(post.get("message"), str) and post["message"].strip():
+            cr["body"] = post["message"]
+        if not cr.get("image_url") and isinstance(post.get("full_picture"), str) and post["full_picture"]:
+            cr["image_url"] = post["full_picture"]
 
 
 def _graph(path: str, token: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

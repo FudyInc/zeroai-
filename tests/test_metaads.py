@@ -451,3 +451,147 @@ class CampaignAdsEndpointTest(unittest.TestCase):
             out = self.api.campaign_ads(mock.Mock(), "acme")
         self.assertEqual((out["source"], out["items"]), ("unavailable", []))
         self.assertIn("cuenta publicitaria", out["reason"])
+
+
+_ADS_POST = json.dumps({"data": [
+    {"id": "11", "name": "Post A", "campaign_id": "1", "campaign": {"name": "Camp A"},
+     "effective_status": "ACTIVE",
+     "creative": {"thumbnail_url": "https://img/a_1080.jpg", "effective_object_story_id": "pg_1"}},
+    {"id": "12", "name": "Post B", "campaign_id": "1", "campaign": {"name": "Camp A"},
+     "effective_status": "ACTIVE",
+     "creative": {"body": "Texto propio del anuncio", "effective_object_story_id": "pg_2"}},
+]})
+_POST_1 = json.dumps({"id": "pg_1", "message": "Pastelones para tu terraza",
+                      "full_picture": "https://img/pg_1_full.jpg", "permalink_url": "https://fb/pg_1"})
+
+
+def _http_error(code: int, message: str) -> urllib.error.HTTPError:
+    return urllib.error.HTTPError("u", code, "bad", {}, mock.Mock(read=lambda: json.dumps(
+        {"error": {"message": message}}).encode()))
+
+
+class MetaAdsPostTest(unittest.TestCase):
+    """Texto e imagen del post: se leen por post_id solo cuando la creatividad no los trae."""
+
+    def _run(self, *effects):
+        with mock.patch("zero.metaads.urllib.request.urlopen", side_effect=list(effects)) as urlopen:
+            out = metaads.MetaAds("act_1", token="tok").ads("acme")
+        return {a["ad_id"]: a for a in out}, [c.args[0].full_url for c in urlopen.call_args_list]
+
+    def test_completa_lo_que_falta_desde_el_post_sin_pisar_lo_que_ya_viene(self):
+        post_2 = json.dumps({"id": "pg_2", "message": "NO debe pisar", "full_picture": "https://img/pg_2.jpg"})
+        out, urls = self._run(_resp(_AD_INSIGHTS), _resp(_ADS_POST), _resp(_POST_1), _resp(post_2))
+        a, b = out["11"]["creative"], out["12"]["creative"]
+        self.assertEqual((a["body"], a["image_url"]), ("Pastelones para tu terraza", "https://img/pg_1_full.jpg"))
+        self.assertEqual(a["thumbnail_url"], "https://img/a_1080.jpg")
+        self.assertEqual((b["body"], b["image_url"]), ("Texto propio del anuncio", "https://img/pg_2.jpg"))
+        post_urls = [urllib.parse.unquote(u) for u in urls[2:]]
+        self.assertTrue(post_urls[0].split("?")[0].endswith("/pg_1"))
+        self.assertIn("fields=message,full_picture,permalink_url", post_urls[0])
+        self.assertTrue(all("ids=" not in u for u in post_urls))     # ?ids= está obsoleto en Graph
+
+    def test_pide_la_miniatura_en_tamano_legible(self):
+        _out, urls = self._run(_resp(_AD_INSIGHTS), _resp(_ADS), _resp("{}"))
+        self.assertIn("creative.thumbnail_width(1080).thumbnail_height(1080){", urllib.parse.unquote(urls[1]))
+
+    def test_post_ilegible_deja_null_y_no_rompe_la_lista(self):
+        out, urls = self._run(_resp(_AD_INSIGHTS), _resp(_ADS_POST),
+                              _http_error(400, "Unsupported get request"), _resp(json.dumps({"message": "B"})))
+        self.assertEqual((out["11"]["creative"]["body"], out["11"]["creative"]["image_url"]), (None, None))
+        self.assertEqual(out["11"]["spend"], 12000)                 # las métricas siguen ahí
+        self.assertEqual(len(urls), 4)                               # un error común no corta: lee el siguiente
+
+    def test_sin_permiso_de_pagina_corta_al_primer_post(self):
+        out, urls = self._run(_resp(_AD_INSIGHTS), _resp(_ADS_POST), _http_error(
+            400, "(#10) Object does not exist ... requires the 'pages_read_engagement' permission"))
+        self.assertEqual(len(urls), 3)                               # no insiste post por post
+        self.assertEqual(set(out), {"11", "12"})
+        self.assertIsNone(out["11"]["creative"]["body"])
+        self.assertEqual(out["12"]["creative"]["body"], "Texto propio del anuncio")
+
+
+class CampaignAdSuggestTest(unittest.TestCase):
+    """GET /api/campaigns/ads/suggest: el anuncio real del cliente pedido → MEDIABUYER.
+
+    Contrato de estados, a propósito:
+    - cliente sin Meta disponible → 409 con el motivo (no 200 vacío: sin el anuncio real
+      no hay nada que mejorar, y la pantalla debe decir por qué);
+    - ad_id que no está en la cuenta del cliente → 404;
+    - sin motor de IA real → 503; el mock solo existe con ZERO_PIPELINE_MOCK_OK=1 (suite).
+    """
+
+    _SIN_MOTOR = {"ANTHROPIC_API_KEY": "", "OPENAI_API_KEY": "", "LOCAL_MODEL": "", "ZERO_PIPELINE_MOCK_OK": ""}
+
+    def setUp(self):
+        import tempfile
+        import api
+        from zero.memory import SessionMemory
+        self.api = api
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        patches = [mock.patch.object(api, "_require_client"),
+                   mock.patch.object(api, "_client_meta_cfg", return_value={"ad_account": "act_1"}),
+                   mock.patch.object(api, "make_memory", return_value=SessionMemory(os.path.join(tmp.name, "s.json"))),
+                   mock.patch.dict(os.environ, {"META_ADS_TOKEN": "global-tok",
+                                                metaads.client_token_key("otro"): "tok-otro",
+                                                metaads.client_token_key("acme"): "tok-acme",
+                                                **self._SIN_MOTOR})]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+    def _call(self, ad_id, env=None):
+        from fastapi import HTTPException
+        with mock.patch.dict(os.environ, env or {}), \
+             mock.patch("zero.metaads.urllib.request.urlopen",
+                        side_effect=[_resp(_AD_INSIGHTS), _resp(_ADS)]) as urlopen:
+            try:
+                out, err = self.api.suggest_ad(mock.Mock(), "acme", ad_id), None
+            except HTTPException as e:
+                out, err = None, e
+        self.urlopen = urlopen
+        return out, err
+
+    def test_sin_motor_real_es_503_y_nunca_plantilla(self):
+        out, err = self._call("11")
+        self.assertIsNone(out)
+        self.assertEqual(err.status_code, 503)
+
+    def test_anuncio_ajeno_o_inexistente_es_404(self):
+        out, err = self._call("999", env={"ZERO_PIPELINE_MOCK_OK": "1"})
+        self.assertIsNone(out)
+        self.assertEqual(err.status_code, 404)
+        self.assertIn("este cliente", err.detail)
+
+    def test_lee_el_anuncio_con_el_token_del_cliente_pedido(self):
+        self._call("11", env={"ZERO_PIPELINE_MOCK_OK": "1"})
+        auth = {c.args[0].get_header("Authorization") for c in self.urlopen.call_args_list}
+        self.assertEqual(auth, {"Bearer tok-acme"})
+
+    def test_cliente_sin_meta_es_409_con_el_motivo(self):
+        with mock.patch.dict(os.environ, {metaads.client_token_key("acme"): ""}):
+            out, err = self._call("11", env={"ZERO_PIPELINE_MOCK_OK": "1"})
+        self.assertEqual(err.status_code, 409)
+        self.assertIn("Meta no conectado", err.detail)
+        self.urlopen.assert_not_called()
+
+    def test_forma_de_la_respuesta(self):
+        out, err = self._call("11", env={"ZERO_PIPELINE_MOCK_OK": "1"})
+        self.assertIsNone(err)
+        self.assertTrue({"diagnostico", "pocos_datos", "sugerencias", "metricas_usadas"} <= set(out))
+        self.assertEqual((out["ad_id"], out["mode"]), ("11", "mock"))   # el modo llega a la pantalla
+        self.assertIsInstance(out["diagnostico"], str)
+        self.assertIsInstance(out["pocos_datos"], bool)
+        for s in out["sugerencias"]:
+            self.assertEqual(set(s), {"campo", "actual", "propuesta", "por_que"})
+
+    def test_motor_real_que_falla_es_502_con_el_motivo_no_mock(self):
+        with mock.patch.object(self.api, "_agents_best", return_value=({}, "live")), \
+             mock.patch("zero.agents.mediabuyer.improve_ad",
+                        side_effect=RuntimeError("el modelo no entregó sugerencias válidas")):
+            out, err = self._call("11")
+        self.assertEqual(err.status_code, 502)
+        self.assertIn("no entregó sugerencias válidas", err.detail)
+
+    def test_operador_no_tiene_acceso(self):
+        self.assertFalse(self.api._role_may_access("operador", "GET", "/api/campaigns/ads/suggest"))

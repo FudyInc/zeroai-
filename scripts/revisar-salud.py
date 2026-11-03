@@ -130,6 +130,84 @@ def _corrio_en_mock() -> list:
             + " — el motor real falló o algo se saltó la puerta de api.py"]
 
 
+# --- prueba diaria del agente (zero-golden) -----------------------------------
+# El timer de las 04:30 tiene Persistent=true, y eso no basta: en WSL la máquina a
+# veces arranca, se apaga sola ~19 s después y vuelve a arrancar. La corrida atrasada
+# se dispara en ese arranque efímero, muere con 'signal', y el timer la da por hecha.
+# Así pasaron 6 días (10-28 → 11-03) sin una sola prueba completa. Esto mira el
+# RESULTADO —la última corrida que terminó— y no si el timer disparó.
+GOLDEN_UNIT = "zero-golden.service"
+GOLDEN_MAX_HORAS = 26          # una al día + margen; pasado esto se relanza sola
+GOLDEN_URGENTE_HORAS = 50      # dos días sin prueba ya no es un atraso: es una falla
+GOLDEN_REINTENTO_MIN = 120     # no relanzar en cada revisión si la anterior sigue fallando
+
+
+def _ultima_prueba_completa():
+    """Epoch (s) del último "Finished" de zero-golden en el journal, o None si nunca.
+
+    Una corrida que termina —pase, rompa una regla o encuentre el motor caído
+    (SuccessExitStatus=0 1 2)— queda como JOB_RESULT=done. Una que mataron, no.
+    Levanta si el journal no se puede leer: un detector mudo diría "todo bien"."""
+    r = subprocess.run(["journalctl", "--user", f"USER_UNIT={GOLDEN_UNIT}", "JOB_TYPE=start",
+                        "JOB_RESULT=done", "-o", "json", "-r", "-n", "1", "--no-pager"],
+                       capture_output=True, text=True, timeout=30)
+    if r.returncode != 0:
+        raise RuntimeError((r.stderr or "journalctl falló").strip()[:200])
+    for linea in r.stdout.splitlines():
+        if linea.strip():
+            return int(json.loads(linea)["__REALTIME_TIMESTAMP"]) / 1e6
+    return None
+
+
+def _estado_golden():
+    """(ActiveState, epoch del último arranque o None) de la unidad."""
+    r = subprocess.run(["systemctl", "--user", "show", GOLDEN_UNIT, "--timestamp=unix",
+                        "-p", "ActiveState", "-p", "InactiveExitTimestamp"],
+                       capture_output=True, text=True, timeout=30)
+    props = dict(l.split("=", 1) for l in r.stdout.splitlines() if "=" in l)
+    ts = props.get("InactiveExitTimestamp", "").lstrip("@")
+    return props.get("ActiveState", ""), (float(ts) if ts.replace(".", "").isdigit() else None)
+
+
+def _prueba_diaria() -> list:
+    """Si la última prueba completa del agente es más vieja que GOLDEN_MAX_HORAS, la relanza.
+
+    Corre desde zero-salud (cada 30 min, primera vez 5 min después del arranque), o
+    sea ya pasado el arranque efímero que mata a la del timer."""
+    try:
+        ultima = _ultima_prueba_completa()
+    except Exception as e:                       # noqa: BLE001
+        return [f"no se pudo leer en el journal la última prueba diaria del agente: {e}"]
+    ahora = time.time()
+    horas = None if ultima is None else (ahora - ultima) / 3600
+    if horas is not None and horas <= GOLDEN_MAX_HORAS:
+        return []
+    desde = ("nunca completó una corrida" if ultima is None else
+             "sin corrida completa desde " + datetime.fromtimestamp(ultima).strftime("%Y-%m-%d %H:%M"))
+    # Lo urgente va con texto ESTABLE: main() agrupa los avisos por su texto, y uno que
+    # cambia en cada revisión (horas, estado) saltaría el antirrebote cada 30 min.
+    # El detalle de qué se hizo va aparte, como no urgente (se imprime, no avisa).
+    fallas = [] if horas is not None and horas <= GOLDEN_URGENTE_HORAS else \
+        [f"prueba diaria del agente {desde}"]
+    try:
+        estado, arranque = _estado_golden()
+    except Exception as e:                       # noqa: BLE001
+        return fallas + [f"prueba diaria del agente: no se pudo consultar su unidad: {e}"]
+    if estado in ("active", "activating", "deactivating"):
+        accion = "hay una corriendo ahora"
+    elif arranque is not None and ahora - arranque < GOLDEN_REINTENTO_MIN * 60:
+        accion = f"se relanzó hace menos de {GOLDEN_REINTENTO_MIN} min y no terminó"
+    else:
+        r = subprocess.run(["systemctl", "--user", "start", "--no-block", GOLDEN_UNIT],
+                           capture_output=True, text=True, timeout=30)
+        if r.returncode != 0:
+            return fallas + ["prueba diaria del agente: no se pudo relanzar: "
+                             + (r.stderr or "").strip()[:200]]
+        accion = "relanzada ahora"
+    horas_txt = "nunca" if horas is None else f"hace {horas:.0f} h"
+    return fallas + [NO_URGENTE + f"prueba diaria del agente {desde} ({horas_txt}); {accion}"]
+
+
 def revisar() -> list:
     fallas = []
     for s in ("zero-backend", "zero-tunnel", "ollama"):
@@ -163,6 +241,7 @@ def revisar() -> list:
         except Exception as e:
             fallas.append(f"no se pudo verificar el puente WhatsApp Web: {e}")
     fallas.extend(_corrio_en_mock())
+    fallas.extend(_prueba_diaria())
     return fallas
 
 
