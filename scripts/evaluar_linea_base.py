@@ -410,6 +410,25 @@ def correr(casos: List[Dict[str, Any]], zero, memoria, medido, numero: str,
     return filas
 
 
+def leer_ficha(raiz: str, cliente: str):
+    """Ficha, precios y perfil reales, leídos una vez y nunca escritos.
+
+    Solo se cambia de directorio, para que `state.json` y el `.env` se lean
+    desde la raíz de producción. El código es siempre el de este repo: hasta
+    el 2026-11-03 la raíz se agregaba al `sys.path`, y la línea base medía el
+    código de producción en vez de la rama que se quería evaluar."""
+    from zero.store import make_memory
+    cwd = os.getcwd()
+    os.chdir(raiz)
+    try:
+        produccion = make_memory("state.json")
+        return (produccion.get_client_knowledge(cliente),
+                produccion.get_client_pricing(cliente),
+                dict(produccion.get_client_agent_profile(cliente) or {}))
+    finally:
+        os.chdir(cwd)
+
+
 def huella(caso: Dict[str, Any]) -> str:
     """Identifica un mensaje por lo que se le dijo y lo que respondió el
     cliente, ya anonimizados. No por el id: el id lleva dígitos reales del
@@ -516,18 +535,7 @@ def main(argv: List[str] | None = None) -> int:
         print("no hay casos para esa selección", file=sys.stderr)
         return 1
 
-    # Ficha y precios reales, leídos una vez y nunca escritos.
-    sys.path.insert(0, args.raiz_ficha)
-    cwd = os.getcwd()
-    os.chdir(args.raiz_ficha)
-    try:
-        from zero.store import make_memory
-        produccion = make_memory("state.json")
-        ficha = produccion.get_client_knowledge(args.cliente)
-        precios = produccion.get_client_pricing(args.cliente)
-        perfil = dict(produccion.get_client_agent_profile(args.cliente) or {})
-    finally:
-        os.chdir(cwd)
+    ficha, precios, perfil = leer_ficha(args.raiz_ficha, args.cliente)
     perfil.setdefault("whatsapp_number", args.numero)
     perfil["response_mode"] = "automatic"
 

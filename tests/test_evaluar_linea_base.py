@@ -270,5 +270,25 @@ class LoQueLeyoElCliente(unittest.TestCase):
                       arnes.lo_que_leyo_el_cliente({}, [], puente, "56900000003"))
 
 
+class LeerFicha(unittest.TestCase):
+    def test_lee_desde_la_raiz_sin_cambiar_el_codigo_que_se_evalua(self):
+        import os
+        import sys
+        import tempfile
+        with tempfile.TemporaryDirectory() as raiz:
+            # Un paquete `zero` falso en la raíz: si la raíz entrara al path,
+            # una importación nueva lo tomaría y fallaría.
+            os.makedirs(os.path.join(raiz, "zero"))
+            with open(os.path.join(raiz, "zero", "__init__.py"), "w") as f:
+                f.write("raise ImportError('se importó el código de la raíz')\n")
+            antes_path, antes_cwd = list(sys.path), os.getcwd()
+            ficha, precios, perfil = arnes.leer_ficha(raiz, "nadie")
+            self.assertEqual(sys.path, antes_path)
+            self.assertEqual(os.getcwd(), antes_cwd)
+        self.assertIsInstance(perfil, dict)
+        import zero.orchestrator
+        self.assertTrue(Path(zero.orchestrator.__file__).resolve().is_relative_to(REPO))
+
+
 if __name__ == "__main__":
     unittest.main()
