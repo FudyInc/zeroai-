@@ -39,4 +39,16 @@ ACEPTACIÓN: la suite en verde (el único error tolerado es tests.test_visual_ca
 REPORTE: qué cambió, la salida de la llamada real, cómo verificaste la tarea 3 y los hallazgos fuera de CORE.
 ```
 
-Decisión que NO es de CORE y queda con Diego: qué cuenta como «lead» en campañas que llevan a WhatsApp (hoy leads=0 y CPL=None). Si se define, va como regla en `zero/config.py`.
+## TAREA 4 — Definición de lead (decidida por Diego el 2026-11-03)
+
+Diego definió: **es lead todo cliente que llega por WhatsApp o que consulta al negocio que usa el dashboard**, es decir, toda conversación iniciada por un cliente. Hoy las campañas que llevan a WhatsApp muestran leads=0 y CPL=None.
+
+```
+- La regla va en zero/config.py (principio 2): por ejemplo, LEAD_DEFINITION con las acciones de Meta que cuentan
+  (onsite_conversion.messaging_conversation_started_7d y sus equivalentes) y una nota que cite esta decisión.
+- zero/metaads.py la aplica: leads = conversaciones iniciadas y CPL = gasto / leads; si leads=0, CPL=None (nunca un número inventado).
+- Tests: anuncio con conversaciones iniciadas → leads y CPL correctos; sin conversaciones → CPL None; la regla se lee desde config.
+- En el reporte: una llamada real de solo lectura que muestre leads y CPL de un anuncio de losetaschile.
+```
+
+ALCANCE extra para esta tarea: zero/config.py (solo la regla nueva).
