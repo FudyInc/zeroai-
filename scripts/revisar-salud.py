@@ -60,12 +60,24 @@ def _http(url: str, esperados: tuple, timeout: float = 12.0) -> bool:
         return False
 
 
+def _modelo_a_probar() -> str:
+    """El modelo que atiende WhatsApp, con la misma regla que api.py::_whatsapp_local_model.
+
+    Probar otro modelo era peor que no probar: cada 30 min cargaba qwen2.5 en la GPU,
+    sacaba de ahí a qwen3 (el de WhatsApp) y el siguiente cliente esperaba la recarga
+    de 8,6 GB pasando por la RAM (registro de Ollama, 2026-11-03)."""
+    from zero.config import WHATSAPP_ENGINE
+    return ((os.environ.get("WHATSAPP_MODEL") or "").strip() or
+            (os.environ.get("LOCAL_MODEL") or "").strip() or
+            WHATSAPP_ENGINE["model"])
+
+
 def _ollama_responde() -> bool:
     """No basta con que el puerto abra: el modelo tiene que contestar de verdad.
     Un Ollama arriba con el modelo descargado de VRAM deja al agente colgado."""
     try:
         cuerpo = json.dumps({
-            "model": os.environ.get("LOCAL_MODEL", "qwen2.5:14b-instruct-q4_K_M"),
+            "model": _modelo_a_probar(),
             "messages": [{"role": "user", "content": "di ok"}],
             "max_tokens": 5,
         }).encode()

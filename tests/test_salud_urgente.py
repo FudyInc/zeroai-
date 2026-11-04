@@ -148,5 +148,43 @@ class PruebaDiariaDelAgente(unittest.TestCase):
             self.assertIn("CENTINELA", s.revisar())
 
 
+
+class SaludPruebaElModeloDeWhatsapp(unittest.TestCase):
+    """El chequeo no debe cargar en la GPU un modelo que WhatsApp no usa."""
+
+    def setUp(self):
+        self.salud = _cargar()
+
+    def _modelo(self, entorno):
+        with mock.patch.dict(os.environ, entorno, clear=False):
+            for clave in ("WHATSAPP_MODEL", "LOCAL_MODEL"):
+                if clave not in entorno:
+                    os.environ.pop(clave, None)
+            return self.salud._modelo_a_probar()
+
+    def test_usa_el_modelo_de_whatsapp_antes_que_el_local(self):
+        self.assertEqual(self._modelo({"WHATSAPP_MODEL": "qwen3:14b",
+                                       "LOCAL_MODEL": "qwen2.5:14b-instruct-q4_K_M"}),
+                         "qwen3:14b")
+
+    def test_sin_modelo_de_whatsapp_usa_el_local_y_luego_config(self):
+        from zero.config import WHATSAPP_ENGINE
+        self.assertEqual(self._modelo({"LOCAL_MODEL": "otro:7b"}), "otro:7b")
+        self.assertEqual(self._modelo({}), WHATSAPP_ENGINE["model"])
+
+    def test_el_ping_lleva_ese_modelo(self):
+        enviado = {}
+
+        def falso_urlopen(req, timeout=None):
+            import json as _json
+            enviado.update(_json.loads(req.data))
+            raise OSError("sin red en la suite")
+
+        with mock.patch.dict(os.environ, {"WHATSAPP_MODEL": "qwen3:14b"}), \
+                mock.patch.object(self.salud.urllib.request, "urlopen", falso_urlopen):
+            self.assertFalse(self.salud._ollama_responde())
+        self.assertEqual(enviado.get("model"), "qwen3:14b")
+
+
 if __name__ == "__main__":
     unittest.main()
