@@ -49,7 +49,7 @@ _PIDE_MODELO = re.compile(
     r"\b(?:qu[ée]|cu[áa]l)\b[^?]{0,40}\bmodelo\b|\bmodelo\s+(?:te\s+)?interesa\b", re.IGNORECASE)
 _DIO_MODELO = re.compile(
     r"\b(?:borde\s+(?:recto|ballena)|ballena|recto\s+con\s+nariz|esquina|extensi[óo]n"
-    r"|laja|ladrillo|sol\s+r[úu]stico|\bsol\b|gregioriano|octagonal)\b", re.IGNORECASE)
+    r"|laja|ladrillo|sol\s+r[úu]stico|\bsol\b|gregi?oriano|octagonal)\b", re.IGNORECASE)
 _PIDE_DIRECCION = re.compile(
     r"\b(?:d[óo]nde|direcci[óo]n|comuna|a\s+qu[ée]\s+lugar)\b[^?]{0,50}\?", re.IGNORECASE)
 _DIO_DIRECCION = re.compile(

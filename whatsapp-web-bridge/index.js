@@ -71,7 +71,7 @@ const catalogImages = new Set([
   'borde-recto-nariz-50x50.png', 'ladrillo-cruzado-40x40.jpeg',
   'sol-40x40.jpeg', 'sol-rustico-40x40.jpeg',
   'adoquin-40x40.jpeg', 'laja-espanola-40x40.jpeg',
-  'gregioriano-40x40.jpeg', 'octagonal-piedra-40x40.jpeg',
+  'gregioriano-40x40.jpeg',
   'dormiente-1-16x40.jpeg', 'dormiente-2-16x40.jpeg',
   'deck-50x50.jpeg', 'esquina-piscina-50x50.jpeg',
   'extension-borde-piscina-50x50.jpeg',

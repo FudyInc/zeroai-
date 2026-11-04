@@ -44,10 +44,8 @@ const CATALOGS = Object.freeze({
         image: 'producto-sol-40x40.jpeg', priceId: 'pastelones-40x40' },
       { id: 'sol-rustico-40x40', name: 'Sol rústico', specs: PASTELON_40,
         image: 'producto-sol-rustico-40x40.jpeg', priceId: 'pastelones-40x40' },
-      { id: 'gregioriano-40x40', name: 'Gregioriano',
+      { id: 'gregoriano-40x40', name: 'Gregoriano',
         image: 'gregioriano-40x40.jpeg', priceId: 'pastelones-40x40' },
-      { id: 'octagonal-piedra-40x40', name: 'Octagonal Piedra',
-        image: 'octagonal-piedra-40x40.jpeg', priceId: 'pastelones-40x40' },
     ],
   },
 })

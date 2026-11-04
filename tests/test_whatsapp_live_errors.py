@@ -215,13 +215,13 @@ class SecondLiveTestErrors(_LiveChat):
     def test_a_pick_with_an_apology_is_still_a_pick(self):
         from zero.losetas_polls import canonical_choice
         history = [{"role": "agent", "text": PAVER_MODEL_QUESTION}]
-        for text in ("6 perdon", "6 perdón", "el 6, disculpa"):
-            self.assertEqual(canonical_choice(text, history), "Octagonal Piedra", text)
+        for text in ("5 perdon", "5 perdón", "el 5, disculpa"):
+            self.assertEqual(canonical_choice(text, history), "Gregoriano", text)
 
     def test_a_colour_from_an_earlier_order_does_not_skip_the_colour_question(self):
         self.turns(("agent", COLOR_POLL_QUESTION), ("lead", "Gris"),
                    ("agent", "Gracias, recibí los datos de entrega."), *self.paver_menu())
-        result = self.zero.converse_result("losetaschile", "6", history=self.history())
+        result = self.zero.converse_result("losetaschile", "5", history=self.history())
         self.assertEqual(result.get("customer_poll"), "color")
 
     def test_the_message_that_opened_the_order_stays_in_it(self):

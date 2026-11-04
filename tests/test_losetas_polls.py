@@ -1,6 +1,6 @@
 import unittest
 
-from zero.losetas_polls import (COLOR_POLL_QUESTION, DELIVERY_POLL_FACTORY_PICKUP,
+from zero.losetas_polls import (COLOR_POLL_QUESTION, PAVER_MODEL_OPTIONS, DELIVERY_POLL_FACTORY_PICKUP,
                                 DELIVERY_POLL_OPTIONS,
                                 PRODUCT_POLL_QUESTION, canonical_choice,
                                 numbered_choices, paver_order_details)
@@ -121,9 +121,16 @@ class LooseAnswerTest(unittest.TestCase):
         paver = self.ask("paver_model")
         for answer, expected in (("laja", "Laja española"), ("el ladrillo", "Ladrillo cruzado"),
                                  ("sol", "Sol"), ("sol rustico", "Sol rústico"),
-                                 ("gregoriano", "Gregioriano"), ("octogonal", "Octagonal Piedra")):
+                                 ("gregoriano", "Gregoriano"), ("gregioriano", "Gregoriano")):
             with self.subTest(answer=answer):
                 self.assertEqual(canonical_choice(answer, paver), expected)
+        # Octagonal Piedra ya no se vende (Diego, 2026-11-03): no se ofrece ni se adivina.
+        self.assertNotIn("Octagonal Piedra", PAVER_MODEL_OPTIONS)
+        self.assertNotEqual(canonical_choice("octagonal", paver), "Octagonal Piedra")
+        # Quien vio el menú antiguo de seis y responde «6» recibe el aviso de 1 a 5.
+        from zero.losetas_polls import choice_slip_reply, invalid_choice
+        self.assertEqual(invalid_choice("6", paver), "paver_model")
+        self.assertIn("del 1 al 5", choice_slip_reply("6", "paver_model"))
         shape = self.ask("shape")
         self.assertEqual(canonical_choice("sip", shape), "Sí, es rectangular")
         self.assertEqual(canonical_choice("es redonda", shape), "No es rectangular")

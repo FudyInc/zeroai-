@@ -86,19 +86,20 @@ test('specs are shown only for products that have a manufacturer sheet', () => {
   assert.match(bordes, /Antideslizante · Atérmico · Alta resistencia · Interior y exterior/)
   const pastelones = renderCatalogHtml('pastelones', { 'pastelones-40x40': 1600 }, imageDir)
   assert.equal((pastelones.match(/40 × 40 cm · 2 cm de espesor/g) || []).length, 4)
-  // Borde ballena, Gregioriano y Octagonal Piedra no tienen ficha: nada inventado.
-  for (const id of ['borde-ballena-50x40', 'gregioriano-40x40', 'octagonal-piedra-40x40']) {
+  // Borde ballena y Gregoriano no tienen ficha: nada inventado.
+  for (const id of ['borde-ballena-50x40', 'gregoriano-40x40']) {
     const product = Object.values(CATALOGS).flatMap(c => c.products).find(p => p.id === id)
     assert.equal(product.specs, undefined, `${id} no debe declarar specs`)
   }
 })
 
-test('pastelones PDF contains six photos and the shared active price', () => {
+test('pastelones PDF contains five photos and the shared active price', () => {
   const html = renderCatalogHtml('pastelones', { 'pastelones-40x40': 1600 }, imageDir)
-  assert.equal((html.match(/<section class="card">/g) || []).length, 6)
-  assert.equal((html.match(/<img src="data:image\//g) || []).length, 7)   // seis más el logo
-  assert.equal((html.match(/\$1\.600 x unidad/g) || []).length, 6)
-  assert.doesNotMatch(html, /Flor de lis|Adoquín/)
+  assert.equal((html.match(/<section class="card">/g) || []).length, 5)
+  assert.equal((html.match(/<img src="data:image\//g) || []).length, 6)   // cinco más el logo
+  assert.equal((html.match(/\$1\.600 x unidad/g) || []).length, 5)
+  // Octagonal Piedra ya no se vende (Diego, 2026-11-03).
+  assert.doesNotMatch(html, /Flor de lis|Adoquín|Octagonal|Gregioriano/)
 })
 
 test('the tone palette from the sheets survives in the footer', () => {

@@ -36,8 +36,9 @@ BORDER_MODEL_OPTIONS = (BORDER_MODEL_STRAIGHT, BORDER_MODEL_WHALE)
 PAVER_AREA_QUESTION = "¿Cuántos m² necesitas cubrir con pastelones?"
 PAVER_MODEL_QUESTION = "¿Qué pastelón del catálogo te interesó más?"
 # Same models, same order as the PDF (whatsapp-web-bridge/catalog-document.js).
+# Octagonal Piedra salió del menú el 2026-11-03: ya no se vende (Diego).
 PAVER_MODEL_OPTIONS = ("Laja española", "Ladrillo cruzado", "Sol", "Sol rústico",
-                       "Gregioriano", "Octagonal Piedra")
+                       "Gregoriano")
 
 POOL_SHAPE_QUESTION = "¿La piscina es rectangular?"
 POOL_SHAPE_OPTIONS = ("Sí, es rectangular", "No es rectangular")
@@ -92,7 +93,7 @@ _ALIASES = {
                  "despachen": 0, "traigan": 0},
     "border_model": {"recto": 0, "nariz": 0, "ballena": 1},
     "paver_model": {"laja": 0, "espanola": 0, "ladrillo": 1, "cruzado": 1, "rustico": 3,
-                    "gregoriano": 4, "gregioriano": 4, "octagonal": 5, "piedra": 5},
+                    "gregoriano": 4, "gregioriano": 4},
     "shape": {"si": 0, "s": 0, "sip": 0, "rectangular": 0, "correcto": 0,
               "redonda": 1, "ovalada": 1, "irregular": 1, "circular": 1},
 }
@@ -358,8 +359,7 @@ _PAVER_MODELS = (
     ("Sol rústico", re.compile(r"\bsol\s+r[uú]stico\b", re.I)),
     ("Sol", re.compile(r"\bsol\b", re.I)),
     ("Adoquín", re.compile(r"\badoqu[ií]n\b", re.I)),
-    ("Gregioriano", re.compile(r"\bgregioriano\b", re.I)),
-    ("Octagonal Piedra", re.compile(r"\boctagonal(?:\s+piedra)?\b", re.I)),
+    ("Gregoriano", re.compile(r"\bgregi?oriano\b", re.I)),
     ("40x40", re.compile(r"\b40\s*[x×]\s*40\b", re.I)),
     ("50x50", re.compile(r"\b50\s*[x×]\s*50\b", re.I)),
 )
@@ -412,7 +412,7 @@ _NOTED_AREA = re.compile(r"Anoté (\d+(?:[.,]\d+)?) m²")
 def area_correction(message: str, history: list[dict[str, Any]]) -> str | None:
     """The new m² when the customer corrects the area while the model menu is open.
 
-    «80» to a six-model list is not a slip: it is the area again (seen live
+    «80» to the model list is not a slip: it is the area again (seen live
     2026-10-28, where it ended in human review and froze the chat).
     """
     if open_choice(history) != "paver_model":
