@@ -188,6 +188,22 @@ class SaludPruebaElModeloDeWhatsapp(unittest.TestCase):
             self.assertFalse(self.salud._ollama_responde())
         self.assertEqual(enviado.get("model"), "qwen3:14b")
 
+    def _respuesta(self, mensaje):
+        import io
+        import json as _json
+        cuerpo = _json.dumps({"choices": [{"message": mensaje}]}).encode()
+        return mock.patch.object(self.salud.urllib.request, "urlopen",
+                                 lambda req, timeout=None: io.BytesIO(cuerpo))
+
+    def test_un_modelo_que_piensa_cuenta_como_vivo(self):
+        # qwen3 con max_tokens=5: todo se va a reasoning y content llega vacío (2026-11-04).
+        with self._respuesta({"content": "", "reasoning": "Okay, the"}):
+            self.assertTrue(self.salud._ollama_responde())
+
+    def test_sin_nada_generado_no_esta_vivo(self):
+        with self._respuesta({"content": ""}):
+            self.assertFalse(self.salud._ollama_responde())
+
 
 class LatidoAHealthchecks(unittest.TestCase):
     """Cada revisión avisa «sigo vivo» afuera; si el PC muere, el silencio es el aviso."""

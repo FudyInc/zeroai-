@@ -90,7 +90,11 @@ def _ollama_responde() -> bool:
             "http://localhost:11434/v1/chat/completions", data=cuerpo,
             headers={"Content-Type": "application/json"}, method="POST")
         with urllib.request.urlopen(req, timeout=120) as r:
-            return bool(json.loads(r.read())["choices"][0]["message"]["content"])
+            mensaje = json.loads(r.read())["choices"][0]["message"]
+        # qwen3 piensa antes de contestar: con 5 tokens se los gasta en `reasoning` y
+        # `content` llega vacío. Que haya generado algo es prueba de vida suficiente.
+        return bool(mensaje.get("content") or mensaje.get("reasoning")
+                    or mensaje.get("reasoning_content"))
     except Exception:
         return False
 
