@@ -12,6 +12,8 @@ def _cargar():
     spec = importlib.util.spec_from_file_location("revisar_salud", _RUTA)
     modulo = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(modulo)
+    # load_env() trae la URL real de .env: ningún test debe hacer un ping de verdad.
+    os.environ.pop("HEALTHCHECK_PING_URL", None)
     return modulo
 
 
@@ -23,6 +25,7 @@ class AvisosSoloUrgentes(unittest.TestCase):
         with mock.patch.object(self.salud, "revisar", return_value=fallas), \
                 mock.patch.object(self.salud, "notify_owner",
                                   return_value={"status": "sent"}) as aviso, \
+                mock.patch.object(self.salud, "_latido"), \
                 mock.patch("sys.argv", ["revisar-salud.py"]):
             codigo = self.salud.main()
         return codigo, aviso
@@ -184,6 +187,71 @@ class SaludPruebaElModeloDeWhatsapp(unittest.TestCase):
                 mock.patch.object(self.salud.urllib.request, "urlopen", falso_urlopen):
             self.assertFalse(self.salud._ollama_responde())
         self.assertEqual(enviado.get("model"), "qwen3:14b")
+
+
+class LatidoAHealthchecks(unittest.TestCase):
+    """Cada revisión avisa «sigo vivo» afuera; si el PC muere, el silencio es el aviso."""
+
+    URL = "https://hc-ping.com/prueba-uuid"
+
+    def setUp(self):
+        self.salud = _cargar()
+        self.pedidos = []
+
+    def _urlopen(self, req, timeout=None):
+        self.pedidos.append((req.full_url, req.data))
+        return mock.MagicMock()
+
+    def _correr(self, fallas, url=URL):
+        entorno = {"HEALTHCHECK_PING_URL": url} if url else {}
+        with mock.patch.dict(os.environ, entorno), \
+                mock.patch.object(self.salud, "revisar", return_value=fallas), \
+                mock.patch.object(self.salud, "notify_owner", return_value={"status": "sent"}), \
+                mock.patch.object(self.salud.urllib.request, "urlopen", self._urlopen), \
+                mock.patch("sys.argv", ["revisar-salud.py"]):
+            if not url:
+                os.environ.pop("HEALTHCHECK_PING_URL", None)
+            return self.salud.main()
+
+    def test_todo_en_orden_manda_el_latido(self):
+        self.assertEqual(self._correr([]), 0)
+        self.assertEqual([u for u, _ in self.pedidos], [self.URL])
+
+    def test_lo_no_urgente_tambien_es_latido_normal(self):
+        self._correr([self.salud.NO_URGENTE + "WhatsApp: 3 mensajes requieren revisión"])
+        self.assertEqual([u for u, _ in self.pedidos], [self.URL])
+
+    def test_una_caida_va_a_fail_con_el_motivo(self):
+        self.assertEqual(self._correr(["el servicio ollama está caído"]), 1)
+        url, cuerpo = self.pedidos[0]
+        self.assertEqual(url, self.URL + "/fail")
+        self.assertIn(b"ollama", cuerpo)
+
+    def test_sin_url_no_hay_ping(self):
+        self._correr([], url="")
+        self.assertEqual(self.pedidos, [])
+
+    def test_si_la_revision_se_cae_avisa_fail(self):
+        with mock.patch.dict(os.environ, {"HEALTHCHECK_PING_URL": self.URL}), \
+                mock.patch.object(self.salud, "revisar", side_effect=RuntimeError("x")), \
+                mock.patch.object(self.salud.urllib.request, "urlopen", self._urlopen), \
+                mock.patch("sys.argv", ["revisar-salud.py"]):
+            with self.assertRaises(RuntimeError):
+                self.salud.main()
+        self.assertEqual(self.pedidos[0][0], self.URL + "/fail")
+
+    def test_el_cuerpo_es_un_resumen_corto(self):
+        self._correr(["x" * 500] + [f"falla {i}" for i in range(20)])
+        cuerpo = self.pedidos[0][1].decode()
+        self.assertLessEqual(len(cuerpo.splitlines()), 8)
+        self.assertTrue(all(len(l) <= 160 for l in cuerpo.splitlines()))
+
+    def test_sin_red_la_revision_no_se_rompe(self):
+        def sin_red(req, timeout=None):
+            raise OSError("sin red")
+        with mock.patch.dict(os.environ, {"HEALTHCHECK_PING_URL": self.URL}), \
+                mock.patch.object(self.salud.urllib.request, "urlopen", sin_red):
+            self.salud._latido(False)          # no lanza
 
 
 if __name__ == "__main__":

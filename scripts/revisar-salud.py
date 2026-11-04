@@ -12,6 +12,11 @@ ignorarlos, y el día que importe no lo vas a mirar. El antirrebote de
     python3 scripts/revisar-salud.py           # revisa y avisa si hay falla
     python3 scripts/revisar-salud.py --probar  # fuerza un aviso, para verificar el canal
 
+Aviso por silencio: si HEALTHCHECK_PING_URL está en .env, cada revisión termina
+con un ping a Healthchecks.io («sigo vivo», o /fail si hubo algo urgente). Si el
+PC se apaga o se cuelga, esta revisión no corre, el ping no llega y Healthchecks
+avisa desde afuera — lo único que esta revisión no puede ver de sí misma.
+
 Solo stdlib.
 """
 from __future__ import annotations
@@ -275,6 +280,23 @@ def revisar() -> list:
     return fallas
 
 
+def _latido(urgente: bool, texto: str = "") -> None:
+    """Avisa a Healthchecks.io que esta revisión corrió. Nunca rompe la revisión."""
+    url = (os.environ.get("HEALTHCHECK_PING_URL") or "").strip().rstrip("/")
+    if not url:
+        return
+    if urgente:
+        url += "/fail"
+    # A un tercero va solo un resumen corto (estados y contadores, nunca datos de
+    # leads); el detalle completo sigue llegando por WhatsApp al dueño.
+    resumen = "\n".join(linea[:160] for linea in texto.splitlines()[:8])
+    try:
+        urllib.request.urlopen(urllib.request.Request(
+            url, data=resumen.encode(), method="POST"), timeout=10).close()
+    except Exception as exc:                       # sin red: el silencio ya es el aviso
+        print("latido →", type(exc).__name__, exc)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--probar", action="store_true",
@@ -288,9 +310,14 @@ def main() -> int:
               "" if res["status"] == "sent" else f"({res.get('reason')})")
         return 0
 
-    fallas = revisar()
+    try:
+        fallas = revisar()
+    except Exception as exc:
+        _latido(True, f"la revisión de salud se cayó: {type(exc).__name__}")
+        raise
     if not fallas:
         print("todo en orden")
+        _latido(False)
         return 0
 
     urgentes = [f for f in fallas if not f.startswith(NO_URGENTE)]
@@ -298,10 +325,12 @@ def main() -> int:
         if f.startswith(NO_URGENTE):
             print("pendiente (sin aviso):", f[len(NO_URGENTE):])
     if not urgentes:
+        _latido(False)
         return 0
 
     texto = "ZERO tiene problemas:\n· " + "\n· ".join(urgentes)
     print(texto)
+    _latido(True, texto)          # segundo canal: llega aunque WhatsApp sea lo caído
     # Una ventana por cada conjunto de problemas: el mismo se repite cada
     # SALUD_REPETIR_MISMO_AVISO_HORAS; uno distinto sale de inmediato.
     firma = hashlib.sha1("\n".join(sorted(urgentes)).encode()).hexdigest()[:10]
