@@ -18,6 +18,11 @@ desde un presupuesto de WhatsApp.
   de losetaschile (`LOSETASCHILE_REVIEW_GROUP_ID`), con el texto propuesto y el contacto, y
   solo se envía cuando una persona lo aprueba ahí. Es el mismo camino que siguen hoy los
   presupuestos (`zero/losetas_review.py`).
+- **Cada cliente tiene una sola conversación, y el agente siempre la retoma.** El
+  recordatorio, la respuesta del cliente y lo que venga después continúan el mismo hilo,
+  con el pedido, las medidas y el presupuesto de antes. Nunca se empieza de cero ni se
+  vuelve a preguntar lo que el cliente ya dijo. Los mensajes que el equipo manda a mano
+  desde el teléfono también son parte de esa conversación.
 - Es una regla del producto: corre con un timer de systemd, como `zero-instagram.timer`.
   No es un `/loop` ni nada que dependa de una sesión abierta.
 
