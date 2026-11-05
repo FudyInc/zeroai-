@@ -4,31 +4,31 @@ Origen: medición del 2026-11-04. Lo toma el terminal motor-whatsapp.
 
 **Lo que se encontró.** Ollama cargaba `qwen3:14b` con su ventana por defecto, 4096
 tokens. Nada en el repo ni en el servicio la agrandaba, y el camino OpenAI-compatible
-(`/v1/chat/completions`, el que usa `zero/backends.py`) no permite pasar `num_ctx`. El
-prompt del agente de WhatsApp (`prompts/concierge.md` más la ficha de losetaschile) pesa
-**9 553 tokens**, pero el modelo leía **2 050**, un 21 %. Ollama corta en silencio: no
-devuelve error. Así respondió el agente, sin que nada avisara, hasta esa fecha, y por eso
-el 48 % de la línea base del 2026-10-28 no mide al modelo.
+(`/v1/chat/completions`, el que usa `zero/backends.py`) no permite pasar `num_ctx`. Cuando
+el prompt no cabía, Ollama lo cortaba **en silencio**: sin error, solo un `WARN
+truncating input prompt` en el journal. Entre el 2026-10-27 y el 2026-11-04 el journal
+registra **26 cortes** con `limit=2050`, por ejemplo `prompt=4697` → 2050 (el modelo leyó
+menos de la mitad).
 
-Comando que lo demuestra (comparar `usage.prompt_tokens` con el largo real):
+La ficha que usa producción sale de Supabase y es corta (2 284 caracteres de ficha y
+1 179 de precios), así que no todas las conversaciones se cortaban: lo hacían las que,
+sumando el historial, pasaban el límite. Cuántas respuestas reales salieron de un prompt
+cortado no se sabe con exactitud. Por lo mismo, la línea base del 2026-10-28 queda en
+duda. (Una primera medición de este mismo día hablaba de «2 050 de 9 553»; estaba mal
+porque usaba `docs/ficha-losetaschile.md`, que no es la ficha de producción.)
+
+Comando que lo demuestra:
 
 ```
-python3 - <<'EOF'
-import json, urllib.request
-p = open("prompts/concierge.md").read() + "\n\n" + open("docs/ficha-losetaschile.md").read()
-b = {"model":"qwen3:14b","max_tokens":1,"messages":[{"role":"system","content":p},{"role":"user","content":"hola"}]}
-r = json.load(urllib.request.urlopen(urllib.request.Request("http://localhost:11434/v1/chat/completions",
-    data=json.dumps(b).encode(), headers={"Content-Type":"application/json"}), timeout=300))
-print(r["usage"]["prompt_tokens"])
-EOF
+journalctl -u ollama --since 2026-10-01 --no-pager | grep "truncating input prompt"
 ```
 
 **Corregido hoy, fuera del repo.** Diego agregó
 `Environment="OLLAMA_CONTEXT_LENGTH=16384"` en
-`/etc/systemd/system/ollama.service.d/zero.conf`. Ahora el modelo lee 9 553 de 9 553 y
-`ollama ps` muestra CONTEXT 16384, con 100 % en GPU (11 GB de 16 GB). Ese ajuste vive en
-el sistema, no en el repo: si se reinstala Ollama o se cambia de máquina, se pierde sin
-aviso.
+`/etc/systemd/system/ollama.service.d/zero.conf`. `ollama ps` muestra ahora CONTEXT 16384,
+con 100 % en GPU (11 GB de 16 GB), y un prompt de prueba de 9 553 tokens se lee completo
+por `/v1`. Ese ajuste vive en el sistema, no en el repo: si se reinstala Ollama o se
+cambia de máquina, se pierde sin aviso.
 
 **Lo que se pide.**
 1. `scripts/revisar-salud.py` comprueba que el motor de WhatsApp lee el prompt completo.
