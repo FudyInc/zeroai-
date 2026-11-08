@@ -171,10 +171,11 @@
    "entiende": "elige_opcion",
    "chequeos": {
     "debe": [
-     "(?i)rectangular|forma"
+     "(?i)color|anaranjado"
     ],
     "handoff": false
-   }
+   },
+   "nota": "borde recto: desde 2026-11 no se pregunta la forma (solo ballena); sigue al color"
   },
   "8c6b4f7ed2b9": {
    "entiende": "elige_opcion",
