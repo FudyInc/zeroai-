@@ -80,6 +80,21 @@ WHATSAPP_REVIEW_NOTICES = (
     "Recibí tu consulta y la voy a revisar para responderte bien; la respuesta te llega por este chat.",
 )
 
+# Texto que lee el cliente de LosetasChile cuando pide una persona o está molesto: el bot
+# queda pausado en ese chat y el pedido aparece en la bandeja de atención.
+WHATSAPP_HUMAN_REQUEST_ACK = ("Listo, le aviso a una persona del equipo para que te escriba "
+                              "por este chat.")
+# Respuesta al cliente que cierra o rechaza («gracias, luego consulto», «no quiero nada»).
+WHATSAPP_CLOSING_REPLY = "Perfecto. Cuando quieras, retomamos por este chat."
+# Despacho consultado con un pedido de pastelones ya en revisión: el equipo lo cotiza
+# junto con el presupuesto, sin reabrir el menú de entrega.
+LOSETASCHILE_PAVER_REVIEW_SHIPPING_REPLY = (
+    "El despacho de tu pedido lo está cotizando el equipo junto con el presupuesto; "
+    "te escribimos por este chat.")
+# Precios de lista de pastelones por medida y del durmiente (ids de `pricing`).
+LOSETASCHILE_PRICE_ID_PASTELON_50 = "pastelones-50x50"
+LOSETASCHILE_PRICE_ID_DURMIENTE = "durmiente-16x40"
+
 # PoolEdge requiere dirección completa y despacho revisado por una persona antes
 # de emitir un total final (ficha confirmada el 2026-09-29). El cotizador genérico
 # solo suma productos e IVA; no debe enviar ese subtotal como presupuesto final.

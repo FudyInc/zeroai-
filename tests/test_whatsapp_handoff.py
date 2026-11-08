@@ -7,7 +7,7 @@ from unittest import mock
 from zero.agents import build_agents
 from zero.crm import CRM
 from zero.config import (WHATSAPP_FALLBACK_GREETINGS, WHATSAPP_FALLBACK_GREETINGS_NAMED,
-                         WHATSAPP_REVIEW_NOTICES)
+                         WHATSAPP_HUMAN_REQUEST_ACK, WHATSAPP_REVIEW_NOTICES)
 from zero.contracts import AgentResponse
 from zero.memory import SessionMemory
 from zero.losetas_shipping import (DELIVERY_LOCATION_PROMPT, DELIVERY_POLL_LOCATION,
@@ -41,12 +41,15 @@ class WhatsAppHandoffTest(unittest.TestCase):
     def test_request_for_human_stops_bot_and_survives_reload(self):
         first = self.inbound("Necesito hablar con una persona")
         self.assertTrue(first["manual_review"])
-        self.assertEqual(self.zero._deliver.call_count, 0)
+        self.assertEqual(self.zero._deliver.call_count, 1)
+        self.assertEqual(self.zero._deliver.call_args.args[3]["body"], WHATSAPP_HUMAN_REQUEST_ACK)
+        gaps = self.memory.list_knowledge_gaps("losetaschile")
+        self.assertEqual([g["tipo"] for g in gaps], ["pedido"])
         self.assertIsNotNone(SessionMemory(self.path).get_whatsapp_handoff(
             "losetaschile", "56933333333@c.us"))
         second = self.inbound("Hola, sigo esperando")
         self.assertTrue(second["manual_review"])
-        self.assertEqual(self.zero._deliver.call_count, 0)
+        self.assertEqual(self.zero._deliver.call_count, 1)  # paused: no second acknowledgment
         self.assertIsNone(self.memory.get_whatsapp_handoff("petlabs", "56933333333@c.us"))
 
     def test_model_uncertainty_hands_off_and_another_business_still_responds(self):

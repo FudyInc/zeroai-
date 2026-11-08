@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from .config import (
     LOSETASCHILE_CHOICE_STYLE,
     LOSETASCHILE_PAVER_PRICE_IDS,
+    LOSETASCHILE_PAVER_REVIEW_SHIPPING_REPLY,
     LOSETASCHILE_PAGO_GENERICO,
     LOSETASCHILE_TEMAS_SIN_INVENTAR,
     ACTIVE_MARKET_REGIONS,
@@ -38,8 +39,10 @@ from .config import (
     min_icp_score,
     project_funnel,
     tier_config,
+    WHATSAPP_CLOSING_REPLY,
     WHATSAPP_FALLBACK_GREETINGS,
     WHATSAPP_FALLBACK_GREETINGS_NAMED,
+    WHATSAPP_HUMAN_REQUEST_ACK,
     WHATSAPP_REVIEW_NOTICES,
 )
 from .channels import Outbox
@@ -56,13 +59,15 @@ from .attention import fixed_answer, learned_alias, learned_answer
 from .losetas_shipping import (SHIPPING_COVERAGE_REPLY, SHIPPING_PRICE_REPLY,
                                delivery_detail, delivery_poll_choice_response,
                                factory_location_question, factory_location_reply,
-                               shipping_coverage_request, shipping_delivery_followup)
+                               shipping_coverage_request, shipping_delivery_followup,
+                               wants_order_change)
 from .losetas_polls import (DELIVERY_POLL_QUESTION as LOSETAS_DELIVERY_POLL_QUESTION,
                             PRODUCT_POLL_QUESTION,
                             category_for_poll_choice, poll_answer_for_history,
                             direct_product_category, selected_category_from_history,
                             is_factory_pickup, FACTORY_ADDRESS, FACTORY_MAP_URL,
                             paver_order_details, canonical_choice, numbered_choices,
+                            customer_acknowledges, customer_closes,
                             customer_defers, invalid_choice, choice_slip_reply,
                             without_choice_slips, reasks_open_choice, MENU_ASIDE_CLOSING,
                             open_choice, area_correction, current_order,
@@ -73,7 +78,7 @@ from .losetas_polls import (DELIVERY_POLL_QUESTION as LOSETAS_DELIVERY_POLL_QUES
                             WHATSAPP_WEB_POLL_KEYS)
 from .memory import SessionMemory
 from .quotes import compute_quote, extract_request, format_quote, normalize_pricing
-from .pool_border import (POOL_PHOTO_MARKER, POOL_PHOTO_REQUEST, _MEASUREMENT_QUESTION as POOL_MEASUREMENT_QUESTION,
+from .pool_border import (POOL_PHOTO_MARKER, POOL_PHOTO_REQUEST, POOL_SIZE_CONFIRMATION, _MEASUREMENT_QUESTION as POOL_MEASUREMENT_QUESTION,
                           pool_photo_followup, roman_pool,
                           border_plan, catalog_requested, visual_catalog_category,
                           delegates_piece_calculation,
@@ -81,6 +86,7 @@ from .pool_border import (POOL_PHOTO_MARKER, POOL_PHOTO_REQUEST, _MEASUREMENT_QU
                           border_model_followup, measurement_followup, pool_shape_followup,
                           unquoted_piece_count,
                           wants_border_budget, wants_product_quote,
+                          paver_price_reply,
                           pool_border_models_reply, pool_measurement_message)
 from .vendors import credentials_for
 from .whatsapp_context import select_history, select_knowledge
@@ -318,6 +324,17 @@ def _admits_not_knowing(reply: str) -> bool:
 # get the product menu.
 _INFO_QUESTION_RE = re.compile(
     r"\b(?:demora\w*|tarda\w*|plazos?|horarios?|garant[ií]a|boleta|factura)\b", re.IGNORECASE)
+
+
+# A first message that asks something specific keeps its own answer; anything else
+# («vi su anuncio», «quiero cotizar», «info») is met with the greeting and the product menu.
+# «ubicación» is left out on purpose: the typo fixer turns «publicación» into it.
+_CONCRETE_FIRST_QUESTION_RE = re.compile(
+    r"[?¿\d]|\b(?:precios?|valor|costos?|cu[aá]nto|pagos?|pagar|tarjeta|transferencia|"
+    r"efectivo|factura|boleta|direcci[oó]n|d[oó]nde|despach\w*|env[ií]\w*|flete|"
+    r"medidas?|mide\w*|bordes?|pastel\w*|[dr]?[do]rmientes?|decks?|esquinas?|piscinas?|laja|"
+    r"ladrillo|adoqu\w*|gregori\w*|sol|garant\w*|plazos?|demora\w*|horarios?|descuentos?|"
+    r"stock|disponib\w*|cat[aá]logo\s+(?:de|del))\b", re.IGNORECASE)
 
 
 def _has(text: str, *words: str) -> bool:
@@ -1239,6 +1256,24 @@ class Zero:
                     turn.get("role") == "agent" for turn in order_history[-6:]):
                 # The customer asked for time: wait for them, send nothing.
                 return {"reply": "", "intent": "qualification", "wait": True}
+            recent_agent = any(turn.get("role") == "agent" for turn in order_history[-6:])
+            if recent_agent and customer_closes(message) and not paver_review_status(order_history):
+                return {"reply": WHATSAPP_CLOSING_REPLY, "intent": "general", "flow_step": True}
+            if (recent_agent and customer_acknowledges(message) and
+                    not paver_review_status(order_history)):
+                # A bare «ok» to an open question: ask it again, the model adds nothing.
+                menu = open_choice(order_history)
+                last_agent = next((str(turn.get("text") or "") for turn in reversed(order_history)
+                                   if turn.get("role") == "agent"), "")
+                if menu:
+                    return {"reply": LOSETAS_CHOICE_PROMPTS[menu][0], "intent": "qualification",
+                            "repeat_menu": True,
+                            **({"delivery_poll": True} if menu == "delivery"
+                               else {"customer_poll": menu})}
+                for question in (PAVER_AREA_QUESTION, POOL_MEASUREMENT_QUESTION):
+                    if question in last_agent:
+                        return {"reply": question, "intent": "qualification",
+                                "flow_step": True, "repeat_menu": True}
             # A phrase the team taught as a synonym becomes that option.
             message = learned_alias(self.memory, client_id, message) or message
             new_area = area_correction(message, order_history)
@@ -1297,6 +1332,15 @@ class Zero:
                         "catalog_document": {"category": visual_category, "pricing": pricing}}
             if catalog_requested(message):
                 return {"reply": LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE, "intent": "catalog"}
+            if not direct_product_category(message):
+                price_pricing = normalize_pricing(self.memory.get_client_pricing(client_id))
+                price_reply = paver_price_reply(message, price_pricing)
+                if price_reply:
+                    if selected_category_from_history(order_history) == "pastelones":
+                        return {"reply": price_reply, "intent": "pricing", "aside": "verbatim"}
+                    # No paver order yet: continue with the same m² question the flow asks.
+                    return {"reply": f"{price_reply} {PAVER_AREA_QUESTION}", "intent": "pricing",
+                            "flow_step": True, "greet_first": True}
             selected_category = category_for_poll_choice(message, order_history)
             typed_category = direct_product_category(message)
             # A typed product name restarts the step only when it is a new choice:
@@ -1309,10 +1353,13 @@ class Zero:
                 return {"reply": (POOL_MEASUREMENT_QUESTION if selected_category == "bordes"
                                   else PAVER_AREA_QUESTION),
                         "intent": "qualification", "flow_step": True}
+            if not order_history and not _CONCRETE_FIRST_QUESTION_RE.search(message):
+                return {"reply": f"¡{greeting}! ¿En qué puedo ayudarte?", "intent": "general",
+                        "customer_poll": "product"}
             if (_QUOTE_REQUEST_RE.search(message) and not _INFO_QUESTION_RE.search(message) and
                     not re.search(r"\b(?:bordes?\s+(?:de|para)\s+(?:la\s+)?piscina|pastelones?)\b",
                                   message, re.IGNORECASE) and not order_history):
-                return {"reply": PRODUCT_POLL_QUESTION, "intent": "qualification",
+                return {"reply": f"¡{greeting}! {PRODUCT_POLL_QUESTION}", "intent": "qualification",
                         "customer_poll": "product"}
             choice_reply = delivery_poll_choice_response(message)
             category_in_history = selected_category_from_history(order_history)
@@ -1326,6 +1373,16 @@ class Zero:
             )
             if choice_reply and not factory_order_ready:
                 return {"reply": choice_reply, "intent": "info"}
+        if (losetas_steps and wants_order_change(message) and paver_review_status(order_history)):
+            # Cancelling or changing an order in review is for a person: the model would
+            # claim it is done.
+            return {"reply": "", "intent": "handoff",
+                    "review_reason": "Cliente pide cancelar o cambiar el pedido en revisión"}
+        if (losetas_steps and shipping_price_request(message) and
+                paver_review_status(order_history)):
+            # The team quotes the freight with the budget: no delivery menu again.
+            return {"reply": LOSETASCHILE_PAVER_REVIEW_SHIPPING_REPLY, "intent": "info",
+                    "flow_step": True}
         if (losetas_steps and
                 shipping_price_request(message)):
             return {"reply": SHIPPING_PRICE_REPLY, "intent": "pricing",
@@ -1473,7 +1530,9 @@ class Zero:
                     return {"reply": clarification, "intent": "qualification",
                             "customer_poll": ("border_model" if clarification ==
                                               BORDER_MODEL_QUESTION else "shape")}
-                return {"reply": clarification, "intent": "pricing"}
+                # Asking to confirm an impossible size is an answer, not a repeated question.
+                return {"reply": clarification, "intent": "pricing",
+                        **({"flow_step": True} if clarification == POOL_SIZE_CONFIRMATION else {})}
             if not selected_tone:
                 return {"reply": color_question(), "intent": "qualification",
                         "media_asset": COLOR_CATALOG_IMAGE_PATH,
@@ -1814,9 +1873,12 @@ class Zero:
                       "Cliente molesto: atender personalmente" if _UPSET_RE.search(text or "") else
                       "Foto de la piscina recibida: revisar y cotizar" if photo else
                       "Mensaje no interpretable por el agente")
-            if photo:
-                # The owner reviews the photo; the customer knows it arrived.
-                ack = "Gracias, recibí la foto. La revisamos y te respondemos por este chat."
+            wants_person = bool(_HUMAN_REQUEST_RE.search(text or "") or _UPSET_RE.search(text or ""))
+            ack = (WHATSAPP_HUMAN_REQUEST_ACK if wants_person else
+                   # The owner reviews the photo; the customer knows it arrived.
+                   "Gracias, recibí la foto. La revisamos y te respondemos por este chat."
+                   if photo else "")
+            if ack:
                 ack_delivery = self._deliver(
                     client_id, key, rec.get("phone") or rec.get("email"),
                     {"channel": channel, "subject": None, "body": ack,
@@ -1826,8 +1888,14 @@ class Zero:
                 if ack_delivery.get("status") == "sent":
                     self.memory.add_turn(client_id, key, "agent", ack)
                 else:
-                    self.memory.log("pool_photo_ack_failed", client=client_id, lead=key,
+                    self.memory.log("handoff_ack_failed", client=client_id, lead=key,
                                     error=ack_delivery.get("error"))
+            if wants_person:
+                # It must show in the attention inbox: the bot stays paused for this chat.
+                self.memory.add_knowledge_gap(
+                    client_id, text, reason, chat_id=whatsapp_chat_id or key,
+                    contacto=rec.get("name") or rec.get("phone") or "", lead_key=key,
+                    tipo="pedido")
             self.memory.set_whatsapp_handoff(client_id, handoff_key, reason)
             self.memory.log("whatsapp_handoff", client=client_id, lead=key, reason=reason)
             self.memory.save()
@@ -1898,7 +1966,7 @@ class Zero:
             self.memory.save()
         # A bare color («gris») keeps the old behaviour, which the flow reads later on.
         open_menu = (reasks_open_choice(res, text, menu_turns)
-                     if menu_turns and not _simple_greeting(text) and
+                     if menu_turns and not _simple_greeting(text) and not res.get("repeat_menu") and
                      not (names_color(text) and "?" not in text) else None)
         if open_menu:
             res = self.converse_result(client_id, text, lead=rec, channel=channel,
@@ -1930,6 +1998,10 @@ class Zero:
             return {"matched": True, "waiting": True, "intent": "qualification",
                     "company": rec.get("company"), **out}
         reply, intent = res.get("reply") or "", res.get("intent") or "general"
+        if (client_id == "losetaschile" and channel == "whatsapp" and not prior_turns and reply and
+                (res.get("greet_first") or res.get("aside") == "verbatim") and
+                not re.match(r"[\s¡]*(?:hola|buen[oa]s)", reply, re.IGNORECASE)):
+            reply = f"¡{whatsapp_greeting()}! {reply}"  # a fixed answer to a first message still greets
         quote = res.get("quote")
         paver_order = res.get("paver_order")
         if client_id == "losetaschile" and channel == "whatsapp" and (quote or paver_order):
@@ -2100,7 +2172,9 @@ class Zero:
                                        self._last_agent_text(client_id, key), greeting=greeting))
             intent, quote = "general", None
             repeated = False
-        if aside_menu and intent != "handoff" and reply.strip() and not repeated:
+        if (aside_menu and intent != "handoff" and reply.strip() and not repeated and
+                "elige una opción" not in reply.casefold() and
+                not (client_id == "losetaschile" and customer_closes(text))):
             # The marker keeps the menu open: the next number still answers it.
             answer = reply.rstrip()
             if aside_kind != "verbatim":  # the team's own words go out untouched

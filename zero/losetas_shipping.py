@@ -51,6 +51,11 @@ _OTHER_REQUEST = re.compile(
     r"tienen|hay|necesito|quiero|busco|cotiz\w*)\b",
     re.IGNORECASE,
 )
+# Cancelling, changing or asking to be called is not a destination.
+_NOT_A_DESTINATION = re.compile(
+    r"\b(?:cancel\w*|cambi\w*|anul\w*|modific\w*|ya\s+no|pedidos?|llam\w*)\b",
+    re.IGNORECASE,
+)
 _MIXED_PRODUCT_PROMPT = re.compile(
     r"\b(?:modelos?|medidas?|esquinas?|piezas?|bordes?|pastelones?)\b",
     re.IGNORECASE,
@@ -78,6 +83,12 @@ def delivery_poll_choice_response(message: str) -> str | None:
     return None
 
 
+def wants_order_change(message: str) -> bool:
+    """The customer asks to cancel or change the order."""
+    return bool(re.search(r"\b(?:cancel\w*|anul\w*|cambi\w*|modific\w*)\b", message or "",
+                          re.IGNORECASE))
+
+
 def shipping_delivery_followup(message: str, history: list[dict]) -> bool:
     """Recognize a short destination sent after the agent asks for delivery details."""
     content = " ".join((message or "").split())
@@ -90,6 +101,7 @@ def shipping_delivery_followup(message: str, history: list[dict]) -> bool:
     content = content.strip(" ¿?")
     if (not history or len(content) < 3 or len(content) > 200 or
             content.casefold() in _NON_ADDRESS or _OTHER_REQUEST.search(content) or
+            _NOT_A_DESTINATION.search(content) or
             (len(content.split()) > 6 and not re.search(r"\d", content))):
         return False
     previous = history[-1]

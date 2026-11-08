@@ -213,6 +213,31 @@ def _option_from_words(key: str, typed: str, options) -> str | None:
     return None
 
 
+# What each menu is about, to recognise the model asking it again in its own words:
+# «Elige un color entre 1 y 7» (seen live 2026-11-07, then «7» went to the delivery menu).
+_REASK_TOPIC = {"color": r"colou?r(?:es)?", "border_model": r"modelo|borde",
+                "paver_model": r"modelo|pastel", "product": r"producto",
+                "delivery": r"entrega|despacho|retiro|recib", "shape": r"rectangular|forma"}
+_REASK_RANGE = re.compile(r"\b(?:entre\s+(?:el\s+)?1\s+y|del\s+1\s+al)\s+(\d+)|\belige\b",
+                          re.IGNORECASE)
+
+
+def _menu_of(prompt: str) -> str | None:
+    """The menu a single agent turn leaves open: its own question, or a re-ask of one."""
+    text = prompt.casefold()
+    for key, (question, _) in CHOICE_PROMPTS.items():
+        if question.casefold() in text:
+            return key
+    asked = _REASK_RANGE.search(text)
+    if not asked:
+        return None
+    count = int(asked.group(1)) if asked.group(1) else None
+    found = [key for key, topic in _REASK_TOPIC.items()
+             if re.search(rf"\b(?:{topic})", text) and
+             count in (None, len(CHOICE_PROMPTS[key][1]))]
+    return found[0] if len(found) == 1 else None
+
+
 def canonical_choice(message: str, history: list[dict[str, Any]]) -> str | None:
     """Turn «2», «opción 2» or a typed option name into the exact option text.
 
@@ -225,10 +250,9 @@ def canonical_choice(message: str, history: list[dict[str, Any]]) -> str | None:
         if turn.get("role") != "agent":
             answered.add(str(turn.get("text") or "").strip().casefold())
             continue
-        prompt = str(turn.get("text") or "").casefold()
-        for key, (question, options) in CHOICE_PROMPTS.items():
-            if question.casefold() not in prompt:
-                continue
+        key = _menu_of(str(turn.get("text") or ""))
+        if key:
+            options = CHOICE_PROMPTS[key][1]
             if answered & {option.casefold() for option in options}:
                 # Already answered: a later «2» belongs to a question we failed
                 # to record (the color image), not to this one.
@@ -252,14 +276,16 @@ def invalid_choice(message: str, history: list[dict[str, Any]]) -> str | None:
     «8» to a seven-colour list went to the model, which improvised a reply that
     then hid the question from every later step (seen live 2026-10-27).
     """
-    value = _without_keycaps(message)
     # One digit only: «20» or «14» is more likely m² or a quantity than a menu slip.
-    if not re.fullmatch(r"\d", value):
+    # Filler words may surround it: «6 perdón», «el 6», «opción 7».
+    words = _plain(_without_keycaps(message)).split()
+    digits = [word for word in words if re.fullmatch(r"\d", word)]
+    if len(digits) != 1 or any(word != digits[0] and word not in _FILLER for word in words):
         return None
     key = open_choice(history)
     if key is None:
         return None
-    return None if 1 <= int(value) <= len(CHOICE_PROMPTS[key][1]) else key
+    return None if 1 <= int(digits[0]) <= len(CHOICE_PROMPTS[key][1]) else key
 
 
 def open_choice(history: list[dict[str, Any]]) -> str | None:
@@ -269,13 +295,10 @@ def open_choice(history: list[dict[str, Any]]) -> str | None:
         if turn.get("role") != "agent":
             answered.add(str(turn.get("text") or "").strip().casefold())
             continue
-        prompt = str(turn.get("text") or "").casefold()
-        for key, (question, options) in CHOICE_PROMPTS.items():
-            if question.casefold() in prompt:
-                if answered & {option.casefold() for option in options}:
-                    return None  # same guard as canonical_choice
-                return key
-        return None
+        key = _menu_of(str(turn.get("text") or ""))
+        if key and answered & {option.casefold() for option in CHOICE_PROMPTS[key][1]}:
+            return None  # same guard as canonical_choice
+        return key
     return None
 
 
@@ -303,7 +326,8 @@ def choice_slip_reply(message: str, key: str) -> str:
     """Ask for a valid option without repeating the whole question."""
     count = len(CHOICE_PROMPTS[key][1])
     valid = "1 o 2" if count == 2 else f"un número del 1 al {count}"
-    return f"El {_without_keycaps(message)} {CHOICE_SLIP_MARK}. Elige {valid}."
+    number = (re.search(r"\d+", _without_keycaps(message)) or [_without_keycaps(message)])[0]
+    return f"El {number} {CHOICE_SLIP_MARK}. Elige {valid}."
 
 
 # Closes an answer given mid-menu: the menu stays open for the next number.
@@ -363,6 +387,8 @@ def selected_category_from_history(history: list[dict[str, Any]]) -> str | None:
     """Find the latest category selected in text or through our product poll."""
     for index in range(len(history) - 1, -1, -1):
         turn = history[index]
+        if turn.get("role") == "agent" and PAVER_AREA_QUESTION in str(turn.get("text") or ""):
+            return "pastelones"  # asked after a price question: the paver flow is open
         if turn.get("role") != "lead":
             continue
         choice = str(turn.get("text") or "").strip().casefold()
@@ -386,7 +412,8 @@ _BARE_PRODUCT = re.compile(
     r"[\s¡]*(?:(?:quiero|busco|necesito|me\s+interesan?|cotizar)\s+)?"
     r"(?:(?:los|unos|el|un)\s+)?"
     r"(?:(?P<borders>bordes?(?:\s+(?:de|para)\s+(?:la\s+)?piscinas?|\s+piscinas?)?)|"
-    r"(?P<pavers>pastel[oó]n(?:es)?))[\s!.,]*",
+    r"(?P<pavers>pastel[oó]n(?:es)?"
+    r"(?:\s+(?:para|de)\s+(?:(?:la|mi|una)\s+)?(?:piscina|terraza|patio))?))[\s!.,]*",
     re.IGNORECASE)
 
 
@@ -536,3 +563,34 @@ def customer_defers(message: str) -> bool:
     text = plain(message)
     return (bool(text) and len(text.split()) <= 10 and "?" not in (message or "") and
             not re.search(r"\d", text) and bool(_DEFERS.search(text)))
+
+
+# «Gracias, luego consulto», «no quiero nada», «lo voy a pensar»: the customer closes or
+# declines. Unlike a request for time, the chat gets a closing line instead of silence.
+_THANKS = r"(?:muchas\s+)?gracias|ok|okey|okay|oka|listo|perfecto|vale|bueno|dale"
+_CLOSES = re.compile(
+    rf"(?:(?:{_THANKS})\s+)*(?:"
+    r"(?:(?:luego|despues|mas\s+tarde|mas\s+rato|mañana|manana)\s+(?:te\s+|le\s+|les\s+)?"
+    r"(?:consulto|veo|aviso|escribo|hablo|reviso|vuelvo|contacto|digo|miro)"
+    r"|(?:te\s+|le\s+|les\s+)?(?:consulto|veo|aviso|escribo|hablo|reviso|vuelvo|miro)\s+"
+    r"(?:luego|despues|mas\s+tarde|mas\s+rato|mañana|manana)"
+    r"|lo\s+(?:voy\s+a\s+)?(?:pienso|pensar|pensare|ver|veo|reviso|revisar)(?:\s+(?:luego|despues|mas\s+tarde))?"
+    r"|no\s+(?:quiero|necesito)\s+nada|no\s+gracias|por\s+ahora\s+no|no\s+por\s+ahora|nada\s+gracias)"
+    rf"|(?:{_THANKS}))(?:\s+(?:{_THANKS}))*")
+
+
+_BARE_ACK = re.compile(r"(?:ok|oka|okey|okay|dale|listo|vale|bueno|perfecto)(?:\s+(?:ok|oka|okey|okay|dale|listo|vale|bueno|perfecto))*")
+
+
+def customer_acknowledges(message: str) -> bool:
+    """A bare «ok», «dale», «👍»: it agrees with nothing in particular."""
+    value = " ".join((message or "").split())
+    return bool(value) and (bool(_BARE_ACK.fullmatch(plain(value))) or
+                            all(char in _ACK_EMOJI for char in value))
+
+
+def customer_closes(message: str) -> bool:
+    text = plain(message)
+    return (bool(text) and len(text.split()) <= 8 and "?" not in (message or "") and
+            not re.search(r"\d", text) and bool(_CLOSES.fullmatch(text)) and
+            not customer_acknowledges(message))

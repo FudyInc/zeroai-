@@ -12,9 +12,12 @@ import re
 from decimal import Decimal
 from typing import Any
 
-from .config import (LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE,
+from .config import (LOSETASCHILE_PAVER_PRICE_ID, LOSETASCHILE_PAVER_PRICE_IDS,
+                     LOSETASCHILE_PRICE_ID_DURMIENTE, LOSETASCHILE_PRICE_ID_PASTELON_50,
+                     LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE,
                      LOSETASCHILE_WHATSAPP_CATALOG_URL)
-from .losetas_polls import BORDER_MODEL_QUESTION, POOL_SHAPE_OPTIONS, POOL_SHAPE_QUESTION
+from .losetas_polls import (BORDER_MODEL_QUESTION, POOL_SHAPE_OPTIONS, POOL_SHAPE_QUESTION,
+                            _PAVER_MODELS)
 
 
 _COUNT = re.compile(r"\b(?:cu[aá]nt[oa]s|cantidad)\b", re.IGNORECASE)
@@ -121,10 +124,13 @@ POOL_PHOTO_REQUEST = ("Para calcular los bordes de una piscina que no es rectang
                       "ver su forma. ¿Me envías una foto de la piscina por este chat? "
                       "La revisamos y te respondemos.")
 POOL_PHOTO_MARKER = "foto de la piscina"
+POOL_SIZE_CONFIRMATION = ("Las medidas indicadas necesitan confirmación. "
+                          "¿Puedes confirmar el largo y ancho de tu piscina en metros?")
 _OTHER_UNITS = re.compile(
     r"\b(?:cm|cent[ií]metros?|pies?|ft|pulgadas?|inches|yardas?|yd)\b",
     re.IGNORECASE,
 )
+_METRES_AT_END = re.compile(r"\d\s*(?:m|mts?|mtrs?|metros?)\b\.?", re.IGNORECASE)
 _CALCULATION_ADVICE = re.compile(
     r"\bpara calcular\b.{0,90}\b(?:divide|dividir|multiplica|suma|per[ií]metro)\b"
     r"|\b(?:divide|divid[ae]|calcula|calcul[ae])\b.{0,90}"
@@ -160,9 +166,14 @@ _DIRECT_SHIPPING_PRICE = re.compile(
     r"(?:cu[aá]nto\s+(?:sale|cuesta|vale)|qu[eé]\s+(?:precio|valor|costo))\b",
     re.IGNORECASE,
 )
+# Every paver model by name (not the bare 40x40 / 50x50 sizes, which a border can carry).
+_PAVER_MODEL_NAMES = tuple((label, pattern) for label, pattern in _PAVER_MODELS
+                           if not label[0].isdigit())
+_DURMIENTE = re.compile(r"\bd[ou]rmientes?\b", re.IGNORECASE)
 _OTHER_QUOTED_PRODUCT = re.compile(
-    r"\b(?:adoqu[ií]n|deck|dormiente|laja|ladrillo|flor de lis|"
-    r"pastel[oó]n|borde ballena|instalaci[oó]n)\b",
+    r"\b(?:deck|dormiente|flor de lis|pastel[oó]n|borde ballena|instalaci[oó]n)\b|"
+    + "|".join(pattern.pattern for _, pattern in _PAVER_MODEL_NAMES)
+    + "|" + _DURMIENTE.pattern,
     re.IGNORECASE,
 )
 _ORDER_TOPIC = re.compile(r"\b(?:bordes?|esquinas?|productos?|pedido)\b", re.IGNORECASE)
@@ -378,8 +389,10 @@ def border_plan(message: str, history: list[dict[str, Any]]) -> tuple[dict[str, 
             unit = _OTHER_UNITS.search(text[match.end():match.end() + 18])
             # «600x300» or «600x300 cm»: a pool side is at most 50 m, so three-digit
             # sides are centimetres.
+            # «200 x 150 m» says metres: not centimetres, so it stays an absurd pool.
+            metres = _METRES_AT_END.search(text[match.start():match.end() + 6])
             if (unit and unit.group(0).lower().startswith(("cm", "cent"))) or \
-                    (not unit and min(sides) >= 100):
+                    (not unit and not metres and min(sides) >= 100):
                 sides = tuple(side / 100 for side in sides)
             elif unit:
                 return None, "¿Las medidas de la piscina están en metros?"
@@ -391,8 +404,7 @@ def border_plan(message: str, history: list[dict[str, Any]]) -> tuple[dict[str, 
                                   for text in latest_first):
         return None, _MEASUREMENT_QUESTION
     if dimensions is not None and (min(dimensions) <= 0 or max(dimensions) > 50):
-        return None, ("Las medidas indicadas necesitan confirmación. "
-                      "¿Puedes confirmar el largo y ancho de tu piscina en metros?")
+        return None, POOL_SIZE_CONFIRMATION
     product = next((text for text in latest_first if
                     _REJECT_PRODUCT.search(text) or _OTHER_PRODUCT.search(text) or
                     _PRODUCT.search(text) or
@@ -456,6 +468,40 @@ def wants_product_quote(message: str) -> bool:
             _WITHOUT_INSTALLATION.sub("", message)):
         return False
     return bool(_PRICE_REQUEST.search(message) or _DELIVERY_DETAIL.search(message.strip()))
+
+
+def _money(value: Any) -> str:
+    return "$" + f"{round(value):,}".replace(",", ".")
+
+
+def paver_price_reply(message: str, pricing: dict[str, Any]) -> str | None:
+    """List price of a paver model, a paver size or the durmiente, read from the
+    client's price list; None when the message asks for something else or the list
+    has no price for it."""
+    if (not _PRICE_REQUEST.search(message) or shipping_price_request(message) or
+            re.search(r"\bbordes?\b", message, re.IGNORECASE)):
+        return None
+    unit = {item.get("id"): item.get("unit_price") for item in pricing.get("items", [])
+            if item.get("unit_price")}
+    if _DURMIENTE.search(message):
+        price = unit.get(LOSETASCHILE_PRICE_ID_DURMIENTE)
+        return f"El durmiente es de 16x40 y vale {_money(price)} c/u." if price else None
+    model = next((label for label, pattern in _PAVER_MODEL_NAMES if pattern.search(message)), None)
+    if model:
+        price = unit.get(LOSETASCHILE_PAVER_PRICE_IDS.get(model, LOSETASCHILE_PAVER_PRICE_ID))
+        return f"El pastelón {model} es de 40x40 y vale {_money(price)} c/u." if price else None
+    if not re.search(r"\bpastel[oó]n(?:es)?\b|\b(?:40\s*[x×]\s*40|50\s*[x×]\s*50)\b",
+                     message, re.IGNORECASE):
+        return None
+    sizes = (("40x40", unit.get(LOSETASCHILE_PAVER_PRICE_ID)),
+             ("50x50", unit.get(LOSETASCHILE_PRICE_ID_PASTELON_50)))
+    named = [size for size, _ in sizes if re.search(size.replace("x", r"\s*[x×]\s*"), message, re.IGNORECASE)]
+    priced = [(size, price) for size, price in sizes if price and (not named or size in named)]
+    if not priced:
+        return None
+    return "Los pastelones de " + " y ".join(
+        f"{size} valen {_money(price)} c/u" if i == 0 else f"los de {size}, {_money(price)} c/u"
+        for i, (size, price) in enumerate(priced)) + "."
 
 
 def shipping_price_request(message: str) -> bool:
