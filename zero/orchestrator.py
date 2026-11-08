@@ -69,7 +69,7 @@ from .losetas_polls import (DELIVERY_POLL_QUESTION as LOSETAS_DELIVERY_POLL_QUES
                             CHOICE_PROMPTS as LOSETAS_CHOICE_PROMPTS,
                             BORDER_MODEL_QUESTION, POOL_SHAPE_QUESTION,
                             PAVER_AREA_QUESTION, PAVER_MODEL_QUESTION,
-                            paver_review_sentence, paver_review_status,
+                            paver_review_reply, paver_review_sentence, paver_review_status,
                             WHATSAPP_WEB_POLL_KEYS)
 from .memory import SessionMemory
 from .quotes import compute_quote, extract_request, format_quote, normalize_pricing
@@ -1275,12 +1275,13 @@ class Zero:
         greeting = whatsapp_greeting() if channel == "whatsapp" else ""
         # A question asked mid-menu skips the fixed steps: they would only send the menu again.
         losetas_steps = client_id == "losetaschile" and channel == "whatsapp" and not open_menu
-        if losetas_steps and not direct_product_category(message):
-            in_review = paver_review_status(order_history)
+        if losetas_steps:
+            in_review = paver_review_reply(message, order_history, _simple_greeting(message))
             if in_review:
-                # An order is already with the team: every message is answered from it.
-                return {"reply": "Gracias, lo anoté. " + in_review, "intent": "info",
-                        "flow_step": True}
+                # Only an acknowledgement, a status question or an exact repeat is
+                # answered from the open order; anything else goes through the flow.
+                return {"reply": ("" if "?" in message else "Gracias, lo anoté. ") + in_review,
+                        "intent": "info", "flow_step": True}
         if losetas_steps and _simple_greeting(message):
             introduced = _introduced_name(message)
             salutation = f"¡{greeting}, {introduced}!" if introduced else f"¡{greeting}!"
@@ -1885,6 +1886,16 @@ class Zero:
         res = self.converse_result(client_id, text, lead=rec, channel=channel)
         menu_turns = (without_choice_slips(prior_turns)
                       if client_id == "losetaschile" and channel == "whatsapp" else [])
+        open_order = current_order(menu_turns)
+        if (paver_review_status(open_order) and
+                not paver_review_reply(text, open_order, _simple_greeting(text))):
+            # The order is with the team: whatever else she writes, they must see it.
+            self.memory.add_knowledge_gap(
+                client_id, f"Pedido de pastelones en revisión: el cliente escribió «{text[:200]}»",
+                "Pedido de pastelones en revisión: el cliente escribió otra cosa",
+                chat_id=whatsapp_chat_id or key,
+                contacto=rec.get("name") or rec.get("phone") or "", lead_key=key, tipo="pedido")
+            self.memory.save()
         # A bare color («gris») keeps the old behaviour, which the flow reads later on.
         open_menu = (reasks_open_choice(res, text, menu_turns)
                      if menu_turns and not _simple_greeting(text) and
@@ -1982,6 +1993,8 @@ class Zero:
                     # A send with an uncertain outcome must be reviewed in the
                     # group before any manual retry. Never send the budget to the lead.
                     delivery = {"status": "error", "error": str(exc)}
+                    if paver_order:
+                        signatures[key] = signature  # the next message must not post it again
             if paver_order and delivery["status"] != "accepted" and res.get("attention"):
                 # Not in the group: the dashboard's attention list is the only trace.
                 self.memory.add_knowledge_gap(
@@ -1989,7 +2002,7 @@ class Zero:
                     contacto=rec.get("name") or rec.get("phone") or "", lead_key=key,
                     tipo="pedido")
             customer_ack = None
-            if delivery["status"] == "accepted":
+            if delivery["status"] == "accepted" or paver_order:
                 tone = res.get("selected_tone")
                 if color_preference(text, prior_turns):
                     thanks = f"Gracias, anoté el color {tone}. "

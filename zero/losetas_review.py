@@ -338,7 +338,9 @@ def handle_review_message(memory: Any, message: dict[str, str]) -> dict[str, Any
         return out
     draft_id, draft = found
     if not draft.get("quote"):
-        return out  # a paver order has no calculated quote: the team answers by hand
+        # A paver order has no calculated quote: the team answers by hand.
+        memory.log("review_paver_reply_ignored", client=client_id, lead=draft.get("lead"))
+        return out
     try:
         issued = today()
         reading = read_owner_reply(message.get("text", ""), draft, issued)

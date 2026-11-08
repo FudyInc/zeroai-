@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from .config import WHATSAPP_REVIEW_NOTICES
+from .config import LOSETASCHILE_PAVER_REVIEW_STATE_HOURS, WHATSAPP_REVIEW_NOTICES
 from .losetas_text import closest, normalize_customer_text, plain
 
 
@@ -46,19 +47,61 @@ _PAVER_REVIEW_SENTENCE = re.compile(r"Tu presupuesto de .*?" + re.escape(PAVER_R
 
 def paver_review_sentence(order: dict[str, Any]) -> str:
     """The status of a complete paver order, in the customer's own terms."""
-    pickup = str(order.get("delivery_detail") or "").startswith("Retiro en fábrica")
     color = f" {str(order['color']).casefold()}" if order.get("color") else ""
-    return (f"Tu presupuesto de {order['area_m2']} m² de {order['model']}{color} con "
-            f"{'retiro en fábrica' if pickup else 'despacho'}" + PAVER_REVIEW_SUFFIX)
+    detail = str(order.get("delivery_detail") or "")
+    delivery = (" con retiro en fábrica" if detail.startswith("Retiro en fábrica")
+                else " con despacho" if detail else "")
+    return f"Tu presupuesto de {order['area_m2']} m² de {order['model']}{color}{delivery}" \
+        + PAVER_REVIEW_SUFFIX
 
 
-def paver_review_status(history: list[dict[str, Any]]) -> str | None:
-    """The sentence we already gave for a paver order in review, if one is open."""
+def paver_review_status(history: list[dict[str, Any]], now: datetime | None = None) -> str | None:
+    """The sentence we gave for a paver order in review, while the state has not expired.
+
+    A turn without a readable timestamp counts as expired: never trap the chat."""
+    now = now or datetime.now(timezone.utc)
     for turn in reversed(history):
-        if turn.get("role") == "agent":
-            found = _PAVER_REVIEW_SENTENCE.search(str(turn.get("text") or ""))
-            if found:
-                return found.group(0)
+        if turn.get("role") != "agent":
+            continue
+        found = _PAVER_REVIEW_SENTENCE.search(str(turn.get("text") or ""))
+        if not found:
+            continue
+        try:
+            at = datetime.fromisoformat(str(turn.get("at")))
+        except ValueError:
+            return None
+        if at.tzinfo is None:
+            return None
+        if now - at > timedelta(hours=LOSETASCHILE_PAVER_REVIEW_STATE_HOURS):
+            return None
+        return found.group(0)
+    return None
+
+
+_REVIEW_THANKS = r"(?:muchas\s+)?gracias|ok|okey|okay|listo|dale|perfecto|vale|genial|bacan|excelente|super"
+_REVIEW_STATUS_MESSAGE = re.compile(
+    rf"(?:{_REVIEW_THANKS})(?:\s+(?:{_REVIEW_THANKS}))*|y|ya|entendido|de acuerdo"
+    r"|cuando\s+(?:me\s+)?(?:llega|mandan|envian|enviaran|mandaran|estara)\s+(?:el\s+)?"
+    r"(?:presupuesto|cotizacion)|como\s+(?:va|vamos)\s+(?:mi\s+)?(?:pedido|presupuesto)"
+    r"|como\s+me\s+llamo")
+_ACK_EMOJI = set("\U0001F44D\U0001F44C\U0001F64F\u2705\U0001F91D\U0001F3FB\U0001F3FC"
+                 "\U0001F3FD\U0001F3FE\U0001F3FF \ufe0f")
+
+
+def paver_review_reply(message: str, history: list[dict[str, Any]],
+                       is_greeting: bool = False) -> str | None:
+    """The status sentence when the message only acknowledges, asks for the status,
+    or repeats a message the order already answered; None for anything else."""
+    status = paver_review_status(history)
+    value = " ".join((message or "").split())
+    if not status or not value or is_greeting:  # a greeting always takes the normal path
+        return None
+    repeat = any(turn.get("role") == "lead" and
+                 " ".join(str(turn.get("text") or "").split()).casefold() == value.casefold()
+                 for turn in history)
+    if (repeat or _REVIEW_STATUS_MESSAGE.fullmatch(plain(value)) or
+            all(char in _ACK_EMOJI for char in value)):
+        return status
     return None
 
 

@@ -102,6 +102,9 @@ LOSETASCHILE_PAVER_PRICE_IDS = {
 # Modelos ofrecidos cuyo precio (y tamaño) Diego aún no confirma: el borrador dice
 # «precio pendiente». Sacar un modelo de aquí solo cuando Diego lo confirme.
 LOSETASCHILE_PAVER_PRICE_PENDING = frozenset({"Gregoriano"})
+# Cuánto dura el estado «pedido de pastelones en revisión» desde el turno que lo informó:
+# pasado ese plazo el chat vuelve al flujo normal.
+LOSETASCHILE_PAVER_REVIEW_STATE_HOURS = 72
 # Abono que se pide para confirmar un pedido de LosetasChile (el resto va contra
 # entrega). Lo usa el presupuesto final que se publica en el grupo de revisión.
 LOSETASCHILE_DEPOSIT_CLP = 10000

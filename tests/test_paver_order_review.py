@@ -5,13 +5,15 @@ by shared location, the location sent twice, then «¿cómo me llamo?».
 """
 import os
 import unittest
+from datetime import datetime, timedelta, timezone
 from unittest import mock
 
 from zero import config
 from zero.agents import build_agents
 from zero.crm import CRM
 from zero.losetas_budget import format_paver_order_draft
-from zero.losetas_polls import PAVER_MODEL_OPTIONS
+from zero.losetas_polls import (PAVER_MODEL_OPTIONS, PAVER_REVIEW_SUFFIX,
+                                paver_review_sentence, paver_review_status)
 from zero.memory import SessionMemory
 from zero.orchestrator import Zero
 from zero.whatsapp_inbound import parse_inbound as parse_meta
@@ -115,12 +117,114 @@ class PaverOrderReviewTest(unittest.TestCase):
         self.assertEqual((gap["tipo"], gap["reason"], gap["veces"]),
                          ("pedido", "Pastelones: cotizar", 2))
 
-    def test_any_later_message_is_answered_from_the_order_state(self):
-        results, bodies = self.run_chat(self.ORDER + ["¿Cómo me llamo?", "Hola buenas noches"])
-        for body in bodies[-2:]:
-            self.assertIn(REVIEW_SENTENCE, body)
-            self.assertNotIn("En qué puedo ayudarte", body)
-        self.assertEqual(self.send_group.call_count, 1)
+    def test_status_and_thanks_are_answered_from_the_order_state(self):
+        for text in ("ok gracias", "Gracias", "listo", "👍", "¿Y?", "¿ya?",
+                     "¿Cuándo me llega el presupuesto?", "¿Cómo me llamo?"):
+            with self.subTest(text=text):
+                results, bodies = self.run_chat(self.ORDER + [text])
+                self.assertIn(REVIEW_SENTENCE, bodies[-1])
+                self.assertEqual(self.send_group.call_count, 1)
+                self.assertEqual(self.zero.memory.list_knowledge_gaps("losetaschile"), [])
+
+    def test_other_messages_go_through_the_flow_and_open_a_pedido_gap(self):
+        for text in ("cancela el pedido", "mejor con otro color",
+                     "¿cuánto cuesta el despacho a Maipú?", "Hola buenas noches"):
+            with self.subTest(text=text):
+                _, bodies = self.run_chat(self.ORDER + [text])
+                self.assertNotIn(REVIEW_SENTENCE, bodies[-1])
+                gaps = self.zero.memory.list_knowledge_gaps("losetaschile")
+                mine = [gap for gap in gaps if gap["pregunta"].startswith(
+                    "Pedido de pastelones en revisión") and text in gap["pregunta"]]
+                self.assertEqual([gap["tipo"] for gap in mine], ["pedido"])
+
+    def test_the_state_expires_after_the_configured_hours(self):
+        self.run_chat(self.ORDER)
+        zero = self.zero
+        turns = next(iter(zero.memory.clients["losetaschile"]["conversations"].values()))
+        old = (datetime.now(timezone.utc) -
+               timedelta(hours=config.LOSETASCHILE_PAVER_REVIEW_STATE_HOURS + 1)).isoformat()
+        for turn in turns:
+            turn["at"] = old
+        self.assertIsNone(paver_review_status(turns))
+        with mock.patch("zero.whatsapp_web.send_group_text"), \
+                mock.patch.dict(os.environ, {"LOSETASCHILE_REVIEW_GROUP_ID": GROUP}), \
+                mock.patch.object(zero, "dispatch"):
+            zero.handle_inbound(PHONE, "ok gracias", to_phone_id=BOT,
+                                whatsapp_chat_id=CHAT)
+        self.assertNotIn(REVIEW_SENTENCE, zero._deliver.call_args.args[3]["body"])
+
+    def test_greeting_a_week_later_starts_normally_without_a_gap(self):
+        self.run_chat(self.ORDER)
+        zero = self.zero
+        turns = next(iter(zero.memory.clients["losetaschile"]["conversations"].values()))
+        for turn in turns:
+            turn["at"] = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat()
+        before = len(zero.memory.list_knowledge_gaps("losetaschile"))
+        zero.handle_inbound(PHONE, "Hola", to_phone_id=BOT, whatsapp_chat_id=CHAT)
+        body = zero._deliver.call_args.args[3]["body"]
+        self.assertNotIn(REVIEW_SENTENCE, body)
+        self.assertIn("Qué producto", body)
+        self.assertEqual(len(zero.memory.list_knowledge_gaps("losetaschile")), before)
+
+    def test_a_turn_without_timestamp_counts_as_expired(self):
+        history = [{"role": "agent", "text": REVIEW_SENTENCE + PAVER_REVIEW_SUFFIX[len(
+            " está en revisión"):]}]
+        self.assertIsNone(paver_review_status(history))
+        history[0]["at"] = "not a date"
+        self.assertIsNone(paver_review_status(history))
+
+    def test_sentence_mentions_delivery_only_when_known(self):
+        order = {"model": "Sol", "area_m2": "10", "color": None}
+        self.assertNotIn("despacho", paver_review_sentence(order))
+        self.assertIn("con despacho", paver_review_sentence(
+            {**order, "delivery_detail": "Dirección indicada: X"}))
+        self.assertIn("retiro en fábrica", paver_review_sentence(
+            {**order, "delivery_detail": "Retiro en fábrica: Y"}))
+
+    def test_group_not_configured_still_acknowledges_and_opens_the_gap(self):
+        zero = _chat()
+        with mock.patch("zero.whatsapp_web.send_catalog_document",
+                        return_value={"id": "d", "ack": 0}), \
+                mock.patch("zero.whatsapp_web.send_group_text") as send_group, \
+                mock.patch.dict(os.environ, {"LOSETASCHILE_REVIEW_GROUP_ID": ""}), \
+                mock.patch.object(zero, "dispatch"):
+            for text in self.ORDER:
+                zero.handle_inbound(PHONE, text.replace("{model}", "Gregoriano"),
+                                    to_phone_id=BOT, whatsapp_chat_id=CHAT)
+        send_group.assert_not_called()
+        self.assertIn(REVIEW_SENTENCE, zero._deliver.call_args.args[3]["body"])
+        (gap,) = zero.memory.list_knowledge_gaps("losetaschile")
+        self.assertEqual(gap["tipo"], "pedido")
+
+    def test_failed_group_send_acknowledges_opens_the_gap_and_is_not_retried(self):
+        zero = _chat()
+        with mock.patch("zero.whatsapp_web.send_catalog_document",
+                        return_value={"id": "d", "ack": 0}), \
+                mock.patch("zero.whatsapp_web.send_group_text",
+                           side_effect=RuntimeError("bridge 502")) as send_group, \
+                mock.patch.dict(os.environ, {"LOSETASCHILE_REVIEW_GROUP_ID": GROUP}), \
+                mock.patch.object(zero, "dispatch"):
+            for text in self.ORDER:
+                zero.handle_inbound(PHONE, text.replace("{model}", "Gregoriano"),
+                                    to_phone_id=BOT, whatsapp_chat_id=CHAT)
+            self.assertIn(REVIEW_SENTENCE, zero._deliver.call_args.args[3]["body"])
+            self.assertEqual(
+                [gap["tipo"] for gap in zero.memory.list_knowledge_gaps("losetaschile")],
+                ["pedido"])
+            zero.handle_inbound(PHONE, LOCATION, to_phone_id=BOT, whatsapp_chat_id=CHAT)
+            zero.handle_inbound(PHONE, "ok", to_phone_id=BOT, whatsapp_chat_id=CHAT)
+        self.assertEqual(send_group.call_count, 1)
+
+    def test_reply_to_a_paver_draft_is_logged_not_silent(self):
+        from zero.losetas_review import handle_review_message, store_review_draft
+        memory = SessionMemory(None)
+        store_review_draft(memory, "losetaschile", "g-1", {
+            "lead": "k", "quote": None, "order": "pastelones", "text": "borrador"})
+        with mock.patch.object(memory, "log") as log:
+            out = handle_review_message(memory, {"client": "losetaschile", "quoted_id": "g-1",
+                                                 "text": "ok"})
+        self.assertTrue(out["review_group"])
+        self.assertEqual(log.call_args.args[0], "review_paver_reply_ignored")
 
     def test_a_new_product_request_is_not_swallowed_by_the_state(self):
         _, bodies = self.run_chat(self.ORDER + ["Bordes de piscina"])
