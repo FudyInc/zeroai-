@@ -98,10 +98,12 @@ LOSETASCHILE_PAVER_PRICE_IDS = {
     "Ladrillo cruzado": LOSETASCHILE_PAVER_PRICE_ID,
     "Sol": LOSETASCHILE_PAVER_PRICE_ID,
     "Sol rústico": LOSETASCHILE_PAVER_PRICE_ID,
+    # Diego, 2026-11-08: «los gregorianos valen lo mismo que todos los 40x40».
+    "Gregoriano": LOSETASCHILE_PAVER_PRICE_ID,
 }
 # Modelos ofrecidos cuyo precio (y tamaño) Diego aún no confirma: el borrador dice
 # «precio pendiente». Sacar un modelo de aquí solo cuando Diego lo confirme.
-LOSETASCHILE_PAVER_PRICE_PENDING = frozenset({"Gregoriano"})
+LOSETASCHILE_PAVER_PRICE_PENDING: frozenset = frozenset()
 # Cuánto dura el estado «pedido de pastelones en revisión» desde el turno que lo informó:
 # pasado ese plazo el chat vuelve al flujo normal.
 LOSETASCHILE_PAVER_REVIEW_STATE_HOURS = 72

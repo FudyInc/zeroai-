@@ -72,7 +72,7 @@ class PaverOrderReviewTest(unittest.TestCase):
         for expected in ("PEDIDO PASTELONES", "Cliente: Cliente Uno", f"Número: +{PHONE}",
                          "Modelo: Gregoriano", "amarillo", "40 m²", "q=-33.500000,-70.600000"):
             self.assertIn(expected, draft)
-        self.assertIn("precio pendiente", draft.casefold())
+        self.assertIn("Precio unitario: $1.600", draft)
         self.assertEqual(results[-1]["delivery"]["status"], "accepted")
         self.assertIn(REVIEW_SENTENCE, bodies[-1])
         self.assertNotIn("$", bodies[-1])
@@ -247,8 +247,19 @@ class PaverMenuPricingTest(unittest.TestCase):
         listed = set(config.LOSETASCHILE_PAVER_PRICE_IDS) | config.LOSETASCHILE_PAVER_PRICE_PENDING
         self.assertEqual(listed - set(PAVER_MODEL_OPTIONS), set())
 
-    def test_gregoriano_is_pending(self):
-        self.assertIn("Gregoriano", config.LOSETASCHILE_PAVER_PRICE_PENDING)
+    def test_gregoriano_costs_the_same_as_every_40x40(self):
+        self.assertEqual(config.LOSETASCHILE_PAVER_PRICE_IDS["Gregoriano"],
+                         config.LOSETASCHILE_PAVER_PRICE_ID)
+        self.assertNotIn("Gregoriano", config.LOSETASCHILE_PAVER_PRICE_PENDING)
+
+    def test_a_pending_model_says_price_pending(self):
+        from unittest import mock
+        with mock.patch.dict(config.LOSETASCHILE_PAVER_PRICE_IDS, clear=False) as ids:
+            ids.pop("Gregoriano")
+            with mock.patch.object(config, "LOSETASCHILE_PAVER_PRICE_PENDING",
+                                   frozenset({"Gregoriano"})):
+                PaverOrderReviewTest.run_chat(self, PaverOrderReviewTest.ORDER)
+        self.assertIn("Precio pendiente", self.send_group.call_args.args[3])
 
 
 if __name__ == "__main__":
