@@ -48,6 +48,39 @@ def format_internal_budget(quote: dict[str, Any], *, profile_name: str | None,
     return "\n".join(lines)
 
 
+def format_paver_order_draft(order: dict[str, Any], *, profile_name: str | None,
+                             phone: str) -> str | None:
+    """Paver order for the review group. No price: the team quotes, and says so."""
+    digits = re.sub(r"\D", "", phone or "")
+    if not 8 <= len(digits) <= 15 or not order.get("model") or not order.get("area_m2"):
+        return None
+    display = " ".join((profile_name or "").split())[:80]
+    if not any(char.isalpha() for char in display):
+        display = ""
+    lines = ["*PEDIDO PASTELONES LOSETAS CHILE · REVISIÓN INTERNA*"]
+    if display:
+        lines.append(f"Cliente: {display}")
+    lines.extend([f"Número: +{digits}",
+                  f"Modelo: {order['model']}",
+                  f"Color indicado por cliente: {order.get('color') or 'pendiente de confirmar'}",
+                  f"Superficie: {order['area_m2']} m²"])
+    unit = order.get("unit_price")
+    lines.append(f"Precio unitario: ${round(unit):,}".replace(",", ".") if unit
+                 else "Precio pendiente de confirmar (modelo sin precio confirmado).")
+    delivery = " ".join(str(order.get("delivery_detail") or "").split())[:300]
+    if delivery:
+        lines.append(delivery)
+    if delivery.startswith("Retiro en fábrica:"):
+        if FACTORY_MAP_URL:
+            lines.append(f"Ubicación fábrica: {FACTORY_MAP_URL}")
+        lines.append("Costo de envío: no aplica (retiro en fábrica).")
+    else:
+        lines.append("Costo de envío: pendiente de confirmación del equipo.")
+    lines.extend(["Cantidad de piezas y total: pendientes de calcular por el equipo.",
+                  "Borrador interno. Revisar y enviar manualmente al cliente."])
+    return "\n".join(lines)
+
+
 # The customer budget is the one fixed template, the same for every customer:
 # greeting and payment messages around it may vary, this never does. It uses
 # no monospace block: WhatsApp draws those in a smaller font than the rest.

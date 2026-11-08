@@ -40,6 +40,28 @@ PAVER_MODEL_QUESTION = "¿Qué pastelón del catálogo te interesó más?"
 PAVER_MODEL_OPTIONS = ("Laja española", "Ladrillo cruzado", "Sol", "Sol rústico",
                        "Gregoriano")
 
+PAVER_REVIEW_SUFFIX = " está en revisión del equipo; te escribimos por este chat."
+_PAVER_REVIEW_SENTENCE = re.compile(r"Tu presupuesto de .*?" + re.escape(PAVER_REVIEW_SUFFIX))
+
+
+def paver_review_sentence(order: dict[str, Any]) -> str:
+    """The status of a complete paver order, in the customer's own terms."""
+    pickup = str(order.get("delivery_detail") or "").startswith("Retiro en fábrica")
+    color = f" {str(order['color']).casefold()}" if order.get("color") else ""
+    return (f"Tu presupuesto de {order['area_m2']} m² de {order['model']}{color} con "
+            f"{'retiro en fábrica' if pickup else 'despacho'}" + PAVER_REVIEW_SUFFIX)
+
+
+def paver_review_status(history: list[dict[str, Any]]) -> str | None:
+    """The sentence we already gave for a paver order in review, if one is open."""
+    for turn in reversed(history):
+        if turn.get("role") == "agent":
+            found = _PAVER_REVIEW_SENTENCE.search(str(turn.get("text") or ""))
+            if found:
+                return found.group(0)
+    return None
+
+
 POOL_SHAPE_QUESTION = "¿La piscina es rectangular?"
 POOL_SHAPE_OPTIONS = ("Sí, es rectangular", "No es rectangular")
 

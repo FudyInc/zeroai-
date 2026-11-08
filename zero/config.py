@@ -89,6 +89,19 @@ QUOTE_REVIEW_REQUIRED_CLIENT_IDS = frozenset({"pooledge"})
 # por ruta y estar verificada antes de incluir un importe de flete.
 LOSETASCHILE_FLETE_ORIGIN = "Los Granados 029, La Pintana"
 LOSETASCHILE_FLETE_CLP_PER_KM = 2000
+# Pastelones: modelo del menú -> id del ítem de `pricing` que lo respalda (el puente
+# usa el mismo id en el catálogo). Un modelo ofrecido sin precio respaldado debe estar
+# en PENDING; tests/test_paver_order_review.py falla si no está en uno de los dos.
+LOSETASCHILE_PAVER_PRICE_ID = "pastelones-40x40"
+LOSETASCHILE_PAVER_PRICE_IDS = {
+    "Laja española": LOSETASCHILE_PAVER_PRICE_ID,
+    "Ladrillo cruzado": LOSETASCHILE_PAVER_PRICE_ID,
+    "Sol": LOSETASCHILE_PAVER_PRICE_ID,
+    "Sol rústico": LOSETASCHILE_PAVER_PRICE_ID,
+}
+# Modelos ofrecidos cuyo precio (y tamaño) Diego aún no confirma: el borrador dice
+# «precio pendiente». Sacar un modelo de aquí solo cuando Diego lo confirme.
+LOSETASCHILE_PAVER_PRICE_PENDING = frozenset({"Gregoriano"})
 # Abono que se pide para confirmar un pedido de LosetasChile (el resto va contra
 # entrega). Lo usa el presupuesto final que se publica en el grupo de revisión.
 LOSETASCHILE_DEPOSIT_CLP = 10000

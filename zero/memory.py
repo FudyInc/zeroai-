@@ -308,7 +308,8 @@ class SessionMemory:
         if item:
             item["veces"] = int(item.get("veces") or 1) + 1
             item["ultima"] = _now()
-            if reason:
+            keeps_order = item.get("tipo") == "pedido" and tipo != "pedido"
+            if reason and not keeps_order:   # a repeat must not turn an order into a question
                 item["reason"] = reason[:200]
             if item.get("estado") in ("resuelta", "atendida") and tipo == "pedido":
                 item["estado"] = "abierta"   # otro cliente con el mismo pedido
@@ -316,7 +317,8 @@ class SessionMemory:
             item = {"pregunta": texto, "reason": reason[:200], "veces": 1,
                     "primera": _now(), "ultima": _now(), "estado": "abierta"}
             huecos[clave] = item
-        item["tipo"] = tipo if tipo in ("pregunta", "pedido") else "pregunta"
+        if not (item.get("tipo") == "pedido" and tipo != "pedido"):
+            item["tipo"] = tipo if tipo in ("pregunta", "pedido") else "pregunta"
         if chat_id:
             item["chat_id"] = str(chat_id)[:120]
             # Everyone still waiting for this same answer, not only the last one.

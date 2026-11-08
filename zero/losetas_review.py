@@ -337,6 +337,8 @@ def handle_review_message(memory: Any, message: dict[str, str]) -> dict[str, Any
     if not found:
         return out
     draft_id, draft = found
+    if not draft.get("quote"):
+        return out  # a paver order has no calculated quote: the team answers by hand
     try:
         issued = today()
         reading = read_owner_reply(message.get("text", ""), draft, issued)

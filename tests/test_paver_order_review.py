@@ -1,0 +1,151 @@
+"""A complete paver order reaches the review group, and repeats do not undo it.
+
+The chat is a real one, anonymized: pastelones, 40 m², Gregoriano, amarillo, despacho
+by shared location, the location sent twice, then «¿cómo me llamo?».
+"""
+import os
+import unittest
+from unittest import mock
+
+from zero import config
+from zero.agents import build_agents
+from zero.crm import CRM
+from zero.losetas_budget import format_paver_order_draft
+from zero.losetas_polls import PAVER_MODEL_OPTIONS
+from zero.memory import SessionMemory
+from zero.orchestrator import Zero
+from zero.whatsapp_inbound import parse_inbound as parse_meta
+
+PHONE = "56900000001"
+BOT = "56911111111"
+GROUP = "123456789@g.us"
+CHAT = PHONE + "@c.us"
+LOCATION = parse_meta({"entry": [{"changes": [{"value": {
+    "metadata": {"phone_number_id": BOT},
+    "messages": [{"from": PHONE, "type": "location",
+                  "location": {"latitude": -33.5, "longitude": -70.6}}]}}]}]})[0]["text"]
+REVIEW_SENTENCE = "Tu presupuesto de 40 m² de Gregoriano amarillo con despacho está en revisión"
+
+
+def _chat(priced=True):
+    memory = SessionMemory(None)
+    memory.register_client("losetaschile", "STARTER")
+    memory.set_client_agent_profile("losetaschile", {
+        "whatsapp_number": BOT, "response_mode": "automatic"})
+    if priced:
+        memory.set_client_pricing("losetaschile", {"currency": "CLP", "iva_rate": 0, "items": [
+            {"id": "pastelones-40x40", "name": "Pastelón 40x40", "unit_price": 1600,
+             "unit": "unidad"}]})
+    crm = CRM(None)
+    crm.upsert("losetaschile", {"phone": PHONE, "source": "test"})
+    zero = Zero(build_agents(mock=True), memory=memory, crm=crm)
+    zero._deliver = mock.Mock(return_value={"status": "sent", "via": "whatsapp_web", "id": "t"})
+    return zero
+
+
+class PaverOrderReviewTest(unittest.TestCase):
+    def run_chat(self, messages, priced=True, model="Gregoriano"):
+        zero = _chat(priced)
+        results, bodies = [], []
+        with mock.patch("zero.whatsapp_web.send_catalog_document",
+                        return_value={"id": "document-1", "ack": 0}), \
+                mock.patch("zero.whatsapp_web.send_group_text",
+                           return_value={"id": "group-1", "ack": 0}) as send_group, \
+                mock.patch.dict(os.environ, {"LOSETASCHILE_REVIEW_GROUP_ID": GROUP}), \
+                mock.patch.object(zero, "dispatch"):
+            for text in messages:
+                results.append(zero.handle_inbound(
+                    PHONE, text.replace("{model}", model), to_phone_id=BOT, profile_name="Cliente Uno",
+                    whatsapp_chat_id=CHAT))
+                bodies.append(zero._deliver.call_args.args[3]["body"])
+        self.zero, self.send_group = zero, send_group
+        return results, bodies
+
+    ORDER = ["Hola buenas noches", "Pastelones", "40", "{model}", "amarillo", LOCATION]
+
+    def test_complete_order_reaches_the_group_with_a_draft(self):
+        results, bodies = self.run_chat(self.ORDER)
+        self.assertEqual(self.send_group.call_count, 1)
+        draft = self.send_group.call_args.args[3]
+        for expected in ("PEDIDO PASTELONES", "Cliente: Cliente Uno", f"Número: +{PHONE}",
+                         "Modelo: Gregoriano", "amarillo", "40 m²", "q=-33.500000,-70.600000"):
+            self.assertIn(expected, draft)
+        self.assertIn("precio pendiente", draft.casefold())
+        self.assertEqual(results[-1]["delivery"]["status"], "accepted")
+        self.assertIn(REVIEW_SENTENCE, bodies[-1])
+        self.assertNotIn("$", bodies[-1])
+
+    def test_priced_model_shows_its_unit_price_unpriced_says_pending(self):
+        self.run_chat(self.ORDER, model="Laja española")
+        draft = self.send_group.call_args.args[3]
+        self.assertIn("Precio unitario: $1.600", draft)
+        self.assertNotIn("Precio pendiente", draft)
+
+    def test_missing_price_list_is_pending_not_unsent(self):
+        self.run_chat(self.ORDER, priced=False, model="Laja española")
+        self.assertEqual(self.send_group.call_count, 1)
+        self.assertIn("Precio pendiente", self.send_group.call_args.args[3])
+
+    def test_draft_needs_model_area_and_a_valid_number(self):
+        order = {"model": "Sol", "area_m2": "10", "color": None, "delivery_detail": None}
+        self.assertIn("Color indicado por cliente: pendiente", format_paver_order_draft(
+            order, profile_name=None, phone="+56 9 0000 0001"))
+        self.assertIsNone(format_paver_order_draft(order, profile_name=None, phone="12"))
+        self.assertIsNone(format_paver_order_draft(
+            {**order, "area_m2": None}, profile_name=None, phone=PHONE))
+
+    def test_repeated_location_gets_a_normal_acknowledgement(self):
+        results, bodies = self.run_chat(self.ORDER + [LOCATION])
+        self.assertEqual(self.send_group.call_count, 1)  # no second notice
+        self.assertNotIn("revisar tu consulta", bodies[-1].casefold())
+        self.assertIn(REVIEW_SENTENCE, bodies[-1])
+        self.assertFalse(results[-1].get("manual_review") and results[-1].get("intent") == "handoff")
+
+    def test_repeat_does_not_open_a_question_gap(self):
+        self.run_chat(self.ORDER + [LOCATION])
+        gaps = self.zero.memory.list_knowledge_gaps("losetaschile")
+        self.assertNotIn("pregunta", [gap["tipo"] for gap in gaps])
+
+    def test_gap_keeps_order_type_when_a_question_repeats_its_text(self):
+        memory = SessionMemory(None)
+        memory.add_knowledge_gap("c", "Ubicación X", "Pastelones: cotizar", tipo="pedido")
+        memory.add_knowledge_gap("c", "Ubicación X", "El agente repitió una respuesta",
+                                 tipo="pregunta")
+        (gap,) = memory.list_knowledge_gaps("c")
+        self.assertEqual((gap["tipo"], gap["reason"], gap["veces"]),
+                         ("pedido", "Pastelones: cotizar", 2))
+
+    def test_any_later_message_is_answered_from_the_order_state(self):
+        results, bodies = self.run_chat(self.ORDER + ["¿Cómo me llamo?", "Hola buenas noches"])
+        for body in bodies[-2:]:
+            self.assertIn(REVIEW_SENTENCE, body)
+            self.assertNotIn("En qué puedo ayudarte", body)
+        self.assertEqual(self.send_group.call_count, 1)
+
+    def test_a_new_product_request_is_not_swallowed_by_the_state(self):
+        _, bodies = self.run_chat(self.ORDER + ["Bordes de piscina"])
+        self.assertNotIn(REVIEW_SENTENCE, bodies[-1])
+
+
+class PaverMenuPricingTest(unittest.TestCase):
+    def test_every_offered_model_is_priced_or_declared_pending(self):
+        unbacked = [model for model in PAVER_MODEL_OPTIONS
+                    if model not in config.LOSETASCHILE_PAVER_PRICE_IDS
+                    and model not in config.LOSETASCHILE_PAVER_PRICE_PENDING]
+        self.assertEqual(unbacked, [], "modelo ofrecido sin precio respaldado ni declarado "
+                                       "pendiente en config.LOSETASCHILE_PAVER_PRICE_PENDING")
+
+    def test_a_model_is_not_both_priced_and_pending(self):
+        self.assertFalse(set(config.LOSETASCHILE_PAVER_PRICE_IDS) &
+                         config.LOSETASCHILE_PAVER_PRICE_PENDING)
+
+    def test_config_lists_only_models_the_menu_offers(self):
+        listed = set(config.LOSETASCHILE_PAVER_PRICE_IDS) | config.LOSETASCHILE_PAVER_PRICE_PENDING
+        self.assertEqual(listed - set(PAVER_MODEL_OPTIONS), set())
+
+    def test_gregoriano_is_pending(self):
+        self.assertIn("Gregoriano", config.LOSETASCHILE_PAVER_PRICE_PENDING)
+
+
+if __name__ == "__main__":
+    unittest.main()

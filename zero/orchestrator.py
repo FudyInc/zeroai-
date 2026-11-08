@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .config import (
     LOSETASCHILE_CHOICE_STYLE,
+    LOSETASCHILE_PAVER_PRICE_IDS,
     LOSETASCHILE_PAGO_GENERICO,
     LOSETASCHILE_TEMAS_SIN_INVENTAR,
     ACTIVE_MARKET_REGIONS,
@@ -48,7 +49,7 @@ from .icp import describe_icp, is_empty, normalize_icp
 from .inbox import Inbox, MockInbox
 from .losetas_color import (COLOR_CATALOG_IMAGE_PATH, color_preference,
                             color_question, latest_color_preference, names_color)
-from .losetas_budget import format_internal_budget
+from .losetas_budget import format_internal_budget, format_paver_order_draft
 from .losetas_review import store_review_draft, today as review_today
 from .losetas_text import normalize_customer_text, plain
 from .attention import fixed_answer, learned_alias, learned_answer
@@ -68,6 +69,7 @@ from .losetas_polls import (DELIVERY_POLL_QUESTION as LOSETAS_DELIVERY_POLL_QUES
                             CHOICE_PROMPTS as LOSETAS_CHOICE_PROMPTS,
                             BORDER_MODEL_QUESTION, POOL_SHAPE_QUESTION,
                             PAVER_AREA_QUESTION, PAVER_MODEL_QUESTION,
+                            paver_review_sentence, paver_review_status,
                             WHATSAPP_WEB_POLL_KEYS)
 from .memory import SessionMemory
 from .quotes import compute_quote, extract_request, format_quote, normalize_pricing
@@ -186,6 +188,20 @@ def _unverified_shipping_claim(message: str, reply: str, knowledge: str) -> bool
                 "despacho requieren revisión humana" in knowledge.casefold() and
                 re.search(r"\b(?:hacemos|realizamos|tenemos|ofrecemos|despachamos|entregamos)\b"
                            r".{0,45}\bdespacho\b", reply, re.IGNORECASE))
+
+
+def _paver_order(message: str, history: list[dict], pricing: dict) -> dict | None:
+    """A complete paver order as the review group needs it; None while model or m² are missing.
+
+    A model with no confirmed price carries no `unit_price`: the draft says so."""
+    details = paver_order_details(message, history)
+    if not (details["model"] and details["area_m2"]):
+        return None
+    price_id = LOSETASCHILE_PAVER_PRICE_IDS.get(details["model"])
+    unit = next((item["unit_price"] for item in pricing.get("items", [])
+                 if price_id and item.get("id") == price_id), None)
+    return {**details, "color": latest_color_preference(history),
+            "delivery_detail": delivery_detail(message, history), "unit_price": unit}
 
 
 def _unverified_quote_review_claim(reply: str) -> bool:
@@ -1259,6 +1275,12 @@ class Zero:
         greeting = whatsapp_greeting() if channel == "whatsapp" else ""
         # A question asked mid-menu skips the fixed steps: they would only send the menu again.
         losetas_steps = client_id == "losetaschile" and channel == "whatsapp" and not open_menu
+        if losetas_steps and not direct_product_category(message):
+            in_review = paver_review_status(order_history)
+            if in_review:
+                # An order is already with the team: every message is answered from it.
+                return {"reply": "Gracias, lo anoté. " + in_review, "intent": "info",
+                        "flow_step": True}
         if losetas_steps and _simple_greeting(message):
             introduced = _introduced_name(message)
             salutation = f"¡{greeting}, {introduced}!" if introduced else f"¡{greeting}!"
@@ -1410,7 +1432,8 @@ class Zero:
             return {"reply": (f"Gracias, recibí el modelo, los m² y {received}. "
                               "El equipo arma el presupuesto y te escribe por este chat."),
                     "intent": "info",
-                    "attention": "Pastelones: confirmar el tamaño del modelo y cotizar"}
+                    "attention": "Pastelones: confirmar el tamaño del modelo y cotizar",
+                    "paver_order": _paver_order(message, order_history, pricing)}
         if (losetas_steps and
                 (wants_border_budget(message) or pool_measurement_message(message) or measurement_followup(
                     message, order_history) or border_model_followup(message, order_history) or
@@ -1897,14 +1920,17 @@ class Zero:
                     "company": rec.get("company"), **out}
         reply, intent = res.get("reply") or "", res.get("intent") or "general"
         quote = res.get("quote")
-        if client_id == "losetaschile" and channel == "whatsapp" and quote:
+        paver_order = res.get("paver_order")
+        if client_id == "losetaschile" and channel == "whatsapp" and (quote or paver_order):
             # The customer never receives an automatic budget. The structured
             # calculation goes to a separate review group for a person to check.
-            internal_budget = format_internal_budget(
-                quote, profile_name=(name_from_profile or self.memory.clients.get(
-                    client_id, {}).get("whatsapp_display_names", {}).get(key)),
-                phone=from_contact,
-                tone=res.get("selected_tone"))
+            review_name = (name_from_profile or self.memory.clients.get(
+                client_id, {}).get("whatsapp_display_names", {}).get(key))
+            internal_budget = (
+                format_internal_budget(quote, profile_name=review_name, phone=from_contact,
+                                       tone=res.get("selected_tone")) if quote else
+                format_paver_order_draft(paver_order, profile_name=review_name,
+                                         phone=from_contact))
             self.memory.add_turn(client_id, key, "lead", text)
             group_id = (os.environ.get("LOSETASCHILE_REVIEW_GROUP_ID") or "").strip()
             if not internal_budget or not group_id or not to_phone_id or not whatsapp_chat_id:
@@ -1917,6 +1943,21 @@ class Zero:
                 if signatures.get(key) == signature:
                     self.memory.log("internal_budget_already_sent", client=client_id, lead=key)
                     self.memory.save()
+                    if paver_order:
+                        # Same order again: the customer still gets a normal answer.
+                        repeat_ack = "Gracias, lo anoté. " + paver_review_sentence(paver_order)
+                        try:
+                            repeat_delivery = self._deliver(
+                                client_id, key, rec.get("phone") or from_contact,
+                                {"channel": channel, "subject": None, "body": repeat_ack,
+                                 "whatsapp_from": to_phone_id,
+                                 "whatsapp_chat_id": whatsapp_chat_id, "humanize": True},
+                                wa_creds=wa_creds)
+                        except (RuntimeError, ValueError) as exc:
+                            repeat_delivery = {"status": "error", "error": str(exc)}
+                        if repeat_delivery["status"] == "sent":
+                            self.memory.add_turn(client_id, key, "agent", repeat_ack)
+                            self.memory.save()
                     return {"matched": True, "manual_review": True,
                             "intent": "pricing", "company": rec.get("company"), **out}
                 try:
@@ -1929,7 +1970,8 @@ class Zero:
                             name_from_profile or self.memory.clients.get(client_id, {}).get(
                                 "whatsapp_display_names", {}).get(key) or "").split())[:80],
                         "phone": re.sub(r"\D", "", from_contact or ""),
-                        "color": res.get("selected_tone"), "quote": quote,
+                        "color": res.get("selected_tone") or (paver_order or {}).get("color"),
+                        "quote": quote, "order": "pastelones" if paver_order else None,
                         "issued": review_today().isoformat(), "text": internal_budget})
                     # Keep the group-send dedupe durable before sending the
                     # separate customer acknowledgment.
@@ -1940,6 +1982,12 @@ class Zero:
                     # A send with an uncertain outcome must be reviewed in the
                     # group before any manual retry. Never send the budget to the lead.
                     delivery = {"status": "error", "error": str(exc)}
+            if paver_order and delivery["status"] != "accepted" and res.get("attention"):
+                # Not in the group: the dashboard's attention list is the only trace.
+                self.memory.add_knowledge_gap(
+                    client_id, text, res["attention"], chat_id=whatsapp_chat_id or key,
+                    contacto=rec.get("name") or rec.get("phone") or "", lead_key=key,
+                    tipo="pedido")
             customer_ack = None
             if delivery["status"] == "accepted":
                 tone = res.get("selected_tone")
@@ -1957,6 +2005,8 @@ class Zero:
                      else "") +
                     "Tu presupuesto está pendiente de revisión por nuestro equipo; "
                     "te responderemos por este chat.")
+                if paver_order:
+                    acknowledgment = thanks + paver_review_sentence(paver_order)
                 try:
                     customer_ack = self._deliver(
                         client_id, key, rec.get("phone") or from_contact,
@@ -1968,7 +2018,7 @@ class Zero:
                 if customer_ack["status"] == "sent":
                     self.memory.add_turn(client_id, key, "agent", acknowledgment)
             self.memory.log("internal_budget_review", client=client_id, lead=key,
-                            status=delivery["status"], total=quote.get("total"))
+                            status=delivery["status"], total=quote.get("total") if quote else None)
             self.memory.save()
             if self.crm:
                 self.crm.log(client_id, key, "awaiting_human",
