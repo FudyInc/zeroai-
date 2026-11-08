@@ -315,7 +315,13 @@ def truncados_en_log(desde: str) -> int:
             capture_output=True, text=True, timeout=60).stdout
     except (OSError, subprocess.SubprocessError):
         return -1
-    return len(re.findall(r"truncat", salida, re.IGNORECASE))
+    return contar_truncados(salida)
+
+
+def contar_truncados(log: str) -> int:
+    """Cortes reales en un log de Ollama. No basta buscar «truncat»: cada
+    respuesta deja «truncated = 0», y eso contaba como corte."""
+    return len(re.findall(r"truncating input prompt|truncated = [1-9]", log))
 
 
 def construir_motor(tmp: Path, client_id: str, ficha: str, precios: Dict[str, Any],
@@ -417,7 +423,12 @@ def leer_ficha(raiz: str, cliente: str):
     desde la raíz de producción. El código es siempre el de este repo: hasta
     el 2026-11-03 la raíz se agregaba al `sys.path`, y la línea base medía el
     código de producción en vez de la rama que se quería evaluar."""
+    from zero._env import load_env
     from zero.store import make_memory
+    # El `.env` de este repo no existe en un worktree: sin el de la raíz no hay
+    # credenciales de Supabase, `make_memory` cae a un `state.json` vacío y la
+    # ficha llega en blanco (así salió la corrida del 2026-11-04).
+    load_env(os.path.join(raiz, ".env"))
     cwd = os.getcwd()
     os.chdir(raiz)
     try:
@@ -536,6 +547,10 @@ def main(argv: List[str] | None = None) -> int:
         return 1
 
     ficha, precios, perfil = leer_ficha(args.raiz_ficha, args.cliente)
+    if not ficha:
+        print(f"la ficha de {args.cliente} llegó vacía desde {args.raiz_ficha}: "
+              "sin ficha la medición no vale, no se corre", file=sys.stderr)
+        return 1
     perfil.setdefault("whatsapp_number", args.numero)
     perfil["response_mode"] = "automatic"
 

@@ -289,6 +289,54 @@ class LeerFicha(unittest.TestCase):
         import zero.orchestrator
         self.assertTrue(Path(zero.orchestrator.__file__).resolve().is_relative_to(REPO))
 
+    def test_carga_el_env_de_la_raiz(self):
+        # Sin el `.env` de la raíz no hay credenciales de Supabase y la ficha
+        # llega vacía. Se usa una clave inocua: nunca credenciales reales.
+        import os
+        import tempfile
+        clave = "ZERO_PRUEBA_ENV_DE_LA_RAIZ"
+        os.environ.pop(clave, None)
+        try:
+            with tempfile.TemporaryDirectory() as raiz:
+                with open(os.path.join(raiz, ".env"), "w") as f:
+                    f.write(f"{clave}=desde-la-raiz\n")
+                arnes.leer_ficha(raiz, "nadie")
+            self.assertEqual(os.environ.get(clave), "desde-la-raiz")
+        finally:
+            os.environ.pop(clave, None)
+
+
+class SinFichaNoSeCorre(unittest.TestCase):
+    def test_ficha_vacia_aborta_antes_de_medir(self):
+        import json
+        import tempfile
+        original = arnes.leer_ficha
+        arnes.leer_ficha = lambda raiz, cliente: ("", {}, {})
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                conjunto = Path(tmp) / "set.json"
+                conjunto.write_text(json.dumps({"casos": [
+                    {"client_id": "losetaschile", "mensaje": "hola", "historial": []}]}))
+                salida = Path(tmp) / "crudo.jsonl"
+                codigo = arnes.main(["--set", str(conjunto), "--salida", str(salida)])
+                self.assertEqual(codigo, 1)
+                self.assertFalse(salida.exists())
+        finally:
+            arnes.leer_ficha = original
+
+
+class ContarTruncados(unittest.TestCase):
+    def test_truncated_cero_no_es_un_corte(self):
+        log = ("slot release: stop processing: n_tokens = 2248, truncated = 0\n"
+               "slot release: stop processing: n_tokens = 2268, truncated = 0\n")
+        self.assertEqual(arnes.contar_truncados(log), 0)
+
+    def test_cuenta_los_cortes_reales(self):
+        log = ('level=WARN msg="truncating input prompt" limit=2050 prompt=4696\n'
+               "slot release: stop processing: n_tokens = 2050, truncated = 1\n"
+               "slot release: stop processing: n_tokens = 900, truncated = 0\n")
+        self.assertEqual(arnes.contar_truncados(log), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
