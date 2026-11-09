@@ -1336,9 +1336,9 @@ def _agents_whatsapp(source=None):
     sistema sigue usando `_agents_best` / `_agents_autonomous` sin cambios: la
     jaula es deliberada y no se extiende sin decisión explícita.
 
-    Si el local no responde, contesta la API paga y se avisa al celular del dueño
-    — caer al motor pagado es justo el evento que no debe pasar inadvertido,
-    porque empieza a costar sin que nadie lo haya pedido.
+    Si el local no responde, contesta el respaldo (la nube gratis y, si la política
+    lo permite, la API paga) y se avisa al celular del dueño: que Ollama se caiga es
+    justo el evento que no debe pasar inadvertido.
     """
     from zero.config import WHATSAPP_ENGINE
     from zero.backends import FallbackBackend, LocalBackend
@@ -1357,36 +1357,39 @@ def _agents_whatsapp(source=None):
             except Exception:
                 paid = None
 
+    # Respaldo del local: primero la nube gratis (si la política la enciende y hay
+    # key), y detrás de ella la API paga (si `fallback_to_paid`, hoy apagado).
+    # Medido el 2026-11-08: la nube no contesta mejor que qwen3 local; su valor es
+    # cubrir las caídas de Ollama (WSL lo mata por memoria y tarda en recargar).
+    cloud = _whatsapp_cloud_backend()
+    if cloud is not None and paid is not None:
+        def _warn_paid(err: Exception) -> None:
+            from zero.alerts import notify_owner
+            notify_owner(
+                f"ZERO: tampoco respondió la nube de WhatsApp ({err}). "
+                f"Estoy contestando con Claude (API paga).",
+                kind="whatsapp_paid_fallback",
+            )
+        secondary = FallbackBackend(cloud, secondary=paid, on_fallback=_warn_paid)
+    else:
+        secondary = cloud or paid
+    respaldo = ("la nube gratis (Groq)" if cloud is not None else
+                "Claude (API paga)" if paid is not None else None)
+
     def _warn(err: Exception) -> None:
         from zero.alerts import notify_owner
         notify_owner(
             f"ZERO: el motor local de WhatsApp no respondió ({err}). "
-            f"Estoy contestando con Claude (API paga) hasta que vuelva.",
+            f"Estoy contestando con {respaldo} hasta que vuelva.",
             kind="whatsapp_engine_fallback",
         )
 
-    backend = FallbackBackend(LocalBackend(model=model, base_url=url),
-                              secondary=paid, on_fallback=_warn)
+    # Con respaldo, una respuesta local vacía o sin JSON también cuenta como falla.
+    local = LocalBackend(model=model, base_url=url, require_json=secondary is not None)
+    if secondary is not None:
+        local.timeout = float(WHATSAPP_ENGINE.get("local_timeout_with_backup_s") or 120.0)
+    backend = FallbackBackend(local, secondary=secondary, on_fallback=_warn)
     mode = "local"
-
-    # Nube gratis delante del local, si la política la enciende y hay key. El
-    # local (con su propio respaldo) queda detrás: un 429 por el límite por minuto
-    # o una caída de la nube no deja a un lead sin respuesta.
-    cloud = _whatsapp_cloud_backend()
-    if cloud is not None:
-        def _warn_cloud(err: Exception) -> None:
-            # Con ~1 turno por minuto de cupo, un 429 es lo esperable, no una
-            # anomalía: contesta el local sin molestar al dueño.
-            if "429" in str(err):
-                return
-            from zero.alerts import notify_owner
-            notify_owner(
-                f"ZERO: el motor en la nube de WhatsApp no respondió ({err}). "
-                f"Contesta el modelo local mientras tanto.",
-                kind="whatsapp_cloud_fallback",
-            )
-        backend = FallbackBackend(cloud, secondary=backend, on_fallback=_warn_cloud)
-        mode = "nube"
 
     agents = build_agents(backend=backend, mock=False, source=source)
     agents["CONCIERGE"].prompt_file = "concierge-whatsapp-local.md"
@@ -1434,7 +1437,7 @@ def _whatsapp_engine_status():
         "fallback_ready": declared and bool((os.environ.get("ANTHROPIC_API_KEY") or "").strip()),
         # a quién se avisa si el local se cae y empieza a gastar
         "alerts_to": bool((os.environ.get("OWNER_WHATSAPP_TO") or "").strip()),
-        # la nube delante del local: "active" sale de la misma función que la arma
+        # la nube como respaldo del local: "active" sale de la misma función que la arma
         "cloud": {
             "provider": (WHATSAPP_ENGINE.get("cloud") or {}).get("provider"),
             "model": (WHATSAPP_ENGINE.get("cloud") or {}).get("model"),

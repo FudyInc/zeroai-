@@ -301,20 +301,24 @@ WHATSAPP_ENGINE = {
     "model": "qwen3:14b",                   # decisión de Diego, 2026-10-08
     "base_url": "http://localhost:11434/v1",  # Ollama, endpoint OpenAI-compatible
     "fallback_to_paid": False,                # política cero gasto: nunca Anthropic
-    # Motor en la nube GRATIS, delante del local (decisión de Diego, 2026-11-08).
-    # Por qué: qwen3:14b cargado en la PC llenaba la RAM de WSL y la colgaba, y un
-    # modelo más grande entiende mejor el contexto. El local queda de respaldo.
+    # Motor en la nube GRATIS, como RESPALDO del local (decisión de Diego, 2026-11-08).
+    # Medido ese día con el set de evaluación (161 casos, scripts/evaluar_linea_base.py):
+    # qwen3:14b local 82/113 entendidos, gpt-oss-120b 81, qwen3.8-27b 82. La nube no
+    # contesta mejor; su valor es cubrir las caídas de Ollama (WSL lo mata por falta
+    # de memoria: OOM a las 19:05, 21:39 y 22:19 del 2026-11-08) mientras recarga.
+    # Por eso va detrás del local y no delante.
     #
-    # Límite real medido el 2026-11-08 en la cuenta gratis de Groq: 8 000 tokens por
-    # minuto y 1 000 solicitudes al día. Un turno de WhatsApp lleva ~5 700 tokens, o
-    # sea ~1 conversación por minuto: lo que no cabe lo contesta el local (no se
-    # pierde). Groq cuenta también `max_tokens` en ese límite.
-    #
-    # `enabled` se enciende solo después de medirlo con el set de evaluación contra
-    # el local (scripts/evaluar_linea_base.py --motor nube). Encender = cambiar esto.
+    # Límite medido en la cuenta gratis de Groq: 8 000 tokens por minuto y 1 000
+    # solicitudes al día; un turno lleva ~2 300-3 100 tokens de prompt. Groq cuenta
+    # `max_tokens` en ese límite. Como respaldo de caídas puntuales, alcanza.
     # Sin la key en el entorno no se usa aunque esté encendido.
+    # Cuánto se espera al local antes de pasar al respaldo, solo cuando HAY respaldo
+    # (sin él se esperan los 600 s de siempre: no hay a quién más preguntarle).
+    # qwen3:14b caliente contesta en 2-30 s; recargar tras un OOM toma 30-60 s.
+    # Más que esto es un Ollama colgado, y el cliente no puede esperar 10 minutos.
+    "local_timeout_with_backup_s": 120.0,
     "cloud": {
-        "enabled": False,
+        "enabled": True,
         "provider": "groq",
         "base_url": "https://api.groq.com/openai/v1",
         "model": "openai/gpt-oss-120b",
