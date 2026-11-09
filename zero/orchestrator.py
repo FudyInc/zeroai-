@@ -78,7 +78,8 @@ from .losetas_polls import (DELIVERY_POLL_QUESTION as LOSETAS_DELIVERY_POLL_QUES
                             border_review_sentence, review_thanks, unknown_option_named,
                             WHATSAPP_WEB_POLL_KEYS)
 from .memory import SessionMemory
-from .quotes import compute_quote, extract_request, format_quote, normalize_pricing
+from .quotes import (client_pricing, compute_quote, extract_request, format_quote,
+                     normalize_pricing)
 from .pool_border import (has_pool_size, POOL_PHOTO_MARKER, POOL_PHOTO_REQUEST, POOL_SIZE_CONFIRMATION, _MEASUREMENT_QUESTION as POOL_MEASUREMENT_QUESTION,
                           pool_photo_followup, roman_pool,
                           border_plan, catalog_requested, visual_catalog_category,
@@ -1482,7 +1483,7 @@ class Zero:
         # Presupuesto: si el mensaje pide precios de ítems del catálogo del cliente,
         # se calcula ACÁ (quotes.py, determinista) y se adjunta tras la respuesta del
         # agente — mismo patrón que project_funnel: el LLM redacta, nunca calcula.
-        pricing = normalize_pricing(self.memory.get_client_pricing(client_id)) \
+        pricing = client_pricing(client_id, self.memory.get_client_pricing(client_id)) \
             if client_id else {"items": []}
 
         if losetas_steps:

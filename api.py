@@ -43,7 +43,7 @@ from zero.config import (AGENCY_CLIENT_ID, AVG_DEAL_VALUE_CLP, CLIENT_DISPLAY_NA
 from zero.channels import make_outbox
 from zero.icp import normalize_icp
 from zero.orchestrator import Zero
-from zero.quotes import compute_quote, format_quote, normalize_pricing
+from zero.quotes import client_pricing, compute_quote, format_quote, normalize_pricing
 from zero import runs, tasks, telemetry, progress_log
 from zero.store import make_crm, make_memory
 from zero.vendors import clients_count_for
@@ -2677,7 +2677,7 @@ def set_cases(client: str, body: CasesBody):
 def get_pricing(client: str):
     """La lista de precios estructurada del cliente (ítems con precio unitario)."""
     memory = make_memory(STATE_PATH)
-    return {"client": client, "pricing": normalize_pricing(memory.get_client_pricing(client))}
+    return {"client": client, "pricing": client_pricing(client, memory.get_client_pricing(client))}
 
 
 class PricingBody(BaseModel):
@@ -2689,7 +2689,7 @@ def set_pricing(client: str, body: PricingBody):
     """Guardar la lista de precios. Se normaliza al entrar (ítems sin nombre o sin
     precio > 0 se descartan) — así los presupuestos nunca cotizan basura."""
     memory = make_memory(STATE_PATH)
-    pricing = normalize_pricing(body.pricing)
+    pricing = client_pricing(client, body.pricing)
     memory.set_client_pricing(client, pricing)
     memory.save()
     return {"client": client, "saved": True, "pricing": pricing}
@@ -2708,7 +2708,7 @@ def make_quote(body: QuoteBody):
         raise HTTPException(status_code=409,
                             detail="Presupuesto final pendiente de revisar despacho y datos del pedido")
     memory = make_memory(STATE_PATH)
-    pricing = normalize_pricing(memory.get_client_pricing(body.client))
+    pricing = client_pricing(body.client, memory.get_client_pricing(body.client))
     quote = compute_quote(pricing, body.items)
     if quote is None:
         raise HTTPException(status_code=404,

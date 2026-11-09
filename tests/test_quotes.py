@@ -44,6 +44,12 @@ class NormalizePricingTest(unittest.TestCase):
         ]})
         self.assertEqual(len(p["items"]), 1)
 
+    def test_fixed_client_iva_overrides_stored_rate(self):
+        from zero.quotes import client_pricing
+        self.assertEqual(client_pricing("losetaschile", {"iva_rate": 0.19, "items": []})["iva_rate"], 0)
+        self.assertEqual(client_pricing("losetaschile", {"items": []})["iva_rate"], 0)
+        self.assertEqual(client_pricing("petlabs", {"iva_rate": 0.19, "items": []})["iva_rate"], 0.19)
+
     def test_invalid_iva_rate_falls_back_to_default(self):
         from zero.config import IVA_RATE
         p = normalize_pricing({"iva_rate": 5, "items": []})   # fuera de [0,1]

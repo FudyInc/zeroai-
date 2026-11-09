@@ -571,6 +571,11 @@ AVG_DEAL_VALUE_CLP = 1_000_000   # valor promedio por cierre, en CLP (ajustable)
 # El IVA que se aplica a un presupuesto cuando la lista de precios del cliente no
 # lo especifica. La aritmética del presupuesto NUNCA la hace el LLM (quotes.py).
 IVA_RATE = 0.19   # IVA Chile
+# Tasa fija de IVA por empresa, por encima de la que guarde su lista de precios.
+# PoolEdge vende a precios finales por unidad (IVA incluido): su presupuesto nunca
+# suma IVA. Si la lista se guardaba con el 19 % por defecto, el cotizador de bordes
+# descartaba el subtotal sin avisar y el pedido no llegaba al grupo de revisión.
+CLIENT_FIXED_IVA_RATES = {"losetaschile": 0.0}
 
 
 # --- Finanzas de la AGENCIA (zero/finance.py) ----------------------------------
