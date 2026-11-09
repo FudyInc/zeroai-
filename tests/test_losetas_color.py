@@ -11,7 +11,9 @@ class LosetasColorTest(unittest.TestCase):
         self.assertTrue(COLOR_CATALOG_IMAGE_URL.endswith(COLOR_CATALOG_IMAGE_PATH))
         for color in ("anaranjado", "blanco", "rojo", "crema", "beige", "gris", "amarillo"):
             self.assertIn(color, question)
-        self.assertIn("disponible para bordes y pastelones", question)
+        self.assertIn("gama de colores para los bordes y pastelones", question)
+        # Per-color availability is unconfirmed: the caption must not claim it.
+        self.assertNotIn("disponib", question.casefold())
         self.assertIn("¿Qué color prefieres?", question)
 
     def test_color_name_after_question(self):
