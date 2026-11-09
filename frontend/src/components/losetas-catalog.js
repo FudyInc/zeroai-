@@ -8,6 +8,12 @@ export const losetasCatalog = [
     features: 'Interior / exterior · antideslizante · atérmico · alta resistencia',
   },
   {
+    // Same products as the WhatsApp menu and PDF (whatsapp-web-bridge/catalog-document.js).
+    // Thickness and features are not in the owner's sheet: left out, never guessed.
+    id: 'borde-ballena-50x40', name: 'Borde ballena', size: '50 × 40 cm',
+    image: '/catalog/losetaschile/borde-ballena-50x40.jpeg',
+  },
+  {
     id: 'ladrillo-cruzado-40x40', name: 'Ladrillo cruzado',
     size: '40 × 40 cm', thickness: '2 cm',
     priceId: 'pastelones-40x40',
@@ -25,6 +31,12 @@ export const losetasCatalog = [
     size: '40 × 40 cm', thickness: '2 cm', priceId: 'pastelones-40x40',
     image: '/catalog/losetaschile/sol-rustico-40x40.jpeg',
     features: 'Interior / exterior · alta resistencia',
+  },
+  {
+    // Diego, 2026-11-08: «los gregorianos valen lo mismo que todos los 40x40».
+    id: 'gregoriano-40x40', name: 'Gregoriano', size: '40 × 40 cm',
+    priceId: 'pastelones-40x40',
+    image: '/catalog/losetaschile/gregioriano-40x40.jpeg',
   },
   {
     id: 'adoquin-40x40', name: 'Adoquín', size: '40 × 40 cm', thickness: '2 cm',

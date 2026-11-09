@@ -180,8 +180,10 @@ function LosetasGallery({ pricing }) {
                   {price ? `${clp.format(price.unit_price)} c/u` : 'Precio pendiente'}
                 </span>
               </div>
-              <div className="text-xs text-zinc-600 mt-1">{item.size} · espesor {item.thickness}</div>
-              <div className="text-xs text-zinc-500 mt-1">{item.features}</div>
+              <div className="text-xs text-zinc-600 mt-1">
+                {item.size}{item.thickness ? ` · espesor ${item.thickness}` : ''}
+              </div>
+              {item.features && <div className="text-xs text-zinc-500 mt-1">{item.features}</div>}
             </div>
           </div>
         })}
