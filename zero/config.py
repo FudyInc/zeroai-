@@ -301,6 +301,32 @@ WHATSAPP_ENGINE = {
     "model": "qwen3:14b",                   # decisión de Diego, 2026-10-08
     "base_url": "http://localhost:11434/v1",  # Ollama, endpoint OpenAI-compatible
     "fallback_to_paid": False,                # política cero gasto: nunca Anthropic
+    # Motor en la nube GRATIS, delante del local (decisión de Diego, 2026-11-08).
+    # Por qué: qwen3:14b cargado en la PC llenaba la RAM de WSL y la colgaba, y un
+    # modelo más grande entiende mejor el contexto. El local queda de respaldo.
+    #
+    # Límite real medido el 2026-11-08 en la cuenta gratis de Groq: 8 000 tokens por
+    # minuto y 1 000 solicitudes al día. Un turno de WhatsApp lleva ~5 700 tokens, o
+    # sea ~1 conversación por minuto: lo que no cabe lo contesta el local (no se
+    # pierde). Groq cuenta también `max_tokens` en ese límite.
+    #
+    # `enabled` se enciende solo después de medirlo con el set de evaluación contra
+    # el local (scripts/evaluar_linea_base.py --motor nube). Encender = cambiar esto.
+    # Sin la key en el entorno no se usa aunque esté encendido.
+    "cloud": {
+        "enabled": False,
+        "provider": "groq",
+        "base_url": "https://api.groq.com/openai/v1",
+        "model": "openai/gpt-oss-120b",
+        "key_env": "GROQ_API_KEY",
+        # Corto a propósito: si la nube tarda, mejor que conteste el local ya.
+        "timeout_s": 30.0,
+        # Tope de tokens de salida por llamada. Groq cuenta `max_tokens` dentro de
+        # los 8000 tokens por minuto: con el default de 4096 más un prompt de ~5700,
+        # cada turno estimaría ~9800 y se pasaría del límite. Un reply de WhatsApp
+        # cabe de sobra en 2048, y 5700 + 2048 queda bajo 8000.
+        "max_tokens": 2048,
+    },
 }
 
 # --- Avisos al dueño (zero/alerts.py) -----------------------------------------

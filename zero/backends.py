@@ -39,6 +39,9 @@ class AnthropicBackend:
         )
 
 
+USER_AGENT = "zero/1.0"
+
+
 class LocalBackend:
     """Local model via an OpenAI-compatible /chat/completions endpoint.
 
@@ -59,8 +62,17 @@ class LocalBackend:
         # varios minutos en un lote; mejor lento que un pipeline caído por timeout.
         timeout: float = 600.0,
         temperature: float = 0.2,
+        # Tope de tokens de salida, se aplica aunque el agente pida más. Lo usa el
+        # motor en la nube, donde `max_tokens` cuenta contra el límite por minuto.
+        max_tokens_cap: Optional[int] = None,
+        # Si es True, una respuesta 200 vacía o sin JSON levanta excepción en vez de
+        # volver como texto: así un FallbackBackend la trata como falla y contesta
+        # el suplente, en vez de dejar al lead con «JSON no parseable».
+        require_json: bool = False,
     ):
         self.model = model
+        self.max_tokens_cap = max_tokens_cap
+        self.require_json = require_json
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
@@ -84,7 +96,8 @@ class LocalBackend:
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            "max_tokens": max_tokens,
+            "max_tokens": (min(max_tokens, self.max_tokens_cap)
+                           if self.max_tokens_cap else max_tokens),
             "temperature": self.temperature,
             # Coax small models into clean JSON; honored by Ollama and vLLM.
             "response_format": {"type": "json_object"},
@@ -102,6 +115,10 @@ class LocalBackend:
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.api_key}",
+                # Groq (detrás de Cloudflare) responde 403 «error code: 1010» al
+                # user-agent por defecto de urllib (probado el 2026-11-08).
+                # Ollama y OpenAI lo ignoran.
+                "User-Agent": USER_AGENT,
             },
             method="POST",
         )
@@ -112,9 +129,14 @@ class LocalBackend:
             raise RuntimeError(f"local backend unreachable at {self.base_url}: {e}") from e
 
         try:
-            return payload["choices"][0]["message"]["content"] or ""
+            content = payload["choices"][0]["message"]["content"] or ""
         except (KeyError, IndexError, TypeError) as e:
-            raise RuntimeError(f"unexpected response from local backend: {payload!r}") from e
+            # Truncado: este texto puede terminar en el aviso por WhatsApp al dueño.
+            raise RuntimeError(
+                f"unexpected response from local backend: {payload!r:.200}") from e
+        if self.require_json and extract_json(content) is None:
+            raise RuntimeError(f"{self.model} devolvió una respuesta vacía o sin JSON")
+        return content
 
 
 class OpenAIBackend(LocalBackend):
@@ -177,10 +199,13 @@ class FallbackBackend:
         self.secondary = secondary
         self.on_fallback = on_fallback
         self.fallbacks = 0          # cuántas veces se usó el suplente (para /status y tests)
+        self.last_engine: Optional[str] = None  # modelo que contestó la última llamada
 
     def complete(self, system: str, user: str, model: str, max_tokens: int = 4096) -> str:
         try:
-            return self.primary.complete(system, user, model, max_tokens=max_tokens)
+            out = self.primary.complete(system, user, model, max_tokens=max_tokens)
+            self.last_engine = _engine_of(self.primary)
+            return out
         except Exception as primary_error:   # noqa: BLE001 — cualquier falla activa el suplente
             if self.secondary is None:
                 raise
@@ -190,7 +215,17 @@ class FallbackBackend:
                     self.on_fallback(primary_error)
                 except Exception:            # noqa: BLE001
                     pass
-            return self.secondary.complete(system, user, model, max_tokens=max_tokens)
+            out = self.secondary.complete(system, user, model, max_tokens=max_tokens)
+            self.last_engine = _engine_of(self.secondary)
+            return out
+
+
+def _engine_of(backend: Any) -> str:
+    """El modelo que de verdad contestó, bajando por FallbackBackends anidados."""
+    last = getattr(backend, "last_engine", None)
+    if last:
+        return str(last)
+    return str(getattr(backend, "model", "") or type(backend).__name__)
 
 
 def extract_json(text: str) -> Optional[Dict[str, Any]]:

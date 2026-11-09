@@ -1367,9 +1367,47 @@ def _agents_whatsapp(source=None):
 
     backend = FallbackBackend(LocalBackend(model=model, base_url=url),
                               secondary=paid, on_fallback=_warn)
+    mode = "local"
+
+    # Nube gratis delante del local, si la política la enciende y hay key. El
+    # local (con su propio respaldo) queda detrás: un 429 por el límite por minuto
+    # o una caída de la nube no deja a un lead sin respuesta.
+    cloud = _whatsapp_cloud_backend()
+    if cloud is not None:
+        def _warn_cloud(err: Exception) -> None:
+            # Con ~1 turno por minuto de cupo, un 429 es lo esperable, no una
+            # anomalía: contesta el local sin molestar al dueño.
+            if "429" in str(err):
+                return
+            from zero.alerts import notify_owner
+            notify_owner(
+                f"ZERO: el motor en la nube de WhatsApp no respondió ({err}). "
+                f"Contesta el modelo local mientras tanto.",
+                kind="whatsapp_cloud_fallback",
+            )
+        backend = FallbackBackend(cloud, secondary=backend, on_fallback=_warn_cloud)
+        mode = "nube"
+
     agents = build_agents(backend=backend, mock=False, source=source)
     agents["CONCIERGE"].prompt_file = "concierge-whatsapp-local.md"
-    return agents, "local"
+    return agents, mode
+
+
+def _whatsapp_cloud_backend():
+    """El motor en la nube de WhatsApp, o None si la política no lo enciende o
+    falta la key. Nunca levanta: sin nube, WhatsApp sigue con el local."""
+    from zero.config import WHATSAPP_ENGINE
+    from zero.backends import LocalBackend
+
+    cfg = WHATSAPP_ENGINE.get("cloud") or {}
+    if not cfg.get("enabled"):
+        return None
+    key = (os.environ.get(cfg.get("key_env") or "") or "").strip()
+    if not key:
+        return None
+    return LocalBackend(model=cfg["model"], base_url=cfg["base_url"], api_key=key,
+                        timeout=float(cfg.get("timeout_s") or 30.0),
+                        max_tokens_cap=cfg.get("max_tokens"), require_json=True)
 
 
 def _whatsapp_engine_status():
@@ -1396,6 +1434,13 @@ def _whatsapp_engine_status():
         "fallback_ready": declared and bool((os.environ.get("ANTHROPIC_API_KEY") or "").strip()),
         # a quién se avisa si el local se cae y empieza a gastar
         "alerts_to": bool((os.environ.get("OWNER_WHATSAPP_TO") or "").strip()),
+        # la nube delante del local: "active" sale de la misma función que la arma
+        "cloud": {
+            "provider": (WHATSAPP_ENGINE.get("cloud") or {}).get("provider"),
+            "model": (WHATSAPP_ENGINE.get("cloud") or {}).get("model"),
+            "enabled": bool((WHATSAPP_ENGINE.get("cloud") or {}).get("enabled")),
+            "active": _whatsapp_cloud_backend() is not None,
+        },
     }
 
 

@@ -338,5 +338,157 @@ class ContarTruncados(unittest.TestCase):
         self.assertEqual(arnes.contar_truncados(log), 2)
 
 
+
+
+class MotorNubeTest(unittest.TestCase):
+    """--motor nube: mide la nube con las mismas barreras y sin contar el límite
+    por minuto como falla del modelo."""
+
+    def _modulo(self):
+        import importlib.util
+        from pathlib import Path
+        ruta = Path(__file__).resolve().parent.parent / "scripts" / "evaluar_linea_base.py"
+        spec = importlib.util.spec_from_file_location("evaluar_linea_base_nube", ruta)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_nube_sin_key_no_corre(self):
+        import os
+        from unittest import mock
+        mod = self._modulo()
+        with mock.patch.dict(os.environ, {"GROQ_API_KEY": ""}, clear=False):
+            with self.assertRaises(SystemExit):
+                mod.motor_a_medir("nube")
+
+    def test_nube_usa_la_politica_aunque_este_apagada(self):
+        import os
+        from unittest import mock
+        from zero.config import WHATSAPP_ENGINE
+        mod = self._modulo()
+        with mock.patch.dict(os.environ, {"GROQ_API_KEY": "gsk_falsa"}, clear=False):
+            modelo, url, key, timeout = mod.motor_a_medir("nube")
+        self.assertEqual(modelo, WHATSAPP_ENGINE["cloud"]["model"])
+        self.assertEqual(url, WHATSAPP_ENGINE["cloud"]["base_url"])
+        self.assertEqual(key, "gsk_falsa")
+
+    def test_429_espera_y_reintenta(self):
+        import io
+        import json
+        import urllib.error
+        from unittest import mock
+        mod = self._modulo()
+
+        class _Interno:
+            base_url, api_key, timeout = "https://nube.test/v1", "k", 5
+
+            def _build_payload(self, s, u, m):
+                return {"model": "m", "messages": []}
+
+        respuestas = [
+            urllib.error.HTTPError("u", 429, "lento", {"retry-after": "3"}, io.BytesIO(b"")),
+            io.BytesIO(json.dumps({"choices": [{"message": {"content": "ok"}}],
+                                   "usage": {"prompt_tokens": 10}}).encode()),
+        ]
+
+        class _Resp:
+            def __init__(self, b): self.b = b
+            def read(self): return self.b.read()
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        def _urlopen(req, timeout=None):
+            r = respuestas.pop(0)
+            if isinstance(r, Exception):
+                raise r
+            self.assertEqual(req.get_header("User-agent"), mod.USER_AGENT)
+            return _Resp(r)
+
+        esperas = []
+        medido = mod.BackendMedido(_Interno(), dormir=esperas.append)
+        with mock.patch("urllib.request.urlopen", _urlopen):
+            self.assertEqual(medido.complete("s", "u", "m"), "ok")
+        self.assertEqual(medido.reintentos_429, 1)
+        self.assertEqual(esperas, [4.0])
+
+    def test_otro_error_http_no_se_reintenta(self):
+        import io
+        import urllib.error
+        from unittest import mock
+        mod = self._modulo()
+
+        class _Interno:
+            base_url, api_key, timeout = "https://nube.test/v1", "k", 5
+
+            def _build_payload(self, s, u, m):
+                return {"model": "m"}
+
+        def _urlopen(req, timeout=None):
+            raise urllib.error.HTTPError("u", 403, "no", {}, io.BytesIO(b""))
+
+        medido = mod.BackendMedido(_Interno(), dormir=lambda s: self.fail("no debía esperar"))
+        with mock.patch("urllib.request.urlopen", _urlopen):
+            with self.assertRaises(urllib.error.HTTPError):
+                medido.complete("s", "u", "m")
+
+
+    def test_retry_after_largo_corta_en_vez_de_esperar(self):
+        import io
+        import urllib.error
+        from unittest import mock
+        mod = self._modulo()
+
+        class _Interno:
+            base_url, api_key, timeout = "https://nube.test/v1", "k", 5
+
+            def _build_payload(self, s, u, m):
+                return {"model": "m"}
+
+        def _urlopen(req, timeout=None):
+            raise urllib.error.HTTPError("u", 429, "diario", {"retry-after": "3600"},
+                                         io.BytesIO(b""))
+
+        medido = mod.BackendMedido(_Interno(), dormir=lambda s: self.fail("no debía esperar"))
+        with mock.patch("urllib.request.urlopen", _urlopen):
+            with self.assertRaisesRegex(RuntimeError, "retry-after 3600"):
+                medido.complete("s", "u", "m")
+
+    def test_socket_acepta_ip_rotada_del_mismo_host(self):
+        from unittest import mock
+        mod = self._modulo()
+        ips = [[(2, 1, 6, "", ("1.1.1.1", 443))], [(2, 1, 6, "", ("2.2.2.2", 443))]]
+        with mock.patch("socket.getaddrinfo", side_effect=lambda *a, **k: ips.pop(0)):
+            barrera = mod.SocketSoloMotor("https://api.groq.com/openai/v1")
+            self.assertTrue(barrera.permite(("1.1.1.1", 443)))
+            self.assertTrue(barrera.permite(("2.2.2.2", 443)))   # rotó: se vuelve a resolver
+        with mock.patch("socket.getaddrinfo", return_value=[(2, 1, 6, "", ("2.2.2.2", 443))]):
+            self.assertFalse(barrera.permite(("9.9.9.9", 443)))  # otra IP: fuera
+            self.assertFalse(barrera.permite(("2.2.2.2", 25)))   # otro puerto: fuera
+
+class UserAgentTest(unittest.TestCase):
+    """Groq responde 403 al user-agent por defecto de urllib: el backend manda el suyo."""
+
+    def test_local_backend_envia_user_agent_propio(self):
+        import json
+        from unittest import mock
+        from zero.backends import LocalBackend, USER_AGENT
+        vistos = []
+
+        class _Resp:
+            def read(self):
+                return json.dumps({"choices": [{"message": {"content": "{}"}}]}).encode()
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        def _urlopen(req, timeout=None):
+            vistos.append(req.get_header("User-agent"))
+            return _Resp()
+
+        with mock.patch("urllib.request.urlopen", _urlopen):
+            LocalBackend(model="m", base_url="https://nube.test/v1", api_key="k").complete("s", "u", "m")
+        self.assertEqual(vistos, [USER_AGENT])
+        self.assertNotIn("Python-urllib", USER_AGENT)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -462,7 +462,11 @@ def _nombre_motor(agent: Any) -> str:
         backend = getattr(agent, "backend", None)
         if backend is None:
             return ""
-        # FallbackBackend delega en su primario; el nombre del que de verdad respondió.
+        # FallbackBackend anota qué modelo contestó la última llamada (puede ser el
+        # suplente si el primario falló); antes de la primera llamada, el primario.
+        last = getattr(backend, "last_engine", None)
+        if last:
+            return str(last)
         primary = getattr(backend, "primary", None) or backend
         return str(getattr(primary, "model", "") or type(primary).__name__)
     except Exception:   # noqa: BLE001

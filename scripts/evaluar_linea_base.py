@@ -58,6 +58,8 @@ sys.path.insert(0, str(REPO))
 
 import importlib.util  # noqa: E402
 
+from zero.backends import USER_AGENT  # noqa: E402
+
 _spec = importlib.util.spec_from_file_location(
     "rubrica_evaluacion", REPO / "scripts" / "rubrica_evaluacion.py")
 rubrica = importlib.util.module_from_spec(_spec)
@@ -74,21 +76,50 @@ class BackendMedido:
     idéntico al de producción.
     """
 
-    def __init__(self, interno):
+    # Ante un 429 (límite por minuto de la nube gratis) se espera y se reintenta:
+    # la medición es de calidad del modelo, no del límite de la cuenta. En
+    # producción ese 429 lo contesta el local; acá contaría como falla del modelo.
+    MAX_REINTENTOS_429 = 6
+
+    def __init__(self, interno, dormir=time.sleep):
         self.interno = interno
         self.ultima: Dict[str, Any] = {}
+        self.dormir = dormir
+        self.reintentos_429 = 0
+
+    def _pedir(self, cuerpo: bytes) -> Dict[str, Any]:
+        for intento in range(self.MAX_REINTENTOS_429 + 1):
+            peticion = urllib.request.Request(
+                f"{self.interno.base_url}/chat/completions", data=cuerpo,
+                headers={"Content-Type": "application/json",
+                         "Authorization": f"Bearer {self.interno.api_key}",
+                         # El mismo que producción (ver zero.backends.USER_AGENT).
+                         "User-Agent": USER_AGENT},
+                method="POST")
+            try:
+                with urllib.request.urlopen(peticion, timeout=self.interno.timeout) as resp:
+                    return json.loads(resp.read().decode("utf-8"))
+            except urllib.error.HTTPError as exc:
+                if exc.code != 429 or intento == self.MAX_REINTENTOS_429:
+                    raise
+                self.reintentos_429 += 1
+                try:
+                    espera = float(exc.headers.get("retry-after") or 20)
+                except (TypeError, ValueError):
+                    espera = 20.0
+                if espera > 65.0:
+                    # Más de un minuto ya no es el límite por minuto (p. ej. el
+                    # diario): esperar no sirve, mejor cortar con el motivo.
+                    raise RuntimeError(
+                        f"límite del motor: retry-after {espera:.0f}s") from exc
+                self.dormir(max(espera, 1.0) + 1.0)
+        raise RuntimeError("se agotaron los reintentos por 429")
 
     def complete(self, system: str, user: str, model: str, max_tokens: int = 4096) -> str:
         payload = self.interno._build_payload(system, user, max_tokens)
         cuerpo = json.dumps(payload).encode("utf-8")
-        peticion = urllib.request.Request(
-            f"{self.interno.base_url}/chat/completions", data=cuerpo,
-            headers={"Content-Type": "application/json",
-                     "Authorization": f"Bearer {self.interno.api_key}"},
-            method="POST")
         inicio = time.monotonic()
-        with urllib.request.urlopen(peticion, timeout=self.interno.timeout) as resp:
-            datos = json.loads(resp.read().decode("utf-8"))
+        datos = self._pedir(cuerpo)
         uso = datos.get("usage") or {}
         self.ultima = {
             "prompt_tokens": uso.get("prompt_tokens"),
@@ -148,6 +179,7 @@ class SocketSoloMotor:
 
     def __init__(self, url_motor: str, original=None):
         partes = urllib.parse.urlsplit(url_motor)
+        self.hostname = partes.hostname
         self.puerto = partes.port or (443 if partes.scheme == "https" else 80)
         self.hosts = set()
         if partes.hostname:
@@ -163,7 +195,21 @@ class SocketSoloMotor:
     def permite(self, direccion) -> bool:
         if not isinstance(direccion, tuple) or len(direccion) < 2:
             return False                    # sockets unix u otros: fuera
-        return direccion[1] == self.puerto and direccion[0] in self.hosts
+        if direccion[1] != self.puerto:
+            return False
+        if direccion[0] in self.hosts:
+            return True
+        # Un host detrás de una CDN (Groq/Cloudflare) rota IPs: urlopen pudo
+        # resolver una que el constructor no vio. Se vuelve a preguntar al DNS por
+        # el mismo host, nada más.
+        if self.hostname:
+            try:
+                nuevas = {i[4][0] for i in socket.getaddrinfo(self.hostname, self.puerto)}
+            except OSError:
+                return False
+            self.hosts |= nuevas
+            return direccion[0] in nuevas
+        return False
 
     def connect(self, sock, direccion):
         if self.permite(direccion):
@@ -324,8 +370,28 @@ def contar_truncados(log: str) -> int:
     return len(re.findall(r"truncating input prompt|truncated = [1-9]", log))
 
 
+
+
+def motor_a_medir(motor: str):
+    """`(modelo, url, api_key, timeout)` del motor pedido, con las mismas reglas que
+    producción. `nube` sale de `config.WHATSAPP_ENGINE["cloud"]` aunque esté apagado:
+    medirlo es justo el paso previo a encenderlo."""
+    from zero.config import WHATSAPP_ENGINE
+
+    if motor == "nube":
+        cfg = WHATSAPP_ENGINE["cloud"]
+        key = (os.environ.get(cfg["key_env"]) or "").strip()
+        if not key:
+            raise SystemExit(f"falta {cfg['key_env']} en el entorno o en el .env de la raíz")
+        return cfg["model"], cfg["base_url"], key, float(cfg.get("timeout_s") or 30.0)
+    modelo = ((os.environ.get("WHATSAPP_MODEL") or "").strip() or
+              (os.environ.get("LOCAL_MODEL") or "").strip() or WHATSAPP_ENGINE["model"])
+    url = (os.environ.get("LOCAL_MODEL_URL") or "").strip() or WHATSAPP_ENGINE["base_url"]
+    return modelo, url, "local", 600.0
+
+
 def construir_motor(tmp: Path, client_id: str, ficha: str, precios: Dict[str, Any],
-                    perfil: Dict[str, Any]):
+                    perfil: Dict[str, Any], motor: str = "local"):
     """Un ZERO aislado con el mismo cerebro que atiende WhatsApp en producción."""
     from zero.agents import build_agents
     from zero.backends import LocalBackend
@@ -334,12 +400,14 @@ def construir_motor(tmp: Path, client_id: str, ficha: str, precios: Dict[str, An
     from zero.memory import SessionMemory
     from zero.orchestrator import Zero
 
-    modelo = ((os.environ.get("WHATSAPP_MODEL") or "").strip() or
-              (os.environ.get("LOCAL_MODEL") or "").strip() or WHATSAPP_ENGINE["model"])
-    url = (os.environ.get("LOCAL_MODEL_URL") or "").strip() or WHATSAPP_ENGINE["base_url"]
+    modelo, url, key, timeout = motor_a_medir(motor)
     # Antes de construir nada: que ninguna escritura alcance rutas de producción.
+    # Con la nube, el único host permitido es el de la nube.
     salidas, _ = aislar(tmp, url, perfil.get("whatsapp_number") or "")
-    medido = BackendMedido(LocalBackend(model=modelo, base_url=url))
+    # La nube mide con el mismo tope de tokens que usaría producción.
+    tope = WHATSAPP_ENGINE.get("cloud", {}).get("max_tokens") if motor == "nube" else None
+    medido = BackendMedido(LocalBackend(model=modelo, base_url=url, api_key=key,
+                                        timeout=timeout, max_tokens_cap=tope))
 
     memoria = SessionMemory(str(tmp / "state.json"))
     memoria.set_client_knowledge(client_id, ficha)
@@ -530,6 +598,8 @@ def main(argv: List[str] | None = None) -> int:
     parser.add_argument("--limite", type=int, default=0, help="cuántos casos correr (0 = todos)")
     parser.add_argument("--expectativas", default="",
                         help="JSON con lo que debía entender cada caso, por id")
+    parser.add_argument("--motor", choices=("local", "nube"), default="local",
+                        help="local = Ollama (producción hoy); nube = config.WHATSAPP_ENGINE['cloud']")
     parser.add_argument("--raiz-ficha", default="/home/diego/zeroai",
                         help="checkout desde el que leer ficha y precios, en solo lectura")
     args = parser.parse_args(argv)
@@ -557,11 +627,17 @@ def main(argv: List[str] | None = None) -> int:
     marca = time.strftime("%Y-%m-%d %H:%M:%S")
     with tempfile.TemporaryDirectory(prefix="linea-base-") as tmp:
         zero, memoria, medido, modelo, salidas = construir_motor(
-            Path(tmp), args.cliente, ficha, precios, perfil)
+            Path(tmp), args.cliente, ficha, precios, perfil, motor=args.motor)
         print(f"modelo: {modelo} · casos: {len(casos)} · ficha: {len(ficha)} caracteres")
         filas = correr(casos, zero, memoria, medido, args.numero, salidas)
 
-    resumen = resumir(filas, contexto_cargado(modelo), truncados_en_log(marca))
+    if args.motor == "nube":
+        # El contexto de Ollama y su journal no dicen nada de un motor en la nube.
+        resumen = resumir(filas, None, 0)
+        resumen["motor"] = {"tipo": "nube", "modelo": modelo,
+                            "reintentos_429": medido.reintentos_429}
+    else:
+        resumen = resumir(filas, contexto_cargado(modelo), truncados_en_log(marca))
     Path(args.salida).parent.mkdir(parents=True, exist_ok=True)
     with open(args.salida, "w", encoding="utf-8") as destino:
         for fila in filas:
