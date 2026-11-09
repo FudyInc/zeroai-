@@ -1649,6 +1649,9 @@ def whatsapp_web_messages(chat_id: str, limit: int = Query(50, ge=1, le=100),
     return result
 
 
+_WHATSAPP_CHAT_ID_RE = re.compile(r"[\w.+-]+@(?:c\.us|g\.us|lid)", re.ASCII)
+
+
 class WhatsAppHandoffBody(BaseModel):
     active: bool
 
@@ -1656,10 +1659,15 @@ class WhatsAppHandoffBody(BaseModel):
 @app.post("/api/whatsapp/web/chats/{chat_id}/handoff")
 def whatsapp_web_handoff(chat_id: str, body: WhatsAppHandoffBody,
                          client: str = Query(...)):
-    chats = _whatsapp_web_inbox_request("/chats", client=client).get("chats") or []
-    if not any(chat.get("id") == chat_id for chat in chats):
-        raise HTTPException(status_code=404, detail="chat no encontrado en este número")
+    # The emergency stop must work even when the bridge is down or the chat is
+    # older than its 200-chat list: it only writes this business's own pause
+    # record, which the agent reads before every reply. No bridge round trip.
+    if not _WHATSAPP_CHAT_ID_RE.fullmatch(chat_id):
+        raise HTTPException(status_code=400, detail="id de chat de WhatsApp inválido")
     memory = make_memory(STATE_PATH)
+    # A business may live only in the CRM; a false 404 here keeps the agent talking.
+    if client not in memory.clients and client not in _crm().client_ids():
+        raise HTTPException(status_code=404, detail="empresa no encontrada")
     if body.active:
         handoff = memory.set_whatsapp_handoff(client, chat_id, "El equipo tomó la conversación")
     else:
