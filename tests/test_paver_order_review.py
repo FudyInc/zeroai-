@@ -128,14 +128,20 @@ class PaverOrderReviewTest(unittest.TestCase):
 
     def test_other_messages_go_through_the_flow_and_open_a_pedido_gap(self):
         for text in ("cancela el pedido", "mejor con otro color",
-                     "¿cuánto cuesta el despacho a Maipú?", "Hola buenas noches"):
+                     "¿cuánto cuesta el despacho a Maipú?"):
             with self.subTest(text=text):
                 _, bodies = self.run_chat(self.ORDER + [text])
                 self.assertNotIn(REVIEW_SENTENCE, bodies[-1])
                 gaps = self.zero.memory.list_knowledge_gaps("losetaschile")
                 mine = [gap for gap in gaps if gap["pregunta"].startswith(
-                    "Pedido de pastelones en revisión") and text in gap["pregunta"]]
+                    "Pedido en revisión") and text in gap["pregunta"]]
                 self.assertEqual([gap["tipo"] for gap in mine], ["pedido"])
+
+    def test_greeting_mid_review_gives_the_status_not_the_product_menu(self):
+        # Live 2026-11-09: a «hola» restarted the catalog while the budget sat in review.
+        _, bodies = self.run_chat(self.ORDER + ["Hola buenas noches"])
+        self.assertIn(REVIEW_SENTENCE, bodies[-1])
+        self.assertNotIn("¿Qué producto estás buscando?", bodies[-1])
 
     def test_the_state_expires_after_the_configured_hours(self):
         self.run_chat(self.ORDER)

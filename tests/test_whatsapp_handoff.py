@@ -285,26 +285,50 @@ class WhatsAppHandoffTest(unittest.TestCase):
     def test_inbox_handoff_control_is_scoped_to_selected_business(self):
         import api
         from fastapi import HTTPException
-
-        def bridge(path, body=None, client=None):
-            if path == "/chats":
-                return {"chats": [{"id": "56933333333@c.us"}] if client == "losetaschile" else []}
-            raise AssertionError("No debe enviar mensajes")
-
+        chat = "56933333333@c.us"
+        self.crm.upsert("solo-crm", {"phone": "56944444444", "source": "test"})
         with mock.patch.object(api, "make_memory", return_value=self.memory), \
-             mock.patch.object(api, "_whatsapp_web_inbox_request", side_effect=bridge):
-            result = api.whatsapp_web_handoff("56933333333@c.us",
-                                              api.WhatsAppHandoffBody(active=True),
+             mock.patch.object(api, "_crm", return_value=self.crm):
+            # A business known only to the CRM can still stop its agent.
+            api.whatsapp_web_handoff(chat, api.WhatsAppHandoffBody(active=True),
+                                     client="solo-crm")
+            self.assertIsNotNone(self.memory.get_whatsapp_handoff("solo-crm", chat))
+            result = api.whatsapp_web_handoff(chat, api.WhatsAppHandoffBody(active=True),
                                               client="losetaschile")
             self.assertIsNotNone(result["handoff"])
-            self.assertIsNone(self.memory.get_whatsapp_handoff("petlabs", "56933333333@c.us"))
-            with self.assertRaises(HTTPException) as rejected:
-                api.whatsapp_web_handoff("56933333333@c.us",
-                                         api.WhatsAppHandoffBody(active=True), client="petlabs")
-            self.assertEqual(rejected.exception.status_code, 404)
-            api.whatsapp_web_handoff("56933333333@c.us",
-                                     api.WhatsAppHandoffBody(active=False), client="losetaschile")
-            self.assertIsNone(self.memory.get_whatsapp_handoff("losetaschile", "56933333333@c.us"))
+            self.assertIsNone(self.memory.get_whatsapp_handoff("petlabs", chat))
+            # Releasing one business never touches the other's pause.
+            api.whatsapp_web_handoff(chat, api.WhatsAppHandoffBody(active=False),
+                                     client="petlabs")
+            self.assertIsNotNone(self.memory.get_whatsapp_handoff("losetaschile", chat))
+            for bad_chat, client, code in (("no-es-un-chat", "losetaschile", 400),
+                                           (chat + "\n", "losetaschile", 400),
+                                           (chat, "no-existe", 404)):
+                with self.assertRaises(HTTPException) as rejected:
+                    api.whatsapp_web_handoff(bad_chat, api.WhatsAppHandoffBody(active=True),
+                                             client=client)
+                self.assertEqual(rejected.exception.status_code, code)
+            api.whatsapp_web_handoff(chat, api.WhatsAppHandoffBody(active=False),
+                                     client="losetaschile")
+            self.assertIsNone(self.memory.get_whatsapp_handoff("losetaschile", chat))
+
+    def test_emergency_stop_works_with_the_bridge_down(self):
+        # The button must pause the agent even when the bridge is down, stuck in
+        # «connecting», or the chat is older than its 200-chat list.
+        import api
+        chat = "56933333333@c.us"
+        with mock.patch.object(api, "make_memory", return_value=self.memory), \
+             mock.patch.object(api, "_whatsapp_web_inbox_request",
+                               side_effect=AssertionError("no debe consultar el puente")):
+            api.whatsapp_web_handoff(chat, api.WhatsAppHandoffBody(active=True),
+                                     client="losetaschile")
+        self.assertIsNotNone(SessionMemory(self.path).get_whatsapp_handoff("losetaschile", chat))
+        # And the paused chat gets no automatic reply.
+        self.zero.memory = SessionMemory(self.path)
+        before = self.zero._deliver.call_count
+        result = self.inbound("hola, me pueden cotizar?")
+        self.assertTrue(result["manual_review"])
+        self.assertEqual(self.zero._deliver.call_count, before)
 
 
 if __name__ == "__main__":

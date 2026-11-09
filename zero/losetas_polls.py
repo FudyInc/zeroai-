@@ -56,6 +56,18 @@ def paver_review_sentence(order: dict[str, Any]) -> str:
         + PAVER_REVIEW_SUFFIX
 
 
+def border_review_sentence(color: str | None = None, delivery_detail: str | None = None) -> str:
+    """The same review sentence for a border budget, so the review state covers it too.
+
+    It used to say «pendiente de revisión por nuestro equipo», which nothing read:
+    a «1» right after it went to the model, which asked what «1» meant (live 2026-11-09)."""
+    tone = f" {str(color).casefold()}" if color else ""
+    detail = str(delivery_detail or "")
+    delivery = (" con retiro en fábrica" if detail.startswith("Retiro en fábrica")
+                else " con despacho" if detail else "")
+    return f"Tu presupuesto de bordes de piscina{tone}{delivery}" + PAVER_REVIEW_SUFFIX
+
+
 def paver_review_status(history: list[dict[str, Any]], now: datetime | None = None) -> str | None:
     """The sentence we gave for a paver order in review, while the state has not expired.
 
@@ -79,14 +91,28 @@ def paver_review_status(history: list[dict[str, Any]], now: datetime | None = No
     return None
 
 
-_REVIEW_THANKS = r"(?:muchas\s+)?gracias|ok|okey|okay|listo|dale|perfecto|vale|genial|bacan|excelente|super"
+_REVIEW_THANKS = (r"(?:muchas\s+)?gracias|ok|okey|okay|oka|listo|dale|perfecto|vale|genial|bacan|bkn"
+                  r"|excelente|super|fantastico|buenisimo|buena|ya\s+po|de\s+una")
 _REVIEW_STATUS_MESSAGE = re.compile(
     rf"(?:{_REVIEW_THANKS})(?:\s+(?:{_REVIEW_THANKS}))*|y|ya|entendido|de acuerdo"
     r"|cuando\s+(?:me\s+)?(?:llega|mandan|envian|enviaran|mandaran|estara)\s+(?:el\s+)?"
     r"(?:presupuesto|cotizacion)|como\s+(?:va|vamos)\s+(?:mi\s+)?(?:pedido|presupuesto)"
-    r"|como\s+me\s+llamo")
+    r"|como\s+me\s+llamo"
+    # While the budget is with the team, a stray digit, «alo?», «no entendí» or
+    # «estábamos en un presupuesto» is the customer asking where things are (live 2026-11-09).
+    r"|\d{1,2}|no|si|alo+|hola+\s+alo+|sigues?\s+ahi|hay\s+alguien(?:\s+ahi)?"
+    r"|no\s+entend\w*(?:\s+nada)?|que\s+paso|y\s+(?:el|mi)\s+(?:presupuesto|cotizacion|pedido)"
+    r"|(?:est[a-z]+\s+)?(?:en|con)\s+(?:un|el|mi)\s+(?:presupuesto|cotizacion|pedido)")
 _ACK_EMOJI = set("\U0001F44D\U0001F44C\U0001F64F\u2705\U0001F91D\U0001F3FB\U0001F3FC"
                  "\U0001F3FD\U0001F3FE\U0001F3FF \ufe0f")
+
+
+def review_thanks(message: str) -> bool:
+    """Only thanks or an acknowledgement: «ok gracias», «bkn», «fantástico», 👍."""
+    value = " ".join((message or "").split())
+    return bool(value) and (bool(re.fullmatch(rf"(?:{_REVIEW_THANKS})(?:\s+(?:{_REVIEW_THANKS}))*",
+                                              plain(value)))
+                            or all(char in _ACK_EMOJI for char in value))
 
 
 def paver_review_reply(message: str, history: list[dict[str, Any]],
@@ -95,8 +121,10 @@ def paver_review_reply(message: str, history: list[dict[str, Any]],
     or repeats a message the order already answered; None for anything else."""
     status = paver_review_status(history)
     value = " ".join((message or "").split())
-    if not status or not value or is_greeting:  # a greeting always takes the normal path
+    if not status or not value:
         return None
+    if is_greeting:  # «hola» mid-review: the status, not the product menu again
+        return status
     repeat = any(turn.get("role") == "lead" and
                  " ".join(str(turn.get("text") or "").split()).casefold() == value.casefold()
                  for turn in history)
@@ -318,6 +346,36 @@ def reasks_open_choice(result: dict[str, Any], message: str,
     # The stored turn also carries the numbered options the sender appended.
     reply = " ".join(str(result.get("reply") or "").split())
     return key if reply and " ".join(last.split()).startswith(reply) else None
+
+
+# «me gustó el bullnose» to the border list: the model answered «Perfecto, el
+# bullnose queda muy bien» and moved on (ensayo 2026-11-09). A named preference
+# that is not an option is a slip, said plainly.
+_NAMED_PREFERENCE = re.compile(
+    r"(?:me\s+gusto|me\s+gustaria|me\s+interesa|prefiero|quiero|me\s+quedo\s+con|elijo)"
+    r"\s+(?:mas\s+)?(?:el|la|los|las|un|una)\s+([a-z]+(?:\s+[a-z]+)?)")
+_NOT_A_NAME = {"mas", "otro", "otra", "mismo", "misma", "primero", "segundo", "barato",
+               "barata", "economico", "caro", "mejor", "que", "de", "modelo", "borde",
+               "bordes", "catalogo", "presupuesto", "cotizacion", "precio",
+               # Attributes and pieces, not models: «quiero el pulido», «la esquina».
+               "redondeado", "redondo", "pulido", "liso", "rugoso", "antideslizante",
+               "esquina", "esquinas", "grande", "chico", "ancho", "angosto", "blanco",
+               "gris", "negro", "azul", "celeste", "verde", "cafe", "rosado", "terracota",
+               "natural", "claro", "oscuro", "color", "tono"}
+
+
+def unknown_option_named(message: str, key: str) -> str | None:
+    """The name a customer prefers when it is none of the open menu's options."""
+    found = _NAMED_PREFERENCE.fullmatch(_plain(message))
+    if not found:
+        return None
+    name = found.group(1)
+    if set(name.split()) & _NOT_A_NAME:
+        return None
+    if any(set(name.split()) & set(_plain(option).split())
+           for option in CHOICE_PROMPTS[key][1]):
+        return None
+    return name
 
 
 CHOICE_SLIP_MARK = "no está entre las opciones"

@@ -127,6 +127,8 @@ LOSETASCHILE_PAVER_PRICE_PENDING: frozenset = frozenset()
 # Cuánto dura el estado «pedido de pastelones en revisión» desde el turno que lo informó:
 # pasado ese plazo el chat vuelve al flujo normal.
 LOSETASCHILE_PAVER_REVIEW_STATE_HOURS = 72
+# A model reply that greets («Buenas noches Juan.») is trimmed if the agent wrote within this window.
+LOSETASCHILE_CHAT_OPEN_HOURS = 12
 # Abono que se pide para confirmar un pedido de LosetasChile (el resto va contra
 # entrega). Lo usa el presupuesto final que se publica en el grupo de revisión.
 LOSETASCHILE_DEPOSIT_CLP = 10000
