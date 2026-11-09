@@ -33,7 +33,7 @@ load_env()   # secrets locales (.env) — los de Render env ya están en os.envi
 from zero.cloud_env import backed_up_keys, load_into_environ, save_secret
 load_into_environ()   # + secretos guardados en la nube (sobreviven a redeploys)
 from zero.agents import build_agents
-from zero.config import (AGENCY_CLIENT_ID, AVG_DEAL_VALUE_CLP, CRM_OPEN_STAGES, CRM_STAGES,
+from zero.config import (AGENCY_CLIENT_ID, AVG_DEAL_VALUE_CLP, CLIENT_DISPLAY_NAMES, CRM_OPEN_STAGES, CRM_STAGES,
                          MAX_CORRIDAS_RECORDADAS,
                          DEFAULT_INBOUND_CLIENT_ID, DEFAULT_INBOUND_WHATSAPP_NUMBER,
                          DEFAULT_VENDOR_ID, LEAD_ADS_MAX_FORMS, MAX_INBOUND_MESSAGE_CHARS,
@@ -484,7 +484,10 @@ def clients(request: Request):
     scope = _client_scope(request)
     if scope is not None:
         ids = [c for c in ids if c in scope]
-    return {"clients": ids}
+    # `labels` solo trae los clientes que el usuario ya puede ver; el dashboard
+    # muestra el id tal cual cuando un cliente no tiene nombre propio.
+    labels = {c: CLIENT_DISPLAY_NAMES[c] for c in ids if c in CLIENT_DISPLAY_NAMES}
+    return {"clients": ids, "labels": labels}
 
 
 _PLANS = {k: {"segment": v["segment"], "price_clp": v.get("price_clp"),

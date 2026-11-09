@@ -1025,6 +1025,23 @@ class ProgrammedFunctionsHttpTest(unittest.TestCase):
         acc = next(a for a in accounts_body["accounts"] if a["client"] == client_id)
         self.assertEqual(acc["tier"], "GROWTH")
 
+    def test_clients_carry_display_labels_without_renaming_ids(self):
+        """El dashboard muestra `losetaschile` como "Pooledge" (pedido de Diego,
+        2026-11-09). El nombre es solo un rótulo: el id sigue en `clients` tal
+        cual, y un cliente sin nombre propio no aparece en `labels`."""
+        admin = self._jwt(role="admin")
+        for client_id in ("losetaschile", "clientesinrotulo"):
+            status, _ = self._send(f"/api/accounts/{client_id}/plan", {"tier": "GROWTH"}, token=admin)
+            self.assertEqual(status, 200)
+
+        _, body = self._get("/api/clients", token=admin)
+        self.assertIn("losetaschile", body["clients"])
+        self.assertIn("clientesinrotulo", body["clients"])
+        self.assertEqual(body["labels"]["losetaschile"], "Pooledge")
+        self.assertNotIn("clientesinrotulo", body["labels"])
+        self.assertTrue(set(body["labels"]) <= set(body["clients"]),
+                        "labels no puede nombrar clientes fuera del alcance del usuario")
+
 
 @unittest.skipUnless(_UVICORN_AVAILABLE, "uvicorn no instalado — este test es opcional, no núcleo")
 class _WaitlistApiBase(unittest.TestCase):
@@ -1657,14 +1674,14 @@ class OperadorAislamientoHttpTest(unittest.TestCase):
 
     def test_clients_y_auth_status_solo_muestran_su_alcance(self):
         status, body = self._call("GET", "/api/clients")
-        self.assertEqual((status, body), (200, {"clients": [self.PROPIO]}))
+        self.assertEqual((status, body), (200, {"clients": [self.PROPIO], "labels": {}}))
         status, body = self._call("GET", "/api/auth/status")
         self.assertEqual(body["clients"], [self.PROPIO])
         self.assertEqual(body["role"], "operador")
 
     def test_clients_ajeno_o_inexistente_no_aparecen_ni_con_alcance_a_inexistente(self):
         tok = self._tok(clients=[self.PROPIO, "fantasma"])
-        self.assertEqual(self._call("GET", "/api/clients", tok)[1], {"clients": [self.PROPIO]})
+        self.assertEqual(self._call("GET", "/api/clients", tok)[1], {"clients": [self.PROPIO], "labels": {}})
 
     def test_rutas_fuera_de_su_lista_dan_403(self):
         q = self._q(self.PROPIO)
