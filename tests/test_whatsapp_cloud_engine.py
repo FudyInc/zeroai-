@@ -61,15 +61,18 @@ def _http(code):
     return urllib.error.HTTPError("http://x", code, "x", {}, io.BytesIO(b""))
 
 
-def _engine(enabled: bool):
+def _engine(enabled: bool, primary: str = "local"):
+    """Las clases de abajo fijan el modo «local adelante» (2026-11-08, mañana);
+    `CloudPrimaryTest` fija el modo vigente, «nube adelante»."""
     eng = copy.deepcopy(config.WHATSAPP_ENGINE)
     eng["cloud"]["enabled"] = enabled
+    eng["primary"] = primary
     return eng
 
 
-def _agents(enabled: bool, key: str):
+def _agents(enabled: bool, key: str, primary: str = "local"):
     import api
-    with mock.patch.object(config, "WHATSAPP_ENGINE", _engine(enabled)), \
+    with mock.patch.object(config, "WHATSAPP_ENGINE", _engine(enabled, primary)), \
          mock.patch.dict(os.environ, {"GROQ_API_KEY": key}, clear=False):
         return api._agents_whatsapp()
 
@@ -84,6 +87,9 @@ class CloudPolicyTest(unittest.TestCase):
         self.assertEqual(cloud["key_env"], "GROQ_API_KEY")
         # La nube no abre la puerta al gasto: el respaldo pago sigue apagado.
         self.assertFalse(config.WHATSAPP_ENGINE["fallback_to_paid"])
+        # El PC se cayó por el modelo local: la nube contesta y el local no entra.
+        self.assertEqual(config.WHATSAPP_ENGINE["primary"], "cloud")
+        self.assertFalse(config.WHATSAPP_ENGINE["local_backup"])
 
 
 class CloudWiringTest(unittest.TestCase):
@@ -254,6 +260,90 @@ class EngineTelemetryTest(unittest.TestCase):
         b = FallbackBackend(cloud, secondary=_Echo())
         b.complete("s", "u", "m")
         self.assertEqual(_nombre_motor(self._agent(b)), "openai/gpt-oss-120b")
+
+
+class CloudPrimaryTest(unittest.TestCase):
+    """Modo vigente: contesta la nube; respaldo otro modelo de la nube; el local
+    nunca recibe una llamada (cargarlo es lo que tumbaba el PC)."""
+
+    def _backend(self, key="gsk_falsa", local_backup=False):
+        import api
+        eng = _engine(True, "cloud")
+        eng["local_backup"] = local_backup
+        with mock.patch.object(config, "WHATSAPP_ENGINE", eng), \
+             mock.patch.dict(os.environ, {"GROQ_API_KEY": key}, clear=False):
+            return api._agents_whatsapp()
+
+    def test_cloud_answers_with_cloud_backup_and_no_local(self):
+        agents, mode = self._backend()
+        self.assertEqual(mode, "cloud")
+        b = agents["CONCIERGE"].backend
+        cfg = config.WHATSAPP_ENGINE["cloud"]
+        self.assertEqual(b.primary.model, cfg["model"])
+        self.assertEqual(b.secondary.model, cfg["backup_model"])
+        self.assertNotIn("localhost", b.secondary.base_url)
+
+    def test_local_is_never_called(self):
+        agents, _ = self._backend()
+        b = agents["CONCIERGE"].backend
+        hosts = []
+
+        def _urlopen(req, timeout=None):
+            hosts.append(req.full_url)
+            raise _http(500)
+        with mock.patch("urllib.request.urlopen", side_effect=_urlopen), \
+             mock.patch("zero.alerts.notify_owner"):
+            with self.assertRaises(Exception):
+                b.complete("s", "u", "m")
+        self.assertEqual(len(hosts), 2)                  # principal y respaldo
+        self.assertFalse(any("localhost" in h or "127.0.0.1" in h for h in hosts))
+
+    def test_backup_answers_and_owner_is_warned(self):
+        agents, _ = self._backend()
+        b = agents["CONCIERGE"].backend
+        calls, sent = [], []
+
+        def _urlopen(req, timeout=None):
+            model = json.loads(req.data)["model"]
+            calls.append(model)
+            if model == config.WHATSAPP_ENGINE["cloud"]["model"]:
+                raise _http(429)
+            return _ok('{"reply": "respaldo"}')
+        with mock.patch("urllib.request.urlopen", side_effect=_urlopen), \
+             mock.patch("zero.alerts.notify_owner",
+                        side_effect=lambda text, **kw: sent.append(kw.get("kind"))):
+            self.assertEqual(b.complete("s", "u", "m"), '{"reply": "respaldo"}')
+        self.assertEqual(sent, ["whatsapp_engine_fallback"])
+
+    def test_local_backup_flag_puts_local_last(self):
+        agents, _ = self._backend(local_backup=True)
+        b = agents["CONCIERGE"].backend
+        self.assertIn("localhost", b.secondary.secondary.base_url)
+
+    def test_without_any_backup_the_owner_is_still_warned(self):
+        import api
+        eng = _engine(True, "cloud")
+        eng["cloud"]["backup_model"] = ""
+        with mock.patch.object(config, "WHATSAPP_ENGINE", eng), \
+             mock.patch.dict(os.environ, {"GROQ_API_KEY": "gsk_falsa"}, clear=False):
+            agents, _ = api._agents_whatsapp()
+        b = agents["CONCIERGE"].backend
+        sent = []
+        with mock.patch("urllib.request.urlopen", side_effect=_http(429)), \
+             mock.patch("zero.alerts.notify_owner",
+                        side_effect=lambda text, **kw: sent.append(kw.get("kind"))):
+            with self.assertRaises(Exception):
+                b.complete("s", "u", "m")
+        self.assertEqual(sent, ["whatsapp_engine_fallback"])
+
+    def test_local_backup_uses_the_short_timeout(self):
+        agents, _ = self._backend(local_backup=True)
+        local = agents["CONCIERGE"].backend.secondary.secondary
+        self.assertEqual(local.timeout, config.WHATSAPP_ENGINE["local_timeout_with_backup_s"])
+
+    def test_without_key_falls_back_to_the_local_mode(self):
+        agents, mode = self._backend(key="")
+        self.assertEqual(mode, "local")
 
 
 if __name__ == "__main__":

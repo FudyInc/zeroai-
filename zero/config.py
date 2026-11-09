@@ -317,11 +317,21 @@ WHATSAPP_ENGINE = {
     # qwen3:14b caliente contesta en 2-30 s; recargar tras un OOM toma 30-60 s.
     # Más que esto es un Ollama colgado, y el cliente no puede esperar 10 minutos.
     "local_timeout_with_backup_s": 120.0,
+    # 2026-11-08 (Diego): el PC se cayó dos veces por el modelo local (qwen3:14b,
+    # ~9 GB, en un WSL de 8 GB). WhatsApp pasa a la nube: contesta la nube y el
+    # local NO entra en la cadena, para que Ollama nunca cargue el modelo.
+    # "local" = el local contesta y la nube es respaldo (lo de antes).
+    "primary": "cloud",
+    "local_backup": False,
     "cloud": {
         "enabled": True,
         "provider": "groq",
         "base_url": "https://api.groq.com/openai/v1",
-        "model": "openai/gpt-oss-120b",
+        # Medido el 2026-11-08 con los 161 casos: qwen3.8-27b 82/113 y 0 fallas;
+        # gpt-oss-120b 81; Nemotron Ultra 80; Gemini 3.5 Flash 80.
+        "model": "qwen/qwen3.8-27b",
+        # Respaldo en el mismo proveedor y la misma key: Groq lleva el cupo por modelo.
+        "backup_model": "openai/gpt-oss-120b",
         "key_env": "GROQ_API_KEY",
         # Corto a propósito: si la nube tarda, mejor que conteste el local ya.
         "timeout_s": 30.0,

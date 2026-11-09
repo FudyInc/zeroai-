@@ -1329,7 +1329,12 @@ def _whatsapp_local_model() -> str:
 
 
 def _agents_whatsapp(source=None):
-    """El cerebro que contesta un WhatsApp entrante: modelo LOCAL, a propósito.
+    """El cerebro que contesta un WhatsApp entrante.
+
+    Desde el 2026-11-08 contesta la NUBE gratis (Groq) con otro modelo de la nube
+    de respaldo, y el local no entra en la cadena: cargar qwen3:14b tumbó el PC dos
+    veces. `WHATSAPP_ENGINE["primary"] = "local"` vuelve al esquema anterior (local
+    adelante, nube detrás), y es también lo que corre si falta la key de la nube.
 
     Este es el único frente del producto con motor local (ver
     `config.WHATSAPP_ENGINE`, donde vive la política y el porqué). El resto del
@@ -1384,6 +1389,34 @@ def _agents_whatsapp(source=None):
             kind="whatsapp_engine_fallback",
         )
 
+    if WHATSAPP_ENGINE.get("primary") == "cloud" and cloud is not None:
+        # La nube contesta; su respaldo es otro modelo de la nube, después la API
+        # paga (si la política lo permite) y el local solo si `local_backup`.
+        chain = [b for b in (_whatsapp_cloud_backend(backup=True), paid) if b is not None]
+        if WHATSAPP_ENGINE.get("local_backup"):
+            last = LocalBackend(model=model, base_url=url, require_json=False)
+            last.timeout = float(WHATSAPP_ENGINE.get("local_timeout_with_backup_s") or 120.0)
+            chain.append(last)
+        tail = None
+        for nxt in reversed(chain):
+            tail = nxt if tail is None else FallbackBackend(nxt, secondary=tail)
+        if tail is None:
+            # Sin ningún respaldo, igual hay que avisar al dueño: FallbackBackend
+            # solo avisa cuando cambia de cerebro, así que el «respaldo» relanza.
+            class _NoBackup:
+                def complete(self, *a, **kw):
+                    raise RuntimeError("WhatsApp sin respaldo de la nube configurado")
+            tail = _NoBackup()
+
+        def _warn_cloud(err: Exception) -> None:
+            from zero.alerts import notify_owner
+            notify_owner(f"ZERO: el modelo principal de WhatsApp en la nube no respondió "
+                         f"({err}). Contesta el respaldo.", kind="whatsapp_engine_fallback")
+        backend = FallbackBackend(cloud, secondary=tail, on_fallback=_warn_cloud)
+        agents = build_agents(backend=backend, mock=False, source=source)
+        agents["CONCIERGE"].prompt_file = "concierge-whatsapp-local.md"
+        return agents, "cloud"
+
     # Con respaldo, una respuesta local vacía o sin JSON también cuenta como falla.
     local = LocalBackend(model=model, base_url=url, require_json=secondary is not None)
     if secondary is not None:
@@ -1396,7 +1429,7 @@ def _agents_whatsapp(source=None):
     return agents, mode
 
 
-def _whatsapp_cloud_backend():
+def _whatsapp_cloud_backend(backup: bool = False):
     """El motor en la nube de WhatsApp, o None si la política no lo enciende o
     falta la key. Nunca levanta: sin nube, WhatsApp sigue con el local."""
     from zero.config import WHATSAPP_ENGINE
@@ -1408,7 +1441,10 @@ def _whatsapp_cloud_backend():
     key = (os.environ.get(cfg.get("key_env") or "") or "").strip()
     if not key:
         return None
-    return LocalBackend(model=cfg["model"], base_url=cfg["base_url"], api_key=key,
+    model = cfg.get("backup_model") if backup else cfg["model"]
+    if not model:
+        return None
+    return LocalBackend(model=model, base_url=cfg["base_url"], api_key=key,
                         timeout=float(cfg.get("timeout_s") or 30.0),
                         max_tokens_cap=cfg.get("max_tokens"), require_json=True)
 
@@ -1438,9 +1474,14 @@ def _whatsapp_engine_status():
         # a quién se avisa si el local se cae y empieza a gastar
         "alerts_to": bool((os.environ.get("OWNER_WHATSAPP_TO") or "").strip()),
         # la nube como respaldo del local: "active" sale de la misma función que la arma
+        # quién contesta de verdad: la nube solo si está pedida Y se puede armar
+        "primary": ("cloud" if WHATSAPP_ENGINE.get("primary") == "cloud"
+                    and _whatsapp_cloud_backend() is not None else "local"),
+        "local_backup": bool(WHATSAPP_ENGINE.get("local_backup")),
         "cloud": {
             "provider": (WHATSAPP_ENGINE.get("cloud") or {}).get("provider"),
             "model": (WHATSAPP_ENGINE.get("cloud") or {}).get("model"),
+            "backup_model": (WHATSAPP_ENGINE.get("cloud") or {}).get("backup_model"),
             "enabled": bool((WHATSAPP_ENGINE.get("cloud") or {}).get("enabled")),
             "active": _whatsapp_cloud_backend() is not None,
         },

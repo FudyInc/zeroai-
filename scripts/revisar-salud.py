@@ -77,6 +77,32 @@ def _modelo_a_probar() -> str:
             WHATSAPP_ENGINE["model"])
 
 
+def _nube_principal() -> bool:
+    """WhatsApp contesta con la nube y el local no entra en la cadena (2026-11-08).
+    Entonces probar Ollama sería justo lo que tumbaba el PC: cargar ~9 GB cada 30 min."""
+    from zero.config import WHATSAPP_ENGINE
+    nube = WHATSAPP_ENGINE.get("cloud") or {}
+    return (WHATSAPP_ENGINE.get("primary") == "cloud" and not WHATSAPP_ENGINE.get("local_backup")
+            and bool(nube.get("enabled"))
+            and bool((os.environ.get(nube.get("key_env") or "") or "").strip()))
+
+
+def _nube_responde() -> bool:
+    """GET /models: comprueba key y red sin gastar tokens ni cupo de requests de chat."""
+    from zero.config import WHATSAPP_ENGINE
+    from zero.backends import USER_AGENT
+    nube = WHATSAPP_ENGINE["cloud"]
+    try:
+        req = urllib.request.Request(
+            nube["base_url"].rstrip("/") + "/models",
+            headers={"Authorization": "Bearer " + os.environ[nube["key_env"]].strip(),
+                     "User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
 def _ollama_responde() -> bool:
     """No basta con que el puerto abra: el modelo tiene que contestar de verdad.
     Un Ollama arriba con el modelo descargado de VRAM deja al agente colgado."""
@@ -249,7 +275,8 @@ def _prueba_diaria() -> list:
 
 def revisar() -> list:
     fallas = []
-    for s in ("zero-backend", "zero-tunnel", "ollama"):
+    nube = _nube_principal()
+    for s in ("zero-backend", "zero-tunnel") + (() if nube else ("ollama",)):
         if not _servicio(s):
             fallas.append(f"el servicio {s} está caído")
     if not _servicio("zero-dashboard", usuario=True):
@@ -259,7 +286,10 @@ def revisar() -> list:
         fallas.append("el backend no responde en :8800")
     if TUNEL and not _http(TUNEL, (200, 401, 403, 405)):
         fallas.append("el túnel público no responde (WhatsApp entrante caído)")
-    if not _ollama_responde():
+    if nube:
+        if not _nube_responde():
+            fallas.append("la nube de WhatsApp (Groq) no responde: key o red")
+    elif not _ollama_responde():
         fallas.append("el motor local no contesta (WhatsApp caería a la API paga)")
     if os.environ.get("WHATSAPP_PROVIDER", "meta").lower() == "web":
         try:

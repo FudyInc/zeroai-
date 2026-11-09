@@ -146,9 +146,48 @@ class PruebaDiariaDelAgente(unittest.TestCase):
         with mock.patch.object(s, "_servicio", return_value=True), \
              mock.patch.object(s, "_http", return_value=True), \
              mock.patch.object(s, "_ollama_responde", return_value=True), \
+             mock.patch.object(s, "_nube_responde", return_value=True), \
              mock.patch.object(s, "_corrio_en_mock", return_value=[]), \
              mock.patch.object(s, "_prueba_diaria", return_value=["CENTINELA"]):
             self.assertIn("CENTINELA", s.revisar())
+
+
+class SaludConNubePrincipal(unittest.TestCase):
+    """Con WhatsApp en la nube, la salud no puede cargar el modelo local: eso
+    tumbaba el PC (2026-11-08). Tampoco exige que el servicio ollama esté arriba."""
+
+    def setUp(self):
+        self.salud = _cargar()
+
+    def _revisar(self, nube: bool, nube_ok: bool = True):
+        s = self.salud
+        servicios = []
+        with mock.patch.object(s, "_nube_principal", return_value=nube), \
+             mock.patch.object(s, "_servicio",
+                               side_effect=lambda n, **kw: servicios.append(n) or True), \
+             mock.patch.object(s, "_http", return_value=True), \
+             mock.patch.object(s, "_ollama_responde", return_value=True) as ollama, \
+             mock.patch.object(s, "_nube_responde", return_value=nube_ok), \
+             mock.patch.object(s, "_corrio_en_mock", return_value=[]), \
+             mock.patch.object(s, "_prueba_diaria", return_value=[]), \
+             mock.patch.dict(os.environ, {"WHATSAPP_PROVIDER": "meta"}, clear=False):
+            fallas = s.revisar()
+        return fallas, servicios, ollama
+
+    def test_en_nube_no_toca_ollama(self):
+        fallas, servicios, ollama = self._revisar(nube=True)
+        ollama.assert_not_called()
+        self.assertNotIn("ollama", servicios)
+        self.assertFalse(any("motor local" in f for f in fallas))
+
+    def test_en_nube_avisa_si_la_nube_no_responde(self):
+        fallas, _, _ = self._revisar(nube=True, nube_ok=False)
+        self.assertTrue(any("Groq" in f for f in fallas))
+
+    def test_en_local_sigue_probando_ollama(self):
+        _, servicios, ollama = self._revisar(nube=False)
+        ollama.assert_called_once()
+        self.assertIn("ollama", servicios)
 
 
 
