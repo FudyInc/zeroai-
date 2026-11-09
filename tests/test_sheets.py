@@ -144,8 +144,7 @@ class BuildRowsTest(unittest.TestCase):
 
 class AccessTokenTest(unittest.TestCase):
     def setUp(self):
-        sheets._TOKEN_CACHE["token"] = None
-        sheets._TOKEN_CACHE["expires_at"] = 0.0
+        sheets._TOKEN_CACHE.clear()
         self.private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         pem = self.private_key.private_bytes(
             encoding=serialization.Encoding.PEM,
@@ -159,8 +158,7 @@ class AccessTokenTest(unittest.TestCase):
         }
 
     def tearDown(self):
-        sheets._TOKEN_CACHE["token"] = None
-        sheets._TOKEN_CACHE["expires_at"] = 0.0
+        sheets._TOKEN_CACHE.clear()
 
     def _write_key(self, tmp_dir):
         path = str(Path(tmp_dir) / "key.json")
@@ -188,6 +186,44 @@ class AccessTokenTest(unittest.TestCase):
             self.assertEqual(tok1, "fake-token-123")
             self.assertEqual(tok2, "fake-token-123")
             self.assertEqual(m.call_count, 1)
+
+    def test_cache_is_isolated_between_key_files_for_same_scope(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path_a = self._write_key(tmp)
+            key_b = dict(self.key_dict, client_email="other-service@example.iam.gserviceaccount.com")
+            path_b = str(Path(tmp) / "other-key.json")
+            with open(path_b, "w", encoding="utf-8") as f:
+                _json.dump(key_b, f)
+            identities = []
+            def assertion(key, scope):
+                identities.append(key["client_email"])
+                return "assertion"
+            def response(_request, timeout=15):
+                return _mock_response({"access_token": "token-%d" % len(identities), "expires_in": 3600})
+            with mock.patch("zero.sheets._sign_jwt", side_effect=assertion), \
+                 mock.patch("zero.sheets.urllib.request.urlopen", side_effect=response):
+                token_a = sheets.get_access_token(path_a, scope=sheets._READONLY_SCOPE)
+                token_b = sheets.get_access_token(path_b, scope=sheets._READONLY_SCOPE)
+            self.assertNotEqual(token_a, token_b)
+            self.assertEqual(identities, [self.key_dict["client_email"], key_b["client_email"]])
+
+    def test_cache_is_isolated_between_scopes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write_key(tmp)
+            scopes = []
+            def assertion(_key, scope):
+                scopes.append(scope)
+                return "assertion"
+            def response(_request, timeout=15):
+                return _mock_response({"access_token": "token-%d" % len(scopes), "expires_in": 3600})
+            with mock.patch("zero.sheets._sign_jwt", side_effect=assertion), \
+                 mock.patch("zero.sheets.urllib.request.urlopen", side_effect=response):
+                broad = sheets.get_access_token(path)
+                readonly = sheets.get_access_token(path, scope=sheets._READONLY_SCOPE)
+                self.assertEqual(sheets.get_access_token(path), broad)
+                self.assertEqual(sheets.get_access_token(path, scope=sheets._READONLY_SCOPE), readonly)
+            self.assertNotEqual(broad, readonly)
+            self.assertEqual(scopes, [sheets._SCOPE, sheets._READONLY_SCOPE])
 
     def test_network_failure_returns_none_not_raise(self):
         with tempfile.TemporaryDirectory() as tmp:

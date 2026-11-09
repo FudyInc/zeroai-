@@ -23,6 +23,7 @@ import json
 import os
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -36,12 +37,11 @@ load_env()
 _TOKEN_URL = "https://oauth2.googleapis.com/token"
 _SHEETS_API = "https://sheets.googleapis.com/v4/spreadsheets"
 _SCOPE = "https://www.googleapis.com/auth/spreadsheets"
+_READONLY_SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly"
 
-# Token de acceso cacheado en memoria del proceso — dura ~1h, se pide de
-# nuevo con margen antes de vencer. `scripts/sync_sheets.py` corre como
-# proceso corto (systemd timer), así que en la práctica esto solo evita
-# pedir un token nuevo si se llama a sync_all() más de una vez por corrida.
-_TOKEN_CACHE: Dict[str, Any] = {"token": None, "expires_at": 0.0}
+# Token aislado por scope y por archivo de credenciales: evita reutilizar un
+# token de otra cuenta de servicio cuando el proceso consulta varias cuentas.
+_TOKEN_CACHE: Dict[Tuple[str, str], Dict[str, Any]] = {}
 
 # Paleta aproximada de marca (slate/champagne gold) para encabezados — un
 # Sheet no necesita calzar pixel a pixel con el dashboard, solo verse
@@ -73,12 +73,12 @@ def _load_key(path: Optional[str] = None) -> Optional[Dict[str, Any]]:
     return data
 
 
-def _sign_jwt(key: Dict[str, Any]) -> str:
+def _sign_jwt(key: Dict[str, Any], scope: str = _SCOPE) -> str:
     now = int(time.time())
     header = {"alg": "RS256", "typ": "JWT"}
     claims = {
         "iss": key["client_email"],
-        "scope": _SCOPE,
+        "scope": scope,
         "aud": _TOKEN_URL,
         "iat": now,
         "exp": now + 3600,
@@ -93,18 +93,21 @@ def _sign_jwt(key: Dict[str, Any]) -> str:
     return f"{h}.{p}.{_b64url(signature)}"
 
 
-def get_access_token(key_path: Optional[str] = None, force_refresh: bool = False) -> Optional[str]:
-    """Token de acceso OAuth2 para la cuenta de servicio. Nunca lanza: sin
-    llave, llave con forma rara, o red caída -> None, y el caller decide qué
-    hacer (nunca tumbar el resto de una sincronización por esto)."""
+def get_access_token(key_path: Optional[str] = None, force_refresh: bool = False,
+                     scope: str = _SCOPE) -> Optional[str]:
+    """Token de acceso OAuth2 aislado por scope. Nunca lanza: sin llave,
+    llave con forma rara, o red caída -> None."""
     now = time.time()
-    if not force_refresh and _TOKEN_CACHE["token"] and now < _TOKEN_CACHE["expires_at"] - 60:
-        return _TOKEN_CACHE["token"]
+    resolved_key_path = key_path or os.environ.get("GOOGLE_SHEETS_KEY_PATH") or ""
+    cache_key = (scope, os.path.realpath(os.path.expanduser(resolved_key_path)))
+    cached = _TOKEN_CACHE.get(cache_key, {})
+    if not force_refresh and cached.get("token") and now < cached.get("expires_at", 0) - 60:
+        return cached["token"]
     key = _load_key(key_path)
     if key is None:
         return None
     try:
-        assertion = _sign_jwt(key)
+        assertion = _sign_jwt(key, scope)
     except Exception:
         return None
     body = f"grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion={assertion}".encode("ascii")
@@ -120,19 +123,18 @@ def get_access_token(key_path: Optional[str] = None, force_refresh: bool = False
     token = data.get("access_token")
     if not token:
         return None
-    _TOKEN_CACHE["token"] = token
-    _TOKEN_CACHE["expires_at"] = now + float(data.get("expires_in", 3600))
+    _TOKEN_CACHE[cache_key] = {"token": token, "expires_at": now + float(data.get("expires_in", 3600))}
     return token
 
 
-def _request(method: str, path: str, token: str, body: Any = None) -> Any:
+def _request(method: str, path: str, token: str, body: Any = None, timeout: int = 20) -> Any:
     data = json.dumps(body).encode("utf-8") if body is not None else None
     req = urllib.request.Request(
         f"{_SHEETS_API}/{path}", data=data, method=method,
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=20) as r:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             raw = r.read().decode("utf-8")
             return json.loads(raw) if raw.strip() else None
     except urllib.error.HTTPError as e:
@@ -459,6 +461,92 @@ def sync_leads(spreadsheet_id: str, leads: List[Dict[str, Any]], token: Optional
         return True
     except SheetsError:
         return False
+
+
+# --- Helpers genéricos de lectura/escritura (usados por la planilla de pedidos) ---
+# Ninguno borra rangos: no hay helper de limpieza a propósito.
+
+def quote_tab(title: str) -> str:
+    """Nombre de pestaña listo para un rango A1 o una fórmula: 'Mi pestaña'."""
+    return "'" + title.replace("'", "''") + "'"
+
+
+def _enc(a1: str) -> str:
+    return urllib.parse.quote(a1, safe="")
+
+
+def read_values(spreadsheet_id: str, a1_range: str, token: str,
+                render: str = "FORMATTED_VALUE") -> List[List[Any]]:
+    """Filas de un rango. `render`: FORMATTED_VALUE | UNFORMATTED_VALUE | FORMULA.
+    Las filas llegan sin celdas vacías al final, y sin filas vacías al final."""
+    data = _request(
+        "GET", f"{spreadsheet_id}/values/{_enc(a1_range)}?valueRenderOption={render}", token,
+    ) or {}
+    return data.get("values") or []
+
+
+def get_sheet_meta(spreadsheet_id: str, token: str) -> Dict[str, Any]:
+    """Pestañas con sus propiedades (sheetId, title, gridProperties)."""
+    return _request("GET", f"{spreadsheet_id}?fields=sheets(properties)", token) or {}
+
+
+def batch_values_update(spreadsheet_id: str, data: List[Dict[str, Any]], token: str,
+                        input_option: str = "USER_ENTERED") -> None:
+    """`data`: [{"range": "'Pestaña'!A1", "values": [[...]]}, ...]."""
+    if data:
+        _request("POST", f"{spreadsheet_id}/values:batchUpdate", token,
+                 {"valueInputOption": input_option, "data": data})
+
+
+def batch_update(spreadsheet_id: str, requests: List[Dict[str, Any]], token: str,
+                 timeout: Optional[int] = None) -> None:
+    """`timeout` solo para llamadas que lo piden explícito; sin él, el default de `_request`."""
+    if not requests:
+        return
+    if timeout is None:
+        _batch_update(spreadsheet_id, requests, token)
+    else:
+        _request("POST", f"{spreadsheet_id}:batchUpdate", token, {"requests": requests}, timeout=timeout)
+
+
+def read_grid_data(spreadsheet_id: str, a1_range: str, token: str) -> Dict[str, Any]:
+    """Lee valores efectivos, fórmulas, notas y color ingresado de un rango A1 acotado.
+
+    No modifica la hoja. La autorización efectiva depende del scope del token.
+    """
+    params = urllib.parse.urlencode({
+        "ranges": a1_range,
+        "includeGridData": "true",
+        "fields": "sheets(properties(title),data(startRow,startColumn,rowData(values(effectiveValue,userEnteredValue,note,userEnteredFormat(backgroundColor)))))",
+    })
+    return _request("GET", f"{spreadsheet_id}?{params}", token) or {}
+
+
+def read_notes(spreadsheet_id: str, a1_range: str, token: str) -> Dict[Tuple[int, int], str]:
+    """Notas de celda de un rango que empieza en A1: {(fila, columna) 0-based: texto}."""
+    data = _request(
+        "GET", f"{spreadsheet_id}?ranges={_enc(a1_range)}&fields=sheets(data(rowData(values(note))))", token,
+    ) or {}
+    notes: Dict[Tuple[int, int], str] = {}
+    for sheet in data.get("sheets", []):
+        for grid in sheet.get("data", []):
+            for r, row in enumerate(grid.get("rowData", [])):
+                for c, cell in enumerate(row.get("values", [])):
+                    if cell.get("note"):
+                        notes[(r, c)] = cell["note"]
+    return notes
+
+
+def append_rows(spreadsheet_id: str, tab: str, rows: List[List[Any]], token: str) -> None:
+    """Agrega filas al final de la pestaña (INSERT_ROWS). Nunca limpia nada."""
+    if not rows:
+        return
+    _request(
+        "POST",
+        f"{spreadsheet_id}/values/{_enc(quote_tab(tab) + '!A1')}:append"
+        "?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS",
+        token, {"values": rows},
+    )
 
 
 def sync_all(spreadsheet_id: str, finance_data: Dict[str, Any],

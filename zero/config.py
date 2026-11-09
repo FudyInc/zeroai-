@@ -130,6 +130,17 @@ LOSETASCHILE_PAVER_REVIEW_STATE_HOURS = 72
 # Abono que se pide para confirmar un pedido de LosetasChile (el resto va contra
 # entrega). Lo usa el presupuesto final que se publica en el grupo de revisión.
 LOSETASCHILE_DEPOSIT_CLP = 10000
+
+# --- Planilla de pedidos de Pooledge (zero/pooledge_sheet.py) -------------------
+# Comisión de Diego sobre la VENTA NETA (sin IVA). El IVA es `IVA_RATE`.
+POOLEDGE_COMMISSION_RATE = 0.10
+# Variable de entorno con el ID de la planilla "Pedidos PoolEdge".
+POOLEDGE_ORDERS_SHEET_ENV = "LOSETASCHILE_ORDERS_SHEET_ID"
+# Pestañas históricas que se leen (solo lectura) para la vista previa.
+POOLEDGE_TAB_INFO = "INFO PEDIDOS POOLEDGE"
+POOLEDGE_TAB_PLATAS = "PLATAS POOLEDGE"
+# Carpeta (bajo $HOME, fuera del repo) donde se guarda la vista previa privada.
+POOLEDGE_PREVIEW_DIR_NAME = "pooledge-vista-previa"
 # Cuántos borradores de revisión (por cliente) se recuerdan para leer la respuesta
 # del dueño que los cita.
 REVIEW_DRAFTS_KEPT = 50
