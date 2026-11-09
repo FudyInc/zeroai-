@@ -9,6 +9,7 @@ import { WorkspaceHero, WorkspaceSectionHeading } from '../components/WorkspaceH
 import { cn } from '../lib/util'
 import { useApp } from '../App'
 import { rise, fade, surface, stagger } from '../lib/motion'
+import { useClientLabel } from '../lib/clientLabels'
 
 /* La bandeja de aprobación: todo lo que los agentes redactaron solos y espera
    el visto bueno de una persona (ver la política de borradores en
@@ -23,6 +24,7 @@ import { rise, fade, surface, stagger } from '../lib/motion'
 const CHANNEL_ICON = { email: Mail, whatsapp: MessageCircle }
 
 function DraftCard({ item, onSent }) {
+  const clientLabel = useClientLabel()
   const o = item.outreach || {}
   const [body, setBody] = useState(o.body || '')
   const [subject, setSubject] = useState(o.subject || '')
@@ -61,7 +63,7 @@ function DraftCard({ item, onSent }) {
             <Icon size={11} className="shrink-0" />
             {o.channel || 'canal sin definir'}
             <span className="text-pewter/60">·</span>
-            {item.client_id}
+            {clientLabel(item.client_id)}
             {item.score != null && <><span className="text-pewter/60">·</span>score {item.score}</>}
           </div>
         </div>

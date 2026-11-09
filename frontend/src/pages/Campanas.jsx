@@ -12,6 +12,7 @@ import { NoClient } from './Dashboard'
 import { rise, fade, surface, stagger, staggerDense } from '../lib/motion'
 import { WorkspaceHero, WorkspaceSectionHeading } from '../components/WorkspaceHero'
 import { PaidAdsPanel } from '../components/PaidAdsPanel'
+import { useClientLabel } from '../lib/clientLabels'
 
 const FILTERS = [
   { value: 'todas', label: 'Todas' },
@@ -342,6 +343,7 @@ const LABEL = 'block mb-1.5 text-[11px] font-semibold uppercase tracking-[0.13em
 
 // Config de marketing POR CLIENTE: cuenta Meta, presupuesto y zonas (default Santiago).
 function ClientConfig({ client, onClose }) {
+  const clientLabel = useClientLabel()
   const qc = useQueryClient()
   const { data } = useQuery({ queryKey: ['marketing', client], queryFn: () => api.marketing(client) })
   const cfg = data?.config || {}
@@ -368,7 +370,7 @@ function ClientConfig({ client, onClose }) {
   return (
     <Card className="p-5 space-y-4">
       <div className="flex items-center justify-between">
-        <SectionTitle>Cuenta de marketing · <span className="text-gold-deep">{client}</span></SectionTitle>
+        <SectionTitle>Cuenta de marketing · <span className="text-gold-deep">{clientLabel(client)}</span></SectionTitle>
         <Button variant="ghost" onClick={onClose} aria-label="Cerrar configuración"><X size={15} /></Button>
       </div>
       <p className="text-xs text-zinc-500 -mt-1">La cuenta publicitaria se asigna solo a este negocio. El token correspondiente se guarda en Configuración.</p>

@@ -9,6 +9,7 @@ import { useApp } from '../App'
 import { Card, Button, Input, Skeleton, pageState } from '../components/ui'
 import { rise, fade, surface, staggerDense, overlay, dialog } from '../lib/motion'
 import { WorkspaceHero, WorkspaceSectionHeading } from '../components/WorkspaceHero'
+import { useClientLabel } from '../lib/clientLabels'
 
 /* Panel exclusivo del admin: crear/editar/correr/borrar funciones — código
    Python a medida que corre AISLADO (Docker, zero/sandbox.py) contra leads
@@ -46,6 +47,7 @@ const timeUntil = (iso) => {
 }
 
 export default function Funciones() {
+  const clientLabel = useClientLabel()
   const { client } = useApp()
   const qc = useQueryClient()
   const [form, setForm] = useState(null) // null = form cerrado; objeto = abierto (nuevo o edición)
@@ -125,7 +127,7 @@ export default function Funciones() {
         <WorkspaceHero eyebrow="Automatización" title="Funciones"
           description="Crea y ejecuta funciones Python para los leads del negocio seleccionado. Programa corridas automáticas o ejecútalas cuando las necesites."
           icon={Terminal}
-          aside={{ label: 'Funciones configuradas', value: functions?.length ?? '—', detail: client ? `Negocio: ${client}` : 'Selecciona un negocio' }}>
+          aside={{ label: 'Funciones configuradas', value: functions?.length ?? '—', detail: client ? `Negocio: ${clientLabel(client)}` : 'Selecciona un negocio' }}>
           <Button variant="accent" onClick={openNew}><Plus size={15} /> Nueva función</Button>
         </WorkspaceHero>
       </motion.div>
@@ -138,7 +140,7 @@ export default function Funciones() {
         <AlertTriangle size={17} className="text-amber-700 shrink-0 mt-0.5" />
         <div className="text-sm text-amber-800">
           Cada función corre código Python real, aislado en un contenedor Docker, contra los{' '}
-          <b>leads reales</b> del cliente activo (<b>{client}</b>) — solo ve campos curados
+          <b>leads reales</b> del cliente activo (<b>{clientLabel(client)}</b>) — solo ve campos curados
           (empresa, nombre, rol, email, teléfono, etapa, score), nunca credenciales ni datos de
           otros clientes. Puedes dejarla disparándose sola cada N minutos (disparo automático),
           o correrla solo cuando aprietas "Correr ahora" — ambas conviven, "Correr ahora" siempre
@@ -169,7 +171,7 @@ export default function Funciones() {
                       )}
                     </div>
                     <div className="text-xs text-zinc-400 mt-0.5">
-                      {fn.lookup_scope?.client_id}{fn.lookup_scope?.stage ? ` · etapa ${fn.lookup_scope.stage}` : ' · todas las etapas'}
+                      {clientLabel(fn.lookup_scope?.client_id)}{fn.lookup_scope?.stage ? ` · etapa ${fn.lookup_scope.stage}` : ' · todas las etapas'}
                       {' · creada por '}{fn.created_by || '—'}
                       {fn.schedule && fn.next_run && ` · próxima corrida ${timeUntil(fn.next_run)}`}
                     </div>
@@ -214,7 +216,7 @@ export default function Funciones() {
               <AlertTriangle size={14} className="shrink-0 mt-0.5" />
               <span>
                 Se guarda tal cual — no se valida hasta que la corras. Va a ejecutarse aislada,
-                pero contra leads reales de <b>{client}</b>.
+                pero contra leads reales de <b>{clientLabel(client)}</b>.
               </span>
             </div>
 

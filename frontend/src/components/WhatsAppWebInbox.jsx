@@ -5,6 +5,7 @@ import { ArrowLeft, MessageCircle, RefreshCw, Search, Send } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
 import { Button, Card } from './ui'
+import { useClientLabel } from '../lib/clientLabels'
 
 function when(seconds) {
   if (!seconds) return ''
@@ -17,6 +18,7 @@ function ChatAvatar({ name }) {
 }
 
 export default function WhatsAppWebInbox({ client, expectedNumber, responseMode }) {
+  const clientLabel = useClientLabel()
   const location = useLocation()
   const nav = useNavigate()
   const [selected, setSelected] = useState('')
@@ -72,7 +74,7 @@ export default function WhatsAppWebInbox({ client, expectedNumber, responseMode 
         <div>
           <div className="wa-field-kicker">WhatsApp Web</div>
           <h3><MessageCircle size={19} /> Conversaciones</h3>
-          <p>Bandeja del número asignado a {client}.</p>
+          <p>Bandeja del número asignado a {clientLabel(client)}.</p>
         </div>
         <Button variant="soft" onClick={() => { status.refetch(); chats.refetch(); if (selected) messages.refetch() }}
           title="Actualizar chats" disabled={status.isFetching || chats.isFetching || messages.isFetching}>
@@ -81,7 +83,7 @@ export default function WhatsAppWebInbox({ client, expectedNumber, responseMode 
       </div>
 
       {status.isError && <p role="alert" className="wa-inbox-notice">{status.error.message}. Revisa la conexión de WhatsApp Web.</p>}
-      {status.data?.state === 'ready' && !ready && <p role="alert" className="wa-inbox-notice">El número conectado no coincide con el asignado a {client}. La bandeja queda bloqueada para evitar responder desde otra empresa.</p>}
+      {status.data?.state === 'ready' && !ready && <p role="alert" className="wa-inbox-notice">El número conectado no coincide con el asignado a {clientLabel(client)}. La bandeja queda bloqueada para evitar responder desde otra empresa.</p>}
       {status.data?.state === 'scan_qr' && status.data.qr && (
         <div className="wa-inbox-qr">
           <img src={status.data.qr} alt="Código QR para vincular WhatsApp Web" />

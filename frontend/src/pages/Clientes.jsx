@@ -10,10 +10,12 @@ import { Card, Skeleton, Select, Input, Button, CountUp, pageState, SectionTitle
 import { useApp } from '../App'
 import { rise, fade, surface, stagger, overlay, dialog } from '../lib/motion'
 import { WorkspaceHero, WorkspaceSectionHeading } from '../components/WorkspaceHero'
+import { useClientLabel } from '../lib/clientLabels'
 
 const clp = (n) => '$' + Math.round(n || 0).toLocaleString('es-CL')
 
 export default function Clientes() {
+  const clientLabel = useClientLabel()
   const { setClient } = useApp()
   const nav = useNavigate()
   const qc = useQueryClient()
@@ -78,7 +80,7 @@ export default function Clientes() {
               <Card interactive className="p-6 h-full">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <SectionTitle className="capitalize text-base">{a.client}</SectionTitle>
+                    <SectionTitle className="capitalize text-base">{clientLabel(a.client)}</SectionTitle>
                     <div className="text-xs text-zinc-500 mt-1">{a.leads_per_mo ? `${a.leads_per_mo} leads/mes` : 'leads a medida'}</div>
                   </div>
                   <div className="text-sm font-extrabold text-gold-deep tabular-nums shrink-0">{a.price_clp ? clp(a.price_clp) : 'Custom'}</div>

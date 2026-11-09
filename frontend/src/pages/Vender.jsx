@@ -9,9 +9,11 @@ import { WorkspaceHero, WorkspaceSectionHeading } from '../components/WorkspaceH
 import { Glow } from '../components/Glow'
 import { useApp } from '../App'
 import { rise, fade, surface } from '../lib/motion'
+import { useClientLabel } from '../lib/clientLabels'
 
 // Pon el mail de un prospecto → genera el pitch (editable) → envíalo por tu SMTP.
 export default function Vender() {
+  const clientLabel = useClientLabel()
   const { client } = useApp()
   const { data: integrations } = useQuery({ queryKey: ['integrations', client], queryFn: () => api.clientIntegrations(client), enabled: !!client })
   const { data: emails = [] } = useQuery({ queryKey: ['usedEmails', client], queryFn: () => api.usedEmails(client), enabled: !!client })
@@ -71,7 +73,7 @@ export default function Vender() {
           {integrations && !integrations.email && (
             <motion.div variants={fade}>
               <Card className="p-4 border-amber-200 bg-amber-50/60 text-sm text-amber-800">
-                Aún no conectas el email de {client}. Ve a <b>Configuración → Integraciones del negocio</b> para poder enviar.
+                Aún no conectas el email de {clientLabel(client)}. Ve a <b>Configuración → Integraciones del negocio</b> para poder enviar.
               </Card>
             </motion.div>
           )}

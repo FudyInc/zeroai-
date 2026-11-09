@@ -100,6 +100,11 @@ LOSETASCHILE_PRICE_ID_DURMIENTE = "durmiente-16x40"
 # solo suma productos e IVA; no debe enviar ese subtotal como presupuesto final.
 QUOTE_REVIEW_REQUIRED_CLIENT_IDS = frozenset({"pooledge"})
 
+# Nombre que el dashboard muestra para un cliente cuando no coincide con su id.
+# Solo es un rótulo: el id (`losetaschile`) sigue siendo la llave de los datos,
+# del CRM y de la configuración.
+CLIENT_DISPLAY_NAMES = {"losetaschile": "Pooledge"}
+
 # Tarifa provisional confirmada por Diego el 2026-10-08. La distancia debe ser
 # por ruta y estar verificada antes de incluir un importe de flete.
 LOSETASCHILE_FLETE_ORIGIN = "Los Granados 029, La Pintana"

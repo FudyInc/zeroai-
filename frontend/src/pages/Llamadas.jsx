@@ -8,8 +8,10 @@ import { Card, Button, Input, Select, Skeleton } from '../components/ui'
 import { WorkspaceHero, WorkspaceSectionHeading } from '../components/WorkspaceHero'
 import { rise, fade } from '../lib/motion'
 import { useApp } from '../App'
+import { useClientLabel } from '../lib/clientLabels'
 
 export default function Llamadas() {
+  const clientLabel = useClientLabel()
   const { client } = useApp()
   const agentsQ = useQuery({ queryKey: ['assistants', client], queryFn: () => api.assistants(client), enabled: !!client, retry: false })
   const numbersQ = useQuery({ queryKey: ['vapiNumbers', client], queryFn: () => api.vapiNumbers(client), enabled: !!client, retry: false })
@@ -60,7 +62,7 @@ export default function Llamadas() {
           <Card className="p-6 w-full max-w-2xl">
             <div className="font-semibold mb-1">Llamadas con IA</div>
             <div className="text-sm text-zinc-500 mb-2">
-              Este canal usa <b>Vapi</b>. Conecta la clave de <b>{client}</b> en Configuración para activarlo.
+              Este canal usa <b>Vapi</b>. Conecta la clave de <b>{clientLabel(client)}</b> en Configuración para activarlo.
             </div>
             <div className="text-xs text-zinc-400 mb-3 break-words">({agentsQ.error?.message || 'no disponible'})</div>
             <div className="flex gap-3">

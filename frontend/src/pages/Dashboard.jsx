@@ -11,6 +11,7 @@ import { Segmented } from '../components/Segmented'
 import { WorkspaceHero, WorkspaceSectionHeading } from '../components/WorkspaceHero'
 import { useApp } from '../App'
 import { rise, fade, surface, stagger, meterFill } from '../lib/motion'
+import { useClientLabel } from '../lib/clientLabels'
 
 const OPEN = ['new', 'qualified', 'contacted', 'nurturing', 'replied', 'meeting']
 const CLOSED = ['won', 'lost', 'disqualified']
@@ -21,6 +22,7 @@ const CHART_GROUPS = [
 ]
 
 export default function Dashboard() {
+  const clientLabel = useClientLabel()
   const { client, clients, setClient } = useApp()
   const [chartG, setChartG] = useState('todas')
   const kpisQ = useQuery({ queryKey: ['kpis', client], queryFn: () => api.kpis(client), enabled: !!client })
@@ -52,7 +54,7 @@ export default function Dashboard() {
   return (
     <motion.div className="workspace-page" initial="hidden" animate="show" variants={rise}>
       <motion.div variants={fade}>
-        <WorkspaceHero eyebrow="Vista general" title={`Resumen de ${client}`}
+        <WorkspaceHero eyebrow="Vista general" title={`Resumen de ${clientLabel(client)}`}
           description="Consulta el estado de tus leads, las respuestas que requieren atención y el avance del embudo."
           icon={Users}
           aside={!kpisQ.isLoading && kpis ? { label: 'Leads en pipeline', value: (kpis.in_pipeline ?? 0).toLocaleString('es-CL'), detail: 'Datos del cliente seleccionado' } : undefined} />
@@ -174,6 +176,7 @@ function Row({ c, l, v }) {
    pendiente. Sin backend nuevo: reusa /api/leads por cliente (ya existente) y
    el mismo cálculo que ya usaba Agentes.jsx (ahora compartido en lib/util). */
 function NeedsAttention({ clients, setClient }) {
+  const clientLabel = useClientLabel()
   const nav = useNavigate()
   const list = clients || []
   const results = useQueries({
@@ -211,7 +214,7 @@ function NeedsAttention({ clients, setClient }) {
           {rows.map((r) => (
             <button key={r.client} onClick={() => jump(r.client)}
               className="w-full flex items-center justify-between gap-3 rounded-xl px-3 py-2 text-sm bg-zinc-50 hover:bg-zinc-100 transition-colors text-left">
-              <span className="font-medium capitalize truncate">{r.client}</span>
+              <span className="font-medium capitalize truncate">{clientLabel(r.client)}</span>
               <span className="text-xs text-gold-deep font-semibold shrink-0">
                 {r.n} {r.n === 1 ? 'lead respondió' : 'leads respondieron'} en 24h
               </span>

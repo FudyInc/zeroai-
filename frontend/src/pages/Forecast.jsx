@@ -9,6 +9,7 @@ import { WorkspaceHero, WorkspaceSectionHeading } from '../components/WorkspaceH
 import { useApp } from '../App'
 import { NoClient } from './Dashboard'
 import { rise, fade, surface, stagger } from '../lib/motion'
+import { useClientLabel } from '../lib/clientLabels'
 
 const SCENARIOS = [
   { value: 'conservador', label: 'Conservador' },
@@ -18,6 +19,7 @@ const SCENARIOS = [
 const FACTOR = { conservador: 0.8, base: 1, optimista: 1.25 }
 
 export default function Forecast() {
+  const clientLabel = useClientLabel()
   const { client } = useApp()
   const [scen, setScen] = useState('base')
   const { data, isLoading, error, refetch } = useQuery({
@@ -52,7 +54,7 @@ export default function Forecast() {
   return (
     <motion.div className="workspace-page" initial="hidden" animate="show" variants={rise}>
       <motion.div variants={fade}>
-        <WorkspaceHero eyebrow="Proyección" title={`Forecast de ${client}`}
+        <WorkspaceHero eyebrow="Proyección" title={`Forecast de ${clientLabel(client)}`}
           description="Explora las respuestas, reuniones y cierres estimados a partir de la actividad comercial registrada."
           icon={TrendingUp}
           aside={ready && data.mode === 'live' ? { label: 'Pipeline proyectado', value: `$${Math.round(p.expected_pipeline_clp * k).toLocaleString('es-CL')}`, detail: `Escenario ${scen} · modelo real` } : undefined} />

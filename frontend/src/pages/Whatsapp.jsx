@@ -19,6 +19,7 @@ import WhatsAppWebInbox from '../components/WhatsAppWebInbox'
 import AttentionCard from '../components/AttentionCard'
 import { rise, fade, surface } from '../lib/motion'
 import './whatsapp.css'
+import { useClientLabel } from '../lib/clientLabels'
 
 /* El agente de WhatsApp, en un solo lugar: en 3 pasos dejas a un agente
    atendiendo los leads de una empresa (cuéntale del negocio, elige quién
@@ -29,6 +30,7 @@ import './whatsapp.css'
    los otros canales (email es solo envío, sin ida y vuelta). */
 
 export default function Whatsapp() {
+  const clientLabel = useClientLabel()
   const { client: ctxClient } = useApp()
   // Sin cliente por defecto: ese cliente de prueba ya se borró del CRM, y volver a
   // usarlo como fallback lo resucitaría en la base real con solo abrir la página.
@@ -61,7 +63,7 @@ export default function Whatsapp() {
       qc.invalidateQueries({ queryKey: ['vendor', client] })
       qc.invalidateQueries({ queryKey: ['whatsapp-readiness', client] })
       setSelected(null)
-      toast.success(`Listo: ${d.vendor?.name || 'el agente'} atiende a los leads de ${client}`)
+      toast.success(`Listo: ${d.vendor?.name || 'el agente'} atiende a los leads de ${clientLabel(client)}`)
     },
     onError: (e) => toast.error('No se pudo desplegar: ' + e.message),
   })
@@ -93,7 +95,7 @@ export default function Whatsapp() {
         <Card className="wa-hero">
           <div className="wa-hero-main">
             <div className="wa-eyebrow"><MessageCircle size={14} /> Centro de atención</div>
-            <h1>WhatsApp <span>de {client}</span></h1>
+            <h1>WhatsApp <span>de {clientLabel(client)}</span></h1>
             <p>Conversaciones, configuración del agente y pruebas en un solo lugar. Prepara su ficha y sus reglas antes de activar respuestas automáticas.</p>
             <div className="wa-hero-meta">
               <span className="wa-meta-pill"><span className={'wa-status-dot ' + (connected ? 'is-ready' : '')} />{connected ? 'Canal configurado' : 'Conexión pendiente'}</span>
@@ -338,6 +340,7 @@ function VendorPicker({ vendorsQ, assignedId, currentId, onPick }) {
 /* Las instrucciones viven en la empresa; editar una personalidad del catálogo
    cambiaría el tono de todas las empresas que la comparten. */
 function ProfileCard({ client, profileQ, vendor }) {
+  const clientLabel = useClientLabel()
   const qc = useQueryClient()
   const [profile, setProfile] = useState({ tone: '', instructions: '', whatsapp_number: '',
     quote_mode: 'manual', response_mode: 'manual' })
@@ -366,7 +369,7 @@ function ProfileCard({ client, profileQ, vendor }) {
   return (
     <Card className="wa-panel p-5 sm:p-6">
       <div className="wa-profile-heading"><div><div className="wa-field-kicker">Reglas del negocio</div><div className="font-display font-bold text-brand">Forma de atender</div></div><span>{vendor?.name || 'Sin agente'}</span></div>
-      <p className="text-xs text-zinc-500 mt-1 mb-4">Estas indicaciones se aplican solo a {client}.</p>
+      <p className="text-xs text-zinc-500 mt-1 mb-4">Estas indicaciones se aplican solo a {clientLabel(client)}.</p>
       {profileQ.isError && <p className="text-xs text-rose-600 mb-2">No se pudo cargar. <button className="underline" onClick={() => profileQ.refetch()}>Reintentar</button></p>}
       <label className="block text-xs font-medium text-zinc-600 mb-1">Tono de respuesta</label>
       <textarea
@@ -409,6 +412,7 @@ function ProfileCard({ client, profileQ, vendor }) {
 }
 
 function ReadinessCard({ client, readinessQ }) {
+  const clientLabel = useClientLabel()
   const data = readinessQ.data
   const rows = [
     ['Ficha de conocimiento', data?.knowledge, 'Agrega la información que el agente debe conocer.'],
@@ -418,7 +422,7 @@ function ReadinessCard({ client, readinessQ }) {
   ]
   return (
     <Card className="wa-readiness p-5 sm:p-6">
-      <div className="wa-readiness-heading"><div><span className="wa-field-kicker">Estado de preparación</span><h2>Todo lo necesario, a la vista</h2></div><span>Para {client}</span></div>
+      <div className="wa-readiness-heading"><div><span className="wa-field-kicker">Estado de preparación</span><h2>Todo lo necesario, a la vista</h2></div><span>Para {clientLabel(client)}</span></div>
       {readinessQ.isError ? <p className="text-sm text-rose-600">No se pudo consultar. <button className="underline" onClick={() => readinessQ.refetch()}>Reintentar</button></p> :
         <div className="wa-readiness-grid">{rows.map(([label, done, hint], index) => (
           <div key={label} className={'wa-readiness-item ' + (done ? 'is-done' : '')}>
@@ -432,12 +436,13 @@ function ReadinessCard({ client, readinessQ }) {
 
 /* Paso 3 — desplegar: la personalidad elegida queda atendiendo a esa empresa. */
 function DeployCard({ client, vendor, assignedId, knowledgeSaved, deploy, cfg }) {
+  const clientLabel = useClientLabel()
   const isDeployed = vendor && vendor.id === assignedId
   return (
     <Card className="wa-panel wa-deploy p-5 sm:p-6">
       <StepHeader n={3} icon={Rocket} title="Asignar agente a esta empresa"
         sub={vendor
-          ? `${vendor.name} atenderá a los leads de ${client} usando la ficha guardada.`
+          ? `${vendor.name} atenderá a los leads de ${clientLabel(client)} usando la ficha guardada.`
           : 'Elige una personalidad en el paso 2.'} />
       {!knowledgeSaved && (
         <div className="text-xs text-amber-800 bg-amber-50 rounded-xl px-3 py-2 mb-3">
@@ -450,7 +455,7 @@ function DeployCard({ client, vendor, assignedId, knowledgeSaved, deploy, cfg })
         </Button>
         {isDeployed && (
           <span className="text-xs text-gold-deep font-medium inline-flex items-center gap-1">
-            <CheckCircle2 size={13} /> {vendor.name} está asignado a {client}
+            <CheckCircle2 size={13} /> {vendor.name} está asignado a {clientLabel(client)}
           </span>
         )}
       </div>
@@ -492,6 +497,7 @@ function VendorAvatar({ vendor }) {
 
 /* Estado de la conexión con Meta WhatsApp Cloud API. */
 function WebStatusCard({ cfg, client, profile }) {
+  const clientLabel = useClientLabel()
   const status = useQuery({
     queryKey: ['whatsapp-web-status', client],
     queryFn: () => api.whatsappWebStatus(client),
@@ -519,7 +525,7 @@ function WebStatusCard({ cfg, client, profile }) {
         </div>
       )}
       {ready && <p className="text-sm text-zinc-600 mt-3">Número vinculado: {status.data.account || 'WhatsApp Business'}. Las respuestas del agente usan el motor local.</p>}
-      {ready && !numberMatches && <p className="text-xs text-amber-700 mt-2">El número conectado no coincide con el guardado para {client}. Las respuestas automáticas no saldrán hasta corregirlo.</p>}
+      {ready && !numberMatches && <p className="text-xs text-amber-700 mt-2">El número conectado no coincide con el guardado para {clientLabel(client)}. Las respuestas automáticas no saldrán hasta corregirlo.</p>}
       {ready && <p className="text-xs text-amber-700 mt-2">Esta conexión corresponde a un solo número; cambiar la empresa en el dashboard no cambia el destinatario de los mensajes entrantes.</p>}
       {!ready && status.data?.state !== 'scan_qr' && <p className="text-sm text-zinc-600 mt-3">Estado: {status.data?.state || 'consultando…'}</p>}
       {status.data?.error && <p className="text-xs text-rose-600 mt-2">{status.data.error}</p>}
@@ -530,6 +536,7 @@ function WebStatusCard({ cfg, client, profile }) {
 
 /* Estado de la conexión con Meta WhatsApp Cloud API. */
 function StatusCard({ cfg, client, webhookReady, webhookUrl }) {
+  const clientLabel = useClientLabel()
   const [copied, setCopied] = useState(false)
   const [probe, setProbe] = useState(null) // null | { ok: true, data } | { ok: false, error }
   const [busy, setBusy] = useState(false)
@@ -592,7 +599,7 @@ function StatusCard({ cfg, client, webhookReady, webhookUrl }) {
       )}
       {!webhookReady && (
         <div className="text-xs text-amber-800 bg-amber-50 rounded-xl px-3 py-2 mb-3">
-          Faltan el Verify token o el App Secret propios de {client} en Configuración. Sin ellos Meta no puede validar el webhook.
+          Faltan el Verify token o el App Secret propios de {clientLabel(client)} en Configuración. Sin ellos Meta no puede validar el webhook.
         </div>
       )}
 
