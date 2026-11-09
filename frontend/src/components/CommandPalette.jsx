@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Search, ArrowRight, Building2, User, CornerDownLeft, Loader2 } from 'lucide-react'
 import { api } from '../lib/api'
 import { cn } from '../lib/util'
+import { useClientLabel } from '../lib/clientLabels'
 
 const MIN_LEAD_QUERY = 2
 const DEBOUNCE_MS = 300
@@ -12,6 +13,7 @@ const DEBOUNCE_MS = 300
    cliente seleccionado vía GET /api/leads/search (debounced). Mismo patrón
    visual que el resto de los modales (backdrop + spring). */
 export default function CommandPalette({ open, onClose, pages, clients, currentClient, onNavigate, onSelectClient, onOpenLead, scoped = false }) {
+  const clientLabel = useClientLabel()
   const [q, setQ] = useState('')
   const [active, setActive] = useState(0)
   const [leadResults, setLeadResults] = useState([])
@@ -32,10 +34,10 @@ export default function CommandPalette({ open, onClose, pages, clients, currentC
       .filter((p) => !needle || p.label.toLowerCase().includes(needle))
       .map((p) => ({ kind: 'page', key: 'p:' + p.path, label: p.label, path: p.path }))
     const clientItems = scoped ? [] : (clients || [])
-      .filter((c) => !needle || c.toLowerCase().includes(needle))
-      .map((c) => ({ kind: 'client', key: 'c:' + c, label: c }))
+      .filter((c) => !needle || c.toLowerCase().includes(needle) || clientLabel(c).toLowerCase().includes(needle))
+      .map((c) => ({ kind: 'client', key: 'c:' + c, id: c, label: clientLabel(c) }))
     return [...pageItems, ...clientItems]
-  }, [q, pages, clients, scoped])
+  }, [q, pages, clients, scoped, clientLabel])
 
   // Solo se busca un lead cross-cliente cuando el texto no matchea nada
   // conocido — evita un fetch de más cuando ya hay una página/cliente a mano.
@@ -71,7 +73,7 @@ export default function CommandPalette({ open, onClose, pages, clients, currentC
   const choose = (item) => {
     if (!item) return
     if (item.kind === 'page') onNavigate(item.path)
-    else if (item.kind === 'client') onSelectClient(item.label)
+    else if (item.kind === 'client') onSelectClient(item.id)
     else if (item.kind === 'lead') { onSelectClient(item.clientId); onOpenLead(item.leadKey) }
     onClose()
   }
@@ -130,11 +132,11 @@ export default function CommandPalette({ open, onClose, pages, clients, currentC
                     <span className="block truncate capitalize">{item.label}</span>
                     {item.kind === 'lead' && item.sub && <span className="block text-xs text-zinc-400 truncate normal-case">{item.sub}</span>}
                   </span>
-                  {item.kind === 'client' && item.label === currentClient && (
+                  {item.kind === 'client' && item.id === currentClient && (
                     <span className="text-[10px] font-semibold text-gold-deep bg-champagne/40 px-1.5 py-0.5 rounded-full shrink-0">actual</span>
                   )}
                   {item.kind === 'lead' && !scoped && (
-                    <span className="text-[10px] font-semibold text-pewter bg-pewter/10 px-1.5 py-0.5 rounded-full shrink-0 capitalize">{item.clientId}</span>
+                    <span className="text-[10px] font-semibold text-pewter bg-pewter/10 px-1.5 py-0.5 rounded-full shrink-0 capitalize">{clientLabel(item.clientId)}</span>
                   )}
                   {i === active && <CornerDownLeft size={13} className="text-zinc-300 shrink-0" />}
                 </button>

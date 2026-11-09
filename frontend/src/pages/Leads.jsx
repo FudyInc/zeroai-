@@ -12,6 +12,7 @@ import { useApp } from '../App'
 import { NoClient } from './Dashboard'
 import PipelineRun from '../components/PipelineRun'
 import { rise, fade, surface, staggerDense } from '../lib/motion'
+import { useClientLabel } from '../lib/clientLabels'
 
 const GROUPS = [
   { value: 'todos', label: 'Todos' },
@@ -23,6 +24,7 @@ const PAGE = 50
 const viewKey = (client) => `zero_leads_view_${client}`
 
 export default function Leads() {
+  const clientLabel = useClientLabel()
   const { client, openLead, runId, setRunId } = useApp()
   const qc = useQueryClient()
   const [q, setQ] = useState('')
@@ -101,7 +103,7 @@ export default function Leads() {
   return (
     <motion.div className="workspace-page" initial="hidden" animate="show" variants={rise}>
       <motion.div variants={fade}>
-        <WorkspaceHero eyebrow="CRM" title={`Leads de ${client}`}
+        <WorkspaceHero eyebrow="CRM" title={`Leads de ${clientLabel(client)}`}
           description="Busca contactos, revisa su calificación y actualiza cada etapa del proceso comercial."
           icon={Users}
           aside={!isLoading && !error ? { label: 'Leads registrados', value: total.toLocaleString('es-CL'), detail: 'Total según el filtro de etapa seleccionado' } : undefined} />

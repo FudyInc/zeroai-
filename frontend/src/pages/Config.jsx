@@ -10,6 +10,7 @@ import AgentTester from '../components/AgentTester'
 import { useApp } from '../App'
 import { rise, fade, surface } from '../lib/motion'
 import { WorkspaceHero, WorkspaceSectionHeading } from '../components/WorkspaceHero'
+import { useClientLabel } from '../lib/clientLabels'
 
 export default function Config() {
   const { client } = useApp()
@@ -148,6 +149,7 @@ const CHANNEL_FIELDS = {
 }
 
 function ClientChannelsCard({ client }) {
+  const clientLabel = useClientLabel()
   const qc = useQueryClient()
   const { data: status } = useQuery({ queryKey: ['integrations', client], queryFn: () => api.clientIntegrations(client), enabled: !!client })
   const [values, setValues] = useState({})
@@ -161,7 +163,7 @@ function ClientChannelsCard({ client }) {
       const result = await api.setClientIntegration(client, channel, payload)
       setValues((old) => Object.fromEntries(Object.entries(old).filter(([key]) => !fields.includes(key))))
       qc.invalidateQueries({ queryKey: ['integrations', client] })
-      toast[result.backed_up ? 'success' : 'warning'](result.backed_up ? `Conexión de ${client} respaldada` : 'Guardado localmente; falta respaldo en la nube')
+      toast[result.backed_up ? 'success' : 'warning'](result.backed_up ? `Conexión de ${clientLabel(client)} respaldada` : 'Guardado localmente; falta respaldo en la nube')
     } catch (error) { toast.error(error.message) }
     finally { setBusy('') }
   }
@@ -190,6 +192,7 @@ function ClientChannelsCard({ client }) {
 
 /* El token pertenece al negocio seleccionado. La cuenta se asigna en Campañas. */
 function MetaAdsCard({ client }) {
+  const clientLabel = useClientLabel()
   const qc = useQueryClient()
   const { data: marketing, isError } = useQuery({
     queryKey: ['marketing', client], queryFn: () => api.marketing(client), enabled: !!client,
@@ -231,7 +234,7 @@ function MetaAdsCard({ client }) {
       setToken('')
       setProbe(null)
       await qc.invalidateQueries({ queryKey: ['marketing', client] })
-      if (saved.backed_up) toast.success(`Token de Meta Ads guardado para ${client}`)
+      if (saved.backed_up) toast.success(`Token de Meta Ads guardado para ${clientLabel(client)}`)
       else toast.warning('Token guardado localmente; no se pudo respaldar en la nube')
     } catch (e) { toast.error('No se pudo guardar: ' + e.message) }
     finally { setBusy(false) }

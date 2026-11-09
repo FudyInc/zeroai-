@@ -7,6 +7,7 @@ import { Card, Skeleton, Select, pageState } from '../components/ui'
 import { ROLE_LABELS } from '../lib/roles'
 import { rise, fade, surface, stagger } from '../lib/motion'
 import { WorkspaceHero, WorkspaceSectionHeading } from '../components/WorkspaceHero'
+import { useClientLabel } from '../lib/clientLabels'
 
 /* Panel exclusivo del admin (Diego): quién tiene cuenta en el dashboard, qué
    rol tiene cada uno (o ninguno todavía — alguien que entró con Google pero
@@ -26,6 +27,7 @@ const timeAgo = (iso) => {
 }
 
 export default function Equipo() {
+  const clientLabel = useClientLabel()
   const qc = useQueryClient()
   const { data, isLoading, error, refetch } = useQuery({ queryKey: ['team'], queryFn: api.team })
 
@@ -170,7 +172,7 @@ export default function Equipo() {
               {u.role === 'operador' && (
                 <fieldset className="mt-3 pt-3 border-t border-zinc-100" disabled={setClients.isPending}>
                   <legend className="text-xs font-medium text-zinc-500 mb-1.5">
-                    Clientes asignados: {(u.clients || []).length ? u.clients.join(', ') : 'ninguno (no verá ningún cliente)'}
+                    Clientes asignados: {(u.clients || []).length ? u.clients.map(clientLabel).join(', ') : 'ninguno (no verá ningún cliente)'}
                   </legend>
                   <div className="flex flex-wrap gap-x-4 gap-y-1.5">
                     {allClients.map((c) => {
@@ -179,7 +181,7 @@ export default function Equipo() {
                         <label key={c} className="flex items-center gap-1.5 text-sm text-zinc-700 cursor-pointer">
                           <input type="checkbox" className="accent-gold" checked={assigned}
                             onChange={() => toggleClient(u.id, c)} />
-                          {c}
+                          {clientLabel(c)}
                         </label>
                       )
                     })}

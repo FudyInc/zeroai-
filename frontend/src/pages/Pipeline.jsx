@@ -14,6 +14,7 @@ import LeadRoute from '../components/LeadRoute'
 import IncomeBadge from '../components/IncomeBadge'
 import { WorkspaceHero, WorkspaceSectionHeading } from '../components/WorkspaceHero'
 import PipelineRun from '../components/PipelineRun'
+import { useClientLabel } from '../lib/clientLabels'
 
 /* Columnas del tablero: el camino del lead (LANE) y, al final, las dos salidas. ORDER
    ponía "Descartados" en tercer lugar, en medio del flujo, y a 1440px el ojo leía una
@@ -23,6 +24,7 @@ const BOARD = [...LANE, 'disqualified', 'lost']
 const DENSITY = [{ value: 'comodo', label: 'Cómodo' }, { value: 'compacto', label: 'Compacto' }]
 
 export default function Pipeline() {
+  const clientLabel = useClientLabel()
   const { client, openLead, runId, setRunId, scoped } = useApp()
   const qc = useQueryClient()
   const { data: board, isLoading, error, refetch } = useQuery({ queryKey: ['board', client], queryFn: () => api.board(client), enabled: !!client })
@@ -76,7 +78,7 @@ export default function Pipeline() {
         <WorkspaceHero
           eyebrow="Gestión comercial"
           title="Pipeline"
-          description={`Sigue el avance de los leads de ${client} y organiza cada oportunidad según su etapa.`}
+          description={`Sigue el avance de los leads de ${clientLabel(client)} y organiza cada oportunidad según su etapa.`}
           icon={Columns3}
           aside={{
             label: 'Leads en el tablero',

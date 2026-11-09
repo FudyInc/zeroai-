@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { setClientLabels } from './clientLabels'
 
 // En dev: '' → el proxy de Vite manda /api a localhost:8800.
 // En prod (Vercel): definí VITE_API_URL con la URL del backend en Render.
@@ -39,7 +40,7 @@ const q = encodeURIComponent
 
 export const api = {
   avances: () => req('/api/avances').then((d) => d.entries),
-  clients: () => req('/api/clients').then((d) => d.clients),
+  clients: () => req('/api/clients').then((d) => { setClientLabels(d.labels); return d.clients }),
   accounts: () => req('/api/accounts'),
   setPlan: (c, tier) =>
     req('/api/accounts/' + q(c) + '/plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tier }) }),

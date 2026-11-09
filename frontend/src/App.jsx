@@ -34,6 +34,7 @@ import Ciclo from './pages/Ciclo'
 import Aprobar from './pages/Aprobar'
 import Preferencias from './pages/Preferencias'
 import Avances from './pages/Avances'
+import { useClientLabel } from './lib/clientLabels'
 
 const AppCtx = createContext(null)
 export const useApp = () => useContext(AppCtx)
@@ -283,6 +284,7 @@ export default function App() {
 }
 
 function BusinessSwitcher({ clients, client, onSelect, canAdd, onAdd }) {
+  const clientLabel = useClientLabel()
   const [open, setOpen] = useState(false)
   const root = useRef(null)
 
@@ -303,7 +305,7 @@ function BusinessSwitcher({ clients, client, onSelect, canAdd, onAdd }) {
       <button type="button" aria-label="Seleccionar negocio" aria-expanded={open} aria-haspopup="menu"
         onClick={() => setOpen((value) => !value)}
         className="inline-flex max-w-[10rem] max-sm:max-w-[7rem] items-center gap-1.5 rounded-xl border border-zinc-200 dark:border-zinc-300 bg-white dark:bg-zinc-50 px-3 max-sm:px-2 py-2 text-sm text-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-100 focus:outline-none focus:ring-4 focus:ring-champagne/40">
-        <span className="truncate">{client || 'Negocios'}</span><ChevronDown size={14} className="shrink-0 text-zinc-500" />
+        <span className="truncate">{client ? clientLabel(client) : 'Negocios'}</span><ChevronDown size={14} className="shrink-0 text-zinc-500" />
       </button>
       {open && (
         <div role="menu" aria-label="Negocios" className="absolute right-0 top-full mt-2 w-56 max-w-[calc(100vw-2rem)] rounded-xl border border-zinc-200 dark:border-zinc-300 bg-white dark:bg-zinc-50 p-1.5 shadow-lg z-30 max-h-[min(70vh,22rem)] overflow-y-auto">
@@ -311,7 +313,7 @@ function BusinessSwitcher({ clients, client, onSelect, canAdd, onAdd }) {
             <button key={name} type="button" role="menuitemradio" aria-checked={name === client}
               onClick={() => { onSelect(name); setOpen(false) }}
               className="w-full flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-100 focus:bg-zinc-100 focus:outline-none">
-              <span className="truncate">{name}</span>{name === client && <Check size={15} className="shrink-0 text-gold-deep" />}
+              <span className="truncate">{clientLabel(name)}</span>{name === client && <Check size={15} className="shrink-0 text-gold-deep" />}
             </button>
           ))}
           {canAdd && <>
@@ -477,7 +479,7 @@ function RunModal({ open, onClose, onStarted }) {
                   clients.length === 1
                     ? <div className="text-sm font-medium py-2">{clients[0]}</div>
                     : <Select className="w-full" value={form.client} onChange={(e) => { setForm({ ...form, client: e.target.value }); setIcpLoaded(false) }}>
-                      {clients.map((c) => <option key={c} value={c}>{c}</option>)}
+                      {clients.map((c) => <option key={c} value={c}>{clientLabel(c)}</option>)}
                     </Select>
                 ) : (
                   <Input value={form.client} onChange={(e) => { setForm({ ...form, client: e.target.value }); setIcpLoaded(false) }} placeholder="nombre del cliente" />
