@@ -348,6 +348,36 @@ def reasks_open_choice(result: dict[str, Any], message: str,
     return key if reply and " ".join(last.split()).startswith(reply) else None
 
 
+# «me gustó el bullnose» to the border list: the model answered «Perfecto, el
+# bullnose queda muy bien» and moved on (ensayo 2026-11-09). A named preference
+# that is not an option is a slip, said plainly.
+_NAMED_PREFERENCE = re.compile(
+    r"(?:me\s+gusto|me\s+gustaria|me\s+interesa|prefiero|quiero|me\s+quedo\s+con|elijo)"
+    r"\s+(?:mas\s+)?(?:el|la|los|las|un|una)\s+([a-z]+(?:\s+[a-z]+)?)")
+_NOT_A_NAME = {"mas", "otro", "otra", "mismo", "misma", "primero", "segundo", "barato",
+               "barata", "economico", "caro", "mejor", "que", "de", "modelo", "borde",
+               "bordes", "catalogo", "presupuesto", "cotizacion", "precio",
+               # Attributes and pieces, not models: «quiero el pulido», «la esquina».
+               "redondeado", "redondo", "pulido", "liso", "rugoso", "antideslizante",
+               "esquina", "esquinas", "grande", "chico", "ancho", "angosto", "blanco",
+               "gris", "negro", "azul", "celeste", "verde", "cafe", "rosado", "terracota",
+               "natural", "claro", "oscuro", "color", "tono"}
+
+
+def unknown_option_named(message: str, key: str) -> str | None:
+    """The name a customer prefers when it is none of the open menu's options."""
+    found = _NAMED_PREFERENCE.fullmatch(_plain(message))
+    if not found:
+        return None
+    name = found.group(1)
+    if set(name.split()) & _NOT_A_NAME:
+        return None
+    if any(set(name.split()) & set(_plain(option).split())
+           for option in CHOICE_PROMPTS[key][1]):
+        return None
+    return name
+
+
 CHOICE_SLIP_MARK = "no está entre las opciones"
 
 

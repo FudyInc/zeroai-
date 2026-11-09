@@ -15,10 +15,10 @@ import logging
 import os
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from .config import (
+from .config import (LOSETASCHILE_CHAT_OPEN_HOURS, 
     LOSETASCHILE_CHOICE_STYLE,
     LOSETASCHILE_PAVER_PRICE_IDS,
     LOSETASCHILE_PAVER_REVIEW_SHIPPING_REPLY,
@@ -75,7 +75,7 @@ from .losetas_polls import (DELIVERY_POLL_QUESTION as LOSETAS_DELIVERY_POLL_QUES
                             BORDER_MODEL_QUESTION, POOL_SHAPE_QUESTION,
                             PAVER_AREA_QUESTION, PAVER_MODEL_QUESTION,
                             paver_review_reply, paver_review_sentence, paver_review_status,
-                            border_review_sentence, review_thanks,
+                            border_review_sentence, review_thanks, unknown_option_named,
                             WHATSAPP_WEB_POLL_KEYS)
 from .memory import SessionMemory
 from .quotes import compute_quote, extract_request, format_quote, normalize_pricing
@@ -160,6 +160,34 @@ def _introduced_name(text: str) -> Optional[str]:
 
 def _simple_greeting(text: str) -> bool:
     return bool(_GREETING_RE.fullmatch(text or "")) or _introduced_name(text) is not None
+
+
+_REPLY_SALUTATION = re.compile(r"^¡?\s*(?i:buen[oa]s\s+(?:d[ií]as|tardes|noches)|hola)"
+                               r"(?:,?\s+[A-ZÁÉÍÓÚÑ]\w*)?\s*[,.!]\s*")
+
+
+def _without_salutation(reply: str) -> str:
+    """«Buenas noches Juan. Ya tomé tus datos» mid-chat reads as a restart (ensayo 2026-11-09)."""
+    answer = _REPLY_SALUTATION.sub("", reply or "", count=1)
+    return (answer[:1].upper() + answer[1:]) if answer.strip() else reply
+
+
+def _greets(text: str) -> bool:
+    return bool(re.match(rf"[\s¡¿]*{_GREETING_WORD}\b", text or "", re.IGNORECASE))
+
+
+def _recent_agent_turn(turns: list, hours: float = LOSETASCHILE_CHAT_OPEN_HOURS) -> bool:
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    for turn in reversed(turns[-6:]):
+        if turn.get("role") != "agent":
+            continue
+        try:
+            at = datetime.fromisoformat(str(turn.get("at") or ""))
+        except ValueError:
+            continue
+        if at.tzinfo and at >= cutoff:
+            return True
+    return False
 
 
 def _unreadable_whatsapp_message(text: str, client_id: str = "") -> bool:
@@ -1553,6 +1581,17 @@ class Zero:
                             "customer_poll": "border_model",
                             "catalog_document": {"category": "bordes", "pricing": pricing},
                             "reply_after_document": True}
+                if (clarification == BORDER_MODEL_QUESTION and
+                        open_choice(order_history) == "border_model" and "?" not in message):
+                    # The list is already on screen: say what was understood, then ask again.
+                    tone = names_color(message)
+                    other = unknown_option_named(message, "border_model")
+                    lead_in = (f"Anoté el color {tone.casefold()}. " if tone else
+                               f"No tengo el modelo «{other}» en la lista; por ahora tenemos estos dos. "
+                               if other else "")
+                    if lead_in:
+                        return {"reply": lead_in + clarification, "intent": "qualification",
+                                "customer_poll": "border_model", "flow_step": True}
                 if clarification in (BORDER_MODEL_QUESTION, POOL_SHAPE_QUESTION):
                     return {"reply": clarification, "intent": "qualification",
                             "customer_poll": ("border_model" if clarification ==
@@ -2205,13 +2244,18 @@ class Zero:
             answer = reply.rstrip()
             if aside_kind != "verbatim":  # the team's own words go out untouched
                 # A closing question of its own would compete with the open menu.
-                answer = (re.sub(r"(^|[.!\n])\s*¿[^¿?]*\?[^\w¿?]*$", r"\1", answer).strip()
+                # «Para avanzar, ¿me confirmas la comuna?» is a question too (ensayo 2026-11-09);
+                # no digits in the lead-in, or «$5.000, ¿te sirve?» would lose its price.
+                answer = (re.sub(r"(^|[.!\n])[^.!?\n¿\d]*¿[^¿?]*\?[^\w¿?]*$", r"\1", answer).strip()
                           or answer)
                 # Mid-conversation, «Buenas noches Diego.» reads as a restart.
-                answer = re.sub(r"^¡?\s*(?i:buen[oa]s\s+(?:d[ií]as|tardes|noches)|hola)"
-                                r"(?:,?\s+[A-ZÁÉÍÓÚÑ]\w*)?\s*[,.!]\s*", "", answer) or answer
-                answer = answer[:1].upper() + answer[1:]
+                answer = _without_salutation(answer)
             reply = answer + "\n\n" + MENU_ASIDE_CLOSING
+        elif (client_id == "losetaschile" and channel == "whatsapp" and reply and
+              intent != "handoff" and not res.get("flow_step") and not _greets(text) and
+              _recent_agent_turn(prior_turns)):
+            # The model greets back at «Juan Pérez» after a handoff: the chat is already open.
+            reply = _without_salutation(reply)
         if client_id == "losetaschile" and channel == "whatsapp" and reply:
             reply = format_whatsapp_reply(reply)
         not_known = (client_id == "losetaschile" and channel == "whatsapp" and
