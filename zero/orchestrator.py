@@ -1324,6 +1324,20 @@ class Zero:
         if losetas_steps and _simple_greeting(message):
             introduced = _introduced_name(message)
             salutation = f"¡{greeting}, {introduced}!" if introduced else f"¡{greeting}!"
+            # A «hola» mid-order picks the conversation up where it was: restarting
+            # with the product menu loses the step she was on (eval 2026-11-08).
+            menu = open_choice(order_history)
+            if menu:
+                return {"reply": f"{salutation} {LOSETAS_CHOICE_PROMPTS[menu][0]}",
+                        "intent": "qualification", "repeat_menu": True,
+                        **({"delivery_poll": True} if menu == "delivery"
+                           else {"customer_poll": menu})}
+            last_agent = next((str(turn.get("text") or "") for turn in reversed(order_history)
+                               if turn.get("role") == "agent"), "")
+            for question in (PAVER_AREA_QUESTION, POOL_MEASUREMENT_QUESTION):
+                if question in last_agent:
+                    return {"reply": f"{salutation} {question}", "intent": "qualification",
+                            "flow_step": True, "repeat_menu": True}
             return {"reply": f"{salutation} ¿En qué puedo ayudarte?", "intent": "general",
                     "customer_poll": "product"}
         if losetas_steps:

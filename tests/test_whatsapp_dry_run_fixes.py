@@ -181,6 +181,34 @@ class FirstContactTest(_Flow):
         self.assertIn("$1.600", result["reply"])
 
 
+class GreetingMidOrderTest(_Flow):
+    """Eval 2026-11-08: a «hola» while the colour question was open restarted
+    the product menu. Diego: the agent always picks up each client's chat."""
+
+    def test_greeting_with_an_open_menu_resumes_that_question(self):
+        history = turns(("lead", "bordes"), ("agent", "Catálogo Bordes de Piscina"),
+                        ("lead", "Borde recto con nariz 50×50"), ("agent", COLOR_MENU))
+        result = self.converse("hola", history)
+        self.assertRegex(result["reply"], r"^¡[^!]+! ¿Qué color prefieres\?$")
+        self.assertEqual(result["customer_poll"], "color")
+
+    def test_greeting_with_delivery_open_resumes_delivery(self):
+        history = turns(("lead", "Amarillo"), ("agent", DELIVERY_MENU))
+        result = self.converse("Buenas", history)
+        self.assertIn("¿Cómo prefieres recibir tu pedido?", result["reply"])
+        self.assertTrue(result.get("delivery_poll"))
+
+    def test_greeting_after_the_area_question_asks_it_again(self):
+        history = turns(("lead", "Pastelones"), ("agent", PAVER_AREA_QUESTION))
+        result = self.converse("hola", history)
+        self.assertTrue(result["reply"].endswith(PAVER_AREA_QUESTION))
+        self.assertNotEqual(result.get("customer_poll"), "product")
+
+    def test_greeting_with_nothing_open_still_offers_the_products(self):
+        result = self.converse("hola", [])
+        self.assertEqual(result["customer_poll"], "product")
+
+
 class ClosingTest(_Flow):
     MENU = turns(("lead", "bordes"), ("agent", "¿Qué modelo de borde te interesó más?\n\n"
                                                "1. Borde recto con nariz 50×50\n"
