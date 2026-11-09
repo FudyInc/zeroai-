@@ -11,7 +11,7 @@
       "status": "activo en el sistema; no revertir",
       "scope": "Configuración del sistema (systemd), fuera del repo",
       "evidence": "zero.conf con OLLAMA_KEEP_ALIVE=-1; `ollama ps` muestra qwen3:14b, 11 GB, 100 % GPU, contexto 16384, UNTIL Forever (verificado el 2026-11-08). Respaldo: /etc/systemd/system/ollama.service.d/zero.conf.bak-20261108-210234. Las muertes por falta de memoria vienen del aviso del cambio; el journal del kernel de esta sesión ya no las conserva.",
-      "pending": "El .env tiene LOCAL_MODEL=qwen2.5:14b-instruct-q4_K_M y WhatsApp usa qwen3:14b. Con MAX_LOADED_MODELS=1, cuando el pipeline pide el otro modelo, Ollama cambia de modelo y lo recarga (pasó 2 veces el 2026-11-08). Hay que decidir si se usa un solo modelo. Como el ajuste vive fuera del repo, se pierde sin aviso si se reinstala Ollama."
+      "pending": "Mitigado el 2026-11-08: el .env de producción pasó de LOCAL_MODEL=qwen2.5:14b-instruct-q4_K_M a LOCAL_MODEL=qwen3:14b, el mismo modelo de WhatsApp. Antes, las corridas automáticas (_agents_autonomous) y scripts/probar-agente.py pedían qwen2.5, y Ollama tenía que cambiar de modelo y recargarlo. Ese día cargó qwen2.5 a las 11:21 y a las 11:26. Respaldo: /home/diego/zeroai/.env.bak-20261108-modelo. El pipeline demo (acme) corrió con qwen3:14b en 1 min 54 s sin cambiar de modelo. La calidad del pipeline con qwen3 no se evaluó. El cambio rige cuando se reinicie zero-backend. Como el ajuste de Ollama vive fuera del repo, se pierde sin aviso si se reinstala Ollama."
     },
     {
       "id": "2026-10-15-flujo-encuestas-cotizacion-losetas",
