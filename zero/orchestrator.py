@@ -75,6 +75,7 @@ from .losetas_polls import (DELIVERY_POLL_QUESTION as LOSETAS_DELIVERY_POLL_QUES
                             BORDER_MODEL_QUESTION, POOL_SHAPE_QUESTION,
                             PAVER_AREA_QUESTION, PAVER_MODEL_QUESTION,
                             paver_review_reply, paver_review_sentence, paver_review_status,
+                            border_review_sentence, review_thanks,
                             WHATSAPP_WEB_POLL_KEYS)
 from .memory import SessionMemory
 from .quotes import compute_quote, extract_request, format_quote, normalize_pricing
@@ -1319,8 +1320,13 @@ class Zero:
             if in_review:
                 # Only an acknowledgement, a status question or an exact repeat is
                 # answered from the open order; anything else goes through the flow.
-                return {"reply": ("" if "?" in message else "Gracias, lo anoté. ") + in_review,
-                        "intent": "info", "flow_step": True}
+                if _simple_greeting(message):
+                    opener = f"¡{greeting}! "
+                elif review_thanks(message):
+                    opener = "Gracias, lo anoté. "
+                else:  # «1», «alo?», «no entendí»: just where things stand
+                    opener = ""
+                return {"reply": opener + in_review, "intent": "info", "flow_step": True}
         if losetas_steps and _simple_greeting(message):
             introduced = _introduced_name(message)
             salutation = f"¡{greeting}, {introduced}!" if introduced else f"¡{greeting}!"
@@ -1980,8 +1986,8 @@ class Zero:
                 not paver_review_reply(text, open_order, _simple_greeting(text))):
             # The order is with the team: whatever else she writes, they must see it.
             self.memory.add_knowledge_gap(
-                client_id, f"Pedido de pastelones en revisión: el cliente escribió «{text[:200]}»",
-                "Pedido de pastelones en revisión: el cliente escribió otra cosa",
+                client_id, f"Pedido en revisión: el cliente escribió «{text[:200]}»",
+                "Pedido en revisión: el cliente escribió otra cosa",
                 chat_id=whatsapp_chat_id or key,
                 contacto=rec.get("name") or rec.get("phone") or "", lead_key=key, tipo="pedido")
             self.memory.save()
@@ -2103,14 +2109,13 @@ class Zero:
                     thanks = "Gracias, recibí los datos de entrega. "
                 else:
                     thanks = "Gracias, recibí los datos de tu pedido. "
+                detail = str(delivery_detail(text, prior_turns) or "")
+                pickup = detail.startswith("Retiro en fábrica:")
                 acknowledgment = thanks + (
                     (f"El retiro es en {FACTORY_ADDRESS}" +
                      (f" ({FACTORY_MAP_URL}). " if FACTORY_MAP_URL else ". ")
-                     if delivery_detail(text, prior_turns) and
-                     str(delivery_detail(text, prior_turns)).startswith("Retiro en fábrica:")
-                     else "") +
-                    "Tu presupuesto está pendiente de revisión por nuestro equipo; "
-                    "te responderemos por este chat.")
+                     if pickup else "") +
+                    border_review_sentence(tone, None if pickup else detail))
                 if paver_order:
                     acknowledgment = thanks + paver_review_sentence(paver_order)
                 try:
@@ -2423,7 +2428,10 @@ class Zero:
         self.memory.save()
         # The reply itself made an offer → remember it; an opt-out voids any open one.
 
-        if offer_flow and intent == "info" and delivery["status"] == "sent":
+        # A fixed flow step («tu presupuesto está en revisión») offers nothing: an «ok»
+        # after it must not be read as accepting an offer (replay of 2026-11-09).
+        if (offer_flow and intent == "info" and delivery["status"] == "sent" and
+                not res.get("flow_step")):
 
             self.memory.set_pending_offer(client_id, key, intent)
             self.memory.save()
