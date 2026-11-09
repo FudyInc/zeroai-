@@ -2,6 +2,18 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-11-08-ollama-keep-alive-indefinido",
+      "date": "2026-11-08",
+      "type": "change",
+      "title": "Ollama mantiene el modelo cargado de forma permanente",
+      "origin": "Cambio hecho fuera de la sesión de Claude Code el 2026-11-08 (~21:02), tras el cuelgue de WSL",
+      "summary": "WSL se colgó porque el kernel mató a llama-server por falta de memoria a las 19:05 y a las 19:17. Con OLLAMA_KEEP_ALIVE=30m, qwen3:14b se descargaba cada 30 minutos y cada recarga ocupaba unos 5,6 GB de RAM en WSL, que tiene un tope de 8 GB en .wslconfig. Ese día se recargó 18 veces. Se cambió OLLAMA_KEEP_ALIVE de 30m a -1 en /etc/systemd/system/ollama.service.d/zero.conf y se reinició Ollama. El modelo (qwen3:14b), OLLAMA_CONTEXT_LENGTH=16384 y OLLAMA_MAX_LOADED_MODELS=1 no cambiaron.",
+      "status": "activo en el sistema; no revertir",
+      "scope": "Configuración del sistema (systemd), fuera del repo",
+      "evidence": "zero.conf con OLLAMA_KEEP_ALIVE=-1; `ollama ps` muestra qwen3:14b, 11 GB, 100 % GPU, contexto 16384, UNTIL Forever (verificado el 2026-11-08). Respaldo: /etc/systemd/system/ollama.service.d/zero.conf.bak-20261108-210234. Las muertes por falta de memoria vienen del aviso del cambio; el journal del kernel de esta sesión ya no las conserva.",
+      "pending": "El .env tiene LOCAL_MODEL=qwen2.5:14b-instruct-q4_K_M y WhatsApp usa qwen3:14b. Con MAX_LOADED_MODELS=1, cuando el pipeline pide el otro modelo, Ollama cambia de modelo y lo recarga (pasó 2 veces el 2026-11-08). Hay que decidir si se usa un solo modelo. Como el ajuste vive fuera del repo, se pierde sin aviso si se reinstala Ollama."
+    },
+    {
       "id": "2026-10-15-flujo-encuestas-cotizacion-losetas",
       "date": "2026-10-15",
       "type": "change",
