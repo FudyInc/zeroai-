@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .config import LOSETASCHILE_PAVER_REVIEW_STATE_HOURS, WHATSAPP_REVIEW_NOTICES
+from .customer_text import normalize as normalize_customer_input
 from .losetas_text import closest, normalize_customer_text, plain
 
 
@@ -419,7 +420,7 @@ _BARE_PRODUCT = re.compile(
 
 def direct_product_category(message: str) -> str | None:
     """Recognize a clear category request without interpreting catalog questions."""
-    value = (message or "").strip()
+    value = normalize_customer_input(message).strip()
     # The product name alone answers the product question even when the lead
     # types it instead of voting. Seen live (2026-10-15): «Bordes de piscina»
     # reached the model, and no PDF or color poll was sent. A question
@@ -430,7 +431,7 @@ def direct_product_category(message: str) -> str | None:
     if not re.search(r"\b(?:quiero|busco|necesito|me interesan|cotizar|presupuesto)\b",
                      value, re.IGNORECASE):
         return None
-    borders = bool(re.search(r"\bbordes?\s+(?:de|para)\s+(?:la\s+)?piscina\b",
+    borders = bool(re.search(r"\bbordes?\s+(?:de|para)\s+(?:(?:la|mi|una|nuestra|el)\s+)?piscinas?\b",
                              value, re.IGNORECASE))
     pavers = bool(re.search(r"\bpastelones?\b", value, re.IGNORECASE))
     return "bordes" if borders and not pavers else "pastelones" if pavers and not borders else None
@@ -442,9 +443,24 @@ def poll_answer_for_history(message: str, history: list[dict[str, Any]]) -> str 
 
 
 _PAVER_AREA = re.compile(
-    r"\b(\d+(?:[.,]\d+)?)\s*(?:m\s*(?:2|²)|mt2|metros?\s+cuadrados?)\b",
+    r"\b(\d+(?:[.,]\d+)?)\s*(?:m\s*(?:2|²)|m(?:ts?|trs?)\s*(?:2|²)|metros?\s*(?:cuadrados?|2|²))",
     re.IGNORECASE,
 )
+_DIMENSIONS = re.compile(r"(?<![\d.,])(\d{1,3}(?:[.,]\d{1,2})?)\s*(?:x|×|por)\s*"
+                         r"(\d{1,3}(?:[.,]\d{1,2})?)\b", re.IGNORECASE)
+# A paved area is metres on a side: 40x40 or 60x40 are piece sizes in centimetres.
+_MAX_AREA_SIDE_M = 30
+
+
+def _dimension_area(text: str) -> str | None:
+    """«5 x 6» answers «¿cuántos m²?» with 30; piece sizes are not an area."""
+    found = _DIMENSIONS.search(text)
+    if not found:
+        return None
+    left, right = (float(side.replace(",", ".")) for side in found.groups())
+    if not 0 < max(left, right) <= _MAX_AREA_SIDE_M or min(left, right) <= 0:
+        return None
+    return f"{left * right:g}"
 _PAVER_MODELS = (
     ("Laja española", re.compile(r"\blaja(?:\s+espa[nñ]ola)?\b", re.I)),
     ("Ladrillo cruzado", re.compile(r"\bladrillo\s+cruzado\b", re.I)),
@@ -457,7 +473,11 @@ _PAVER_MODELS = (
 )
 
 
-_BARE_AREA = re.compile(r"(\d{1,4}(?:[.,]\d{1,2})?)\s*(?:m|mts?|metros?)?\.?", re.IGNORECASE)
+# The whole answer is the number: «30», «unos 30 metros», «aprox 30 mts». A
+# longer sentence («3 metros de ancho») is a length, not the area.
+_BARE_AREA = re.compile(r"(?:(?:unos|unas|aprox(?:imadamente)?\.?|como|son|ser[ií]an|"
+                        r"m[aá]s\s+o\s+menos)\s+)*"
+                        r"(\d{1,4}(?:[.,]\d{1,2})?)\s*(?:m|mts?|metros?)?\.?", re.IGNORECASE)
 
 
 def paver_order_details(message: str, history: list[dict[str, Any]]) -> dict[str, str | None]:
@@ -478,16 +498,21 @@ def paver_order_details(message: str, history: list[dict[str, Any]]) -> dict[str
                     str(turn.get("text") or "").casefold()):
                 prompt_index = index
                 break
-    candidate_text = " ".join(
+    candidate_text = normalize_customer_input(" ".join(
         str(turn.get("text") or "") for turn in turns[prompt_index + 1:]
-        if turn.get("role") == "lead") if prompt_index >= 0 else ""
+        if turn.get("role") == "lead") if prompt_index >= 0 else "")
     model = next((label for label, pattern in _PAVER_MODELS if pattern.search(candidate_text)), None)
     area = _PAVER_AREA.search(candidate_text)
+    # Also accept an explicit pool rectangle as a covered-area answer: «5 x 6» = 30 m².
+    if not area:
+        computed = _dimension_area(candidate_text)
+        area = re.match(r"(.*)", computed) if computed else None
     following = turns[prompt_index + 1] if 0 <= prompt_index < len(turns) - 1 else {}
     if not area and following.get("role") == "lead":
         # «20» alone answers «¿Cuántos m²…?» only as the very next message: a
         # later «1» is a menu choice, not one square metre.
-        found = _BARE_AREA.fullmatch(str(following.get("text") or "").strip())
+        normalized_following = normalize_customer_input(str(following.get("text") or "").strip())
+        found = _BARE_AREA.fullmatch(normalized_following)
         area = found if found and float(found.group(1).replace(",", ".")) > 0 else None
     # Our own «Anoté 80 m².» is the latest word: a corrected area replaces the first.
     noted = [found.group(1) for turn in turns[prompt_index + 1:]
@@ -512,13 +537,17 @@ def area_correction(message: str, history: list[dict[str, Any]]) -> str | None:
     if canonical_choice(message, history) or any(
             pattern.search(message) for _, pattern in _PAVER_MODELS):
         return None  # «laja española, 40 m2» picks the model: the step reads both
-    value = _without_keycaps(message).strip()
+    value = normalize_customer_input(_without_keycaps(message).strip())
     area = _PAVER_AREA.search(value)
     if area:
         rest = re.sub(r"\b(?:son|eran|mejor)\b", " ", _PAVER_AREA.sub(" ", value))
         if canonical_choice(re.sub(r"[\s,.;]+", " ", rest).strip(), history):
             return None  # «el 2, son 30 m2» picks a model too
         return area.group(1).replace(",", ".")
+    # «mejor 6 x 5»: the area again, by its sides. An explicit m² above wins.
+    computed = _dimension_area(value)
+    if computed and float(computed) >= 10:
+        return computed
     bare = re.fullmatch(r"(?:(?:mejor|son|eran|perd[oó]n|no|corrijo)[\s,]+)*"
                         r"(\d{1,4}(?:[.,]\d{1,2})?)\s*(?:m|mts?|metros?)?\.?", value,
                         re.IGNORECASE)

@@ -15,6 +15,7 @@ from zero.losetas_shipping import SHIPPING_PRICE_REPLY, shipping_delivery_follow
 from zero.memory import SessionMemory
 from zero.orchestrator import Zero
 from zero.pool_border import border_plan, paver_price_reply, wants_product_quote
+from zero.customer_text import normalize as normalize_customer_input
 from zero.config import WHATSAPP_HUMAN_REQUEST_ACK
 from tests.test_whatsapp_live_errors import _LiveChat
 
@@ -68,12 +69,92 @@ class MenuReaskTest(unittest.TestCase):
                          f"El 6 {CHOICE_SLIP_MARK}. Elige 1 o 2.")
 
 
+class CustomerTextNormalizationTest(unittest.TestCase):
+    def test_measurement_inputs_normalize_without_decimal_truncation(self):
+        expected = {
+            "7,25 x 3,5": "7,25 x 3,5",
+            "7.25 por 3.5": "7.25 por 3.5",
+            "8 ,5 x 4": "8,5 x 4",
+            "8 1/2 x 4": "8,5 x 4",
+            "8 y medio por 4": "8,5 por 4",
+            "ocho por cuatro": "8 por 4",
+            "8 de largo y 4 de ancho": "8 x 4",
+            "largo 8 ancho 4": "8 x 4",
+            "8 * 4": "8 x 4",
+        }
+        for source, result in expected.items():
+            with self.subTest(source=source):
+                self.assertEqual(normalize_customer_input(source), result)
+
+    def test_common_product_typos_normalize(self):
+        for source, result in (
+            ("quiero cotisar bordes para la pisina", "quiero cotizar bordes para la piscina"),
+            ("nesesito bordes de piscina", "necesito bordes de piscina"),
+            ("pasteones", "pastelones"),
+            ("kiero pastelones", "quiero pastelones"),
+            ("bordez para piscina", "bordes para piscina"),
+            ("borde de picina", "borde de piscina"),
+        ):
+            with self.subTest(source=source):
+                self.assertEqual(normalize_customer_input(source), result)
+
+    def test_pool_size_uses_normalized_decimal_and_written_numbers(self):
+        prefix = "borde recto con nariz piscina rectangular "
+        for source, straight in (("ocho por cuatro", 48), ("largo 8 ancho 4", 48),
+                                 ("8 de largo y 4 de ancho", 48), ("8 * 4", 48),
+                                 ("8 ,5 x 4", 50), ("8 1/2 x 4", 50), ("8 y medio por 4", 50)):
+            with self.subTest(source=source):
+                plan, _ = border_plan(prefix + source, [])
+                self.assertIsNotNone(plan)
+                self.assertEqual((plan["straight"], plan["corners"]), (straight, 4))
+
+    def test_quarter_metre_decimal_is_not_read_as_a_whole_side(self):
+        # Ensayo 2026-11-09: «7,25 x 3,5» se leía como 25 m y cotizaba 114 bordes.
+        for source in ("7,25 x 3,5", "7.25 por 3.5"):
+            with self.subTest(source=source):
+                plan, ask = border_plan("borde recto con nariz piscina rectangular " + source, [])
+                self.assertIsNone(plan)
+                self.assertIn("confirmar los cortes", ask)
+
+    def test_paver_area_accepts_variants_and_dimension_product(self):
+        history = turns(("agent", PAVER_AREA_QUESTION))
+        for source, expected in (("30 mts2", "30"), ("treinta metros", "30"),
+                                 ("unos 30 metros", "30"), ("30 mtrs cuadrados", "30"),
+                                 ("5x6", "30"), ("5 x 6 metros", "30")):
+            with self.subTest(source=source):
+                self.assertEqual(paver_order_details(source, history)["area_m2"], expected)
+
+    def test_lengths_and_piece_sizes_are_not_an_area(self):
+        # Revisor 2026-11-09: «3 metros de ancho» se anotaba como 3 m².
+        history = turns(("agent", PAVER_AREA_QUESTION))
+        for source in ("tengo 3 metros de ancho", "10 metros de largo", "80 x 40", "40x40"):
+            with self.subTest(source=source):
+                self.assertIsNone(paver_order_details(source, history)["area_m2"])
+        self.assertEqual(paver_order_details("8 x 4 y 20 m2", history)["area_m2"], "20")
+
+    def test_area_correction_on_the_model_menu_ignores_piece_sizes(self):
+        from zero.losetas_polls import PAVER_MODEL_QUESTION, area_correction
+        history = turns(("agent", f"Anoté 30 m². {PAVER_MODEL_QUESTION}"))
+        for source in ("son 80 por 40", "100 x 100", "60 x 40", "2 por 1"):
+            with self.subTest(source=source):
+                self.assertIsNone(area_correction(source, history))
+        self.assertEqual(area_correction("8 x 4 y 20 m2", history), "20")
+        self.assertEqual(area_correction("mejor 6 x 5", history), "30")
+
+
 class PollsTest(unittest.TestCase):
     def test_pavers_for_the_pool_start_the_paver_flow(self):
         for message in ("Pastelones para piscina", "pastelones de la piscina",
                         "quiero pastelones para mi terraza", "Pastelones"):
             self.assertEqual(direct_product_category(message), "pastelones", message)
         self.assertEqual(direct_product_category("bordes para piscina"), "bordes")
+
+    def test_border_request_with_possessive_skips_the_product_menu(self):
+        # Ensayo 2026-11-09: «bordes para mi piscina» recibía el menú «¿Qué producto?».
+        for message in ("Hola buenas tardes, quiero cotizar bordes para mi piscina",
+                        "necesito bordes para una piscina", "busco bordes de nuestra piscina"):
+            self.assertEqual(direct_product_category(message), "bordes", message)
+        self.assertIsNone(direct_product_category("quiero bordes para mi piscina y pastelones"))
 
     def test_closing_and_bare_acknowledgments_are_different(self):
         for message in ("Okay gracias luego consulto", "no quiero nada", "gracias",

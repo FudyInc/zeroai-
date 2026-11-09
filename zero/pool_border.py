@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import re
 from decimal import Decimal
+
+from .customer_text import normalize as normalize_customer_input
 from typing import Any
 
 from .config import (LOSETASCHILE_PAVER_PRICE_ID, LOSETASCHILE_PAVER_PRICE_IDS,
@@ -28,7 +30,7 @@ _GENERIC_PASTELON_REQUEST = re.compile(
 )
 _POOL_BORDER_REQUEST = re.compile(
     r"\b(?:necesito|quiero|busco|me interesan)\b.{0,100}"
-    r"\bbordes?\s+(?:de|para)\s+(?:la|mi|una)?\s*piscina\b",
+    r"\bbordes?\s+(?:de|para)\s+(?:la|mi|una|nuestra|el)?\s*piscina\b",
     re.IGNORECASE,
 )
 _MEASUREMENT_QUESTION_MARKER = "medidas de tu piscina"
@@ -84,9 +86,9 @@ _POOL_MEASUREMENTS = re.compile(
     re.IGNORECASE,
 )
 _SIZE = re.compile(
-    # «4 mts x 8», «4 mt. x 8 mtrs»: how Chilean customers write metres.
-    r"\b(\d{1,3}(?:[.,]\d)?)\s*(?:m(?:ts?|trs?|etros?)?\.?\s*)?"
-    r"(?:x|×|por)\s*(\d{1,3}(?:[.,]\d)?)\s*(?:m(?:ts?|trs?|etros?)?)?\b",
+    # Decimal boundary prevents «7,25» being misread as 25; accept 1–2 decimals.
+    r"(?<![\d.,])(\d{1,3}(?:[.,]\d{1,2})?)\s*(?:m(?:ts?|trs?|etros?)?\.?\s*)?"
+    r"(?:x|×|por)\s*(\d{1,3}(?:[.,]\d{1,2})?)\s*(?:m(?:ts?|trs?|etros?)?)?\b",
     re.IGNORECASE,
 )
 # «Borde ballena 50×40» names the piece, not the pool: reading it as the pool
@@ -276,9 +278,15 @@ def visual_catalog_category(message: str) -> str | None:
     return "bordes" if borders else "pastelones"
 
 
+def has_pool_size(message: str) -> bool:
+    """The message already carries a size like «7 por 3,5» or «ocho por cuatro»."""
+    return bool(_SIZE.search(normalize_customer_input(message)))
+
+
 def pool_measurement_message(message: str) -> bool:
     """Recognize a pool size even when an earlier reply broke the question flow."""
-    return bool(_POOL_MEASUREMENTS.search(message or "") and _SIZE.search(message or ""))
+    normalized = normalize_customer_input(message)
+    return bool(_POOL_MEASUREMENTS.search(normalized) and _SIZE.search(normalized))
 
 
 def delegates_piece_calculation(question: str, reply: str) -> bool:
@@ -300,7 +308,7 @@ def measurement_followup(message: str, history: list[dict[str, Any]]) -> bool:
     for turn in reversed(history):
         if turn.get("role") == "agent":
             return (_MEASUREMENT_QUESTION_MARKER in str(turn.get("text") or "").lower()
-                    and bool(_SIZE.search(message)))
+                    and bool(_SIZE.search(normalize_customer_input(message))))
     return False
 
 
@@ -373,8 +381,8 @@ def pool_shape_followup(message: str, history: list[dict[str, Any]]) -> bool:
 
 def border_plan(message: str, history: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, str]:
     """Return confirmed quantities or the one missing detail to ask for."""
-    message = normalize_pool_border_terms(message)
-    lead_texts = [normalize_pool_border_terms(str(turn.get("text") or "")) for turn in history
+    message = normalize_customer_input(normalize_pool_border_terms(message))
+    lead_texts = [normalize_customer_input(normalize_pool_border_terms(str(turn.get("text") or ""))) for turn in history
                   if turn.get("role") == "lead"]
     if re.search(r"\b(?:terraza|interior|fondo|piso)\b", message, re.IGNORECASE):
         return None, "¿Te refieres al borde recto con nariz de la piscina o a otro producto?"
@@ -449,7 +457,7 @@ def border_plan(message: str, history: list[dict[str, Any]]) -> tuple[dict[str, 
 
 def wants_border_budget(message: str) -> bool:
     """Use the structured budget for a confirmed pool-border order."""
-    message = normalize_pool_border_terms(message)
+    message = normalize_customer_input(normalize_pool_border_terms(message))
     if _REJECT_PASTELON.search(message):
         return False
     if wants_product_quote(message) or (_COUNT.search(message) and _PIECES.search(message)):
@@ -464,6 +472,7 @@ def wants_border_budget(message: str) -> bool:
 
 def wants_product_quote(message: str) -> bool:
     """A price request or a shared delivery detail can complete a known order."""
+    message = normalize_customer_input(message)
     if shipping_price_request(message) or _OTHER_QUOTED_PRODUCT.search(
             _WITHOUT_INSTALLATION.sub("", message)):
         return False

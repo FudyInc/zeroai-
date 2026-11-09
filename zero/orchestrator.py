@@ -78,7 +78,7 @@ from .losetas_polls import (DELIVERY_POLL_QUESTION as LOSETAS_DELIVERY_POLL_QUES
                             WHATSAPP_WEB_POLL_KEYS)
 from .memory import SessionMemory
 from .quotes import compute_quote, extract_request, format_quote, normalize_pricing
-from .pool_border import (POOL_PHOTO_MARKER, POOL_PHOTO_REQUEST, POOL_SIZE_CONFIRMATION, _MEASUREMENT_QUESTION as POOL_MEASUREMENT_QUESTION,
+from .pool_border import (has_pool_size, POOL_PHOTO_MARKER, POOL_PHOTO_REQUEST, POOL_SIZE_CONFIRMATION, _MEASUREMENT_QUESTION as POOL_MEASUREMENT_QUESTION,
                           pool_photo_followup, roman_pool,
                           border_plan, catalog_requested, visual_catalog_category,
                           delegates_piece_calculation,
@@ -1363,7 +1363,10 @@ class Zero:
             typed_category = direct_product_category(message)
             # A typed product name restarts the step only when it is a new choice:
             # repeating the category just chosen must not resend PDF and color poll.
+            # «bordes para una piscina de 7 por 3,5» already brings the size: asking
+            # for it again would ignore what she wrote, so the size path takes it.
             if (not selected_category and typed_category and
+                    not (typed_category == "bordes" and has_pool_size(message)) and
                     selected_category_from_history(order_history[-6:]) != typed_category):
                 selected_category = typed_category
             if selected_category:
@@ -1375,7 +1378,7 @@ class Zero:
                 return {"reply": f"¡{greeting}! ¿En qué puedo ayudarte?", "intent": "general",
                         "customer_poll": "product"}
             if (_QUOTE_REQUEST_RE.search(message) and not _INFO_QUESTION_RE.search(message) and
-                    not re.search(r"\b(?:bordes?\s+(?:de|para)\s+(?:la\s+)?piscina|pastelones?)\b",
+                    not re.search(r"\b(?:bordes?\s+(?:de|para)\s+(?:(?:la|mi|una|nuestra|el)\s+)?piscinas?|pastelones?)\b",
                                   message, re.IGNORECASE) and not order_history):
                 return {"reply": f"¡{greeting}! {PRODUCT_POLL_QUESTION}", "intent": "qualification",
                         "customer_poll": "product"}
