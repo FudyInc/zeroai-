@@ -237,9 +237,10 @@ class ApiHttpTest(unittest.TestCase):
         self.assertEqual(caught.exception.code, 400)
 
     def test_pooledge_direct_quote_requires_shipping_review(self):
+        # PoolEdge opera con el id `losetaschile`; "pooledge" no es un cliente.
         request = urllib.request.Request(
             f"{self.base}/api/quote",
-            data=json.dumps({"client": "pooledge", "items": [
+            data=json.dumps({"client": "losetaschile", "items": [
                 {"id": "borde-recto", "qty": 2}]}).encode("utf-8"),
             headers={"Content-Type": "application/json"}, method="POST")
         with self.assertRaises(urllib.error.HTTPError) as caught:

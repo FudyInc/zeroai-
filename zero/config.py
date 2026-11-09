@@ -95,10 +95,10 @@ LOSETASCHILE_PAVER_REVIEW_SHIPPING_REPLY = (
 LOSETASCHILE_PRICE_ID_PASTELON_50 = "pastelones-50x50"
 LOSETASCHILE_PRICE_ID_DURMIENTE = "durmiente-16x40"
 
-# PoolEdge requiere dirección completa y despacho revisado por una persona antes
+# PoolEdge (id `losetaschile`; "pooledge" nunca fue un cliente real) requiere dirección completa y despacho revisado por una persona antes
 # de emitir un total final (ficha confirmada el 2026-09-29). El cotizador genérico
 # solo suma productos e IVA; no debe enviar ese subtotal como presupuesto final.
-QUOTE_REVIEW_REQUIRED_CLIENT_IDS = frozenset({"pooledge"})
+QUOTE_REVIEW_REQUIRED_CLIENT_IDS = frozenset({"losetaschile"})
 
 # Nombre que el dashboard muestra para un cliente cuando no coincide con su id.
 # Solo es un rótulo: el id (`losetaschile`) sigue siendo la llave de los datos,

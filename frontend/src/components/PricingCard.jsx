@@ -57,7 +57,7 @@ export default function PricingCard({ client }) {
       setRows(toRows(pricing))
       setCurrency(pricing.currency)
       setIvaPctInput(String(Math.round(pricing.iva_rate * 100)))
-      toast.success(client === 'pooledge'
+      toast.success(client === 'losetaschile'
         ? 'Lista de precios guardada — los presupuestos requieren revisión del despacho'
         : 'Lista de precios guardada — el agente ya cotiza con ella')
     },
@@ -80,7 +80,7 @@ export default function PricingCard({ client }) {
         <div>
           <div className="font-semibold leading-tight">Lista de precios</div>
           <div className="text-xs text-zinc-400 mt-0.5">
-            {client === 'pooledge'
+            {client === 'losetaschile'
               ? 'Los precios de producto no habilitan un presupuesto final: faltan despacho y revisión humana.'
               : <>Con esto el agente arma presupuestos exactos — los números los calcula el sistema,
                 nunca la IA. Configura el impuesto que corresponde a esta empresa.
