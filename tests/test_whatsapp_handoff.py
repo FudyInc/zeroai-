@@ -132,6 +132,33 @@ class WhatsAppHandoffTest(unittest.TestCase):
         self.assertTrue(result["manual_review"])
         draft.assert_not_called()
 
+    def test_unreadable_message_pause_expires(self):
+        chat = "56933333333@c.us"
+        self.inbound("[audio]", chat=chat)
+        handoff = self.memory.get_whatsapp_handoff("losetaschile", chat)
+        self.assertIn("expires", handoff)
+        # Within the window the agent stays silent and does not draft.
+        with mock.patch.object(self.zero, "converse_result") as draft:
+            self.assertTrue(self.inbound("Hola, quiero bordes", chat=chat)["manual_review"])
+        draft.assert_not_called()
+        # Past the window the chat is back with the agent, also after a reload.
+        self.memory.clients["losetaschile"]["whatsapp_handoffs"][chat]["expires"] = (
+            "2000-01-01T00:00:00+00:00")
+        self.memory.save()
+        self.assertIsNone(SessionMemory(self.path).get_whatsapp_handoff("losetaschile", chat))
+        self.assertIsNone(self.memory.get_whatsapp_handoff("losetaschile", chat))
+
+    def test_human_request_and_team_pauses_do_not_expire(self):
+        self.inbound("Quiero hablar con una persona", chat="a@c.us")
+        self.assertNotIn("expires", self.memory.get_whatsapp_handoff("losetaschile", "a@c.us"))
+        self.memory.set_whatsapp_handoff("losetaschile", "b@c.us", "El equipo tomó la conversación")
+        self.assertNotIn("expires", self.memory.get_whatsapp_handoff("losetaschile", "b@c.us"))
+
+    def test_unreadable_expiry_with_bad_date_keeps_pause(self):
+        self.memory.set_whatsapp_handoff("losetaschile", "c@c.us", "x", ttl_hours=2)
+        self.memory.clients["losetaschile"]["whatsapp_handoffs"]["c@c.us"]["expires"] = "basura"
+        self.assertIsNotNone(self.memory.get_whatsapp_handoff("losetaschile", "c@c.us"))
+
     def test_unreadable_meta_placeholders_skip_model(self):
         for marker in ("[interactive]", "[contacts]", "[image]"):
             with self.subTest(marker=marker), mock.patch.object(self.zero, "converse_result") as draft:

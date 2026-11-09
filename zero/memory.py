@@ -270,11 +270,23 @@ class SessionMemory:
 
     def get_whatsapp_handoff(self, client_id: str, lead_key: str) -> Optional[Dict[str, str]]:
         handoffs = self.clients.get(client_id, {}).get("whatsapp_handoffs") or {}
-        return handoffs.get(str(lead_key).lower())
+        item = handoffs.get(str(lead_key).lower())
+        expires = (item or {}).get("expires")
+        if expires:
+            try:
+                if datetime.fromisoformat(expires) <= datetime.now(timezone.utc):
+                    return None   # vencido: el chat vuelve al agente
+            except (TypeError, ValueError):
+                pass              # fecha ilegible: se mantiene la pausa
+        return item
 
-    def set_whatsapp_handoff(self, client_id: str, lead_key: str, reason: str) -> Dict[str, str]:
+    def set_whatsapp_handoff(self, client_id: str, lead_key: str, reason: str,
+                             ttl_hours: Optional[float] = None) -> Dict[str, str]:
+        """Pausa el agente en un chat. Sin `ttl_hours` la pausa no vence."""
         handoffs = self.clients.setdefault(client_id, {}).setdefault("whatsapp_handoffs", {})
         item = {"reason": reason[:200], "at": _now()}
+        if ttl_hours:
+            item["expires"] = (datetime.now(timezone.utc) + timedelta(hours=ttl_hours)).isoformat()
         handoffs[str(lead_key).lower()] = item
         return item
 

@@ -82,6 +82,12 @@ WHATSAPP_REVIEW_NOTICES = (
 
 # Texto que lee el cliente de LosetasChile cuando pide una persona o está molesto: el bot
 # queda pausado en ese chat y el pedido aparece en la bandeja de atención.
+# Un mensaje que el agente no puede leer (audio, sticker, adjunto, tecleo al azar)
+# pausa el chat para no contestar a ciegas, pero solo por este plazo: sin él, el
+# chat quedaba silenciado para siempre y nadie se enteraba. Pasado el plazo, el
+# siguiente mensaje legible del cliente se atiende normal. Los traspasos pedidos por
+# el cliente, por enojo, por foto de piscina o por el equipo no vencen.
+WHATSAPP_UNREADABLE_HANDOFF_HOURS = 2
 WHATSAPP_HUMAN_REQUEST_ACK = ("Listo, le aviso a una persona del equipo para que te escriba "
                               "por este chat.")
 # Respuesta al cliente que cierra o rechaza («gracias, luego consulto», «no quiero nada»).

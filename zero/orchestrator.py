@@ -18,7 +18,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from .config import (LOSETASCHILE_CHAT_OPEN_HOURS, 
+from .config import (LOSETASCHILE_CHAT_OPEN_HOURS, WHATSAPP_UNREADABLE_HANDOFF_HOURS,
     LOSETASCHILE_CHOICE_STYLE,
     LOSETASCHILE_PAVER_PRICE_IDS,
     LOSETASCHILE_PAVER_REVIEW_SHIPPING_REPLY,
@@ -1962,7 +1962,11 @@ class Zero:
                     client_id, text, reason, chat_id=whatsapp_chat_id or key,
                     contacto=rec.get("name") or rec.get("phone") or "", lead_key=key,
                     tipo="pedido")
-            self.memory.set_whatsapp_handoff(client_id, handoff_key, reason)
+            # Only an unreadable message pauses for a while; a person, an upset
+            # customer or a pool photo keeps the chat with the team.
+            self.memory.set_whatsapp_handoff(
+                client_id, handoff_key, reason,
+                ttl_hours=None if (wants_person or photo) else WHATSAPP_UNREADABLE_HANDOFF_HOURS)
             self.memory.log("whatsapp_handoff", client=client_id, lead=key, reason=reason)
             self.memory.save()
             if self.crm:
