@@ -20,13 +20,14 @@ def _safe_error(exc):
             f"Pestañas esperadas: {C.POOLEDGE_TAB_INFO!r}, {C.POOLEDGE_TAB_PLATAS!r}.")
 
 
-def _save_private(page: str, directory: Path) -> Path:
+def _save_private(page: str, directory: Path, prefix: str = "pooledge-historico",
+                  ext: str = "html") -> Path:
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(directory, 0o700)
-    base = f"pooledge-historico-{date.today().isoformat()}-{os.getpid()}"
+    base = f"{prefix}-{date.today().isoformat()}-{os.getpid()}"
     suffix = 0
     while True:
-        path = directory / f"{base}-{suffix}.html"
+        path = directory / f"{base}-{suffix}.{ext}"
         try:
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             break

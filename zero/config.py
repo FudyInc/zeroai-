@@ -141,6 +141,14 @@ POOLEDGE_TAB_INFO = "INFO PEDIDOS POOLEDGE"
 POOLEDGE_TAB_PLATAS = "PLATAS POOLEDGE"
 # Carpeta (bajo $HOME, fuera del repo) donde se guarda la vista previa privada.
 POOLEDGE_PREVIEW_DIR_NAME = "pooledge-vista-previa"
+# Pestañas operativas nuevas (scripts/pooledge_estructura.py). El histórico no se toca.
+POOLEDGE_TAB_PLATAS_NEW = "PLATAS 2026"
+POOLEDGE_TAB_RESUMEN = "RESUMEN"
+POOLEDGE_TAB_COBRANZA = "COBRANZA"
+# Filas hasta las que se aplica formato/validación en las pestañas operativas.
+POOLEDGE_FORMAT_ROWS = 1000
+# Estado de la comisión de cada pedido: cobrada / entregado sin cobrar / aún no entregado.
+POOLEDGE_COMMISSION_STATES = ("Cobrada", "Por cobrar", "Futura")
 # Cuántos borradores de revisión (por cliente) se recuerdan para leer la respuesta
 # del dueño que los cita.
 REVIEW_DRAFTS_KEPT = 50
