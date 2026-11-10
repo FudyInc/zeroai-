@@ -37,6 +37,8 @@ def _chat(priced=True):
     if priced:
         memory.set_client_pricing("losetaschile", {"currency": "CLP", "iva_rate": 0, "items": [
             {"id": "pastelones-40x40", "name": "Pastelón 40x40", "unit_price": 1600,
+             "unit": "unidad"},
+            {"id": "deck-madera-50x50", "name": "Deck madera 50x50", "unit_price": 3600,
              "unit": "unidad"}]})
     crm = CRM(None)
     crm.upsert("losetaschile", {"phone": PHONE, "source": "test"})
@@ -90,6 +92,21 @@ class PaverOrderReviewTest(unittest.TestCase):
         self.assertIn("240 × Laja española · $1.600 c/u = $384.000", draft)
         self.assertIn("*Total productos: $384.000*", draft)
         self.assertNotIn("pendientes de calcular", draft)
+
+    def test_new_50x50_model_from_the_menu_counts_four_pieces_per_m2(self):
+        # «10» en el menú de 11 es Deck madera 50×50: 40 m² × 4 = 160 piezas.
+        self.run_chat(self.ORDER, model="10")
+        draft = self.send_group.call_args.args[3]
+        self.assertIn("Modelo: Deck madera 50×50", draft)
+        self.assertIn("160 × Deck madera 50×50 · $3.600 c/u = $576.000", draft)
+        self.assertIn("*Total productos: $576.000*", draft)
+
+    def test_new_model_without_a_price_in_the_list_stays_pending(self):
+        self.run_chat(self.ORDER, model="Corrugado")
+        draft = self.send_group.call_args.args[3]
+        self.assertIn("Modelo: Corrugado 50×50", draft)
+        self.assertIn("pendientes de calcular", draft)
+        self.assertNotIn("Total productos", draft)
 
     def test_piece_count_rounds_up_and_uses_the_size_yield(self):
         order = {"model": "Sol", "area_m2": "45", "color": None, "delivery_detail": None,

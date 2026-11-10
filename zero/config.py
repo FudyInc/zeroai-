@@ -126,6 +126,14 @@ LOSETASCHILE_PAVER_PRICE_IDS = {
     "Sol rústico": LOSETASCHILE_PAVER_PRICE_ID,
     # Diego, 2026-11-08: «los gregorianos valen lo mismo que todos los 40x40».
     "Gregoriano": LOSETASCHILE_PAVER_PRICE_ID,
+    # Diego, 2026-11-09: el resto del catálogo PDF, menos Octágono.
+    "Adoquín": LOSETASCHILE_PAVER_PRICE_ID,
+    "Flor de lis": LOSETASCHILE_PAVER_PRICE_ID,
+    "Corrugado 50×50": "pastelones-50x50",
+    "Liso 50×50": "pastelones-50x50",
+    "Deck madera 50×50": "deck-madera-50x50",
+    # Mismo producto que la extensión de borde (Diego, 2026-11-09).
+    "Extensión piscina 50×50": "extension-borde-piscina",
 }
 # Modelos ofrecidos cuyo precio (y tamaño) Diego aún no confirma: el borrador dice
 # «precio pendiente». Sacar un modelo de aquí solo cuando Diego lo confirme.
@@ -135,6 +143,15 @@ LOSETASCHILE_PAVER_PRICE_PENDING: frozenset = frozenset()
 LOSETASCHILE_PAVER_PIECES_PER_M2 = {
     LOSETASCHILE_PAVER_PRICE_ID: 6,
     LOSETASCHILE_PRICE_ID_PASTELON_50: 4,
+    "deck-madera-50x50": 4,
+    "extension-borde-piscina": 4,
+}
+# Medida de pieza de cada id de pastelón, para responder «¿cuánto vale el X?».
+LOSETASCHILE_PAVER_PIECE_SIZES = {
+    LOSETASCHILE_PAVER_PRICE_ID: "40x40",
+    LOSETASCHILE_PRICE_ID_PASTELON_50: "50x50",
+    "deck-madera-50x50": "50x50",
+    "extension-borde-piscina": "50x50",
 }
 # Catálogos PDF de diseño (frontend/public/catalog/losetaschile/) con los precios
 # impresos en cada uno. Se envía el PDF solo si TODOS coinciden con la lista vigente;

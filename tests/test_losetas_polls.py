@@ -127,10 +127,23 @@ class LooseAnswerTest(unittest.TestCase):
         # Octagonal Piedra ya no se vende (Diego, 2026-11-03): no se ofrece ni se adivina.
         self.assertNotIn("Octagonal Piedra", PAVER_MODEL_OPTIONS)
         self.assertNotEqual(canonical_choice("octagonal", paver), "Octagonal Piedra")
-        # Quien vio el menú antiguo de seis y responde «6» recibe el aviso de 1 a 5.
+        # Modelos sumados el 2026-11-09 (todo el PDF menos Octágono), al final del menú.
+        for answer, expected in (("6", "Adoquín"), ("adoquin", "Adoquín"),
+                                 ("flor de lis", "Flor de lis"), ("corrugado", "Corrugado 50×50"),
+                                 ("el liso", "Liso 50×50"), ("deck", "Deck madera 50×50"),
+                                 ("10", "Deck madera 50×50"),
+                                 ("extension", "Extensión piscina 50×50"),
+                                 ("11", "Extensión piscina 50×50")):
+            with self.subTest(answer=answer):
+                self.assertEqual(canonical_choice(answer, paver), expected)
+        self.assertEqual(PAVER_MODEL_OPTIONS[:5], ("Laja española", "Ladrillo cruzado", "Sol",
+                                                   "Sol rústico", "Gregoriano"))
+        self.assertFalse(any("octag" in option.casefold() for option in PAVER_MODEL_OPTIONS))
         from zero.losetas_polls import choice_slip_reply, invalid_choice
-        self.assertEqual(invalid_choice("6", paver), "paver_model")
-        self.assertIn("del 1 al 5", choice_slip_reply("6", "paver_model"))
+        self.assertEqual(invalid_choice("0", paver), "paver_model")
+        self.assertIn("del 1 al 11", choice_slip_reply("0", "paver_model"))
+        # Dos dígitos fuera de la lista no son un error de menú: suelen ser m².
+        self.assertIsNone(invalid_choice("12", paver))
         shape = self.ask("shape")
         self.assertEqual(canonical_choice("sip", shape), "Sí, es rectangular")
         self.assertEqual(canonical_choice("es redonda", shape), "No es rectangular")

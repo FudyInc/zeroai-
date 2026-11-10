@@ -37,10 +37,11 @@ BORDER_MODEL_OPTIONS = (BORDER_MODEL_STRAIGHT, BORDER_MODEL_WHALE)
 
 PAVER_AREA_QUESTION = "¿Cuántos m² necesitas cubrir con pastelones?"
 PAVER_MODEL_QUESTION = "¿Qué pastelón del catálogo te interesó más?"
-# Same models, same order as the PDF (whatsapp-web-bridge/catalog-document.js).
-# Octagonal Piedra salió del menú el 2026-11-03: ya no se vende (Diego).
+# Octagonal Piedra salió del menú el 2026-11-03 (Diego). Los modelos 6 a 11 se sumaron
+# el 2026-11-09 al final, para que 1–5 sigan significando lo mismo en chats abiertos.
 PAVER_MODEL_OPTIONS = ("Laja española", "Ladrillo cruzado", "Sol", "Sol rústico",
-                       "Gregoriano")
+                       "Gregoriano", "Adoquín", "Flor de lis", "Corrugado 50×50",
+                       "Liso 50×50", "Deck madera 50×50", "Extensión piscina 50×50")
 
 PAVER_REVIEW_SUFFIX = " está en revisión del equipo; te escribimos por este chat."
 _PAVER_REVIEW_SENTENCE = re.compile(r"Tu presupuesto de .*?" + re.escape(PAVER_REVIEW_SUFFIX))
@@ -187,7 +188,9 @@ _ALIASES = {
                  "despachen": 0, "traigan": 0},
     "border_model": {"recto": 0, "nariz": 0, "ballena": 1},
     "paver_model": {"laja": 0, "espanola": 0, "ladrillo": 1, "cruzado": 1, "rustico": 3,
-                    "gregoriano": 4, "gregioriano": 4},
+                    "gregoriano": 4, "gregioriano": 4, "adoquin": 5, "flor": 6, "lis": 6,
+                    "liz": 6, "corrugado": 7, "liso": 8, "deck": 9, "madera": 9,
+                    "extension": 10},
     "shape": {"si": 0, "s": 0, "sip": 0, "rectangular": 0, "correcto": 0,
               "redonda": 1, "ovalada": 1, "irregular": 1, "circular": 1},
 }
@@ -524,8 +527,15 @@ _PAVER_MODELS = (
     ("Ladrillo cruzado", re.compile(r"\bladrillo\s+cruzado\b", re.I)),
     ("Sol rústico", re.compile(r"\bsol\s+r[uú]stico\b", re.I)),
     ("Sol", re.compile(r"\bsol\b", re.I)),
-    ("Adoquín", re.compile(r"\badoqu[ií]n\b", re.I)),
+    ("Adoquín", re.compile(r"\badoqu[ií]n(?:es)?\b", re.I)),
     ("Gregoriano", re.compile(r"\bgregi?oriano\b", re.I)),
+    ("Flor de lis", re.compile(r"\bflor\s+de\s+li[sz]\b", re.I)),
+    ("Corrugado 50×50", re.compile(r"\bcorrugados?\b", re.I)),
+    # «liso» y «extensión» también se dicen de bordes: solo cuentan sin «borde» cerca.
+    ("Liso 50×50", re.compile(r"^(?!.*\bbordes?\b).*\blisos?\b", re.I | re.S)),
+    ("Deck madera 50×50", re.compile(r"\bdeck\b", re.I)),
+    ("Extensión piscina 50×50", re.compile(r"^(?!.*\bbordes?\b).*\bextensi[oó]n(?:es)?\b",
+                                          re.I | re.S)),
     ("40x40", re.compile(r"\b40\s*[x×]\s*40\b", re.I)),
     ("50x50", re.compile(r"\b50\s*[x×]\s*50\b", re.I)),
 )

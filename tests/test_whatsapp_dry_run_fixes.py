@@ -22,7 +22,8 @@ from tests.test_whatsapp_live_errors import _LiveChat
 PRICING = {"currency": "CLP", "iva_rate": 0, "items": [
     {"id": "pastelones-40x40", "name": "Pastelón 40x40", "unit_price": 1600, "unit": "unidad"},
     {"id": "pastelones-50x50", "name": "Pastelón 50x50", "unit_price": 2600, "unit": "unidad"},
-    {"id": "durmiente-16x40", "name": "Durmiente 16x40", "unit_price": 900, "unit": "unidad"}]}
+    {"id": "durmiente-16x40", "name": "Durmiente 16x40", "unit_price": 900, "unit": "unidad"},
+    {"id": "deck-madera-50x50", "name": "Deck madera 50x50", "unit_price": 3600, "unit": "unidad"}]}
 COLOR_MENU = ("Te comparto la gama de colores disponible.\n\n¿Qué color prefieres?\n\n"
               "1. Anaranjado\n2. Blanco\n3. Rojo\n4. Crema\n5. Beige\n6. Gris\n7. Amarillo\n\n"
               "Responde con el número o el nombre.")
@@ -174,6 +175,12 @@ class PaverPriceTest(unittest.TestCase):
                          "El pastelón Sol rústico es de 40x40 y vale $1.600 c/u.")
         self.assertEqual(paver_price_reply("precio de los pastelones", PRICING),
                          "Los pastelones de 40x40 valen $1.600 c/u y los de 50x50, $2.600 c/u.")
+        self.assertEqual(paver_price_reply("¿cuánto vale el deck?", PRICING),
+                         "El pastelón Deck madera es de 50x50 y vale $3.600 c/u.")
+        self.assertEqual(paver_price_reply("precio del adoquín", PRICING),
+                         "El pastelón Adoquín es de 40x40 y vale $1.600 c/u.")
+        self.assertEqual(paver_price_reply("precio del corrugado", PRICING),
+                         "El pastelón Corrugado es de 50x50 y vale $2.600 c/u.")
         self.assertEqual(paver_price_reply("cuánto cuesta el durmiente", PRICING),
                          "El durmiente es de 16x40 y vale $900 c/u.")
         changed = {"items": [{"id": "pastelones-40x40", "unit_price": 1700}]}
