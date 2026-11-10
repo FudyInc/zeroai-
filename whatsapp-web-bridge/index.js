@@ -38,6 +38,7 @@ const QRCode = require('qrcode')
 const { serializedVoterId } = require('./delivery-poll')
 const { polls, pollForQuestion } = require('./poll-definitions')
 const { isCustomerMessageType } = require('./customer-message')
+const { stableMessageId } = require('./message-id')
 const { safeTypingMs } = require('./humanize')
 const { recentInbound } = require('./recovery')
 const { CATALOGS, makeCatalogPdf } = require('./catalog-document')
@@ -277,11 +278,13 @@ async function normalizeMessage(msg) {
     try { contact = await msg.getContact() } catch (_) { /* Nombre opcional. */ }
     const profileName = String(contact?.pushname || msg?._data?.notifyName || '')
       .replace(/\s+/g, ' ').trim().slice(0, 80)
-    let stableId = ""
-    if (msg.id?._serialized) stableId = String(msg.id._serialized)
-    else if (typeof msg.id === "string") stableId = msg.id
-    else if (msg.id && typeof msg.id.toString === "function") stableId = msg.id.toString()
-    else stableId = JSON.stringify(msg.id)
+    const stableId = stableMessageId(msg.id)
+    if (!stableId) {
+      // Sin id real no se reenvía: un id repetido descarta todos los mensajes.
+      lastError = 'Mensaje entrante sin id estable de WhatsApp'
+      console.error(lastError)
+      return null
+    }
     const payload = { id: clientId ? `${clientId}:${stableId}` : stableId,
       from, chat_id: senderId, text: body,
       to_phone_id: account || client.info?.wid?.user || '' }

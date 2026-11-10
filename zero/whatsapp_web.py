@@ -201,6 +201,9 @@ def parse_message(payload: Dict[str, Any], clients=()) -> Optional[Dict[str, str
     phone = str(payload.get("from") or "")
     destination = str(payload.get("to_phone_id") or "")
     chat_id = str(payload.get("chat_id") or "")
+    if "[object" in event_id or event_id.endswith(":undefined") or event_id.endswith(":null"):
+        # Id roto del puente: aceptarlo haría que todos los mensajes se vean duplicados.
+        return None
     if (not event_id or not phone.isdigit() or not 8 <= len(phone) <= 15
             or not destination.isdigit() or not 8 <= len(destination) <= 15):
         return None

@@ -32,6 +32,15 @@ class WhatsAppWebCatalogTest(unittest.TestCase):
         self.assertEqual(parse_message({**base, "profile_name": "  María  Pérez "})["profile_name"],
                          "María Pérez")
 
+    def test_broken_bridge_message_id_is_rejected(self):
+        base = {"from": "56912345678", "to_phone_id": "56987654321",
+                "chat_id": "56912345678@c.us", "text": "Hola"}
+        for bad in ("[object Object]", "losetaschile:[object Object]",
+                    "losetaschile:undefined", "losetaschile:null"):
+            self.assertIsNone(parse_message({**base, "id": bad}))
+        good = "losetaschile:false_56912345678@c.us_3A0F00AABBCCDDEEFF00"
+        self.assertEqual(parse_message({**base, "id": good})["id"], good)
+
     @mock.patch("zero.whatsapp_web.bridge_request")
     def test_group_send_checks_account_and_group_id(self, bridge):
         bridge.side_effect = [{"state": "ready", "account": "56987654321"},
