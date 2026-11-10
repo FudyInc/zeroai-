@@ -1,11 +1,26 @@
 """Internal LosetasChile budget for human review before customer delivery."""
 from __future__ import annotations
 
+import math
 import re
 from datetime import date as Date
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from .config import LOSETASCHILE_PAVER_PIECES_PER_M2
 from .losetas_polls import FACTORY_ADDRESS, FACTORY_MAP_URL
+
+
+def paver_pieces(area_m2: Any, price_id: str | None) -> int | None:
+    """Pieces that cover the area, rounded up; None when the size has no known yield."""
+    rate = LOSETASCHILE_PAVER_PIECES_PER_M2.get(price_id or "")
+    try:
+        area = Decimal(str(area_m2).replace(",", "."))
+    except (InvalidOperation, ValueError):
+        return None
+    if not rate or not area.is_finite() or area <= 0:
+        return None
+    return math.ceil(area * rate)
 
 
 def format_internal_budget(quote: dict[str, Any], *, profile_name: str | None,
@@ -67,6 +82,14 @@ def format_paver_order_draft(order: dict[str, Any], *, profile_name: str | None,
     unit = order.get("unit_price")
     lines.append(f"Precio unitario: ${round(unit):,}".replace(",", ".") if unit
                  else "Precio pendiente de confirmar (modelo sin precio confirmado).")
+    pieces = paver_pieces(order["area_m2"], order.get("price_id"))
+    money = lambda amount: "$" + f"{round(amount):,}".replace(",", ".")
+    if pieces and unit:
+        rate = LOSETASCHILE_PAVER_PIECES_PER_M2[order["price_id"]]
+        lines.extend(["", f"{pieces} × {order['model']} · {money(unit)} c/u = "
+                          f"{money(pieces * unit)}",
+                      f"({order['area_m2']} m² × {rate} piezas por m², redondeado hacia arriba)",
+                      f"*Total productos: {money(pieces * unit)}*", ""])
     delivery = " ".join(str(order.get("delivery_detail") or "").split())[:300]
     if delivery:
         lines.append(delivery)
@@ -76,8 +99,9 @@ def format_paver_order_draft(order: dict[str, Any], *, profile_name: str | None,
         lines.append("Costo de envío: no aplica (retiro en fábrica).")
     else:
         lines.append("Costo de envío: pendiente de confirmación del equipo.")
-    lines.extend(["Cantidad de piezas y total: pendientes de calcular por el equipo.",
-                  "Borrador interno. Revisar y enviar manualmente al cliente."])
+    if not (pieces and unit):
+        lines.append("Cantidad de piezas y total: pendientes de calcular por el equipo.")
+    lines.append("Borrador interno. Revisar y enviar manualmente al cliente.")
     return "\n".join(lines)
 
 

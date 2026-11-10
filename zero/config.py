@@ -130,6 +130,12 @@ LOSETASCHILE_PAVER_PRICE_IDS = {
 # Modelos ofrecidos cuyo precio (y tamaño) Diego aún no confirma: el borrador dice
 # «precio pendiente». Sacar un modelo de aquí solo cuando Diego lo confirme.
 LOSETASCHILE_PAVER_PRICE_PENDING: frozenset = frozenset()
+# Rendimiento por medida (Diego, 2026-11-09): «en 1 m2 caben 6 pastelones de 40x40 y
+# 4 pastelones de 50x50». Piezas = m² × rendimiento, redondeado hacia arriba; sin merma.
+LOSETASCHILE_PAVER_PIECES_PER_M2 = {
+    LOSETASCHILE_PAVER_PRICE_ID: 6,
+    LOSETASCHILE_PRICE_ID_PASTELON_50: 4,
+}
 # Cuánto dura el estado «pedido de pastelones en revisión» desde el turno que lo informó:
 # pasado ese plazo el chat vuelve al flujo normal.
 LOSETASCHILE_PAVER_REVIEW_STATE_HOURS = 72

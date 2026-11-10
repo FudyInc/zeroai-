@@ -237,7 +237,8 @@ def _paver_order(message: str, history: list[dict], pricing: dict) -> dict | Non
     unit = next((item["unit_price"] for item in pricing.get("items", [])
                  if price_id and item.get("id") == price_id), None)
     return {**details, "color": latest_color_preference(history),
-            "delivery_detail": delivery_detail(message, history), "unit_price": unit}
+            "delivery_detail": delivery_detail(message, history), "unit_price": unit,
+            "price_id": price_id}
 
 
 def _unverified_quote_review_claim(reply: str) -> bool:

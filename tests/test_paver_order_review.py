@@ -83,6 +83,32 @@ class PaverOrderReviewTest(unittest.TestCase):
         self.assertIn("Precio unitario: $1.600", draft)
         self.assertNotIn("Precio pendiente", draft)
 
+    def test_priced_order_counts_pieces_and_total(self):
+        # 40 m² de 40×40 a 6 piezas por m² (Diego, 2026-11-09) = 240 piezas.
+        self.run_chat(self.ORDER, model="Laja española")
+        draft = self.send_group.call_args.args[3]
+        self.assertIn("240 × Laja española · $1.600 c/u = $384.000", draft)
+        self.assertIn("*Total productos: $384.000*", draft)
+        self.assertNotIn("pendientes de calcular", draft)
+
+    def test_piece_count_rounds_up_and_uses_the_size_yield(self):
+        order = {"model": "Sol", "area_m2": "45", "color": None, "delivery_detail": None,
+                 "unit_price": 1600, "price_id": config.LOSETASCHILE_PAVER_PRICE_ID}
+        draft = format_paver_order_draft(order, profile_name=None, phone=PHONE)
+        self.assertIn("270 × Sol · $1.600 c/u = $432.000", draft)
+        draft = format_paver_order_draft({**order, "area_m2": "12,3"}, profile_name=None,
+                                         phone=PHONE)
+        self.assertIn("74 × Sol", draft)  # 73,8 piezas: nunca se cotiza de menos.
+        draft = format_paver_order_draft(
+            {**order, "price_id": config.LOSETASCHILE_PRICE_ID_PASTELON_50},
+            profile_name=None, phone=PHONE)
+        self.assertIn("180 × Sol", draft)
+        for broken in ({"price_id": "otro"}, {"unit_price": None}):
+            draft = format_paver_order_draft({**order, **broken}, profile_name=None,
+                                             phone=PHONE)
+            self.assertIn("pendientes de calcular", draft)
+            self.assertNotIn("Total productos", draft)
+
     def test_missing_price_list_is_pending_not_unsent(self):
         self.run_chat(self.ORDER, priced=False, model="Laja española")
         self.assertEqual(self.send_group.call_count, 1)
