@@ -9,6 +9,7 @@ memory and the bridge.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import unicodedata
 from datetime import date as Date, datetime
@@ -17,8 +18,9 @@ from zoneinfo import ZoneInfo
 
 from .attention import fixed_answer
 from .config import (LOSETASCHILE_DEPOSIT_CLP, REVIEW_DATE_ROLLOVER_DAYS, REVIEW_DRAFTS_KEPT,
-                     REVIEW_MIN_SHIPPING_CLP, WHATSAPP_TIME_ZONE)
+                     REVIEW_MIN_SHIPPING_CLP, WHATSAPP_TIME_ZONE, POOLEDGE_WRITE_ORDERS)
 from .losetas_budget import format_customer_budget
+from .pooledge_orders import build_order_rows, OrderError
 
 _WEEKDAYS = ("lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo")
 _MONTHS = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
@@ -41,6 +43,10 @@ _AMOUNT = re.compile(r"(\d+(?:[.,]\d+)?)\s*mil\b|\$\s*(\d[\d.,]*)|"
 _REGION = re.compile(r"^(.*?),\s*(?:(?:[ivxl]+\s+)?regi[oó]n\b.*|rm)\s*$", re.I)
 _NOT_PLACE = re.compile(r"^(avenida|av|calle|pasaje|casa|depto|departamento|poste|parcela|"
                         r"sitio|lote|villa|poblaci[oó]n|camino|ruta|condominio)\b", re.I)
+
+# Fase 2: palabras clave para escribir en la planilla
+_CONFIRM_PREFIX = ("confirmado", "confirmado ")
+_OK_PREFIX = ("ok", "ok ")
 
 
 def _plain(text: str) -> str:
@@ -325,6 +331,38 @@ def final_messages(draft: dict[str, Any], reading: dict[str, Any], knowledge: st
 
 # --- the one entry point that touches memory and the bridge ------------------
 
+def _is_confirm(text: str) -> bool:
+    t = (text or "").strip().casefold()
+    return t.startswith(_CONFIRM_PREFIX)
+
+
+def _is_ok(text: str) -> bool:
+    t = (text or "").strip().casefold()
+    return t.startswith(_OK_PREFIX)
+
+
+def _preview_text(draft: dict[str, Any], rows: dict[str, list]) -> str:
+    """Texto de vista previa que el bot publica en el grupo antes de escribir."""
+    order_id = rows["order_id"]
+    name = draft.get("name") or ""
+    detail = rows["platas_row"][3] or ""
+    venta = rows["platas_row"][4]
+    shipping = rows["info_row"][7]
+    fecha = rows["platas_row"][1]
+    place = rows["info_row"][4] or ""
+    line = (f"*POOLEDGE* Voy a anotar en la planilla:\n"
+            f"• ID: {order_id}\n"
+            f"• Cliente: {name}\n"
+            f"• Detalle: {detail}\n"
+            f"• Venta neta: ${venta:,.0f}\n"
+            f"• Despacho: ${shipping:,.0f}\n"
+            f"• Fecha: {fecha}")
+    if place:
+        line += f"\n• Lugar: {place}"
+    line += "\n\nResponde **ok** citando este mensaje para confirmar."
+    return line
+
+
 def handle_review_message(memory: Any, message: dict[str, str]) -> dict[str, Any]:
     """Act on one message from a review group; silent unless it quotes a known draft."""
     from . import whatsapp_web
@@ -341,31 +379,147 @@ def handle_review_message(memory: Any, message: dict[str, str]) -> dict[str, Any
         # A paver order has no calculated quote: the team answers by hand.
         memory.log("review_paver_reply_ignored", client=client_id, lead=draft.get("lead"))
         return out
+
+    text = (message.get("text") or "").strip()
+
+    # --- FASE 2: "confirmado" sobre el presupuesto final -> publica vista previa ---
+    if draft.get("status") == "final_published" and _is_confirm(text):
+        # Armar filas y publicar preview
+        fields = draft.get("fields") or draft.get("partial") or {}
+        if not fields:
+            # No hay datos completos aún; el dueño debe haber respondido "Falta:"
+            return out
+        try:
+            rows = build_order_rows(draft, fields)
+        except OrderError as exc:
+            # Faltan datos
+            preview = f"*POOLEDGE* No puedo anotar aún: {exc}\nCompleta los datos y responde «confirmado» de nuevo."
+            try:
+                whatsapp_web.send_group_text(client_id, message["to_phone_id"],
+                                             message["chat_id"], preview)
+            except Exception:
+                pass
+            memory.save()
+            return out
+        preview = _preview_text(draft, rows)
+        try:
+            result = whatsapp_web.send_group_text(client_id, message["to_phone_id"],
+                                                  message["chat_id"], preview)
+        except (RuntimeError, ValueError) as exc:
+            memory.log("order_preview_send_uncertain", client=client_id,
+                       lead=draft.get("lead"), error=str(exc)[:300])
+            return out
+        # Guardar preview para que el "ok" lo encuentre
+        draft["preview"] = rows
+        draft["preview_msg_id"] = result.get("id")
+        draft["status"] = "preview_sent"
+        memory.save()
+        memory.log("order_preview_posted", client=client_id, lead=draft.get("lead"),
+                   order_id=rows["order_id"])
+        return out
+
+    # --- FASE 2: "ok" sobre la vista previa -> escribe en la planilla ---
+    if draft.get("status") == "preview_sent" and _is_ok(text):
+        if not POOLEDGE_WRITE_ORDERS:
+            # Feature flag apagado: avisa al grupo
+            try:
+                whatsapp_web.send_group_text(client_id, message["to_phone_id"],
+                                             message["chat_id"],
+                                             "*POOLEDGE* Escritura en planilla desactivada (config).")
+            except Exception:
+                pass
+            return out
+        rows = draft.get("preview")
+        if not rows:
+            return out
+        # Escribir en la planilla
+        try:
+            from . import sheets
+            from .config import POOLEDGE_ORDERS_SHEET_ENV, POOLEDGE_TAB_INFO, POOLEDGE_TAB_PLATAS_NEW
+            spreadsheet_id = os.environ.get(POOLEDGE_ORDERS_SHEET_ENV)
+            if not spreadsheet_id:
+                raise RuntimeError("falta LOSETASCHILE_ORDERS_SHEET_ID en entorno")
+            token = sheets.get_access_token()
+            if not token:
+                raise RuntimeError("sin autorización para escribir en Sheets")
+            # 1) Leer la última fila con datos en INFO y PLATAS 2026
+            info_tab = sheets.quote_tab(POOLEDGE_TAB_INFO)
+            platas_tab = sheets.quote_tab(POOLEDGE_TAB_PLATAS_NEW)
+            info_vals = sheets.read_values(spreadsheet_id, f"{info_tab}!A:J", token)
+            platas_vals = sheets.read_values(spreadsheet_id, f"{platas_tab}!A:M", token)
+            info_next = len(info_vals) + 1
+            platas_next = len(platas_vals) + 1
+            # 2) Verificar que el ID no exista ya (idempotencia)
+            existing_ids = set()
+            for r in info_vals[1:]:
+                if len(r) > 9 and r[9]:
+                    existing_ids.add(str(r[9]).strip())
+            if rows["order_id"] in existing_ids:
+                msg = f"*POOLEDGE* El pedido {rows['order_id']} ya está en la planilla (fila {list(existing_ids).index(rows['order_id']) + 2}). No se duplicó."
+                whatsapp_web.send_group_text(client_id, message["to_phone_id"],
+                                             message["chat_id"], msg)
+                draft["status"] = "sheet_duplicate"
+                memory.save()
+                memory.log("order_sheet_duplicate", client=client_id,
+                           lead=draft.get("lead"), order_id=rows["order_id"])
+                return out
+            # 3) Escribir filas (batch_values_update con rango explícito)
+            # INFO: A..J en la fila siguiente
+            info_range = f"{info_tab}!A{info_next}:J{info_next}"
+            platas_range = f"{platas_tab}!A{platas_next}:F{platas_next}"
+            sheets.batch_values_update(spreadsheet_id, [
+                {"range": info_range, "values": [rows["info_row"]]},
+                {"range": platas_range, "values": [rows["platas_row"]]},
+            ], token)
+            msg = (f"*POOLEDGE* Anotado en la planilla:\n"
+                   f"• {rows['order_id']} en INFO fila {info_next}, PLATAS 2026 fila {platas_next}")
+            whatsapp_web.send_group_text(client_id, message["to_phone_id"],
+                                         message["chat_id"], msg)
+            draft["status"] = "sheet_written"
+            draft["sheet_row"] = {"info": info_next, "platas": platas_next}
+            memory.save()
+            memory.log("order_sheet_written", client=client_id, lead=draft.get("lead"),
+                       order_id=rows["order_id"], info_row=info_next, platas_row=platas_next)
+            return out
+        except Exception as exc:
+            # Log y aviso en el grupo
+            err = str(exc)[:300]
+            memory.log("order_sheet_failed", client=client_id, lead=draft.get("lead"),
+                       order_id=rows.get("order_id"), error=err)
+            try:
+                whatsapp_web.send_group_text(client_id, message["to_phone_id"],
+                                             message["chat_id"],
+                                             f"*POOLEDGE* No se pudo escribir en la planilla: {err}")
+            except Exception:
+                pass
+            return out
+
+    # --- FLUJO ORIGINAL: respuesta del dueño al presupuesto (Falta:/No cuadra:) ---
     try:
         issued = today()
-        reading = read_owner_reply(message.get("text", ""), draft, issued)
+        reading = read_owner_reply(text, draft, issued)
         plan = final_messages(draft, reading, memory.get_client_knowledge(client_id), issued)
         if not plan["messages"]:
             return out
         draft["partial"] = reading["partial"]
         sent = 0
-        for position, text in enumerate(plan["messages"]):
+        for position, t in enumerate(plan["messages"]):
             try:
                 result = whatsapp_web.send_group_text(client_id, message["to_phone_id"],
-                                                      message["chat_id"], text)
+                                                      message["chat_id"], t)
             except (RuntimeError, ValueError) as exc:
-                # The bridge may answer 502 even though the message arrived: log, never
-                # retry, and do not send the payment message without its budget.
                 memory.log("review_group_send_uncertain", client=client_id,
                            lead=draft.get("lead"), error=str(exc)[:300])
                 break
             sent += 1
             if not (plan["budget"] and position == 0) and not (
                     plan["payment"] and position == 1):
-                link_followup(memory, client_id, draft_id, text, result)
+                link_followup(memory, client_id, draft_id, t, result)
         budget_out = plan["budget"] and sent >= 1
         payment_out = plan["payment"] and sent == len(plan["messages"])
         if payment_out:
+            # Guardar fields completos para la fase 2
+            draft["fields"] = reading["fields"]
             draft["status"] = "final_published"
             memory.log("final_budget_ready", client=client_id, lead=draft.get("lead"),
                        total=draft["quote"]["total"] + (reading["fields"]["shipping"] or 0))

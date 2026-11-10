@@ -200,6 +200,8 @@ POOLEDGE_COMMISSION_STATES = ("Cobrada", "Por cobrar", "Futura")
 # IVA y TOTAL en PLATAS 2026. Diego (2026-11-09): «quita el IVA de mientras». Las
 # columnas existen igual (las fórmulas no se mueven), solo quedan ocultas.
 POOLEDGE_SHOW_IVA = False
+# Escribir pedidos confirmados en la planilla (fase 2 WhatsApp). Apagado por defecto.
+POOLEDGE_WRITE_ORDERS = False
 # Cuántos borradores de revisión (por cliente) se recuerdan para leer la respuesta
 # del dueño que los cita.
 REVIEW_DRAFTS_KEPT = 50

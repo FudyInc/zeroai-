@@ -35,7 +35,7 @@ from . import config as C
 from .sheets import quote_tab
 
 _FIRST_NEW_SHEET_ID = 2026001
-_PLATAS_COLS = 14  # A..N
+_PLATAS_COLS = 13  # A..M
 _TEXT = {"type": "TEXT", "pattern": "@"}
 _INFO_COL_J = 9    # índice 0-based de J
 _INFO_COL_G = 6
@@ -50,7 +50,7 @@ _AMBER = {"red": 1.0, "green": 0.88, "blue": 0.55}
 _GRAY = {"red": 0.85, "green": 0.85, "blue": 0.85}
 _HEADER_BG = {"red": 0.93, "green": 0.87, "blue": 0.73}
 
-_ENTRY_HEADERS = ["ID PEDIDO", "FECHA", "CLIENTE", "DETALLE", "COSTO BASE NETO", "VENTA NETA"]
+_ENTRY_HEADERS = ["ID PEDIDO", "FECHA", "CLIENTE", "DETALLE", "VENTA NETA"]
 _TAIL_HEADERS = ["COBRADO", "FECHA COBRO"]
 
 
@@ -116,14 +116,13 @@ def _platas_formulas() -> Dict[str, str]:
         return '={"%s";ARRAYFORMULA(%s)}' % (title, expr)
 
     return {
-        "G": arr("IVA", f'IF(A2:A="",,F2:F*{iva})'),
-        "H": arr("TOTAL", f'IF(A2:A="",,F2:F+F2:F*{iva})'),
-        "I": arr("GANANCIA", 'IF(A2:A="",,IF(E2:E="",,F2:F-E2:E))'),
-        "J": arr("COMISIÓN DIEGO", f'IF(A2:A="",,F2:F*{com})'),
-        "K": arr("ENTREGADO",
+        "F": arr("IVA", f'IF(A2:A="",,E2:E*{iva})'),
+        "G": arr("TOTAL", f'IF(A2:A="",,E2:E+E2:E*{iva})'),
+        "H": arr("COMISIÓN DIEGO", f'IF(A2:A="",,E2:E*{com})'),
+        "I": arr("ENTREGADO",
                  f'IF(A2:A="",,IFERROR(VLOOKUP(A2:A,{{{info}!J2:J,{info}!G2:G}},2,FALSE),FALSE))'),
-        "L": arr("ESTADO COMISIÓN",
-                 f'IF(A2:A="","",IF(M2:M=TRUE,"{cobrada}",IF(K2:K=TRUE,"{por_cobrar}","{futura}")))'),
+        "J": arr("ESTADO COMISIÓN",
+                 f'IF(A2:A="","",IF(K2:K=TRUE,"{cobrada}",IF(I2:I=TRUE,"{por_cobrar}","{futura}")))'),
     }
 
 
@@ -162,14 +161,14 @@ def _cobranza_values() -> List[Dict[str, Any]]:
 
     def block(cond: str, select: str, order: str, labels: str) -> str:
         return (
-            f'=IFERROR(QUERY(FILTER({p}!A2:N,{p}!A2:A<>"",{cond}),'
+            f'=IFERROR(QUERY(FILTER({p}!A2:L,{p}!A2:A<>"",{cond}),'
             f'"select {select} order by {order} label {labels}",0),"Sin pedidos")'
         )
 
-    pend = block(f'{p}!L2:L<>"{cobrada}"', "Col1, Col2, Col3, Col10, Col12", "Col2",
-                 "Col1 'ID PEDIDO', Col2 'FECHA', Col3 'CLIENTE', Col10 'COMISIÓN', Col12 'ESTADO'")
-    paid = block(f'{p}!L2:L="{cobrada}"', "Col1, Col2, Col3, Col10, Col14", "Col14",
-                 "Col1 'ID PEDIDO', Col2 'FECHA', Col3 'CLIENTE', Col10 'COMISIÓN', Col14 'FECHA COBRO'")
+    pend = block(f'{p}!J2:J<>"{cobrada}"', "Col1, Col2, Col3, Col8, Col10", "Col2",
+                 "Col1 'ID PEDIDO', Col2 'FECHA', Col3 'CLIENTE', Col8 'COMISIÓN', Col10 'ESTADO'")
+    paid = block(f'{p}!J2:J="{cobrada}"', "Col1, Col2, Col3, Col8, Col12", "Col12",
+                 "Col1 'ID PEDIDO', Col2 'FECHA', Col3 'CLIENTE', Col8 'COMISIÓN', Col12 'FECHA COBRO'")
     return [
         {"range": f"{tab}!A1", "values": [[
             "La pestaña COBRADO Y NO COBRADO queda como archivo histórico."]]},
@@ -264,18 +263,18 @@ def build_plan(meta: dict, info_last_row: int, info_j_nonempty: int = 0) -> dict
     reqs.append(_number_fmt(_rng(pid, 0, n, 0, 1), _TEXT))
     reqs.append(_checkbox(_rng(pid, 1, n, 12, 13)))
     reqs.append({"addProtectedRange": {"protectedRange": {
-        "range": _rng(pid, 0, n, 6, 12), "warningOnly": True,
+        "range": _rng(pid, 0, n, 5, 10), "warningOnly": True,
         "description": "Columnas calculadas (ARRAYFORMULA en la fila 1)"}}})
     for i, (state, color) in enumerate(zip(C.POOLEDGE_COMMISSION_STATES, (_GREEN, _AMBER, _GRAY))):
         reqs.append({"addConditionalFormatRule": {"index": i, "rule": {
-            "ranges": [_rng(pid, 1, n, 11, 12)],
+            "ranges": [_rng(pid, 1, n, 9, 10)],
             "booleanRule": {"condition": {"type": "TEXT_EQ", "values": [{"userEnteredValue": state}]},
                             "format": {"backgroundColor": color}}}}})
 
     if not C.POOLEDGE_SHOW_IVA:
-        # G (IVA) y H (TOTAL) ocultas, no borradas: así ninguna referencia se corre.
+        # F (IVA) y G (TOTAL) ocultas, no borradas: así ninguna referencia se corre.
         reqs.append({"updateDimensionProperties": {
-            "range": {"sheetId": pid, "dimension": "COLUMNS", "startIndex": 6, "endIndex": 8},
+            "range": {"sheetId": pid, "dimension": "COLUMNS", "startIndex": 5, "endIndex": 7},
             "properties": {"hiddenByUser": True}, "fields": "hiddenByUser"}})
 
     # RESUMEN
@@ -324,17 +323,17 @@ def build_plan(meta: dict, info_last_row: int, info_j_nonempty: int = 0) -> dict
         "first_new_row": first_new,
         "format_rows": n,
         "validations": [
-            f"{C.POOLEDGE_TAB_PLATAS_NEW}!M2:M{n}: checkbox (COBRADO)",
+            f"{C.POOLEDGE_TAB_PLATAS_NEW}!K2:K{n}: checkbox (COBRADO)",
             f"{C.POOLEDGE_TAB_INFO}!G{first_new}:G{info_end}: checkbox (ENTREGADO), solo filas nuevas",
         ],
         "formats": [
             f"{C.POOLEDGE_TAB_PLATAS_NEW}: encabezados en negrita, fila 1 congelada",
-            f"{C.POOLEDGE_TAB_PLATAS_NEW}!B y N: fecha dd-mm-yyyy; E:J: CLP",
-            f"{C.POOLEDGE_TAB_PLATAS_NEW}!L: color según estado "
+            f"{C.POOLEDGE_TAB_PLATAS_NEW}!B y M: fecha dd-mm-yyyy; E:H: CLP",
+            f"{C.POOLEDGE_TAB_PLATAS_NEW}!J: color según estado "
             + ", ".join(C.POOLEDGE_COMMISSION_STATES) + " (verde, ámbar, gris)",
-            f"{C.POOLEDGE_TAB_PLATAS_NEW}!G:L: protección de advertencia (calculadas)",
+            f"{C.POOLEDGE_TAB_PLATAS_NEW}!F:I: protección de advertencia (calculadas)",
             *([] if C.POOLEDGE_SHOW_IVA else
-              [f"{C.POOLEDGE_TAB_PLATAS_NEW}!G:H (IVA y TOTAL): ocultas por ahora"]),
+              [f"{C.POOLEDGE_TAB_PLATAS_NEW}!F:G (IVA y TOTAL): ocultas por ahora"]),
             f"{C.POOLEDGE_TAB_RESUMEN} y {C.POOLEDGE_TAB_COBRANZA}: encabezados, fechas y CLP",
             f"{C.POOLEDGE_TAB_INFO}!H{first_new}:I{info_end}: CLP, solo filas nuevas",
             f"ID PEDIDO es siempre texto (formato '@'): {C.POOLEDGE_TAB_PLATAS_NEW}!A y "
@@ -358,9 +357,9 @@ def plan_fingerprint(plan: dict) -> str:
 
 
 def _example_row() -> List[int]:
-    cost, sale = 100_000, 150_000
+    sale = 150_000
     iva = round(sale * C.IVA_RATE)
-    return [cost, sale, iva, sale + iva, sale - cost, round(sale * C.POOLEDGE_COMMISSION_RATE)]
+    return [sale, iva, sale + iva, round(sale * C.POOLEDGE_COMMISSION_RATE)]
 
 
 def render_plan_html(plan: dict) -> str:
@@ -384,12 +383,11 @@ def render_plan_html(plan: dict) -> str:
                 val = next(iter(cell["userEnteredValue"].values()))
                 cells.append(f"<tr><td><code>{e(ref)}</code></td><td><code>{e(str(val))}</code></td></tr>")
     rows = "".join(cells)
-    cost, sale, iva, total, gain, com = _example_row()
+    sale, iva, total, com = _example_row()
     money = lambda x: e(f"${x:,.0f}".replace(",", "."))  # noqa: E731
     example = (
-        "<table><tr><th>COSTO BASE NETO</th><th>VENTA NETA</th><th>IVA</th><th>TOTAL</th>"
-        "<th>GANANCIA</th><th>COMISIÓN DIEGO</th></tr><tr>"
-        + "".join(f"<td>{money(x)}</td>" for x in (cost, sale, iva, total, gain, com))
+        "<table><tr><th>VENTA NETA</th><th>IVA</th><th>TOTAL</th><th>COMISIÓN DIEGO</th></tr><tr>"
+        + "".join(f"<td>{money(x)}</td>" for x in (sale, iva, total, com))
         + "</tr></table>")
     css = ("body{font-family:sans-serif;max-width:960px;margin:2em auto;padding:0 1em}"
            "table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:4px 8px;text-align:left}"

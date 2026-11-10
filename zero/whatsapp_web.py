@@ -159,7 +159,7 @@ def verify_signature(raw: bytes, header: Optional[str]) -> bool:
 
 # Publications of the agent itself in a review group; never read them as the owner's answer.
 _AGENT_POSTS = ("*PRESUPUESTO", "*POOLEDGE*", "Para confirmar su pedido", "Falta:",
-                "No cuadra:", "Falta en la ficha")
+                "No cuadra:", "Falta en la ficha", "*POOLEDGE* Voy a anotar")
 
 
 def review_group_client(chat_id: str, clients) -> Optional[str]:

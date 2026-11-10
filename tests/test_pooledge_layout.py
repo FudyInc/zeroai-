@@ -88,7 +88,7 @@ class PlanTest(unittest.TestCase):
                 if "updateDimensionProperties" in r]
         self.assertEqual(len(hide), 0 if C.POOLEDGE_SHOW_IVA else 1)
         if hide:
-            self.assertEqual((hide[0]["range"]["startIndex"], hide[0]["range"]["endIndex"]), (6, 8))
+            self.assertEqual((hide[0]["range"]["startIndex"], hide[0]["range"]["endIndex"]), (5, 7))
         from unittest import mock
         with mock.patch.object(C, "POOLEDGE_SHOW_IVA", True):
             shown = pl.build_plan(_meta(), LAST)
@@ -100,9 +100,9 @@ class PlanTest(unittest.TestCase):
 
     def test_formulas_use_config_rates(self):
         text = json.dumps([r for r in self.plan["requests"] if "updateCells" in r], ensure_ascii=False)
-        self.assertIn("F2:F*0.19", text)
+        self.assertIn("E2:E*0.19", text)
         self.assertIn("FILTER(", text)
-        self.assertIn("F2:F*0.1)", text)
+        self.assertIn("E2:E*0.1)", text)
         for state in C.POOLEDGE_COMMISSION_STATES:
             self.assertIn(state, text)
         self.assertIn("VLOOKUP(A2:A,{\'INFO PEDIDOS POOLEDGE\'!J2:J,\'INFO PEDIDOS POOLEDGE\'!G2:G},2,FALSE)".replace("\\'", "'"),
