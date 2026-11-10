@@ -363,11 +363,28 @@ function rememberBounded(set, value) {
   if (set.size > reviewSetLimit) set.delete(set.values().next().value)
 }
 
+function jidText(value) {
+  if (typeof value === 'string') return value
+  return typeof value?._serialized === 'string' ? value._serialized : ''
+}
+
+function reviewChatId(msg) {
+  // Cada fuente puede venir como objeto sin _serialized: nunca '[object Object]'.
+  return jidText(msg.id?.remote) ||
+    jidText(msg.fromMe ? msg.to : msg.from) || ''
+}
+
 async function forwardReviewGroupMessage(msg) {
   const id = messageId(msg)
-  const chatId = String(msg.id?.remote?._serialized || msg.id?.remote ||
-    (msg.fromMe ? msg.to?._serialized || msg.to : msg.from?._serialized || msg.from) || '')
-  if (!id || !reviewGroupIds.has(chatId) || msg.type !== 'chat' || reviewSeen.has(id)) return
+  const chatId = reviewChatId(msg)
+  if (!reviewGroupIds.has(chatId)) return
+  if (!id || msg.type !== 'chat' || reviewSeen.has(id)) {
+    if (!id) {
+      lastError = 'Grupo de revisión: mensaje sin id estable de WhatsApp'
+      console.error(lastError)
+    }
+    return
+  }
   rememberBounded(reviewSeen, id)
   // message_create puede dispararse antes de que sendMessage devuelva el id.
   if (msg.fromMe) await new Promise(resolve => setTimeout(resolve, reviewOwnDelayMs))
@@ -499,6 +516,8 @@ async function selectedChat(id) {
 }
 
 function messageId(message) {
+  const stable = stableMessageId(message?.id)
+  if (stable) return stable
   const id = message?.id?._serialized || message?.id?.toString?.()
   return typeof id === 'string' && id !== '[object Object]' ? id : null
 }

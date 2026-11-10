@@ -16,4 +16,8 @@ for (const bad of [undefined, null, '', '[object Object]', {}, { $1: '[object Ob
 const a = stableMessageId({ fromMe: false, remote: '111111111111111@lid', id: 'AAA1' })
 const b = stableMessageId({ fromMe: false, remote: '111111111111111@lid', id: 'AAA2' })
 assert.notEqual(a, b)
+// Mensajes del grupo de revisión: id de grupo, con o sin participante.
+const group = 'true_120363000000000000@g.us_3EB0AABBCCDD'
+assert.equal(stableMessageId({ fromMe: true, remote: { _serialized: '120363000000000000@g.us' }, id: '3EB0AABBCCDD' }), group)
+assert.equal(stableMessageId({ _serialized: `${group}_111111111111@c.us` }), `${group}_111111111111@c.us`)
 console.log('stable message id OK')

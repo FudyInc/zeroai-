@@ -63,6 +63,52 @@ def format_internal_budget(quote: dict[str, Any], *, profile_name: str | None,
     return "\n".join(lines)
 
 
+def paver_order_to_quote(order: dict[str, Any]) -> dict[str, Any] | None:
+    """Quote of a complete paver order, in the shape format_customer_budget takes.
+
+    None when the order lacks model, area, price id or unit price."""
+    area, price_id = order.get("area_m2"), order.get("price_id")
+    unit, model = order.get("unit_price"), order.get("model")
+    if not (area and price_id and unit and model):
+        return None
+    pieces = paver_pieces(area, price_id)
+    if not pieces:
+        return None
+    subtotal = pieces * unit
+    quote: dict[str, Any] = {"currency": "CLP", "lines": [{
+        "id": price_id, "name": model, "qty": pieces, "unit_price": unit,
+        "subtotal": subtotal}], "subtotal": subtotal, "iva_rate": 0, "iva": 0,
+        "total": subtotal, "unmatched": []}
+    detail = " ".join(str(order.get("delivery_detail") or "").split())[:300]
+    if detail:
+        quote["delivery_detail"] = detail
+    return quote
+
+
+_PAVER_LINE = re.compile(r"^(\d+) × (.+?) · \$([\d.]+) c/u = \$([\d.]+)$", re.M)
+
+
+def paver_quote_from_draft(text: str) -> dict[str, Any] | None:
+    """Quote of a paver draft published before drafts carried one.
+
+    Only the one line the code itself wrote, and only when its figures add up."""
+    found = _PAVER_LINE.findall(text or "")
+    if len(found) != 1:
+        return None
+    qty, name, unit, subtotal = found[0]
+    qty, unit, subtotal = int(qty), int(unit.replace(".", "")), int(subtotal.replace(".", ""))
+    if qty <= 0 or unit <= 0 or qty * unit != subtotal:
+        return None
+    quote: dict[str, Any] = {"currency": "CLP", "lines": [{
+        "id": None, "name": name.strip(), "qty": qty, "unit_price": unit,
+        "subtotal": subtotal}], "subtotal": subtotal, "iva_rate": 0, "iva": 0,
+        "total": subtotal, "unmatched": []}
+    pickup = re.search(r"^Retiro en fábrica:.*$", text, re.M)
+    if pickup:
+        quote["delivery_detail"] = pickup.group(0)[:300]
+    return quote
+
+
 def format_paver_order_draft(order: dict[str, Any], *, profile_name: str | None,
                              phone: str) -> str | None:
     """Paver order for the review group. No price: the team quotes, and says so."""

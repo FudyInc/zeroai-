@@ -323,6 +323,25 @@ def final_messages(draft: dict[str, Any], reading: dict[str, Any], knowledge: st
     return {"messages": [budget, payment], "budget": True, "payment": True}
 
 
+_APPROVAL = re.compile(r"^\s*(ok[aeiy]*|okey|listo|dale|aprobado|apruebo|s[ií]|va|enviar|"
+                       r"\U0001F44D[\U0001F3FB-\U0001F3FF]?|\u2705)\s*[.!]*\s*$", re.I)
+
+
+def is_approval(text: str) -> bool:
+    """A bare "ok" (or 👍) on a draft: an approval that carries none of the data."""
+    return bool(_APPROVAL.match(text or ""))
+
+
+def approval_hint(reading: dict[str, Any]) -> str:
+    """What a bare approval still needs, with the format the reader understands."""
+    missing = reading["missing"] or ["fecha"]
+    example = ["Despacho $15.000 a Puente Alto", "Dirección: Calle 123, Puente Alto",
+               "Fecha: 20/11"] if "despacho" in missing else ["Fecha: 20/11"]
+    return (f"Para armar el presupuesto final falta: {', '.join(missing)}.\n"
+            "Responde citando el borrador, por ejemplo:\n" + "\n".join(example) +
+            ("\n(o «Retiro» si lo retira en fábrica)" if "despacho" in missing else ""))
+
+
 # --- the one entry point that touches memory and the bridge ------------------
 
 def handle_review_message(memory: Any, message: dict[str, str]) -> dict[str, Any]:
@@ -337,14 +356,21 @@ def handle_review_message(memory: Any, message: dict[str, str]) -> dict[str, Any
     if not found:
         return out
     draft_id, draft = found
+    if not draft.get("quote") and draft.get("order") == "pastelones":
+        # Drafts published before paver drafts carried a quote: rebuilt from the
+        # one line the code wrote, only when its figures add up.
+        from .losetas_budget import paver_quote_from_draft
+        draft["quote"] = paver_quote_from_draft(draft.get("text", ""))
     if not draft.get("quote"):
-        # A paver order has no calculated quote: the team answers by hand.
+        # No calculated quote (price or yield unknown): the team answers by hand.
         memory.log("review_paver_reply_ignored", client=client_id, lead=draft.get("lead"))
         return out
     try:
         issued = today()
         reading = read_owner_reply(message.get("text", ""), draft, issued)
         plan = final_messages(draft, reading, memory.get_client_knowledge(client_id), issued)
+        if not plan["messages"] and is_approval(message.get("text", "")):
+            plan = {"messages": [approval_hint(reading)], "budget": False, "payment": False}
         if not plan["messages"]:
             return out
         draft["partial"] = reading["partial"]

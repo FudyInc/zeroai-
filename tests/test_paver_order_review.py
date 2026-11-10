@@ -264,16 +264,68 @@ class PaverOrderReviewTest(unittest.TestCase):
             zero.handle_inbound(PHONE, "ok", to_phone_id=BOT, whatsapp_chat_id=CHAT)
         self.assertEqual(send_group.call_count, 1)
 
-    def test_reply_to_a_paver_draft_is_logged_not_silent(self):
+    def test_a_paver_draft_without_a_price_line_is_logged_not_answered(self):
         from zero.losetas_review import handle_review_message, store_review_draft
         memory = SessionMemory(None)
         store_review_draft(memory, "losetaschile", "g-1", {
             "lead": "k", "quote": None, "order": "pastelones", "text": "borrador"})
-        with mock.patch.object(memory, "log") as log:
+        with mock.patch.object(memory, "log") as log, \
+                mock.patch("zero.whatsapp_web.send_group_text") as send:
             out = handle_review_message(memory, {"client": "losetaschile", "quoted_id": "g-1",
                                                  "text": "ok"})
         self.assertTrue(out["review_group"])
         self.assertEqual(log.call_args.args[0], "review_paver_reply_ignored")
+        send.assert_not_called()
+
+    def _paver_draft(self, memory, quote_in_draft=True):
+        from zero.losetas_budget import format_paver_order_draft, paver_order_to_quote
+        from zero.losetas_review import store_review_draft
+        order = {"model": "Sol", "area_m2": 10, "price_id": "pastelones-40x40",
+                 "unit_price": 1600}
+        text = format_paver_order_draft(order, profile_name="Cliente", phone=PHONE)
+        store_review_draft(memory, "losetaschile", "g-2", {
+            "lead": "k", "name": "Cliente", "phone": PHONE, "color": "gris",
+            "quote": paver_order_to_quote(order) if quote_in_draft else None,
+            "order": "pastelones", "issued": "2026-11-10", "text": text})
+
+    def _reply(self, memory, text):
+        from datetime import date
+        from zero.losetas_review import handle_review_message
+        with mock.patch("zero.whatsapp_web.send_group_text",
+                        return_value={"id": "s", "ack": 1}) as send, \
+                mock.patch("zero.losetas_review.today", return_value=date(2026, 11, 10)):
+            handle_review_message(memory, {
+                "client": "losetaschile", "quoted_id": "g-2", "text": text,
+                "to_phone_id": BOT, "chat_id": GROUP, "id": "r"})
+        return [call.args[3] for call in send.call_args_list]
+
+    def test_a_bare_ok_on_a_paver_draft_asks_for_the_missing_data(self):
+        memory = SessionMemory(None)
+        self._paver_draft(memory)
+        posts = self._reply(memory, "ok")
+        self.assertEqual(len(posts), 1)
+        self.assertIn("falta: despacho, dirección, fecha", posts[0])
+
+    def test_a_complete_reply_on_a_paver_draft_builds_the_final_budget(self):
+        memory = SessionMemory(None)
+        self._paver_draft(memory)
+        posts = self._reply(memory, "Despacho $15.000 a Puente Alto\n"
+                                    "Dirección: Calle 123, Puente Alto\nFecha: 20/11")
+        self.assertIn("60 un. × $1.600 = *$96.000*", posts[0])
+        self.assertIn("*TOTAL: $111.000*", posts[0])
+
+    def test_an_old_paver_draft_rebuilds_its_quote_from_its_own_text(self):
+        memory = SessionMemory(None)
+        self._paver_draft(memory, quote_in_draft=False)
+        posts = self._reply(memory, "Retiro\nFecha: 20/11")
+        self.assertIn("60 un. × $1.600 = *$96.000*", posts[0])
+        self.assertIn("*TOTAL: $96.000*", posts[0])
+
+    def test_a_paver_line_that_does_not_add_up_rebuilds_nothing(self):
+        from zero.losetas_budget import paver_quote_from_draft
+        self.assertIsNone(paver_quote_from_draft("60 × Sol · $1.600 c/u = $96.001"))
+        self.assertEqual(paver_quote_from_draft("60 × Sol · $1.600 c/u = $96.000")["total"],
+                         96000)
 
     def test_a_new_product_request_is_not_swallowed_by_the_state(self):
         _, bodies = self.run_chat(self.ORDER + ["Bordes de piscina"])

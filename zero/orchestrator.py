@@ -52,7 +52,7 @@ from .icp import describe_icp, is_empty, normalize_icp
 from .inbox import Inbox, MockInbox
 from .losetas_color import (COLOR_CATALOG_IMAGE_PATH, color_preference,
                             color_question, latest_color_preference, names_color)
-from .losetas_budget import format_internal_budget, format_paver_order_draft
+from .losetas_budget import format_internal_budget, format_paver_order_draft, paver_order_to_quote
 from .losetas_review import store_review_draft, today as review_today
 from .losetas_text import normalize_customer_text, plain
 from .attention import fixed_answer, learned_alias, learned_answer
@@ -2120,13 +2120,17 @@ class Zero:
                     group_result = send_group_text(client_id, to_phone_id, group_id,
                                                    internal_budget)
                     signatures[key] = signature
+                    # Build a quote from the paver order so the review flow can
+                    # auto-process "ok" replies into a final customer budget.
+                    paver_quote = paver_order_to_quote(paver_order) if paver_order else None
+                    final_quote = quote or paver_quote
                     store_review_draft(self.memory, client_id, group_result["id"], {
                         "lead": key, "name": " ".join((
                             name_from_profile or self.memory.clients.get(client_id, {}).get(
                                 "whatsapp_display_names", {}).get(key) or "").split())[:80],
                         "phone": re.sub(r"\D", "", from_contact or ""),
                         "color": res.get("selected_tone") or (paver_order or {}).get("color"),
-                        "quote": quote, "order": "pastelones" if paver_order else None,
+                        "quote": final_quote, "order": "pastelones" if paver_order else None,
                         "issued": review_today().isoformat(), "text": internal_budget})
                     # Keep the group-send dedupe durable before sending the
                     # separate customer acknowledgment.
