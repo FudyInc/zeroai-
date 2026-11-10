@@ -149,6 +149,9 @@ POOLEDGE_TAB_COBRANZA = "COBRANZA"
 POOLEDGE_FORMAT_ROWS = 1000
 # Estado de la comisión de cada pedido: cobrada / entregado sin cobrar / aún no entregado.
 POOLEDGE_COMMISSION_STATES = ("Cobrada", "Por cobrar", "Futura")
+# IVA y TOTAL en PLATAS 2026. Diego (2026-11-09): «quita el IVA de mientras». Las
+# columnas existen igual (las fórmulas no se mueven), solo quedan ocultas.
+POOLEDGE_SHOW_IVA = False
 # Cuántos borradores de revisión (por cliente) se recuerdan para leer la respuesta
 # del dueño que los cita.
 REVIEW_DRAFTS_KEPT = 50

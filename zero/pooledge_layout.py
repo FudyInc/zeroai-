@@ -272,6 +272,12 @@ def build_plan(meta: dict, info_last_row: int, info_j_nonempty: int = 0) -> dict
             "booleanRule": {"condition": {"type": "TEXT_EQ", "values": [{"userEnteredValue": state}]},
                             "format": {"backgroundColor": color}}}}})
 
+    if not C.POOLEDGE_SHOW_IVA:
+        # G (IVA) y H (TOTAL) ocultas, no borradas: así ninguna referencia se corre.
+        reqs.append({"updateDimensionProperties": {
+            "range": {"sheetId": pid, "dimension": "COLUMNS", "startIndex": 6, "endIndex": 8},
+            "properties": {"hiddenByUser": True}, "fields": "hiddenByUser"}})
+
     # RESUMEN
     reqs.append(_bold_header(rid, 2, 0, 2))
     reqs.append(_bold_header(rid, 2, 3, 8))
@@ -327,6 +333,8 @@ def build_plan(meta: dict, info_last_row: int, info_j_nonempty: int = 0) -> dict
             f"{C.POOLEDGE_TAB_PLATAS_NEW}!L: color según estado "
             + ", ".join(C.POOLEDGE_COMMISSION_STATES) + " (verde, ámbar, gris)",
             f"{C.POOLEDGE_TAB_PLATAS_NEW}!G:L: protección de advertencia (calculadas)",
+            *([] if C.POOLEDGE_SHOW_IVA else
+              [f"{C.POOLEDGE_TAB_PLATAS_NEW}!G:H (IVA y TOTAL): ocultas por ahora"]),
             f"{C.POOLEDGE_TAB_RESUMEN} y {C.POOLEDGE_TAB_COBRANZA}: encabezados, fechas y CLP",
             f"{C.POOLEDGE_TAB_INFO}!H{first_new}:I{info_end}: CLP, solo filas nuevas",
             f"ID PEDIDO es siempre texto (formato '@'): {C.POOLEDGE_TAB_PLATAS_NEW}!A y "

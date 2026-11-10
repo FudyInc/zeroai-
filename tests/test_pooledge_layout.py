@@ -83,6 +83,17 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(len(texts), 2)
         self.assertIn(LAST, [t["startRowIndex"] for t in texts])
 
+    def test_iva_columns_hidden_by_config(self):
+        hide = [r["updateDimensionProperties"] for r in self.plan["requests"]
+                if "updateDimensionProperties" in r]
+        self.assertEqual(len(hide), 0 if C.POOLEDGE_SHOW_IVA else 1)
+        if hide:
+            self.assertEqual((hide[0]["range"]["startIndex"], hide[0]["range"]["endIndex"]), (6, 8))
+        from unittest import mock
+        with mock.patch.object(C, "POOLEDGE_SHOW_IVA", True):
+            shown = pl.build_plan(_meta(), LAST)
+        self.assertFalse([r for r in shown["requests"] if "updateDimensionProperties" in r])
+
     def test_j_with_content_raises(self):
         with self.assertRaises(pl.LayoutError):
             pl.build_plan(_meta(), LAST, 1)
