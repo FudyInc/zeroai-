@@ -277,8 +277,8 @@ async function normalizeMessage(msg) {
     try { contact = await msg.getContact() } catch (_) { /* Nombre opcional. */ }
     const profileName = String(contact?.pushname || msg?._data?.notifyName || '')
       .replace(/\s+/g, ' ').trim().slice(0, 80)
-    const messageId = msg.id?._serialized || msg.id
-    const payload = { id: clientId ? `${clientId}:${messageId}` : messageId,
+    const stableId = String(msg.id?._serialized || msg.id?._serialized || (msg.id && msg.id.toString?.()) || '')
+    const payload = { id: clientId ? `${clientId}:${stableId}` : stableId,
       from, chat_id: senderId, text: body,
       to_phone_id: account || client.info?.wid?.user || '' }
     if (/\p{L}/u.test(profileName)) payload.profile_name = profileName

@@ -1928,7 +1928,7 @@ async def whatsapp_web_inbound(req: Request, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=409, detail="número Web no asignado de forma única")
     if not claim_event(message["id"], message):
         return {"received": 0, "duplicate": True}
-    background_tasks.add_task(_process_inbound_messages, [message])
+    # Inbox worker will process it; do not also run in background task.
     return {"received": 1}
 
 
