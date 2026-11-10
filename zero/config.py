@@ -136,6 +136,23 @@ LOSETASCHILE_PAVER_PIECES_PER_M2 = {
     LOSETASCHILE_PAVER_PRICE_ID: 6,
     LOSETASCHILE_PRICE_ID_PASTELON_50: 4,
 }
+# Catálogos PDF de diseño (frontend/public/catalog/losetaschile/) con los precios
+# impresos en cada uno. Se envía el PDF solo si TODOS coinciden con la lista vigente;
+# si alguno difiere o falta, se envía el catálogo generado con los precios de la lista.
+LOSETASCHILE_CATALOG_PDF_PRICES = {
+    "bordes": {
+        "borde-ballena-50x40": 5500,
+        "borde-recto-nariz-50x50": 6000,
+        "extension-borde-piscina": 3800,
+        "esquina-piscina-50x50": 3600,
+    },
+    "pastelones": {
+        LOSETASCHILE_PAVER_PRICE_ID: 1600,
+        LOSETASCHILE_PRICE_ID_PASTELON_50: 2600,
+        "deck-madera-50x50": 3600,
+        "extension-borde-piscina": 3800,
+    },
+}
 # Cuánto dura el estado «pedido de pastelones en revisión» desde el turno que lo informó:
 # pasado ese plazo el chat vuelve al flujo normal.
 LOSETASCHILE_PAVER_REVIEW_STATE_HOURS = 72

@@ -97,6 +97,36 @@ class WhatsAppWebCatalogTest(unittest.TestCase):
         bridge.assert_not_called()
 
     @mock.patch("zero.whatsapp_web.bridge_request")
+    def test_designed_pdf_sent_only_when_printed_prices_match(self, bridge):
+        from zero import config
+        for category, printed in config.LOSETASCHILE_CATALOG_PDF_PRICES.items():
+            pricing = {"items": [{"id": k, "unit_price": v} for k, v in printed.items()]}
+            bridge.reset_mock()
+            bridge.side_effect = [{"state": "ready", "account": "56987654321"},
+                                  {"id": "document-1", "ack": 0}]
+            send_catalog_document("losetaschile", "56987654321", "56912345678",
+                                  category, pricing, chat_id="56912345678@c.us")
+            self.assertIs(bridge.call_args.args[1]["static_pdf"], True, category)
+            # One changed or missing price falls back to the generated catalog.
+            changed = {"items": [dict(item) for item in pricing["items"]]}
+            changed["items"][0]["unit_price"] += 100
+            for variant in (changed, {"items": pricing["items"][1:]}):
+                bridge.reset_mock()
+                bridge.side_effect = [{"state": "ready", "account": "56987654321"},
+                                      {"id": "document-2", "ack": 0}]
+                with self.assertLogs(level="WARNING"):
+                    send_catalog_document("losetaschile", "56987654321", "56912345678",
+                                          category, variant, chat_id="56912345678@c.us")
+                self.assertIs(bridge.call_args.args[1]["static_pdf"], False, category)
+
+    def test_designed_pdf_files_exist(self):
+        from pathlib import Path
+        root = Path(__file__).resolve().parent.parent / "frontend/public/catalog/losetaschile"
+        for name in ("catalogo-bordes-pooledge.pdf", "catalogo-pastelones-pooledge.pdf"):
+            data = (root / name).read_bytes()
+            self.assertTrue(data.startswith(b"%PDF"), name)
+
+    @mock.patch("zero.whatsapp_web.bridge_request")
     def test_delivery_poll_uses_verified_losetas_account(self, bridge):
         bridge.side_effect = [{"state": "ready", "account": "56987654321"},
                               {"id": "poll-1", "ack": 0}]

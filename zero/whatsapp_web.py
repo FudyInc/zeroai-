@@ -18,6 +18,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from . import config
 from .config import LOSETASCHILE_WHATSAPP_CATALOG_URL, WHATSAPP_HUMAN_DELIVERY
 from .whatsapp_format import split_whatsapp_parts, typing_ms
 
@@ -433,6 +434,18 @@ def send_catalog_image(client_id: str, expected_account: str, to: str,
     return result
 
 
+def catalog_pdf_matches_prices(category: str, prices: Dict[str, Any]) -> bool:
+    """True only if every price printed in the designed PDF equals the live price list."""
+    printed = config.LOSETASCHILE_CATALOG_PDF_PRICES.get(category)
+    if not printed:
+        return False
+    for price_id, amount in printed.items():
+        live = prices.get(price_id)
+        if isinstance(live, bool) or not isinstance(live, (int, float)) or live != amount:
+            return False
+    return True
+
+
 def send_catalog_document(client_id: str, expected_account: str, to: str,
                           category: str, pricing: Dict[str, Any],
                           chat_id: str = "") -> Dict[str, Any]:
@@ -448,9 +461,14 @@ def send_catalog_document(client_id: str, expected_account: str, to: str,
         raise ValueError("El chat no coincide con el destinatario")
     prices = {str(item.get("id")): item.get("unit_price")
               for item in pricing.get("items", []) if item.get("id")}
+    static_pdf = catalog_pdf_matches_prices(category, prices)
+    if not static_pdf:
+        logging.warning("Catálogo PDF de %s no coincide con la lista de precios; se envía el generado",
+                    category)
     _verified_account(client_id, expected_account)
     result = bridge_request("/send-catalog-document", {
         "to": number, "chat_id": chat_id, "category": category, "prices": prices,
+        "static_pdf": static_pdf,
     }, client_id=client_id)
     if not result.get("id") or result.get("ack") == -1:
         raise RuntimeError("Envío de catálogo sin confirmación; revisar antes de reintentar")

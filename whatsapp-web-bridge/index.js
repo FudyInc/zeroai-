@@ -78,6 +78,11 @@ const catalogImages = new Set([
   'extension-borde-piscina-50x50.jpeg',
 ])
 const catalogDir = path.resolve(__dirname, '../frontend/public/catalog/losetaschile')
+// Catálogos PDF de diseño; solo se envían con static_pdf === true.
+const CATALOG_PDFS = Object.freeze({
+  bordes: 'catalogo-bordes-pooledge.pdf',
+  pastelones: 'catalogo-pastelones-pooledge.pdf',
+})
 function loadPending() {
   try { return new Map(JSON.parse(fs.readFileSync(pendingFile, 'utf8')).map(item => [item.id, item])) }
   catch (err) {
@@ -737,7 +742,10 @@ const server = http.createServer(async (req, res) => {
             !CATALOGS[category] || !prices || typeof prices !== 'object' || Array.isArray(prices)) {
           return respond(res, 400, { error: 'invalid catalog document request' })
         }
-        const pdf = await makeCatalogPdf(client.pupBrowser, category, prices, catalogDir)
+        // static_pdf: el backend ya comprobó que los precios impresos coinciden con la lista.
+        const staticFile = body.static_pdf === true ? CATALOG_PDFS[category] : null
+        const pdf = staticFile ? fs.readFileSync(path.resolve(catalogDir, staticFile))
+          : await makeCatalogPdf(client.pupBrowser, category, prices, catalogDir)
         const caption = CATALOGS[category].title
         const filename = category === 'bordes' ? 'catalogo-bordes-de-piscina.pdf' : 'catalogo-pastelones.pdf'
         const media = new MessageMedia('application/pdf', pdf.toString('base64'), filename)
