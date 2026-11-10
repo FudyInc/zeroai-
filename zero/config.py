@@ -82,6 +82,12 @@ WHATSAPP_REVIEW_NOTICES = (
 
 # Texto que lee el cliente de LosetasChile cuando pide una persona o está molesto: el bot
 # queda pausado en ese chat y el pedido aparece en la bandeja de atención.
+# Un mensaje que el agente no puede leer (audio, sticker, adjunto, tecleo al azar)
+# pausa el chat para no contestar a ciegas, pero solo por este plazo: sin él, el
+# chat quedaba silenciado para siempre y nadie se enteraba. Pasado el plazo, el
+# siguiente mensaje legible del cliente se atiende normal. Los traspasos pedidos por
+# el cliente, por enojo, por foto de piscina o por el equipo no vencen.
+WHATSAPP_UNREADABLE_HANDOFF_HOURS = 2
 WHATSAPP_HUMAN_REQUEST_ACK = ("Listo, le aviso a una persona del equipo para que te escriba "
                               "por este chat.")
 # Respuesta al cliente que cierra o rechaza («gracias, luego consulto», «no quiero nada»).
@@ -95,10 +101,10 @@ LOSETASCHILE_PAVER_REVIEW_SHIPPING_REPLY = (
 LOSETASCHILE_PRICE_ID_PASTELON_50 = "pastelones-50x50"
 LOSETASCHILE_PRICE_ID_DURMIENTE = "durmiente-16x40"
 
-# PoolEdge requiere dirección completa y despacho revisado por una persona antes
+# PoolEdge (id `losetaschile`; "pooledge" nunca fue un cliente real) requiere dirección completa y despacho revisado por una persona antes
 # de emitir un total final (ficha confirmada el 2026-09-29). El cotizador genérico
 # solo suma productos e IVA; no debe enviar ese subtotal como presupuesto final.
-QUOTE_REVIEW_REQUIRED_CLIENT_IDS = frozenset({"pooledge"})
+QUOTE_REVIEW_REQUIRED_CLIENT_IDS = frozenset({"losetaschile"})
 
 # Nombre que el dashboard muestra para un cliente cuando no coincide con su id.
 # Solo es un rótulo: el id (`losetaschile`) sigue siendo la llave de los datos,
@@ -120,13 +126,55 @@ LOSETASCHILE_PAVER_PRICE_IDS = {
     "Sol rústico": LOSETASCHILE_PAVER_PRICE_ID,
     # Diego, 2026-11-08: «los gregorianos valen lo mismo que todos los 40x40».
     "Gregoriano": LOSETASCHILE_PAVER_PRICE_ID,
+    # Diego, 2026-11-09: el resto del catálogo PDF, menos Octágono.
+    "Adoquín": LOSETASCHILE_PAVER_PRICE_ID,
+    "Flor de lis": LOSETASCHILE_PAVER_PRICE_ID,
+    "Corrugado 50×50": "pastelones-50x50",
+    "Liso 50×50": "pastelones-50x50",
+    "Deck madera 50×50": "deck-madera-50x50",
+    # Mismo producto que la extensión de borde (Diego, 2026-11-09).
+    "Extensión piscina 50×50": "extension-borde-piscina",
 }
 # Modelos ofrecidos cuyo precio (y tamaño) Diego aún no confirma: el borrador dice
 # «precio pendiente». Sacar un modelo de aquí solo cuando Diego lo confirme.
 LOSETASCHILE_PAVER_PRICE_PENDING: frozenset = frozenset()
+# Rendimiento por medida (Diego, 2026-11-09): «en 1 m2 caben 6 pastelones de 40x40 y
+# 4 pastelones de 50x50». Piezas = m² × rendimiento, redondeado hacia arriba; sin merma.
+LOSETASCHILE_PAVER_PIECES_PER_M2 = {
+    LOSETASCHILE_PAVER_PRICE_ID: 6,
+    LOSETASCHILE_PRICE_ID_PASTELON_50: 4,
+    "deck-madera-50x50": 4,
+    "extension-borde-piscina": 4,
+}
+# Medida de pieza de cada id de pastelón, para responder «¿cuánto vale el X?».
+LOSETASCHILE_PAVER_PIECE_SIZES = {
+    LOSETASCHILE_PAVER_PRICE_ID: "40x40",
+    LOSETASCHILE_PRICE_ID_PASTELON_50: "50x50",
+    "deck-madera-50x50": "50x50",
+    "extension-borde-piscina": "50x50",
+}
+# Catálogos PDF de diseño (frontend/public/catalog/losetaschile/) con los precios
+# impresos en cada uno. Se envía el PDF solo si TODOS coinciden con la lista vigente;
+# si alguno difiere o falta, se envía el catálogo generado con los precios de la lista.
+LOSETASCHILE_CATALOG_PDF_PRICES = {
+    "bordes": {
+        "borde-ballena-50x40": 5500,
+        "borde-recto-nariz-50x50": 6000,
+        "extension-borde-piscina": 3800,
+        "esquina-piscina-50x50": 3600,
+    },
+    "pastelones": {
+        LOSETASCHILE_PAVER_PRICE_ID: 1600,
+        LOSETASCHILE_PRICE_ID_PASTELON_50: 2600,
+        "deck-madera-50x50": 3600,
+        "extension-borde-piscina": 3800,
+    },
+}
 # Cuánto dura el estado «pedido de pastelones en revisión» desde el turno que lo informó:
 # pasado ese plazo el chat vuelve al flujo normal.
 LOSETASCHILE_PAVER_REVIEW_STATE_HOURS = 72
+# A model reply that greets («Buenas noches Juan.») is trimmed if the agent wrote within this window.
+LOSETASCHILE_CHAT_OPEN_HOURS = 12
 # Abono que se pide para confirmar un pedido de LosetasChile (el resto va contra
 # entrega). Lo usa el presupuesto final que se publica en el grupo de revisión.
 LOSETASCHILE_DEPOSIT_CLP = 10000
@@ -585,6 +633,11 @@ AVG_DEAL_VALUE_CLP = 1_000_000   # valor promedio por cierre, en CLP (ajustable)
 # El IVA que se aplica a un presupuesto cuando la lista de precios del cliente no
 # lo especifica. La aritmética del presupuesto NUNCA la hace el LLM (quotes.py).
 IVA_RATE = 0.19   # IVA Chile
+# Tasa fija de IVA por empresa, por encima de la que guarde su lista de precios.
+# PoolEdge vende a precios finales por unidad (IVA incluido): su presupuesto nunca
+# suma IVA. Si la lista se guardaba con el 19 % por defecto, el cotizador de bordes
+# descartaba el subtotal sin avisar y el pedido no llegaba al grupo de revisión.
+CLIENT_FIXED_IVA_RATES = {"losetaschile": 0.0}
 
 
 # --- Finanzas de la AGENCIA (zero/finance.py) ----------------------------------

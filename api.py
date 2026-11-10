@@ -43,7 +43,7 @@ from zero.config import (AGENCY_CLIENT_ID, AVG_DEAL_VALUE_CLP, CLIENT_DISPLAY_NA
 from zero.channels import make_outbox
 from zero.icp import normalize_icp
 from zero.orchestrator import Zero
-from zero.quotes import compute_quote, format_quote, normalize_pricing
+from zero.quotes import client_pricing, compute_quote, format_quote, normalize_pricing
 from zero import runs, tasks, telemetry, progress_log
 from zero.store import make_crm, make_memory
 from zero.vendors import clients_count_for
@@ -1649,6 +1649,9 @@ def whatsapp_web_messages(chat_id: str, limit: int = Query(50, ge=1, le=100),
     return result
 
 
+_WHATSAPP_CHAT_ID_RE = re.compile(r"[\w.+-]+@(?:c\.us|g\.us|lid)", re.ASCII)
+
+
 class WhatsAppHandoffBody(BaseModel):
     active: bool
 
@@ -1656,10 +1659,15 @@ class WhatsAppHandoffBody(BaseModel):
 @app.post("/api/whatsapp/web/chats/{chat_id}/handoff")
 def whatsapp_web_handoff(chat_id: str, body: WhatsAppHandoffBody,
                          client: str = Query(...)):
-    chats = _whatsapp_web_inbox_request("/chats", client=client).get("chats") or []
-    if not any(chat.get("id") == chat_id for chat in chats):
-        raise HTTPException(status_code=404, detail="chat no encontrado en este número")
+    # The emergency stop must work even when the bridge is down or the chat is
+    # older than its 200-chat list: it only writes this business's own pause
+    # record, which the agent reads before every reply. No bridge round trip.
+    if not _WHATSAPP_CHAT_ID_RE.fullmatch(chat_id):
+        raise HTTPException(status_code=400, detail="id de chat de WhatsApp inválido")
     memory = make_memory(STATE_PATH)
+    # A business may live only in the CRM; a false 404 here keeps the agent talking.
+    if client not in memory.clients and client not in _crm().client_ids():
+        raise HTTPException(status_code=404, detail="empresa no encontrada")
     if body.active:
         handoff = memory.set_whatsapp_handoff(client, chat_id, "El equipo tomó la conversación")
     else:
@@ -1920,6 +1928,7 @@ async def whatsapp_web_inbound(req: Request, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=409, detail="número Web no asignado de forma única")
     if not claim_event(message["id"], message):
         return {"received": 0, "duplicate": True}
+    # Inbox worker will process it; do not also run in background task.
     return {"received": 1}
 
 
@@ -2669,7 +2678,7 @@ def set_cases(client: str, body: CasesBody):
 def get_pricing(client: str):
     """La lista de precios estructurada del cliente (ítems con precio unitario)."""
     memory = make_memory(STATE_PATH)
-    return {"client": client, "pricing": normalize_pricing(memory.get_client_pricing(client))}
+    return {"client": client, "pricing": client_pricing(client, memory.get_client_pricing(client))}
 
 
 class PricingBody(BaseModel):
@@ -2681,7 +2690,7 @@ def set_pricing(client: str, body: PricingBody):
     """Guardar la lista de precios. Se normaliza al entrar (ítems sin nombre o sin
     precio > 0 se descartan) — así los presupuestos nunca cotizan basura."""
     memory = make_memory(STATE_PATH)
-    pricing = normalize_pricing(body.pricing)
+    pricing = client_pricing(client, body.pricing)
     memory.set_client_pricing(client, pricing)
     memory.save()
     return {"client": client, "saved": True, "pricing": pricing}
@@ -2700,7 +2709,7 @@ def make_quote(body: QuoteBody):
         raise HTTPException(status_code=409,
                             detail="Presupuesto final pendiente de revisar despacho y datos del pedido")
     memory = make_memory(STATE_PATH)
-    pricing = normalize_pricing(memory.get_client_pricing(body.client))
+    pricing = client_pricing(body.client, memory.get_client_pricing(body.client))
     quote = compute_quote(pricing, body.items)
     if quote is None:
         raise HTTPException(status_code=404,

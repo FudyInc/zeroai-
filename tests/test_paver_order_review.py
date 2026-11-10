@@ -37,6 +37,8 @@ def _chat(priced=True):
     if priced:
         memory.set_client_pricing("losetaschile", {"currency": "CLP", "iva_rate": 0, "items": [
             {"id": "pastelones-40x40", "name": "Pastelón 40x40", "unit_price": 1600,
+             "unit": "unidad"},
+            {"id": "deck-madera-50x50", "name": "Deck madera 50x50", "unit_price": 3600,
              "unit": "unidad"}]})
     crm = CRM(None)
     crm.upsert("losetaschile", {"phone": PHONE, "source": "test"})
@@ -83,6 +85,47 @@ class PaverOrderReviewTest(unittest.TestCase):
         self.assertIn("Precio unitario: $1.600", draft)
         self.assertNotIn("Precio pendiente", draft)
 
+    def test_priced_order_counts_pieces_and_total(self):
+        # 40 m² de 40×40 a 6 piezas por m² (Diego, 2026-11-09) = 240 piezas.
+        self.run_chat(self.ORDER, model="Laja española")
+        draft = self.send_group.call_args.args[3]
+        self.assertIn("240 × Laja española · $1.600 c/u = $384.000", draft)
+        self.assertIn("*Total productos: $384.000*", draft)
+        self.assertNotIn("pendientes de calcular", draft)
+
+    def test_new_50x50_model_from_the_menu_counts_four_pieces_per_m2(self):
+        # «10» en el menú de 11 es Deck madera 50×50: 40 m² × 4 = 160 piezas.
+        self.run_chat(self.ORDER, model="10")
+        draft = self.send_group.call_args.args[3]
+        self.assertIn("Modelo: Deck madera 50×50", draft)
+        self.assertIn("160 × Deck madera 50×50 · $3.600 c/u = $576.000", draft)
+        self.assertIn("*Total productos: $576.000*", draft)
+
+    def test_new_model_without_a_price_in_the_list_stays_pending(self):
+        self.run_chat(self.ORDER, model="Corrugado")
+        draft = self.send_group.call_args.args[3]
+        self.assertIn("Modelo: Corrugado 50×50", draft)
+        self.assertIn("pendientes de calcular", draft)
+        self.assertNotIn("Total productos", draft)
+
+    def test_piece_count_rounds_up_and_uses_the_size_yield(self):
+        order = {"model": "Sol", "area_m2": "45", "color": None, "delivery_detail": None,
+                 "unit_price": 1600, "price_id": config.LOSETASCHILE_PAVER_PRICE_ID}
+        draft = format_paver_order_draft(order, profile_name=None, phone=PHONE)
+        self.assertIn("270 × Sol · $1.600 c/u = $432.000", draft)
+        draft = format_paver_order_draft({**order, "area_m2": "12,3"}, profile_name=None,
+                                         phone=PHONE)
+        self.assertIn("74 × Sol", draft)  # 73,8 piezas: nunca se cotiza de menos.
+        draft = format_paver_order_draft(
+            {**order, "price_id": config.LOSETASCHILE_PRICE_ID_PASTELON_50},
+            profile_name=None, phone=PHONE)
+        self.assertIn("180 × Sol", draft)
+        for broken in ({"price_id": "otro"}, {"unit_price": None}):
+            draft = format_paver_order_draft({**order, **broken}, profile_name=None,
+                                             phone=PHONE)
+            self.assertIn("pendientes de calcular", draft)
+            self.assertNotIn("Total productos", draft)
+
     def test_missing_price_list_is_pending_not_unsent(self):
         self.run_chat(self.ORDER, priced=False, model="Laja española")
         self.assertEqual(self.send_group.call_count, 1)
@@ -128,14 +171,20 @@ class PaverOrderReviewTest(unittest.TestCase):
 
     def test_other_messages_go_through_the_flow_and_open_a_pedido_gap(self):
         for text in ("cancela el pedido", "mejor con otro color",
-                     "¿cuánto cuesta el despacho a Maipú?", "Hola buenas noches"):
+                     "¿cuánto cuesta el despacho a Maipú?"):
             with self.subTest(text=text):
                 _, bodies = self.run_chat(self.ORDER + [text])
                 self.assertNotIn(REVIEW_SENTENCE, bodies[-1])
                 gaps = self.zero.memory.list_knowledge_gaps("losetaschile")
                 mine = [gap for gap in gaps if gap["pregunta"].startswith(
-                    "Pedido de pastelones en revisión") and text in gap["pregunta"]]
+                    "Pedido en revisión") and text in gap["pregunta"]]
                 self.assertEqual([gap["tipo"] for gap in mine], ["pedido"])
+
+    def test_greeting_mid_review_gives_the_status_not_the_product_menu(self):
+        # Live 2026-11-09: a «hola» restarted the catalog while the budget sat in review.
+        _, bodies = self.run_chat(self.ORDER + ["Hola buenas noches"])
+        self.assertIn(REVIEW_SENTENCE, bodies[-1])
+        self.assertNotIn("¿Qué producto estás buscando?", bodies[-1])
 
     def test_the_state_expires_after_the_configured_hours(self):
         self.run_chat(self.ORDER)

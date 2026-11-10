@@ -38,6 +38,7 @@ const QRCode = require('qrcode')
 const { serializedVoterId } = require('./delivery-poll')
 const { polls, pollForQuestion } = require('./poll-definitions')
 const { isCustomerMessageType } = require('./customer-message')
+const { stableMessageId } = require('./message-id')
 const { safeTypingMs } = require('./humanize')
 const { recentInbound } = require('./recovery')
 const { CATALOGS, makeCatalogPdf } = require('./catalog-document')
@@ -77,6 +78,11 @@ const catalogImages = new Set([
   'extension-borde-piscina-50x50.jpeg',
 ])
 const catalogDir = path.resolve(__dirname, '../frontend/public/catalog/losetaschile')
+// Catálogos PDF de diseño; solo se envían con static_pdf === true.
+const CATALOG_PDFS = Object.freeze({
+  bordes: 'catalogo-bordes-pooledge.pdf',
+  pastelones: 'catalogo-pastelones-pooledge.pdf',
+})
 function loadPending() {
   try { return new Map(JSON.parse(fs.readFileSync(pendingFile, 'utf8')).map(item => [item.id, item])) }
   catch (err) {
@@ -277,8 +283,14 @@ async function normalizeMessage(msg) {
     try { contact = await msg.getContact() } catch (_) { /* Nombre opcional. */ }
     const profileName = String(contact?.pushname || msg?._data?.notifyName || '')
       .replace(/\s+/g, ' ').trim().slice(0, 80)
-    const messageId = msg.id?._serialized || msg.id
-    const payload = { id: clientId ? `${clientId}:${messageId}` : messageId,
+    const stableId = stableMessageId(msg.id)
+    if (!stableId) {
+      // Sin id real no se reenvía: un id repetido descarta todos los mensajes.
+      lastError = 'Mensaje entrante sin id estable de WhatsApp'
+      console.error(lastError)
+      return null
+    }
+    const payload = { id: clientId ? `${clientId}:${stableId}` : stableId,
       from, chat_id: senderId, text: body,
       to_phone_id: account || client.info?.wid?.user || '' }
     if (/\p{L}/u.test(profileName)) payload.profile_name = profileName
@@ -730,7 +742,10 @@ const server = http.createServer(async (req, res) => {
             !CATALOGS[category] || !prices || typeof prices !== 'object' || Array.isArray(prices)) {
           return respond(res, 400, { error: 'invalid catalog document request' })
         }
-        const pdf = await makeCatalogPdf(client.pupBrowser, category, prices, catalogDir)
+        // static_pdf: el backend ya comprobó que los precios impresos coinciden con la lista.
+        const staticFile = body.static_pdf === true ? CATALOG_PDFS[category] : null
+        const pdf = staticFile ? fs.readFileSync(path.resolve(catalogDir, staticFile))
+          : await makeCatalogPdf(client.pupBrowser, category, prices, catalogDir)
         const caption = CATALOGS[category].title
         const filename = category === 'bordes' ? 'catalogo-bordes-de-piscina.pdf' : 'catalogo-pastelones.pdf'
         const media = new MessageMedia('application/pdf', pdf.toString('base64'), filename)

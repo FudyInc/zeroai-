@@ -17,7 +17,7 @@ import unicodedata
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any, Dict, List, Optional
 
-from .config import IVA_RATE, LOSETASCHILE_FLETE_CLP_PER_KM
+from .config import CLIENT_FIXED_IVA_RATES, IVA_RATE, LOSETASCHILE_FLETE_CLP_PER_KM
 
 
 def compute_losetas_shipping_cost(route_km: Any) -> int | None:
@@ -79,6 +79,14 @@ def normalize_pricing(raw: Any) -> Dict[str, Any]:
         iva = IVA_RATE
     return {"currency": str(raw.get("currency") or "CLP").upper(),
             "iva_rate": iva, "items": items}
+
+
+def client_pricing(client_id: str, raw: Dict[str, Any]) -> Dict[str, Any]:
+    """`normalize_pricing` plus the business's fixed VAT rate, when it has one."""
+    pricing = normalize_pricing(raw)
+    if client_id in CLIENT_FIXED_IVA_RATES:
+        pricing["iva_rate"] = CLIENT_FIXED_IVA_RATES[client_id]
+    return pricing
 
 
 # --- extracción del pedido (determinista) --------------------------------------

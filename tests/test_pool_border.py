@@ -741,6 +741,26 @@ class PoolBorderCountTest(unittest.TestCase):
         self.assertTrue(result["quote"]["shipping_pending"])
         self.assertNotIn("shipping", result["quote"])
 
+    def test_list_saved_with_default_iva_still_quotes_final_prices(self):
+        # PoolEdge prices are final per unit: a list stored with 19 % (or no
+        # rate at all, which defaults to 19 %) must not drop the subtotal.
+        for rate in (0.19, None):
+            with self.subTest(rate=rate):
+                memory = self.priced_memory()
+                stored = memory.get_client_pricing("losetaschile")
+                if rate is None:
+                    stored.pop("iva_rate")
+                else:
+                    stored["iva_rate"] = rate
+                zero = Zero(build_agents(mock=True), memory=memory)
+                with mock.patch.object(zero, "dispatch"):
+                    result = zero.converse_result(
+                        "losetaschile", "[location]", lead={"key": "test-lead"},
+                        channel="whatsapp")
+                self.assertIn("*Total productos: $230.400*", result["reply"])
+                self.assertEqual(result["quote"]["iva"], 0)
+                self.assertEqual(result["quote"]["total"], 230400)
+
     def test_price_and_quantity_question_gets_subtotal(self):
         zero = Zero(build_agents(mock=True), memory=self.priced_memory())
         with mock.patch.object(zero, "dispatch") as dispatch:

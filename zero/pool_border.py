@@ -14,7 +14,8 @@ from decimal import Decimal
 from .customer_text import normalize as normalize_customer_input
 from typing import Any
 
-from .config import (LOSETASCHILE_PAVER_PRICE_ID, LOSETASCHILE_PAVER_PRICE_IDS,
+from .config import (LOSETASCHILE_PAVER_PIECE_SIZES, LOSETASCHILE_PAVER_PRICE_ID,
+                     LOSETASCHILE_PAVER_PRICE_IDS,
                      LOSETASCHILE_PRICE_ID_DURMIENTE, LOSETASCHILE_PRICE_ID_PASTELON_50,
                      LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE,
                      LOSETASCHILE_WHATSAPP_CATALOG_URL)
@@ -497,8 +498,11 @@ def paver_price_reply(message: str, pricing: dict[str, Any]) -> str | None:
         return f"El durmiente es de 16x40 y vale {_money(price)} c/u." if price else None
     model = next((label for label, pattern in _PAVER_MODEL_NAMES if pattern.search(message)), None)
     if model:
-        price = unit.get(LOSETASCHILE_PAVER_PRICE_IDS.get(model, LOSETASCHILE_PAVER_PRICE_ID))
-        return f"El pastelón {model} es de 40x40 y vale {_money(price)} c/u." if price else None
+        price_id = LOSETASCHILE_PAVER_PRICE_IDS.get(model, LOSETASCHILE_PAVER_PRICE_ID)
+        price, size = unit.get(price_id), LOSETASCHILE_PAVER_PIECE_SIZES.get(price_id)
+        name = model.replace(" 50×50", "")
+        return (f"El pastelón {name} es de {size} y vale {_money(price)} c/u."
+                if price and size else None)
     if not re.search(r"\bpastel[oó]n(?:es)?\b|\b(?:40\s*[x×]\s*40|50\s*[x×]\s*50)\b",
                      message, re.IGNORECASE):
         return None
