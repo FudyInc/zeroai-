@@ -119,6 +119,9 @@ LOSETASCHILE_FLETE_CLP_PER_KM = 2000
 # usa el mismo id en el catálogo). Un modelo ofrecido sin precio respaldado debe estar
 # en PENDING; tests/test_paver_order_review.py falla si no está en uno de los dos.
 LOSETASCHILE_PAVER_PRICE_ID = "pastelones-40x40"
+LOSETASCHILE_PRICE_ID_ADOQUIN = "adoquin-40x40"
+LOSETASCHILE_PRICE_ID_DECK = "deck-50x50"
+
 LOSETASCHILE_PAVER_PRICE_IDS = {
     "Laja española": LOSETASCHILE_PAVER_PRICE_ID,
     "Ladrillo cruzado": LOSETASCHILE_PAVER_PRICE_ID,
@@ -126,6 +129,10 @@ LOSETASCHILE_PAVER_PRICE_IDS = {
     "Sol rústico": LOSETASCHILE_PAVER_PRICE_ID,
     # Diego, 2026-11-08: «los gregorianos valen lo mismo que todos los 40x40».
     "Gregoriano": LOSETASCHILE_PAVER_PRICE_ID,
+    # Diego, 2026-11-09: Adoquín se vende, precio propio.
+    "Adoquín": LOSETASCHILE_PRICE_ID_ADOQUIN,
+    # Diego, 2026-11-09: Deck madera se vende, precio propio.
+    "Deck": LOSETASCHILE_PRICE_ID_DECK,
 }
 # Modelos ofrecidos cuyo precio (y tamaño) Diego aún no confirma: el borrador dice
 # «precio pendiente». Sacar un modelo de aquí solo cuando Diego lo confirme.
