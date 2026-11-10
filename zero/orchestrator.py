@@ -159,6 +159,17 @@ def _introduced_name(text: str) -> Optional[str]:
     return match.group(1).capitalize()
 
 
+_AD_ICE_BREAKER_RE = re.compile(
+    r"hola\s*[👋]?\s*[,;]?\s*hablas\s+con\s+[Dd]iego\s+para\s+tu\s+cotizaci[oó]n\s+y\s+[Cc]at[aá]logo"
+    r".*?\bbordes?\s+(?:de|para)\s+piscina[s]?\b.*?\bpastelones?\b",
+    re.IGNORECASE | re.DOTALL
+)
+
+def _is_ad_ice_breaker(text: str) -> bool:
+    """The exact welcome message from Diego's Meta WhatsApp ads.
+    Shows the product menu instead of jumping to pool measurements."""
+    return bool(_AD_ICE_BREAKER_RE.search(text or ""))
+
 def _simple_greeting(text: str) -> bool:
     return bool(_GREETING_RE.fullmatch(text or "")) or _introduced_name(text) is not None
 
@@ -1410,6 +1421,9 @@ class Zero:
                 return {"reply": (POOL_MEASUREMENT_QUESTION if selected_category == "bordes"
                                   else PAVER_AREA_QUESTION),
                         "intent": "qualification", "flow_step": True}
+            if _is_ad_ice_breaker(message):
+                return {"reply": f"¡{greeting}! {PRODUCT_POLL_QUESTION}",
+                        "intent": "qualification", "customer_poll": "product"}
             if not order_history and not _CONCRETE_FIRST_QUESTION_RE.search(message):
                 return {"reply": f"¡{greeting}! ¿En qué puedo ayudarte?", "intent": "general",
                         "customer_poll": "product"}
