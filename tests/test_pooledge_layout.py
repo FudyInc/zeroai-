@@ -1,9 +1,11 @@
 """Estructura operativa Pooledge: meta sintética, sin red."""
 import json
 import os
+import re
 import stat
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from scripts import pooledge_estructura as cli
@@ -23,6 +25,134 @@ def _meta(extra=(), info_rows=99):
 
 
 LAST = 100
+
+
+def _formulas(plan):
+    """(hoja, letra+fila) -> fórmula de cada updateCells con fórmula."""
+    titles = plan["summary"]["sheet_titles"]
+    out = {}
+    for r in plan["requests"]:
+        uc = r.get("updateCells")
+        if not uc:
+            continue
+        st = uc["start"]
+        for i, row in enumerate(uc["rows"]):
+            for j, cell in enumerate(row["values"]):
+                f = cell["userEnteredValue"].get("formulaValue")
+                if f:
+                    out[(titles[str(st["sheetId"])], pl.col_letter(st["columnIndex"] + j), st["rowIndex"] + i + 1)] = f
+    return out
+
+
+def _assert_coherent(tc, plan):
+    """Toda fórmula, rango, formato y validación de PLATAS/RESUMEN/COBRANZA sigue a las letras
+    derivadas de pl.platas_columns(); expectativas escritas aquí desde L, no copiadas del módulo."""
+    L = pl.platas_letters()
+    cols = pl.platas_columns()
+    ncol = len(cols)
+    ids = plan["summary"]["sheet_ids"]
+    pid, rid, cid = (ids[t] for t in (C.POOLEDGE_TAB_PLATAS_NEW, C.POOLEDGE_TAB_RESUMEN, C.POOLEDGE_TAB_COBRANZA))
+    tc.assertEqual(plan["summary"]["platas_columns"], {L[k]: h for k, h, _ in cols})
+    idx = {k: pl._col_index(v) for k, v in L.items()}
+    reqs = plan["requests"]
+
+    # Encabezados escritos en A1.. en el mismo orden que las letras.
+    heads = next(r["updateCells"] for r in reqs if r.get("updateCells", {}).get("start", {}) ==
+                 {"sheetId": pid, "rowIndex": 0, "columnIndex": 0})
+    tc.assertEqual([c["userEnteredValue"]["stringValue"] for c in heads["rows"][0]["values"]],
+                   [h for _, h, _ in cols])
+
+    # Nada de PLATAS fuera de las columnas definidas; cuadrícula del tamaño exacto.
+    grid = next(r["addSheet"]["properties"]["gridProperties"] for r in reqs
+                if r.get("addSheet", {}).get("properties", {}).get("sheetId") == pid)
+    tc.assertEqual(grid["columnCount"], ncol)
+    for r in reqs:
+        for body in r.values():
+            rng = body.get("range") if isinstance(body, dict) else None
+            if isinstance(rng, dict) and rng.get("sheetId") == pid and "endColumnIndex" in rng:
+                tc.assertLessEqual(rng["endColumnIndex"], ncol, r)
+
+    def cols_of(pred):
+        return sorted({(x["range"]["startColumnIndex"], x["range"]["endColumnIndex"]) for x in
+                       (r["repeatCell"] for r in reqs if "repeatCell" in r)
+                       if x["range"]["sheetId"] == pid and pred(x["cell"]["userEnteredFormat"])})
+
+    def one(k):
+        return (idx[k], idx[k] + 1)
+    nf = lambda t: (lambda f: f.get("numberFormat", {}).get("type") == t)  # noqa: E731
+    tc.assertEqual(cols_of(nf("DATE")), sorted([one("fecha"), one("fcobro")]))
+    money = ["venta", "comision"] + (["costo", "ganancia"] if C.POOLEDGE_TRACK_COST else [])
+    tc.assertEqual(cols_of(nf("CURRENCY")), sorted(one(k) for k in money))
+    tc.assertEqual(cols_of(nf("TEXT")), [one("id")])
+
+    vals = {(v["range"]["startColumnIndex"], v["rule"]["condition"]["type"]): v for v in
+            (r["setDataValidation"] for r in reqs if "setDataValidation" in r) if v["range"]["sheetId"] == pid}
+    tc.assertEqual(sorted(vals), sorted([(idx["id"], "ONE_OF_RANGE"), (idx["fecha"], "DATE_IS_VALID"),
+                                         (idx["fcobro"], "DATE_IS_VALID"), (idx["cobrado"], "BOOLEAN")]))
+    tc.assertEqual(vals[(idx["id"], "ONE_OF_RANGE")]["rule"]["condition"]["values"][0]["userEnteredValue"],
+                   "='INFO PEDIDOS POOLEDGE'!J2:J")
+    tc.assertTrue(all(v["rule"]["strict"] for v in vals.values()))
+
+    protected = {(r["addProtectedRange"]["protectedRange"]["range"]["startColumnIndex"],
+                  r["addProtectedRange"]["protectedRange"]["range"]["endColumnIndex"])
+                 for r in reqs if "addProtectedRange" in r}
+    calc = ["cliente", "comision", "entregado", "estado"] + (["ganancia"] if C.POOLEDGE_TRACK_COST else [])
+    covered = {i for a, b in protected for i in range(a, b)}
+    tc.assertEqual(covered, {idx[k] for k in calc})
+
+    cf = [r["addConditionalFormatRule"]["rule"] for r in reqs if "addConditionalFormatRule" in r]
+    est = [x for x in cf if x["ranges"][0]["sheetId"] == pid and x["ranges"][0]["startColumnIndex"] == idx["estado"]]
+    tc.assertEqual(len(est), 3)
+    miss = [x for x in cf if x["ranges"][0]["sheetId"] == pid and x["ranges"][0]["startColumnIndex"] == idx["fcobro"]]
+    tc.assertEqual(miss[0]["booleanRule"]["condition"]["values"][0]["userEnteredValue"],
+                   f'=AND(${L["cobrado"]}2=TRUE,${L["fcobro"]}2="")')
+
+    # Fórmulas de PLATAS: exactamente las columnas calculadas, con las letras de sus insumos.
+    F = _formulas(plan)
+    p = C.POOLEDGE_TAB_PLATAS_NEW
+    a, e, i, g, c = (f"{L[k]}2:{L[k]}" for k in ("id", "venta", "cobrado", "entregado", "cliente"))
+    own = {k[1]: v for k, v in F.items() if k[0] == p}
+    tc.assertEqual(set(own), {L[k] for k in calc})
+    tc.assertIn(f'=MAP({a}, LAMBDA(id,', own[L["cliente"]])
+    tc.assertIn(f'=ARRAYFORMULA(IF({a}="",,ROUND({e}*', own[L["comision"]])
+    tc.assertIn("'INFO PEDIDOS POOLEDGE'!G:G", own[L["entregado"]])
+    tc.assertEqual(own[L["estado"]], f'=ARRAYFORMULA(IF({a}="",,IF({i}=TRUE,"Cobrada",IF({g}="Sí","Por cobrar","Futura"))))')
+    refs = lambda f: set(re.findall(r"(?<![A-Z'!])([A-Z]{1,2})2:\1\b", re.sub(r"'[^']*'!", "!", f)))  # noqa: E731
+    for letter, f in own.items():
+        for ref in refs(f):
+            tc.assertIn(ref, L.values(), f)
+
+    # RESUMEN y COBRANZA: las únicas letras de PLATAS que citan son las de sus insumos.
+    def platas_letters_in(tab):
+        found = set()
+        for (t, _, _), f in F.items():
+            if t == tab:
+                for m in re.finditer(r"'PLATAS 2026'!([A-Z]+)\d*(?::([A-Z]+)\d*)?", f):
+                    found |= {m.group(1), m.group(2) or m.group(1)}
+        return found
+    tc.assertEqual(platas_letters_in(C.POOLEDGE_TAB_RESUMEN),
+                   {L[k] for k in ("estado", "comision", "venta", "id", "fecha")}
+                   | ({L["ganancia"]} if C.POOLEDGE_TRACK_COST else set()))
+    tc.assertEqual(platas_letters_in(C.POOLEDGE_TAB_COBRANZA), {"A", L["fcobro"], L["estado"], L["comision"], L["id"]})
+    pos = lambda k: [h for _, h, _ in cols].index(dict((kk, hh) for kk, hh, _ in cols)[k]) + 1  # noqa: E731
+    cob = {f"{k[1]}{k[2]}": v for k, v in F.items() if k[0] == C.POOLEDGE_TAB_COBRANZA}
+    src = f"'PLATAS 2026'!A2:{L['fcobro']}"
+    tc.assertIn(f"CHOOSECOLS(FILTER({src}, 'PLATAS 2026'!{L['estado']}2:{L['estado']}=\"Por cobrar\"), "
+                f"{pos('id')}, {pos('cliente')}, {pos('fecha')})", cob["B6"])
+    tc.assertIn(f"{pos('id')}, {pos('cliente')}, {pos('fecha')}, {pos('comision')})", cob["H6"])
+    tc.assertIn(f"{pos('id')}, {pos('cliente')}, {pos('comision')}, {pos('fcobro')}), 4, FALSE)", cob["M6"])
+    tc.assertIn(f"XLOOKUP(id, 'PLATAS 2026'!{L['id']}:{L['id']}, 'PLATAS 2026'!{L['comision']}:{L['comision']})", cob["F6"])
+    for letter, state in (("F", "Por cobrar"), ("K", "Futura"), ("P", "Cobrada")):
+        tc.assertEqual(cob[letter + "3"], f"=SUMIF('PLATAS 2026'!{L['estado']}2:{L['estado']},\"{state}\","
+                                    f"'PLATAS 2026'!{L['comision']}2:{L['comision']})")
+    res = {f"{k[1]}{k[2]}": v for k, v in F.items() if k[0] == C.POOLEDGE_TAB_RESUMEN}
+    tc.assertEqual(res["B5"], f"=SUMIF('PLATAS 2026'!{L['estado']}2:{L['estado']},\"Cobrada\","
+                              f"'PLATAS 2026'!{L['comision']}2:{L['comision']})")
+    tc.assertEqual(res["E5"], f"=SUM('PLATAS 2026'!{L['venta']}2:{L['venta']})")
+    tc.assertEqual(res["F5"], f"=COUNTA('PLATAS 2026'!{L['id']}2:{L['id']})")
+    last = pl.resumen_letters()["comision"]
+    tc.assertEqual(res[last + "21"], f"=SUM({last}9:{last}20)")
+    tc.assertIn(f"SUMIFS('PLATAS 2026'!{L['comision']}2:{L['comision']},'PLATAS 2026'!{L['fecha']}2:{L['fecha']}", res[last + "9"])
 
 
 class PlanTest(unittest.TestCase):
@@ -45,24 +175,38 @@ class PlanTest(unittest.TestCase):
         with self.assertRaises(pl.LayoutError):
             pl.build_plan(_meta(), 0)
 
-    def test_info_untouched_before_first_new_row(self):
-        info_id = 0
-        touched = 0
-        for r in self.plan["requests"]:
-            for body in r.values():
-                rng = body.get("range") if isinstance(body, dict) else None
-                if rng and rng.get("sheetId") == info_id:
-                    touched += 1
-                    if rng["startColumnIndex"] == 9 and rng["endRowIndex"] == 1:  # J1: encabezado vacío
-                        self.assertEqual(rng["startRowIndex"], 0)
-                    else:
-                        self.assertEqual(rng["startRowIndex"], LAST)  # fila LAST+1, 0-based
-        self.assertEqual(touched, 4)
+    def test_info_only_gets_j1_header_value(self):
         info_cells = [r["updateCells"] for r in self.plan["requests"]
-                      if r.get("updateCells", {}).get("start", {}).get("sheetId") == info_id]
+                      if r.get("updateCells", {}).get("start", {}).get("sheetId") == 0]
         self.assertEqual(len(info_cells), 1)
         self.assertEqual(info_cells[0]["start"], {"sheetId": 0, "rowIndex": 0, "columnIndex": 9})
         self.assertEqual(info_cells[0]["rows"], [{"values": [{"userEnteredValue": {"stringValue": "ID PEDIDO"}}]}])
+        # Ninguna otra escritura de valores en INFO: sin pegado, sin append, sin fórmulas.
+        for r in self.plan["requests"]:
+            for kind in ("appendCells", "pasteData", "updateCells"):
+                if kind in r and kind != "updateCells":
+                    self.fail(kind)
+
+    def test_info_validations_and_styles(self):
+        reqs = [r for r in self.plan["requests"] if "setDataValidation" in r
+                and r["setDataValidation"]["range"]["sheetId"] == 0]
+        by_col = {r["setDataValidation"]["range"]["startColumnIndex"]: r["setDataValidation"] for r in reqs}
+        self.assertEqual(by_col[6]["rule"]["condition"], {"type": "BOOLEAN"})
+        self.assertEqual(by_col[6]["range"]["startRowIndex"], 1)
+        j = by_col[9]
+        self.assertEqual(j["rule"]["condition"]["type"], "CUSTOM_FORMULA")
+        self.assertEqual(j["rule"]["condition"]["values"][0]["userEnteredValue"], "=COUNTIF(J:J,J2)=1")
+        self.assertTrue(j["rule"]["strict"])
+        self.assertEqual(j["range"]["startRowIndex"], 1)
+
+    def test_g_invalid_count_is_only_a_count_and_warns(self):
+        plan = pl.build_plan(_meta(), LAST, info_g_invalid=3)
+        self.assertEqual(plan["summary"]["info_g_invalid"], 3)
+        self.assertTrue(plan["summary"]["warnings"])
+        self.assertIn("3 celda", plan["summary"]["warnings"][0])
+        self.assertFalse(pl.build_plan(_meta(), LAST)["summary"]["warnings"])
+        self.assertNotEqual(pl.plan_fingerprint(plan), pl.plan_fingerprint(self.plan))
+        self.assertIn("Avisos", pl.render_plan_html(plan))
 
     def test_everything_in_requests_with_updatecells_after_addsheet(self):
         self.assertNotIn("values", self.plan)
@@ -80,33 +224,162 @@ class PlanTest(unittest.TestCase):
         texts = [r["repeatCell"]["range"] for r in self.plan["requests"]
                  if r.get("repeatCell", {}).get("cell", {}).get("userEnteredFormat", {})
                  .get("numberFormat", {}).get("type") == "TEXT"]
-        self.assertEqual(len(texts), 2)
-        self.assertIn(LAST, [t["startRowIndex"] for t in texts])
+        self.assertEqual(len(texts), 1)
+        self.assertEqual((texts[0]["startColumnIndex"], texts[0]["endColumnIndex"]), (0, 1))
 
-    def test_iva_columns_hidden_by_config(self):
-        hide = [r["updateDimensionProperties"] for r in self.plan["requests"]
-                if "updateDimensionProperties" in r]
-        self.assertEqual(len(hide), 0 if C.POOLEDGE_SHOW_IVA else 1)
-        if hide:
-            self.assertEqual((hide[0]["range"]["startIndex"], hide[0]["range"]["endIndex"]), (5, 7))
-        from unittest import mock
-        with mock.patch.object(C, "POOLEDGE_SHOW_IVA", True):
-            shown = pl.build_plan(_meta(), LAST)
-        self.assertFalse([r for r in shown["requests"] if "updateDimensionProperties" in r])
+    def test_no_iva_total_nor_hidden_columns(self):
+        self.assertFalse(hasattr(C, "POOLEDGE_SHOW_IVA"))
+        self.assertFalse([r for r in self.plan["requests"] if "updateDimensionProperties" in r
+                          and r["updateDimensionProperties"]["properties"].get("hiddenByUser")])
+        self.assertEqual({"IVA", "TOTAL"} & set(self.plan["summary"]["platas_columns"].values()), set())
+        self.assertNotIn("0.19", json.dumps(self.plan))
+        self.assertNotRegex(json.dumps(self.plan), r"\bIVA\b")
 
-    def test_j_with_content_raises(self):
-        with self.assertRaises(pl.LayoutError):
-            pl.build_plan(_meta(), LAST, 1)
+    def test_j1_must_be_empty_or_already_the_header(self):
+        with self.assertRaises(pl.LayoutError) as ctx:
+            pl.build_plan(_meta(), LAST, "Dato Secreto")
+        self.assertNotIn("Secreto", str(ctx.exception))
+        same = pl.build_plan(_meta(), LAST, "ID PEDIDO")
+        self.assertFalse([r for r in same["requests"] if r.get("updateCells", {}).get("start", {})
+                          .get("sheetId") == 0])
+        self.assertTrue(same["summary"]["info_j1_has_header"])
+        self.assertNotEqual(pl.plan_fingerprint(same), pl.plan_fingerprint(self.plan))
+        # datos en J2:J no estorban: el script solo pasa J1
+        self.assertTrue(pl.build_plan(_meta(), LAST, ""))
 
-    def test_formulas_use_config_rates(self):
-        text = json.dumps([r for r in self.plan["requests"] if "updateCells" in r], ensure_ascii=False)
-        self.assertIn("E2:E*0.19", text)
-        self.assertIn("FILTER(", text)
-        self.assertIn("E2:E*0.1)", text)
+    def test_precios_banding_skipped_when_overlapping(self):
+        def meta_with(bands):
+            m = _meta()
+            m["sheets"].append({"properties": {"sheetId": 55, "title": C.POOLEDGE_TAB_PRECIOS,
+                                               "gridProperties": {"rowCount": 200, "columnCount": 11}},
+                                "bandedRanges": bands})
+            return m
+        for bands in ([], [{"range": {"sheetId": 55, "startRowIndex": 20, "endRowIndex": 30,
+                                      "startColumnIndex": 12, "endColumnIndex": 14}}]):
+            plan = pl.build_plan(meta_with(bands), LAST)
+            self.assertEqual(len([r for r in plan["requests"] if "addBanding" in r]), 1)
+            self.assertFalse(plan["summary"]["warnings"])
+        for band in ({"range": {"sheetId": 55, "startRowIndex": 0, "endRowIndex": 200}},   # sin columnas: toda la hoja
+                     {"range": {"sheetId": 55, "startRowIndex": 5, "endRowIndex": 9,
+                                "startColumnIndex": 2, "endColumnIndex": 3}}):
+            plan = pl.build_plan(meta_with([band]), LAST)
+            self.assertFalse([r for r in plan["requests"] if "addBanding" in r])
+            self.assertIn("ya tiene colores alternos; se dejan los existentes",
+                          " ".join(plan["summary"]["warnings"]))
+        # el resto del estilo sigue aplicándose
+        self.assertTrue([r for r in plan["requests"] if r.get("updateSheetProperties", {})
+                         .get("properties", {}).get("sheetId") == 55])
+        # solo PLATAS/RESUMEN/COBRANZA reciben addProtectedRange (hojas nuevas): nada choca en INFO/PRECIOS
+        for r in plan["requests"]:
+            if "addProtectedRange" in r:
+                self.assertIn(r["addProtectedRange"]["protectedRange"]["range"]["sheetId"],
+                              plan["summary"]["sheet_ids"].values())
+
+    def test_text_map_formulas_return_empty_string_numeric_stay_empty(self):
+        f = {k[1]: v for k, v in _formulas(self.plan).items() if k[0] == C.POOLEDGE_TAB_PLATAS_NEW}
+        self.assertIn('IF(id="","", XLOOKUP', f["C"])
+        self.assertIn('IF(id="","", IF(XLOOKUP', f["G"])
+        self.assertNotIn('IF(id="",,', f["C"] + f["G"])
+        self.assertIn('IF(A2:A="",,ROUND(', f["F"])
+
+    def test_formulas_use_config_rate_and_english_syntax(self):
+        formulas = _formulas(self.plan)
+        self.assertTrue(any("ROUND(E2:E*0.1)" in f for f in formulas.values()))
+        with mock.patch.object(C, "POOLEDGE_COMMISSION_RATE", 0.15):
+            other = _formulas(pl.build_plan(_meta(), LAST))
+        self.assertTrue(any("ROUND(E2:E*0.15)" in f for f in other.values()))
         for state in C.POOLEDGE_COMMISSION_STATES:
-            self.assertIn(state, text)
-        self.assertIn("VLOOKUP(A2:A,{\'INFO PEDIDOS POOLEDGE\'!J2:J,\'INFO PEDIDOS POOLEDGE\'!G2:G},2,FALSE)".replace("\\'", "'"),
-                      text.replace("\\'", "'"))
+            self.assertIn(state, " ".join(formulas.values()))
+        for f in formulas.values():
+            outside = re.sub(r'"[^"]*"', "", f)
+            self.assertNotIn(";", outside, f)          # el ; de la ficha es sintaxis Chile, no API
+            self.assertNotRegex(outside, r"\*\s*\d+,\d")  # coma decimal tampoco
+
+    def test_cost_off_has_no_cost_or_profit_anywhere(self):
+        self.assertFalse(C.POOLEDGE_TRACK_COST)
+        self.assertEqual(list(pl.platas_letters()), ["id", "fecha", "cliente", "detalle", "venta", "comision",
+                                                      "entregado", "estado", "cobrado", "fcobro"])
+        text = json.dumps(self.plan, ensure_ascii=False)
+        for word in ("COSTO", "GANANCIA", "Ganancia"):
+            self.assertNotIn(word, text)
+        self.assertEqual(self.plan["summary"]["platas_columns"]["J"], "FECHA COBRO")
+        self.assertNotIn("K", self.plan["summary"]["platas_columns"])
+
+    def test_cost_on_appends_k_l_without_moving_letters(self):
+        base = pl.platas_letters()
+        with mock.patch.object(C, "POOLEDGE_TRACK_COST", True):
+            on = pl.build_plan(_meta(), LAST)
+            L = pl.platas_letters()
+            self.assertEqual({k: v for k, v in L.items() if k in base}, base)
+            self.assertEqual((L["costo"], L["ganancia"]), ("K", "L"))
+            self.assertEqual(on["summary"]["platas_columns"]["K"], "COSTO BASE NETO")
+            self.assertEqual(on["summary"]["platas_columns"]["L"], "GANANCIA")
+            f = _formulas(on)
+            self.assertTrue(any(v == "=ARRAYFORMULA(IF(A2:A=\"\",,E2:E-K2:K))" for v in f.values()))
+            # RESUMEN: columna de ganancia mensual (E) y comisión pasa a F
+            self.assertEqual(pl.resumen_letters(), {"mes": "B", "pedidos": "C", "venta": "D",
+                                                    "ganancia": "E", "comision": "F"})
+            self.assertIn("'PLATAS 2026'!L2:L", " ".join(f.values()))
+            # alerta de ganancia negativa solo con el flag
+            lt = [r for r in on["requests"] if r.get("addConditionalFormatRule", {}).get("rule", {})
+                  .get("booleanRule", {}).get("condition", {}).get("type") == "NUMBER_LESS"]
+            self.assertEqual(len(lt), 1)
+            _assert_coherent(self, on)
+        self.assertFalse([r for r in self.plan["requests"] if r.get("addConditionalFormatRule", {})
+                          .get("rule", {}).get("booleanRule", {}).get("condition", {}).get("type") == "NUMBER_LESS"])
+
+    def test_coherent_letters_default(self):
+        _assert_coherent(self, self.plan)
+
+    def test_coherent_letters_follow_a_single_definition(self):
+        # Si alguien mueve una columna, TODO lo derivado la sigue; un literal viejo haría fallar esto.
+        base = list(pl._PLATAS_BASE)
+        swapped = base[:3] + [base[4], base[3]] + base[5:]      # VENTA NETA antes de DETALLE
+        with mock.patch.object(pl, "_PLATAS_BASE", tuple(swapped)):
+            self.assertEqual(pl.platas_letters()["venta"], "D")
+            _assert_coherent(self, pl.build_plan(_meta(), LAST))
+
+    def test_resumen_and_chart(self):
+        reqs = self.plan["requests"]
+        rid = self.plan["summary"]["sheet_ids"][C.POOLEDGE_TAB_RESUMEN]
+        charts = [r["addChart"]["chart"] for r in reqs if "addChart" in r]
+        self.assertEqual(len(charts), 1)
+        spec = charts[0]["spec"]
+        self.assertEqual(spec["basicChart"]["chartType"], "COLUMN")
+        self.assertEqual(spec["title"], "Comisión por mes")
+        pos = charts[0]["position"]["overlayPosition"]
+        self.assertEqual((pos["anchorCell"], pos["widthPixels"], pos["heightPixels"]),
+                         ({"sheetId": rid, "rowIndex": 6, "columnIndex": 7}, 520, 408))
+        ser = spec["basicChart"]["series"][0]["series"]["sourceRange"]["sources"][0]
+        self.assertEqual((ser["startColumnIndex"], ser["startRowIndex"], ser["endRowIndex"]), (4, 7, 20))  # E8:E20
+        dom = spec["basicChart"]["domains"][0]["domain"]["sourceRange"]["sources"][0]
+        self.assertEqual(dom["startColumnIndex"], 1)
+
+    def test_gridlines_hidden_and_frozen(self):
+        adds = {r["addSheet"]["properties"]["title"]: r["addSheet"]["properties"]["gridProperties"]
+                for r in self.plan["requests"] if "addSheet" in r}
+        for gp in adds.values():
+            self.assertTrue(gp["hideGridlines"])
+        self.assertEqual(adds[C.POOLEDGE_TAB_PLATAS_NEW]["frozenRowCount"], 1)
+        self.assertEqual(adds[C.POOLEDGE_TAB_PLATAS_NEW]["columnCount"], 10)
+        self.assertEqual(adds[C.POOLEDGE_TAB_COBRANZA]["frozenRowCount"], 5)
+
+    def test_precios_only_style_and_no_hide(self):
+        meta = _meta()
+        meta["sheets"].append({"properties": {"sheetId": 55, "title": C.POOLEDGE_TAB_PRECIOS,
+                                              "gridProperties": {"rowCount": 200, "columnCount": 11}}})
+        plan = pl.build_plan(meta, LAST)
+        mine = [r for r in plan["requests"] if any(isinstance(v, dict) and (
+            v.get("range", {}).get("sheetId") == 55 or v.get("sheetId") == 55
+            or v.get("properties", {}).get("sheetId") == 55) for v in r.values())]
+        self.assertTrue(mine)
+        self.assertFalse([r for r in mine if "updateCells" in r])
+        self.assertFalse([r for r in mine if r.get("updateDimensionProperties", {})
+                          .get("properties", {}).get("hiddenByUser")])
+        self.assertEqual([r["addBanding"]["bandedRange"]["range"]["sheetId"]
+                          for r in plan["requests"] if "addBanding" in r], [55])
+        self.assertIn("NO se ocultan", " ".join(plan["summary"]["formats"]))
+        self.assertFalse([r for r in self.plan["requests"] if "addBanding" in r])  # sin pestaña: se omite
 
     def test_fingerprint_deterministic(self):
         again = pl.build_plan(_meta(), LAST)
@@ -122,8 +395,8 @@ class PlanTest(unittest.TestCase):
         self.assertIn("&lt;script&gt;", page)
         self.assertIn("<body>", page)
         self.assertIn("$150.000", page)
-        self.assertIn("$28.500", page)
         self.assertIn("$15.000", page)
+        self.assertNotIn("$28.500", page)
 
 
 class FakeApi:
@@ -145,7 +418,7 @@ class FakeApi:
             raise RuntimeError("SECRETO-DE-LA-HOJA")
         if rng.endswith("!A:I"):
             return [["x"]] * (LAST - 1) + [[""] * 8 + ["abono"]]
-        if rng.endswith("!J:J"):
+        if rng.endswith("!J1"):
             return []
         return [["dato privado"]]
 
@@ -243,20 +516,31 @@ class ScriptTest(unittest.TestCase):
     def test_layout_error_message_is_shown_without_cells(self):
         api = FakeApi()
         api.read = lambda sid, rng, token, render="FORMATTED_VALUE": (
-            [["Dato Secreto"]] if rng.endswith("!J:J") else [["x"]])
+            [["Dato Secreto"]] if rng.endswith("!J1") else [["x"]])
         self.assertEqual(self.run_cli(["--preview"], api), 1)
-        self.assertIn("columna J", self.out[-1])
+        self.assertIn("INFO!J1", self.out[-1])
         self.assertNotIn("Secreto", self.out[-1])
+
+    def test_g_invalid_count_reaches_preview_without_content(self):
+        api = FakeApi()
+        base = api.read
+        api.read = lambda sid, rng, token, render="FORMATTED_VALUE": (
+            [["ENTREGADO"], ["TRUE"], ["false"], [""], ["Sí-SECRETO"], ["x"]] if rng.endswith("!G:G")
+            else base(sid, rng, token, render))
+        self.assertEqual(self.run_cli(["--preview"], api), 0)
+        page = next(self.dir.glob("pooledge-estructura-*.html")).read_text()
+        self.assertIn("2 celda(s)", page)
+        self.assertNotIn("SECRETO", page + "".join(self.out))
+        self.assertEqual(cli._invalid_checkbox_count([["h"], ["TRUE"], ["No"], []]), 1)
 
     def test_last_row_counts_any_column(self):
         self.assertEqual(cli._last_row([["a"], [], ["", "", "b"], [""], []]), 3)
-        self.assertEqual(cli._nonempty_count([["", "x"], ["y"]]), 2)
 
     def test_last_row_in_script_uses_columns_b_to_i(self):
         # el fake deja dato solo en I de la fila LAST: build_plan debe partir de ahí
         self.run_cli(["--preview"])
         html_file = next(self.dir.glob("pooledge-estructura-*.html"))
-        self.assertIn(f"hasta la {LAST};", html_file.read_text())
+        self.assertIn(f"hasta la {LAST}.", html_file.read_text())
 
 
 if __name__ == "__main__":

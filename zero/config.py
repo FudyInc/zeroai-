@@ -180,7 +180,7 @@ LOSETASCHILE_CHAT_OPEN_HOURS = 12
 LOSETASCHILE_DEPOSIT_CLP = 10000
 
 # --- Planilla de pedidos de Pooledge (zero/pooledge_sheet.py) -------------------
-# Comisión de Diego sobre la VENTA NETA (sin IVA). El IVA es `IVA_RATE`.
+# Comisión de Diego sobre la VENTA NETA (el IVA no existe en esta planilla).
 POOLEDGE_COMMISSION_RATE = 0.10
 # Variable de entorno con el ID de la planilla "Pedidos PoolEdge".
 POOLEDGE_ORDERS_SHEET_ENV = "LOSETASCHILE_ORDERS_SHEET_ID"
@@ -197,11 +197,20 @@ POOLEDGE_TAB_COBRANZA = "COBRANZA"
 POOLEDGE_FORMAT_ROWS = 1000
 # Estado de la comisión de cada pedido: cobrada / entregado sin cobrar / aún no entregado.
 POOLEDGE_COMMISSION_STATES = ("Cobrada", "Por cobrar", "Futura")
-# IVA y TOTAL en PLATAS 2026. Diego (2026-11-09): «quita el IVA de mientras». Las
-# columnas existen igual (las fórmulas no se mueven), solo quedan ocultas.
-POOLEDGE_SHOW_IVA = False
+# Costo base y ganancia en PLATAS 2026. Diego (2026-11-11): se trabaja a comisión, así
+# que K COSTO BASE NETO y L GANANCIA (más la ganancia de RESUMEN y su alerta de negativo)
+# NO existen. En True se agregan AL FINAL (K, L) sin mover ninguna otra letra. El IVA no
+# existe en la planilla: no hay flag para él.
+POOLEDGE_TRACK_COST = False
+# Pestaña de precios de Pooledge (solo se le da estilo; sus datos no se tocan).
+POOLEDGE_TAB_PRECIOS = "PRECIOS PRODUCTOS"
 # Escribir pedidos confirmados en la planilla (fase 2 WhatsApp). Apagado por defecto.
 POOLEDGE_WRITE_ORDERS = False
+# ID correlativo de pedido: prefijo + número con al menos estos dígitos (PE-0001).
+POOLEDGE_ORDER_ID_PREFIX = "PE-"
+POOLEDGE_ORDER_ID_DIGITS = 4
+# Un pedido en "sheet_writing" más viejo que esto se considera pegado y se reintenta.
+POOLEDGE_WRITING_STALE_MINUTES = 10
 # Cuántos borradores de revisión (por cliente) se recuerdan para leer la respuesta
 # del dueño que los cita.
 REVIEW_DRAFTS_KEPT = 50

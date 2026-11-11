@@ -486,8 +486,11 @@ def read_values(spreadsheet_id: str, a1_range: str, token: str,
 
 
 def get_sheet_meta(spreadsheet_id: str, token: str) -> Dict[str, Any]:
-    """Pestañas con sus propiedades (sheetId, title, gridProperties)."""
-    return _request("GET", f"{spreadsheet_id}?fields=sheets(properties)", token) or {}
+    """Pestañas con sus propiedades (sheetId, title, gridProperties) y sus rangos con colores
+    alternos o protegidos (para no chocar al agregar los propios)."""
+    return _request(
+        "GET", f"{spreadsheet_id}?fields=sheets(properties,bandedRanges(range),protectedRanges(range))",
+        token) or {}
 
 
 def batch_values_update(spreadsheet_id: str, data: List[Dict[str, Any]], token: str,

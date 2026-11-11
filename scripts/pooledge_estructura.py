@@ -1,4 +1,4 @@
-"""Crea la estructura operativa de la planilla de Pooledge (pestañas nuevas + columnas de INFO).
+"""Crea la estructura operativa de la planilla de Pooledge (pestañas nuevas, ID y casillas de INFO, estilo de INFO y PRECIOS).
 
   --preview                    solo lectura: guarda el plan en un HTML privado y muestra su huella.
   --apply --fingerprint HUELLA aplica el plan SOLO si la huella coincide con el plan recalculado;
@@ -41,8 +41,11 @@ def _last_row(rows) -> int:
     return last
 
 
-def _nonempty_count(rows) -> int:
-    return sum(1 for row in rows for c in row if str(c).strip())
+def _invalid_checkbox_count(rows) -> int:
+    """Celdas de datos (sin la fila 1) con algo que no es TRUE/FALSE: la casilla las invalidaría.
+    Solo el conteo; el contenido nunca sale de aquí."""
+    return sum(1 for row in rows[1:] for c in row[:1]
+               if str(c).strip() and str(c).strip().upper() not in ("TRUE", "FALSE"))
 
 
 def _audit(directory: Path, entry: dict) -> None:
@@ -85,8 +88,10 @@ def run(argv=None, *, token_provider=None, meta_reader=None, values_reader=None,
         meta = (meta_reader or sheets.get_sheet_meta)(spreadsheet_id, token)
         info = sheets.quote_tab(C.POOLEDGE_TAB_INFO)
         info_rows = read_values(spreadsheet_id, f"{info}!A:I", token)
-        j_rows = read_values(spreadsheet_id, f"{info}!J:J", token, render="FORMULA")
-        plan = layout.build_plan(meta, _last_row(info_rows), _nonempty_count(j_rows))
+        j1_rows = read_values(spreadsheet_id, f"{info}!J1", token, render="FORMULA")
+        g_rows = read_values(spreadsheet_id, f"{info}!G:G", token)
+        plan = layout.build_plan(meta, _last_row(info_rows), str(j1_rows[0][0]) if j1_rows and j1_rows[0] else "",
+                                 _invalid_checkbox_count(g_rows))
         fingerprint = layout.plan_fingerprint(plan)
         n_requests = len(plan["requests"])
         directory = directory or Path.home() / C.POOLEDGE_PREVIEW_DIR_NAME
@@ -106,7 +111,7 @@ def run(argv=None, *, token_provider=None, meta_reader=None, values_reader=None,
             backup["values"][props["title"]] = read_values(
                 spreadsheet_id, f"{sheets.quote_tab(props['title'])}!A:{last_col}", token, render="FORMULA")
         summ = plan["summary"]
-        grid_range = f"{info}!G{summ['first_new_row']}:J{summ['info_end_row']}"
+        grid_range = f"{info}!A1:J{summ['info_end_row']}"
         backup["info_format_grid"] = (grid_reader or sheets.read_grid_data)(spreadsheet_id, grid_range, token)
         backup_path = _save_private(json.dumps(backup, ensure_ascii=False), directory,
                                     prefix="pooledge-respaldo", ext="json")
@@ -128,7 +133,7 @@ def run(argv=None, *, token_provider=None, meta_reader=None, values_reader=None,
         except Exception:
             audit_note = "; el registro de auditoría falló"
         output(f"Estructura aplicada{audit_note}: requests={n_requests}; "
-               f"respaldo={backup_path} (pestañas={len(backup['values'])}, más valores y color de INFO G:J filas nuevas; validaciones y formato numérico no); "
+               f"respaldo={backup_path} (pestañas={len(backup['values'])}, más valores y formato de INFO A:J; validaciones no); "
                f"fingerprint={fingerprint}")
         return 0
     except Exception as exc:
