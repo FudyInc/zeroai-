@@ -292,7 +292,7 @@ class PoolBorderCountTest(unittest.TestCase):
             result = zero.converse_result("losetaschile", "hola buenas",
                                           lead={"key": "new-lead"}, channel="whatsapp")
         dispatch.assert_not_called()
-        self.assertEqual(result["reply"], "¡Buenas noches! ¿En qué puedo ayudarle?")
+        self.assertEqual(result["reply"], "¡Buenas noches! Gracias por escribir a PoolEdge.")
 
     def test_live_greetings_open_the_product_poll_without_model(self):
         # Seen live 2026-10-15: «Hola buenas tardes» reached the model and no poll was sent.

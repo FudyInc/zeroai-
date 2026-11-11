@@ -200,7 +200,7 @@ class SecondLiveTestErrors(_LiveChat):
 
     def paver_menu(self, area="30"):
         from zero.losetas_polls import PAVER_AREA_QUESTION, PRODUCT_POLL_QUESTION
-        return (("agent", f"¡Buenas noches! ¿En qué puedo ayudarle?\n\n{PRODUCT_POLL_QUESTION}"),
+        return (("agent", f"¡Buenas noches! Gracias por escribir a PoolEdge.\n\n{PRODUCT_POLL_QUESTION}"),
                 ("lead", "Pastelones"), ("agent", PAVER_AREA_QUESTION), ("lead", area),
                 ("agent", f"Anoté {area} m². {PAVER_MODEL_QUESTION}"))
 

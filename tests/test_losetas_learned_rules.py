@@ -10,6 +10,7 @@ G. «ninguno», «no quiero nada» → cierre amable de una línea.
 H. Reclamo, insulto o pedir una persona → pausa, aviso a Diego y acuse fijo.
 I. «Losetas Chile» no sale en ningún texto: se dice PoolEdge.
 """
+import unittest
 from unittest import mock
 
 from zero.config import WHATSAPP_CLOSING_REPLY, WHATSAPP_HUMAN_REQUEST_ACK
@@ -283,3 +284,16 @@ class FulgetTest(_LiveChat):
             self.assertEqual(result["reply"], LOSETASCHILE_FULGET_REPLY)
         self.assertIn("No trabajamos fulget", LOSETASCHILE_FULGET_REPLY)
         self.assertIn("catálogo", LOSETASCHILE_FULGET_REPLY)
+
+
+class GreetingWordingTest(unittest.TestCase):
+    """Diego, 2026-11-11: «¿en qué puedo ayudarle?» no suena bien; ningún saludo lo usa."""
+
+    def test_no_greeting_offers_help(self):
+        from zero import config
+        texts = (*config.WHATSAPP_FALLBACK_GREETINGS, *config.WHATSAPP_FALLBACK_GREETINGS_NAMED,
+                 config.LOSETASCHILE_GREETING_TAIL)
+        for text in texts:
+            self.assertNotIn("ayud", text.casefold(), text)
+        with open("zero/orchestrator.py", encoding="utf-8") as source:
+            self.assertNotIn("puedo ayudarle", source.read())

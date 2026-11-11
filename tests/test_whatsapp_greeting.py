@@ -34,7 +34,7 @@ class WhatsAppGreetingTest(unittest.TestCase):
         with mock.patch("zero.orchestrator.whatsapp_greeting", return_value="Buenas noches"), \
              mock.patch.object(zero, "dispatch") as dispatch:
             result = zero.converse_result("losetaschile", "Buenas tardes")
-        self.assertEqual(result["reply"], "¡Buenas noches! ¿En qué puedo ayudarle?")
+        self.assertEqual(result["reply"], "¡Buenas noches! Gracias por escribir a PoolEdge.")
         dispatch.assert_not_called()
 
     def test_other_business_keeps_persona_and_corrects_wrong_greeting(self):

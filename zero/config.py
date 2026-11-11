@@ -64,14 +64,14 @@ WHATSAPP_HUMAN_DELIVERY = {"enabled": True, "ms_per_char": 35, "min_typing_ms": 
 # Variantes de textos de respaldo (deterministas: se elige por índice estable,
 # ver whatsapp_format.pick_variant). La primera es la redacción histórica.
 WHATSAPP_FALLBACK_GREETINGS_NAMED = (
-    "¡{greeting}, {name}! ¿En qué puedo ayudarle?",
-    "¡{greeting}, {name}! Cuénteme, ¿en qué le puedo ayudar?",
+    "¡{greeting}, {name}! Cuénteme qué está buscando.",
     "¡{greeting}, {name}! ¿Qué está buscando?",
+    "¡{greeting}, {name}! Gracias por escribirnos. ¿Qué está buscando?",
 )
 WHATSAPP_FALLBACK_GREETINGS = (
-    "¡{greeting}! ¿En qué le puedo ayudar?",
-    "¡{greeting}! Cuénteme, ¿qué está buscando?",
-    "¡{greeting}! Dígame, ¿en qué le ayudo?",
+    "¡{greeting}! Cuénteme qué está buscando.",
+    "¡{greeting}! ¿Qué está buscando?",
+    "¡{greeting}! Gracias por escribirnos. ¿Qué está buscando?",
 )
 # Ninguna promete plazos ni dice que una persona ya lo vio.
 WHATSAPP_REVIEW_NOTICES = (
@@ -293,6 +293,9 @@ LOSETASCHILE_WHATSAPP_CATALOG_URL = "https://wa.me/c/56964537891"
 # Fulget (granito lavado) no se fabrica: lo preguntan muchos clientes con mil
 # grafías («fullget», «full get», «fulguet»). Diego, 2026-11-11: decir que no y
 # que solo hay lo del catálogo.
+# Primer saludo: la pregunta («¿Qué producto está buscando?») la hace la encuesta que
+# sale justo después. Diego, 2026-11-11: «¿en qué puedo ayudarle?» no suena bien.
+LOSETASCHILE_GREETING_TAIL = "Gracias por escribir a PoolEdge."
 LOSETASCHILE_FULGET_REPLY = (
     "No trabajamos fulget. Solo fabricamos lo que está en nuestro catálogo: bordes de "
     "piscina y pastelones de hormigón. Puede verlos aquí: " + LOSETASCHILE_WHATSAPP_CATALOG_URL)

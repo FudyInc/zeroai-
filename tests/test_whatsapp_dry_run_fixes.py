@@ -260,7 +260,7 @@ class FirstContactTest(_Flow):
                         "Hola vi su anuncio en Instagram", "vi su publicación",
                         "Buenas, quiero cotizar", "info"):
             result = self.converse(message, [])
-            self.assertRegex(result["reply"], r"^¡[^!]+! ¿En qué puedo ayudarle\?$", message)
+            self.assertRegex(result["reply"], r"^¡[^!]+! Gracias por escribir a PoolEdge\.$", message)
             self.assertEqual(result["customer_poll"], "product", message)
 
     def test_concrete_first_questions_keep_their_answer(self):

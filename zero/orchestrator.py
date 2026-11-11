@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from .config import (LOSETASCHILE_CHAT_OPEN_HOURS, WHATSAPP_UNREADABLE_HANDOFF_HOURS,
     LOSETASCHILE_CHOICE_STYLE,
     LOSETASCHILE_PAVER_PRICE_IDS,
-    LOSETASCHILE_FULGET_REPLY,
+    LOSETASCHILE_FULGET_REPLY, LOSETASCHILE_GREETING_TAIL,
     LOSETASCHILE_PAVER_REVIEW_SHIPPING_REPLY,
     LOSETASCHILE_PAGO_GENERICO,
     LOSETASCHILE_TEMAS_SIN_INVENTAR,
@@ -1516,7 +1516,7 @@ class Zero:
                 if question in last_agent:
                     return {"reply": f"{salutation} {question}", "intent": "qualification",
                             "flow_step": True, "repeat_menu": True}
-            return {"reply": f"{salutation} ¿En qué puedo ayudarle?", "intent": "general",
+            return {"reply": f"{salutation} {LOSETASCHILE_GREETING_TAIL}", "intent": "general",
                     "customer_poll": "product"}
         if losetas_steps:
             visual_category = visual_catalog_category(message)
@@ -1556,7 +1556,7 @@ class Zero:
                 return {"reply": f"¡{greeting}! {PRODUCT_POLL_QUESTION}",
                         "intent": "qualification", "customer_poll": "product"}
             if not order_history and not _CONCRETE_FIRST_QUESTION_RE.search(message):
-                return {"reply": f"¡{greeting}! ¿En qué puedo ayudarle?", "intent": "general",
+                return {"reply": f"¡{greeting}! {LOSETASCHILE_GREETING_TAIL}", "intent": "general",
                         "customer_poll": "product"}
             if (_QUOTE_REQUEST_RE.search(message) and not _INFO_QUESTION_RE.search(message) and
                     not re.search(r"\b(?:bordes?\s+(?:de|para)\s+(?:(?:la|mi|una|nuestra|el)\s+)?piscinas?|pastelones?)\b",
@@ -1796,7 +1796,7 @@ class Zero:
                              "no repetir saludos, explicaciones, preguntas ni listas de medidas "
                              "ya solicitadas. Pide solo el dato que falta. Si no logras entender "
                              "la consulta, usa intent handoff. Trata siempre al cliente "
-                             "de usted (usted, su, le; «¿en qué le puedo ayudar?»); nunca "
+                             "de usted (usted, su, le; «¿qué está buscando?»); nunca "
                              "lo tutees.")
         if open_menu:
             instructions += (" El cliente escribió esto en vez de elegir una opción de la "
