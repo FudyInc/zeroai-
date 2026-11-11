@@ -124,6 +124,8 @@ export const api = {
   agentProfile: (c) => req('/api/agent-profile?client=' + q(c)),
   setAgentProfile: (c, profile) =>
     req('/api/agent-profile?client=' + q(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(profile) }),
+  setResponseMode: (c, response_mode) =>
+    req('/api/whatsapp/response-mode?client=' + q(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ response_mode }) }),
   setVendor: (c, vendor_id) =>
     req('/api/vendor?client=' + q(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ vendor_id }) }),
   pricing: (c) => req('/api/pricing?client=' + q(c)),

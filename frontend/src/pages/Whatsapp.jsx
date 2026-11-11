@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import {
   MessageCircle, CheckCircle2, WifiOff, AlertCircle, Copy, Check, Clock,
-  Building2, Rocket, Cpu, ChevronDown, ArrowUpRight, SlidersHorizontal,
+  Building2, Rocket, Cpu, ChevronDown, ArrowUpRight, SlidersHorizontal, Power,
 } from 'lucide-react'
 import { api, BASE } from '../lib/api'
 import { Card, Button, Badge, Skeleton, SectionTitle, Input } from '../components/ui'
@@ -109,11 +109,14 @@ export default function Whatsapp() {
               <a href="#wa-pruebas">Pruebas y actividad <ArrowUpRight size={15} /></a>
             </nav>
           </div>
+          <div className="wa-hero-side">
+          <MasterSwitch client={client} mode={readinessQ.data?.response_mode} loading={readinessQ.isLoading} />
           <div className="wa-hero-progress">
             <span>Preparación del negocio</span>
             <strong>{readyItems == null ? '…' : `${readyItems}/4`}</strong>
             <div className="wa-progress-track"><div style={{ width: `${(readyItems || 0) * 25}%` }} /></div>
             <small>Ficha, reglas, número y precios</small>
+          </div>
           </div>
         </Card>
       </motion.div>
@@ -334,6 +337,40 @@ function VendorPicker({ vendorsQ, assignedId, currentId, onPick }) {
         </div>
       )}
     </Card>
+  )
+}
+
+/* Interruptor maestro: apagar es inmediato (freno de emergencia, no depende del
+   puente). Encender pide confirmación, porque pausa los chats atendidos a mano. */
+function MasterSwitch({ client, mode, loading }) {
+  const qc = useQueryClient()
+  const on = mode === 'automatic'
+  const flip = useMutation({
+    mutationFn: (next) => api.setResponseMode(client, next),
+    onSuccess: (d) => {
+      qc.invalidateQueries({ queryKey: ['whatsapp-readiness', client] })
+      qc.invalidateQueries({ queryKey: ['agent-profile', client] })
+      if (d.response_mode === 'manual') toast.success('Agente apagado. Ahora respondes tú desde la bandeja.')
+      else toast.success(`Agente encendido. ${d.paused_chats} chat${d.paused_chats === 1 ? '' : 's'} quedaron pausados para revisarlos en Atención.`)
+    },
+    onError: (e) => toast.error('No se pudo cambiar: ' + e.message),
+  })
+  const toggle = () => {
+    if (on) return flip.mutate('manual')
+    if (window.confirm('¿Encender el agente? Los chats con actividad durante el modo manual quedan pausados hasta que los liberes en Atención.')) flip.mutate('automatic')
+  }
+  const busy = loading || flip.isPending
+  return (
+    <button type="button" role="switch" aria-checked={on} disabled={busy || !mode} onClick={toggle}
+      className={'wa-master ' + (on ? 'is-on' : 'is-off')}
+      title={on ? 'Apagar el agente (respondes tú)' : 'Encender el agente'}>
+      <Power size={18} />
+      <span className="wa-master-text">
+        <small>Agente de WhatsApp</small>
+        <strong>{busy ? 'Cambiando…' : on ? 'Encendido' : 'Apagado'}</strong>
+      </span>
+      <span className="wa-master-track"><span className="wa-master-thumb" /></span>
+    </button>
   )
 }
 

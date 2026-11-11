@@ -2688,17 +2688,45 @@ def set_agent_profile(client: str, body: AgentProfileBody):
                "quote_mode": body.quote_mode,
                "response_mode": body.response_mode,
                "offer_flow": client == "zeroai"}
-    previous = memory.get_client_agent_profile(client).get("response_mode") or "automatic"
-    paused = _pause_chats_on_activation(memory, client) if (
-        previous == "manual" and body.response_mode == "automatic") else []
-    state = memory.clients.setdefault(client, {})
-    if body.response_mode == "manual" and previous != "manual":
-        state["manual_since"] = datetime.now(timezone.utc).isoformat()
-    elif body.response_mode == "automatic":
-        state.pop("manual_since", None)
+    paused = _switch_response_mode(memory, client, body.response_mode)
     memory.set_client_agent_profile(client, profile)
     memory.save()
     return {"client": client, "profile": profile, "paused_chats": len(paused)}
+
+
+def _switch_response_mode(memory, client: str, mode: str) -> list:
+    """Aplica el cambio de modo sin guardar. Manual → automático pausa los chats del
+    período manual (si el puente falla, levanta y no cambia nada). Pasar a manual
+    nunca depende del puente: es el freno de emergencia."""
+    previous = memory.get_client_agent_profile(client).get("response_mode") or "automatic"
+    paused = _pause_chats_on_activation(memory, client) if (
+        previous == "manual" and mode == "automatic") else []
+    state = memory.clients.setdefault(client, {})
+    if mode == "manual" and previous != "manual":
+        state["manual_since"] = datetime.now(timezone.utc).isoformat()
+    elif mode == "automatic":
+        state.pop("manual_since", None)
+    return paused
+
+
+class ResponseModeBody(BaseModel):
+    response_mode: Literal["manual", "automatic"]
+
+
+@app.post("/api/whatsapp/response-mode")
+def set_whatsapp_response_mode(client: str, body: ResponseModeBody):
+    """Interruptor maestro del agente de WhatsApp: cambia solo el modo y deja intactos
+    el tono, las reglas, el número y el modo de presupuesto."""
+    memory = make_memory(STATE_PATH)
+    if client not in memory.clients:
+        raise HTTPException(status_code=404, detail="empresa no encontrada")
+    paused = _switch_response_mode(memory, client, body.response_mode)
+    profile = dict(memory.get_client_agent_profile(client))
+    profile["response_mode"] = body.response_mode
+    memory.set_client_agent_profile(client, profile)
+    memory.log("whatsapp_response_mode", client=client, mode=body.response_mode, paused=len(paused))
+    memory.save()
+    return {"client": client, "response_mode": body.response_mode, "paused_chats": len(paused)}
 
 
 def _pause_chats_on_activation(memory, client: str) -> list:

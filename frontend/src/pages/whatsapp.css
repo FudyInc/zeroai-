@@ -241,3 +241,21 @@
 .wa-attn-count { margin-left: auto; min-width: 18px; padding: 1px 6px; border-radius: 999px; background: #b45309; color: #fff; font-size: 10px; font-weight: 800; line-height: 16px; text-align: center; }
 .wa-attn-dot { position: absolute; top: -3px; right: -4px; width: 9px; height: 9px; border-radius: 999px; background: #b45309; box-shadow: 0 0 0 2px #fff; }
 .dark .wa-attn-dot { box-shadow: 0 0 0 2px var(--color-zinc-50); }
+
+/* Interruptor maestro del agente */
+.wa-hero-side { align-self: center; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.wa-master { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 14px; border-radius: 14px; border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.08); color: #f1f5ef; text-align: left; cursor: pointer; transition: background .15s, border-color .15s; }
+.wa-master:hover:not(:disabled) { background: rgba(255,255,255,.13); }
+.wa-master:disabled { opacity: .6; cursor: wait; }
+.wa-master:focus-visible { outline: 3px solid #ead6a8; outline-offset: 2px; }
+.wa-master.is-on { border-color: rgba(103,215,160,.55); }
+.wa-master.is-off { border-color: rgba(240,128,128,.5); }
+.wa-master.is-on > svg { color: #67d7a0; }
+.wa-master.is-off > svg { color: #f08080; }
+.wa-master-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.wa-master-text small { font-size: 10px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: #dce5dc; }
+.wa-master-text strong { font-size: 15px; font-weight: 800; }
+.wa-master-track { position: relative; width: 44px; height: 24px; border-radius: 100px; background: rgba(255,255,255,.2); flex: none; transition: background .15s; }
+.wa-master.is-on .wa-master-track { background: #2f9e6a; }
+.wa-master-thumb { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.wa-master.is-on .wa-master-thumb { transform: translateX(20px); }
