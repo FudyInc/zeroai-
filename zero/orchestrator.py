@@ -60,7 +60,7 @@ from .losetas_shipping import (SHIPPING_COVERAGE_REPLY, SHIPPING_PRICE_REPLY,
                                delivery_detail, delivery_poll_choice_response,
                                factory_location_question, factory_location_reply,
                                shipping_coverage_request, shipping_delivery_followup,
-                               wants_order_change)
+                               wants_order_change, delivery_with_place, DELIVERY_PLACE_REPLY)
 from .losetas_polls import (DELIVERY_POLL_QUESTION as LOSETAS_DELIVERY_POLL_QUESTION,
                             PRODUCT_POLL_QUESTION,
                             category_for_poll_choice, poll_answer_for_history,
@@ -70,6 +70,7 @@ from .losetas_polls import (DELIVERY_POLL_QUESTION as LOSETAS_DELIVERY_POLL_QUES
                             customer_acknowledges, customer_closes,
                             customer_defers, invalid_choice, choice_slip_reply,
                             without_choice_slips, reasks_open_choice, MENU_ASIDE_CLOSING,
+                            MENU_ASIDE_MARKS, menu_aside_closing, asks_which_list,
                             open_choice, area_correction, current_order,
                             CHOICE_PROMPTS as LOSETAS_CHOICE_PROMPTS,
                             BORDER_MODEL_QUESTION, POOL_SHAPE_QUESTION,
@@ -86,6 +87,7 @@ from .pool_border import (has_pool_size, POOL_PHOTO_MARKER, POOL_PHOTO_REQUEST, 
                           delegates_piece_calculation,
                           format_product_quote, shipping_price_request,
                           border_model_followup, measurement_followup, pool_shape_followup,
+                          named_border_model, mixed_order_notes, mentions_extension,
                           unquoted_piece_count,
                           wants_border_budget, wants_product_quote,
                           paver_price_reply,
@@ -1309,8 +1311,8 @@ class Zero:
                     not paver_review_status(order_history)):
                 # A bare «ok» to an open question: ask it again, the model adds nothing.
                 menu = open_choice(order_history)
-                last_agent = next((str(turn.get("text") or "") for turn in reversed(order_history)
-                                   if turn.get("role") == "agent"), "")
+                last_agent = " ".join(next((str(turn.get("text") or "") for turn in reversed(order_history)
+                                   if turn.get("role") == "agent"), "").split())
                 if menu:
                     return {"reply": LOSETAS_CHOICE_PROMPTS[menu][0], "intent": "qualification",
                             "repeat_menu": True,
@@ -1320,6 +1322,38 @@ class Zero:
                     if question in last_agent:
                         return {"reply": question, "intent": "qualification",
                                 "flow_step": True, "repeat_menu": True}
+            # Sent turns are stored after formatting, which breaks lines between sentences.
+            last_agent = " ".join(next((str(turn.get("text") or "")
+                                        for turn in reversed(order_history)
+                                        if turn.get("role") == "agent"), "").split())
+            if (recent_agent and asks_which_list(message) and
+                    not paver_review_status(order_history)):
+                # «¿Cuál lista?»: show the open question itself. The model once
+                # answered «No tengo una lista numérica disponible» (2026-11-10).
+                menu = open_choice(order_history)
+                if menu:
+                    return {"reply": LOSETAS_CHOICE_PROMPTS[menu][0], "intent": "qualification",
+                            "repeat_menu": True,
+                            **({"delivery_poll": True} if menu == "delivery"
+                               else {"customer_poll": menu})}
+                pending = next((question for question in (PAVER_AREA_QUESTION,
+                                                          POOL_MEASUREMENT_QUESTION)
+                                if question in last_agent), None)
+                if pending:
+                    return {"reply": f"Perdón por la confusión, no hay una lista pendiente. {pending}",
+                            "intent": "qualification", "flow_step": True}
+                return {"reply": "", "intent": "handoff",
+                        "gap_reason": "El cliente pregunta por una lista que no está abierta"}
+            if open_choice(order_history) == "delivery" and delivery_with_place(message):
+                return {"reply": DELIVERY_PLACE_REPLY, "intent": "info", "flow_step": True}
+            if POOL_MEASUREMENT_QUESTION in last_agent and not has_pool_size(message):
+                # «Bordes con rompeolas y nariz» while the size is pending: note the
+                # model and ask for the size again; the quote reads it back later.
+                model = named_border_model(message)
+                if model:
+                    return {"reply": f"Anoté el {model[0].lower() + model[1:]}. "
+                                     f"{POOL_MEASUREMENT_QUESTION}",
+                            "intent": "qualification", "flow_step": True}
             # A phrase the team taught as a synonym becomes that option.
             message = learned_alias(self.memory, client_id, message) or message
             new_area = area_correction(message, order_history)
@@ -1379,8 +1413,8 @@ class Zero:
                         "intent": "qualification", "repeat_menu": True,
                         **({"delivery_poll": True} if menu == "delivery"
                            else {"customer_poll": menu})}
-            last_agent = next((str(turn.get("text") or "") for turn in reversed(order_history)
-                               if turn.get("role") == "agent"), "")
+            last_agent = " ".join(next((str(turn.get("text") or "") for turn in reversed(order_history)
+                               if turn.get("role") == "agent"), "").split())
             for question in (PAVER_AREA_QUESTION, POOL_MEASUREMENT_QUESTION):
                 if question in last_agent:
                     return {"reply": f"{salutation} {question}", "intent": "qualification",
@@ -1629,6 +1663,11 @@ class Zero:
             if product_reply:
                 product_quote["shipping_pending"] = True
                 product_quote["delivery_detail"] = delivery_detail(message, order_history)
+                product_quote["review_notes"] = [*plan.get("review_notes", ()),
+                                                 *mixed_order_notes(
+                                                     message, order_history,
+                                                     self.memory.lead_notes(
+                                                         client_id, (lead or {}).get("key") or ""))]
                 return {"reply": product_reply, "intent": "pricing", "quote": product_quote,
                         "selected_tone": selected_tone}
             return {"reply": "Necesito confirmar el precio de ambos productos antes de darte el subtotal.",
@@ -1912,6 +1951,9 @@ class Zero:
             # «2» answers the numbered options; store the option itself, because
             # later steps read the order back from the conversation.
             text = normalize_customer_text(text)
+            if mentions_extension(text):
+                # La opción canónica reemplaza el texto: el expediente guarda la extensión.
+                self.memory.set_lead_note(client_id, key, "extension", True)
             text = learned_alias(self.memory, client_id, text) or text
             text = canonical_choice(text, without_choice_slips(
                 self.memory.get_conversation(client_id, key))) or text
@@ -2262,6 +2304,7 @@ class Zero:
             intent, quote = "general", None
             repeated = False
         if (aside_menu and intent != "handoff" and reply.strip() and not repeated and
+                not any(mark.casefold() in reply.casefold() for mark in MENU_ASIDE_MARKS) and
                 "elige una opción" not in reply.casefold() and
                 not (client_id == "losetaschile" and customer_closes(text))):
             # The marker keeps the menu open: the next number still answers it.
@@ -2274,7 +2317,7 @@ class Zero:
                           or answer)
                 # Mid-conversation, «Buenas noches Diego.» reads as a restart.
                 answer = _without_salutation(answer)
-            reply = answer + "\n\n" + MENU_ASIDE_CLOSING
+            reply = answer + "\n\n" + menu_aside_closing(aside_menu)
         elif (client_id == "losetaschile" and channel == "whatsapp" and reply and
               intent != "handoff" and not res.get("flow_step") and not _greets(text) and
               _recent_agent_turn(prior_turns)):

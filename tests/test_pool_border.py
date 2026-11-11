@@ -1,5 +1,6 @@
 import os
 import unittest
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest import mock
 
@@ -502,11 +503,14 @@ class PoolBorderCountTest(unittest.TestCase):
         self.assertIsNone(plan)
         self.assertIn("Qué modelo", clarification)
 
-    def test_non_half_metre_sides_need_review(self):
+    def test_non_half_metre_sides_round_up_with_a_review_note(self):
+        # Cliente del anuncio, 2026-11-10: «9,60 x 4» dejaba al cliente sin cantidad.
         plan, clarification = border_plan("¿Cuántos bordes para piscina rectangular 6,2x3?",
                                           [{"role": "lead", "text": "Borde recto con nariz"}])
-        self.assertIsNone(plan)
-        self.assertIn("confirmar", clarification)
+        self.assertEqual(clarification, "")
+        self.assertEqual((plan["width"], plan["length"]), (Decimal("6.5"), Decimal("3")))
+        self.assertEqual(plan["review_notes"],
+                         ["Medidas 6,2 × 3 m redondeadas a 6,5 × 3 m para el cálculo: revisar cortes."])
 
     def test_conversation_uses_verified_count_without_model(self):
         memory = self.priced_memory()

@@ -40,7 +40,9 @@ _ALIASES = {"pisina": "piscina", "picina": "piscina", "pissina": "piscina",
             "naranjo": "anaranjado", "naranja": "anaranjado", "anaranjao": "anaranjado",
             "catalogo": "catálogo", "catalgo": "catálogo", "blanko": "blanco",
             "bordez": "bordes", "bordesde": "bordes de", "amarilo": "amarillo",
-            "amarrilo": "amarillo"}
+            "amarrilo": "amarillo",
+            # «Boldes con rompeolas y nariz» (cliente del anuncio, 2026-11-10).
+            "boldes": "bordes", "bolde": "borde", "boldez": "bordes"}
 
 
 def closest(word: str, candidates, cutoff: float = 0.82) -> str | None:

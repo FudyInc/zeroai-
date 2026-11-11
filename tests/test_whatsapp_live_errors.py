@@ -9,6 +9,7 @@ from zero.crm import CRM
 from zero.losetas_polls import (COLOR_POLL_OPTIONS, COLOR_POLL_QUESTION,
                                 CHOICE_SLIP_MARK, DELIVERY_POLL_FACTORY_PICKUP,
                                 MENU_ASIDE_CLOSING, PAVER_MODEL_QUESTION, invalid_choice,
+                                menu_aside_closing,
                                 reasks_open_choice)
 from zero.contracts import AgentResponse
 from zero.memory import SessionMemory
@@ -106,8 +107,10 @@ class LiveErrorsTest(_LiveChat):
             self.inbound("Tiene otros modelos?")
             self.assertEqual(len(sent), 1)
             self.assertIn("Flor de lis", sent[0])
-            self.assertTrue(sent[0].endswith(MENU_ASIDE_CLOSING))
-            self.assertNotIn("¿", sent[0])  # neither the menu nor a question of its own
+            self.assertTrue(sent[0].endswith(menu_aside_closing("paver_model")))
+            # The model's own question goes; the open menu comes back with its options.
+            self.assertNotIn("¿Te interesa", sent[0])
+            self.assertEqual(sent[0].count(PAVER_MODEL_QUESTION), 1)
             self.assertIn(PAVER_MODEL_QUESTION, dispatch.call_args.args[1].instructions)
             result = self.inbound("2")  # still answers the model menu
         self.assertEqual(dispatch.call_count, 1)

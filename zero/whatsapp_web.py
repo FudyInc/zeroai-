@@ -193,11 +193,29 @@ def parse_review_group_message(payload: Dict[str, Any], clients) -> Optional[Dic
             "quoted_text": str(payload.get("quoted_text") or "")[:4096]}
 
 
+def parse_owner_message(payload: Dict[str, Any]) -> Optional[Dict[str, str]]:
+    """Lo que el dueño escribió desde el teléfono a un cliente; None si no es válido."""
+    event_id = str(payload.get("id") or "")
+    chat_id = str(payload.get("chat_id") or "")
+    phone = str(payload.get("to") or "")
+    destination = str(payload.get("to_phone_id") or "")
+    if (not event_id or "[object" in event_id
+            or not re.fullmatch(r"\d{8,20}@(c\.us|lid)", chat_id)
+            or not phone.isdigit() or not 8 <= len(phone) <= 15
+            or not destination.isdigit() or not 8 <= len(destination) <= 15):
+        return None
+    return {"kind": "owner_message", "id": event_id, "chat_id": chat_id, "phone": phone,
+            "to_phone_id": destination, "type": str(payload.get("type") or "")[:40],
+            "text": str(payload.get("text") or "")[:4096]}
+
+
 def parse_message(payload: Dict[str, Any], clients=()) -> Optional[Dict[str, str]]:
     if not isinstance(payload, dict):
         return None
     if payload.get("kind") == "review_group":
         return parse_review_group_message(payload, clients)
+    if payload.get("kind") == "owner_message":
+        return parse_owner_message(payload)
     event_id = str(payload.get("id") or "")
     phone = str(payload.get("from") or "")
     destination = str(payload.get("to_phone_id") or "")

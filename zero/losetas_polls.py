@@ -179,14 +179,18 @@ _FILLER = frozenset("el la lo opcion numero nro n quiero prefiero elijo escojo m
                     "de seria sera mejor va dale bueno a al te mando paso yo voy "
                     # «6 perdón»: a corrected pick is still a pick (seen live 2026-10-28).
                     "perdon disculpa disculpe sorry era es".split())
+# Joiners that only matter in the product question: «bordes y extensión».
+_PRODUCT_FILLER = frozenset("y e con para de mi la piscina".split())
 # Loose words that point to one option, per question («retiro», «el recto»).
 _ALIASES = {
-    "product": {"bordes": 0, "borde": 0, "piscina": 0, "pastelones": 1, "pastelon": 1},
+    # La extensión y el rompeolas (borde con nariz) son piezas de la línea de bordes.
+    "product": {"bordes": 0, "borde": 0, "piscina": 0, "pastelones": 1, "pastelon": 1,
+                "extension": 0, "extensiones": 0, "rompeolas": 0, "nariz": 0},
     "delivery": {"retiro": 2, "retirar": 2, "retiramos": 2, "fabrica": 2, "buscar": 2,
                  "direccion": 1, "escribo": 1, "escribir": 1,
                  "ubicacion": 0, "despacho": 0, "domicilio": 0, "envio": 0, "enviar": 0,
                  "despachen": 0, "traigan": 0},
-    "border_model": {"recto": 0, "nariz": 0, "ballena": 1},
+    "border_model": {"recto": 0, "nariz": 0, "rompeolas": 0, "ballena": 1},
     "paver_model": {"laja": 0, "espanola": 0, "ladrillo": 1, "cruzado": 1, "rustico": 3,
                     "gregoriano": 4, "gregioriano": 4, "adoquin": 5, "flor": 6, "lis": 6,
                     "liz": 6, "corrugado": 7, "liso": 8, "deck": 9, "madera": 9,
@@ -217,7 +221,8 @@ def _menu_number(typed: str, size: int) -> int | None:
 
 def _option_from_words(key: str, typed: str, options) -> str | None:
     """An option named loosely: exact name, a distinctive word, or a near spelling."""
-    core = [w for w in typed.split() if w not in _FILLER]
+    core = [w for w in typed.split() if w not in _FILLER and
+            not (key == "product" and w in _PRODUCT_FILLER)]
     text = " ".join(core)
     by_plain = {_plain(option): option for option in options}
     if text in by_plain:
@@ -393,7 +398,29 @@ def choice_slip_reply(message: str, key: str) -> str:
 
 
 # Closes an answer given mid-menu: the menu stays open for the next number.
-MENU_ASIDE_CLOSING = "Para seguir, elige una opción de la lista con su número."
+# The closing repeats the open question with its options: a bare «elige una opción
+# de la lista» left a customer asking «¿cuál lista?» (cliente del anuncio, 2026-11-10).
+MENU_ASIDE_CLOSING = "Para seguir con tu pedido:"
+# Turns stored before 2026-11-11 close with this sentence; they are still asides.
+_LEGACY_ASIDE_CLOSING = "Para seguir, elige una opción de la lista con su número."
+MENU_ASIDE_MARKS = (MENU_ASIDE_CLOSING, _LEGACY_ASIDE_CLOSING)
+
+
+def menu_aside_closing(key: str) -> str:
+    """The closing of a mid-menu answer: the open question and its numbered options."""
+    return f"{MENU_ASIDE_CLOSING}\n{numbered_choices(key)}"
+
+
+_WHICH_LIST = re.compile(
+    r"\b(?:cu[aá]l|qu[eé]|que|cual|d[oó]nde\s+(?:est[aá]|esta)\s+la)\s+"
+    r"(?:lista|opci[oó]n|opciones|men[uú])\b|"
+    r"\bno\s+(?:veo|me\s+lleg[oó]|aparece)\s+(?:la\s+|ninguna\s+)?(?:lista|opciones?)\b",
+    re.IGNORECASE)
+
+
+def asks_which_list(message: str) -> bool:
+    """«¿Cuál lista?», «qué opciones», «no veo la lista»."""
+    return bool(_WHICH_LIST.search(message or ""))
 
 
 def without_choice_slips(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -411,7 +438,8 @@ def without_choice_slips(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
         elif CHOICE_SLIP_MARK in text:
             if out and out[-1].get("role") != "agent":
                 out.pop()  # the wrong number itself, nothing older
-        elif MENU_ASIDE_CLOSING not in text and text.strip() not in WHATSAPP_REVIEW_NOTICES:
+        elif (not any(mark in text for mark in MENU_ASIDE_MARKS) and
+              text.strip() not in WHATSAPP_REVIEW_NOTICES):
             out.append(turn)
     return out
 

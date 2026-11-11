@@ -268,6 +268,17 @@ class SessionMemory:
         turns = convs.get(str(lead_key).lower(), [])
         return turns[-limit:] if limit else list(turns)
 
+    # --- expediente del pedido: lo que el cliente pidió y el historial no conserva ---
+    # El texto guardado es la opción canónica («Bordes de piscina»): un «bordes y
+    # extensión» pierde la extensión. Aquí queda el dato para el borrador interno.
+    def lead_notes(self, client_id: str, lead_key: str) -> Dict[str, Any]:
+        notes = self.clients.get(client_id, {}).get("lead_notes") or {}
+        return dict(notes.get(str(lead_key).lower()) or {})
+
+    def set_lead_note(self, client_id: str, lead_key: str, name: str, value: Any) -> None:
+        notes = self.clients.setdefault(client_id, {}).setdefault("lead_notes", {})
+        notes.setdefault(str(lead_key).lower(), {})[name] = value
+
     def get_whatsapp_handoff(self, client_id: str, lead_key: str) -> Optional[Dict[str, str]]:
         handoffs = self.clients.get(client_id, {}).get("whatsapp_handoffs") or {}
         item = handoffs.get(str(lead_key).lower())

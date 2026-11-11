@@ -415,6 +415,50 @@ client.on('message_create', msg => {
   })
 })
 
+// Lo que el dueño escribe desde el teléfono a un cliente: el backend lo agrega al
+// historial y pausa el agente en ese chat sin vencimiento. Lo que envía el propio
+// puente (respuestas del agente, encuestas, imágenes) nunca se reenvía.
+const ownerSeen = new Set()
+const bridgeSending = new Set()
+const ownerDelayMs = 6000
+function noteBridgeSending(chatId, text) {
+  if (!String(text || '').trim()) return
+  const key = `${chatId}\n${String(text || '').trim()}`
+  bridgeSending.add(key)
+  setTimeout(() => bridgeSending.delete(key), 120000).unref?.()
+}
+
+async function forwardOwnerMessage(msg) {
+  if (!msg.fromMe) return
+  const chatId = jidText(msg.to) || jidText(msg.id?.remote)
+  if (!/^\d{8,20}@(c\.us|lid)$/.test(chatId)) return
+  const id = messageId(msg)
+  if (!id || ownerSeen.has(id)) return
+  rememberBounded(ownerSeen, id)
+  // El id de un envío del puente se conoce recién cuando sendMessage confirma.
+  await new Promise(resolve => setTimeout(resolve, ownerDelayMs))
+  const text = msg.type === 'chat' ? String(msg.body || '') : ''
+  if (bridgeSent.has(id) || (text.trim() && bridgeSending.has(`${chatId}\n${text.trim()}`))) return
+  let phone = chatId.endsWith('@c.us') ? chatId.split('@')[0] : null
+  if (!phone) {
+    try {
+      const matches = await client.getContactLidAndPhone(chatId)
+      phone = matches?.[0]?.pn?.split('@')[0] || null
+    } catch (_) { phone = null }
+  }
+  if (!/^\d{8,15}$/.test(phone || '')) return
+  queuePayload({ kind: 'owner_message', id: clientId ? `${clientId}:${id}` : id,
+    chat_id: chatId, to: phone, type: msg.type || '', text: text.slice(0, 4096),
+    timestamp: msg.timestamp, to_phone_id: account || client.info?.wid?.user || '' })
+}
+
+client.on('message_create', msg => {
+  void forwardOwnerMessage(msg).catch(err => {
+    lastError = `Mensaje del dueño: ${err.message}`
+    console.error(lastError)
+  })
+})
+
 function noteVote(poll, choice, reject) {
   recentEvents.unshift({ at: new Date().toISOString(), type: 'vote', poll: poll || null,
                          choice: choice || null, forwarded: !reject, reason: reject || undefined })
@@ -533,6 +577,7 @@ async function sendAndConfirm(chatId, content, options, matchesCreated, expected
     }
   }
   client.on('message_create', onCreated)
+  noteBridgeSending(chatId, expectedType === 'chat' ? expectedBody : '')
   try {
     const startedAt = Math.floor(Date.now() / 1000)
     const sent = await client.sendMessage(chatId, content, {
@@ -557,6 +602,7 @@ async function sendAndConfirm(chatId, content, options, matchesCreated, expected
       }, chatId, expectedType, expectedBody, startedAt)
     }
     if (!confirmed?.id) return null // Outcome unknown. Never retry automatically.
+    rememberBounded(bridgeSent, confirmed.id)
     return confirmed
   } finally { client.off('message_create', onCreated) }
 }
@@ -668,7 +714,11 @@ const server = http.createServer(async (req, res) => {
         }
         const text = String(JSON.parse(raw).text || '').trim()
         if (!text || text.length > 4096) return respond(res, 400, { error: 'Mensaje inválido' })
+        // El panel ya registra esta respuesta y pausa el chat: no se reenvía como del dueño.
+        noteBridgeSending(jidText(chat.id), text)
         const sent = await client.sendMessage(chat.id, text)
+        const sentId = messageId(sent)
+        if (sentId) rememberBounded(bridgeSent, sentId)
         return respond(res, 200, { message: messageData(sent) })
       }
       return respond(res, 405, { error: 'method not allowed' })
@@ -841,6 +891,7 @@ const server = http.createServer(async (req, res) => {
       }
     }
     client.on('message_create', onCreated)
+    noteBridgeSending(chatId, text)
     try {
       const startedAt = Math.floor(Date.now() / 1000)
       const sent = await client.sendMessage(chatId, text, {
@@ -864,6 +915,7 @@ const server = http.createServer(async (req, res) => {
         }, chatId, text, startedAt)
       }
       if (!confirmed?.id) return respond(res, 502, { error: 'WhatsApp Web no confirmó el envío' })
+      rememberBounded(bridgeSent, confirmed.id)
       return respond(res, 200, { id: confirmed.id, ack: confirmed.ack ?? null })
     } finally { client.off('message_create', onCreated) }
   } catch (err) {

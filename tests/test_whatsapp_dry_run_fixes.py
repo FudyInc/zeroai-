@@ -114,8 +114,9 @@ class CustomerTextNormalizationTest(unittest.TestCase):
         for source in ("7,25 x 3,5", "7.25 por 3.5"):
             with self.subTest(source=source):
                 plan, ask = border_plan("borde recto con nariz piscina rectangular " + source, [])
-                self.assertIsNone(plan)
-                self.assertIn("confirmar los cortes", ask)
+                self.assertEqual(ask, "")
+                self.assertEqual(str(plan["width"]), "7.5")   # nunca 25 m
+                self.assertIn("redondeadas a 7,5 × 3,5 m", plan["review_notes"][0])
 
     def test_paver_area_accepts_variants_and_dimension_product(self):
         history = turns(("agent", PAVER_AREA_QUESTION))
@@ -355,4 +356,4 @@ class ChatTest(_LiveChat):
                              "50×50\n2. Borde ballena 50×40"))
         with mock.patch.object(self.zero, "converse_result", return_value=reply):
             self.inbound("¿de qué medida es?")
-        self.assertEqual(self.sent()[-1].count("elige una opción"), 1)
+        self.assertEqual(self.sent()[-1].count(MENU_ASIDE_CLOSING), 1)

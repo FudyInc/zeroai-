@@ -58,8 +58,10 @@ def format_internal_budget(quote: dict[str, Any], *, profile_name: str | None,
         lines.append("Costo de envío: no aplica (retiro en fábrica).")
     else:
         lines.append("Costo de envío: pendiente de confirmación del equipo.")
-    lines.extend(["Fecha de entrega: pendiente de confirmación del equipo.",
-                  "Borrador interno. Revisar y enviar manualmente al cliente."])
+    lines.append("Fecha de entrega: pendiente de confirmación del equipo.")
+    for note in quote.get("review_notes") or ():
+        lines.append("Nota: " + " ".join(str(note).split())[:300])
+    lines.append("Borrador interno. Revisar y enviar manualmente al cliente.")
     return "\n".join(lines)
 
 

@@ -83,6 +83,21 @@ def delivery_poll_choice_response(message: str) -> str | None:
     return None
 
 
+# «Con despacho 7 región» answering the delivery menu: despacho, with a place that is
+# not yet an address (cliente del anuncio, 2026-11-10).
+_DELIVERY_WITH_PLACE = re.compile(
+    r"\s*(?:con\s+)?(?:despacho|env[ií]o)\s+(?:a\s+|en\s+|para\s+|hacia\s+|al\s+)?"
+    r"(?:la\s+)?[\w .,°ºª-]{2,60}", re.IGNORECASE)
+DELIVERY_PLACE_REPLY = "Perfecto, con despacho. " + DELIVERY_ADDRESS_PROMPT
+
+
+def delivery_with_place(message: str) -> bool:
+    """«Con despacho a Molina» to the delivery menu: despacho, address still to come."""
+    content = " ".join((message or "").split())
+    return bool(_DELIVERY_WITH_PLACE.fullmatch(content) and not _OTHER_REQUEST.search(content)
+                and not _NOT_A_DESTINATION.search(content))
+
+
 def wants_order_change(message: str) -> bool:
     """The customer asks to cancel or change the order."""
     return bool(re.search(r"\b(?:cancel\w*|anul\w*|cambi\w*|modific\w*)\b", message or "",

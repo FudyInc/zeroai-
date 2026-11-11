@@ -88,6 +88,10 @@ WHATSAPP_REVIEW_NOTICES = (
 # siguiente mensaje legible del cliente se atiende normal. Los traspasos pedidos por
 # el cliente, por enojo, por foto de piscina o por el equipo no vencen.
 WHATSAPP_UNREADABLE_HANDOFF_HOURS = 2
+# Empresas donde un mensaje escrito por el dueño desde el teléfono pausa el agente en
+# ese chat, sin vencimiento, y entra al historial (el agente retoma con contexto).
+WHATSAPP_OWNER_PHONE_HANDOFF_CLIENTS = frozenset({"losetaschile"})
+WHATSAPP_OWNER_PHONE_HANDOFF_REASON = "El equipo respondió desde el teléfono"
 WHATSAPP_HUMAN_REQUEST_ACK = ("Listo, le aviso a una persona del equipo para que te escriba "
                               "por este chat.")
 # Respuesta al cliente que cierra o rechaza («gracias, luego consulto», «no quiero nada»).

@@ -1836,6 +1836,35 @@ def _process_review_group_message(memory, message: dict) -> dict:
     return handle_review_message(memory, message)
 
 
+def _process_owner_message(memory, crm, message: dict) -> dict:
+    """Diego escribió desde el teléfono: el chat queda en manos del equipo, sin vencimiento,
+    y el texto entra al historial para que el agente no repita ni contradiga."""
+    from zero.config import (WHATSAPP_OWNER_PHONE_HANDOFF_CLIENTS,
+                             WHATSAPP_OWNER_PHONE_HANDOFF_REASON)
+    client = message.get("client") or ""
+    if client not in WHATSAPP_OWNER_PHONE_HANDOFF_CLIENTS:
+        return {"owner_message": True, "ignored": True}
+    chat_id = message["chat_id"]
+    current = memory.get_whatsapp_handoff(client, chat_id)
+    if not current or current.get("expires"):
+        memory.set_whatsapp_handoff(client, chat_id, WHATSAPP_OWNER_PHONE_HANDOFF_REASON)
+    text = (message.get("text") or "").strip()
+    stored = False
+    rec = crm.find_by_contact(phone=message["phone"], client_id=client) if crm else None
+    if rec and text and message.get("type") in ("", "chat"):
+        same = " ".join(text.split())
+        recent = [t for t in memory.get_conversation(client, rec["key"])[-8:]
+                  if t.get("role") == "agent"]
+        # La respuesta del panel ya quedó guardada; no se duplica.
+        if not any(" ".join(str(t.get("text") or "").split()) == same for t in recent):
+            memory.add_turn(client, rec["key"], "agent", text)
+            stored = True
+    memory.log("whatsapp_owner_message", client=client, chat=chat_id,
+               lead=(rec or {}).get("key"), stored=stored)
+    memory.save()
+    return {"owner_message": True, "paused": True, "stored": stored}
+
+
 def _process_inbound_messages(msgs: list) -> list:
     """El trabajo pesado de un mensaje entrante (match/crear lead, CONCIERGE,
     enviar la respuesta) — corre DESPUÉS de que el webhook ya respondió (ver
@@ -1853,6 +1882,7 @@ def _process_inbound_messages(msgs: list) -> list:
     agents, _ = _agents_whatsapp()
     zero = Zero(agents, memory=memory, crm=crm, outbox=make_outbox())
     return [_process_review_group_message(memory, m) if m.get("kind") == "review_group" else
+            _process_owner_message(memory, crm, m) if m.get("kind") == "owner_message" else
             zero.handle_inbound(m["from"], m["text"], to_phone_id=m.get("to_phone_id"),
                                 profile_name=m.get("profile_name"),
                                 whatsapp_chat_id=m.get("chat_id"))
@@ -1907,9 +1937,10 @@ async def whatsapp_web_inbound(req: Request, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=400, detail="JSON inválido")
     memory = make_memory(STATE_PATH)
     is_review = isinstance(payload, dict) and payload.get("kind") == "review_group"
+    is_owner = isinstance(payload, dict) and payload.get("kind") == "owner_message"
     message = parse_message(payload, memory.clients)
     if not message:
-        if is_review:
+        if is_review or is_owner:
             return {"received": 0, "ignored": True}   # not ours to read; no error for the bridge
         raise HTTPException(status_code=400, detail="mensaje inválido")
     destination = message["to_phone_id"]
@@ -1926,6 +1957,8 @@ async def whatsapp_web_inbound(req: Request, background_tasks: BackgroundTasks):
             allowed.append(client)
     if len(allowed) != 1 or (is_review and allowed != [message["client"]]):
         raise HTTPException(status_code=409, detail="número Web no asignado de forma única")
+    if is_owner:
+        message["client"] = allowed[0]
     if not claim_event(message["id"], message):
         return {"received": 0, "duplicate": True}
     # Inbox worker will process it; do not also run in background task.

@@ -9,17 +9,17 @@ photo and the owner reviews it.
 from __future__ import annotations
 
 import re
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal
 
 from .customer_text import normalize as normalize_customer_input
-from typing import Any
+from typing import Any, Optional
 
 from .config import (LOSETASCHILE_PAVER_PIECE_SIZES, LOSETASCHILE_PAVER_PRICE_ID,
                      LOSETASCHILE_PAVER_PRICE_IDS,
                      LOSETASCHILE_PRICE_ID_DURMIENTE, LOSETASCHILE_PRICE_ID_PASTELON_50,
                      LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE,
                      LOSETASCHILE_WHATSAPP_CATALOG_URL)
-from .losetas_polls import (BORDER_MODEL_QUESTION, POOL_SHAPE_OPTIONS, POOL_SHAPE_QUESTION,
+from .losetas_polls import (BORDER_MODEL_OPTIONS, BORDER_MODEL_QUESTION, POOL_SHAPE_OPTIONS, POOL_SHAPE_QUESTION,
                             _PAVER_MODELS)
 
 
@@ -104,7 +104,11 @@ _REJECT_PASTELON = re.compile(
     r"\b(?:ya\s+)?no\s+(?:quiero|necesito|busco)\s+"
     r"(?:(?:los|unos?|algunos)\s+)?pastelones?\b", re.IGNORECASE)
 _WHALE = re.compile(r"\bbordes?\s+ballena\b", re.IGNORECASE)
-_PRODUCT = re.compile(r"\bbordes? rectos?(?: con nariz)?\b", re.IGNORECASE)
+# Customers call the straight border with nose «rompeolas» or «borde con nariz»
+# (clientes del anuncio, 2026-11-10). «ballena sin nariz» stays a whale border.
+_PRODUCT = re.compile(r"\bbordes? rectos?(?: con nariz)?\b|"
+                      r"\bbordes?\s+(?:con\s+)?(?:rompeolas|nariz)\b|\brompeolas\b",
+                      re.IGNORECASE)
 # Same piece rule for both models; only the priced item changes.
 BORDER_ITEM_IDS = {"recto": "borde-recto-nariz-50x50", "ballena": "borde-ballena-50x40"}
 _OTHER_PRODUCT = re.compile(
@@ -279,6 +283,28 @@ def visual_catalog_category(message: str) -> str | None:
     return "bordes" if borders else "pastelones"
 
 
+_EXTENSION = re.compile(r"\bextensi[oó]n(?:es)?\b", re.IGNORECASE)
+
+
+def mentions_extension(message: str) -> bool:
+    """The customer asks for an extension surface («bordes y extensión»)."""
+    return bool(_EXTENSION.search(message or ""))
+
+
+def mixed_order_notes(message: str, history: list[dict[str, Any]],
+                      notes: Optional[dict[str, Any]] = None) -> list[str]:
+    """Notes for the team when a border order also asks for an extension surface.
+
+    «Bordes y extensión» is two measures: the pool sets the borders, the extension
+    is m² × 4 pieces. The agent quotes the borders only; the team adds the rest."""
+    texts = [message, *(str(turn.get("text") or "") for turn in history
+                        if turn.get("role") == "lead")]
+    if not (notes or {}).get("extension") and not any(mentions_extension(t) for t in texts):
+        return []
+    return ["El cliente también pidió extensión: falta la superficie en m² "
+            "(4 piezas por m²). Este borrador solo incluye bordes y esquinas."]
+
+
 def has_pool_size(message: str) -> bool:
     """The message already carries a size like «7 por 3,5» or «ocho por cuatro»."""
     return bool(_SIZE.search(normalize_customer_input(message)))
@@ -302,6 +328,17 @@ def delegates_piece_calculation(question: str, reply: str) -> bool:
 def unquoted_piece_count(reply: str, quote: dict[str, Any] | None) -> bool:
     """Keep model-generated quantities out of replies without a structured budget."""
     return bool(not quote and _UNQUOTED_PIECE_COUNT.search(reply or ""))
+
+
+def named_border_model(message: str) -> str | None:
+    """The border model a customer names on its own: «bordes con rompeolas y nariz»."""
+    text = normalize_customer_input(message or "")
+    if "?" in text or _REJECT_PRODUCT.search(text):
+        return None
+    whale, straight = bool(_WHALE.search(text)), bool(_PRODUCT.search(text))
+    if whale == straight:
+        return None
+    return BORDER_MODEL_OPTIONS[1] if whale else BORDER_MODEL_OPTIONS[0]
 
 
 def measurement_followup(message: str, history: list[dict[str, Any]]) -> bool:
@@ -446,14 +483,29 @@ def border_plan(message: str, history: list[dict[str, Any]]) -> tuple[dict[str, 
         return None, _MEASUREMENT_QUESTION
     if shape is None:
         return None, POOL_SHAPE_QUESTION
-    width, length = dimensions
+    notes = []
     if any((side * 2) % 1 for side in dimensions):
-        return None, "Necesito confirmar los cortes antes de darte una cantidad."
+        # Pieces are 50 cm: «9,60 × 4» used to stop at «Necesito confirmar los cortes»
+        # and the customer got no answer (2026-11-10). Each side is rounded up to the
+        # next half metre and the team checks the cut in the internal draft.
+        measured = dimensions
+        dimensions = tuple((side * 2).to_integral_value(rounding=ROUND_CEILING) / 2
+                           for side in dimensions)
+        shown = lambda sides: " × ".join(_metres(side) for side in sides)
+        notes.append(f"Medidas {shown(measured)} m redondeadas a {shown(dimensions)} m "
+                     "para el cálculo: revisar cortes.")
+    width, length = dimensions
     perimeter = 2 * (width + length)
     straight = int(perimeter * 2)
     model = "ballena" if whale else "recto"
     return {"width": width, "length": length, "straight": straight, "corners": 4,
-            "border_id": BORDER_ITEM_IDS[model]}, ""
+            "border_id": BORDER_ITEM_IDS[model], "review_notes": notes}, ""
+
+
+def _metres(value: Decimal) -> str:
+    """«9,6» or «4»: a pool side as the team writes it."""
+    text = format(value.normalize(), "f")
+    return text.replace(".", ",")
 
 
 def wants_border_budget(message: str) -> bool:
