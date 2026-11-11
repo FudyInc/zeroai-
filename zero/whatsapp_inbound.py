@@ -119,6 +119,12 @@ def parse_inbound(payload: Dict[str, Any]) -> List[Dict[str, str]]:
                     parsed["to_number"] = to_number
                 if profiles.get(frm):
                     parsed["profile_name"] = profiles[frm]
+                # Click-to-WhatsApp referral: Meta incluye context/referral con ad_id
+                ctx = m.get("context") or m.get("referral")
+                if isinstance(ctx, dict):
+                    ad_id = ctx.get("ad_id") or ctx.get("source_id")
+                    if ad_id:
+                        parsed["ad_id"] = str(ad_id)
                 out.append(parsed)
     return out
 

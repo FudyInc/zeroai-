@@ -252,6 +252,20 @@ class CRM:
     def counts(self, client_id: Optional[str] = None) -> Dict[str, int]:
         return {stage: len(self.list(client_id, stage)) for stage in CRM_STAGES}
 
+    def leads_by_ad_id(self, client_id: str, ad_id: str) -> List[Dict[str, Any]]:
+        """Find all leads for a client that originated from a specific ad.
+        Uses lead_origin.ad_id to match."""
+        self._ensure(client_id)
+        out = []
+        for rec in self.leads.values():
+            if rec.get("client_id") != client_id:
+                continue
+            origin = rec.get("lead_origin") or {}
+            if origin.get("ad_id") == ad_id:
+                out.append(rec)
+        out.sort(key=lambda r: (-(r.get("score") or 0), r.get("company") or "", r.get("key") or ""))
+        return out
+
     def all_leads(self) -> List[Dict[str, Any]]:
         """Todos los leads de TODOS los clientes — para exportar la cartera
         completa (ej. sincronización a Google Sheets, ver zero/sheets.py).

@@ -1855,7 +1855,8 @@ class Zero:
                        to_phone_id: Optional[str] = None,
 
                        profile_name: Optional[str] = None,
-                       whatsapp_chat_id: Optional[str] = None) -> Dict[str, Any]:
+                       whatsapp_chat_id: Optional[str] = None,
+                       ad_id: Optional[str] = None) -> Dict[str, Any]:
 
         """An inbound message arrived (e.g. a WhatsApp reply). Match it to its lead,
         close the loop (`register_reply`), then draft + send a reply with CONCIERGE.
@@ -1929,13 +1930,16 @@ class Zero:
                 self.memory.save()
                 return {"matched": False, "sender": from_contact}
             is_email = "@" in from_contact
-            rec = self.crm.upsert(client_id, {
+            lead_data = {
                 "channel": channel,
                 "email": from_contact if is_email else None,
                 "phone": None if is_email else from_contact,
                 "name": name_from_profile or None,
                 "source": "whatsapp_inbound",
-            })
+            }
+            if ad_id:
+                lead_data["lead_origin"] = {"platform": "whatsapp", "ad_id": ad_id, "source": "click_to_whatsapp"}
+            rec = self.crm.upsert(client_id, lead_data)
             self.crm.save()
             self.memory.log("inbound_auto_registered", client=client_id,
                             lead=rec["key"], channel=channel, sender=from_contact)

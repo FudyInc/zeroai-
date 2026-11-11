@@ -293,6 +293,11 @@ async function normalizeMessage(msg) {
     const payload = { id: clientId ? `${clientId}:${stableId}` : stableId,
       from, chat_id: senderId, text: body,
       to_phone_id: account || client.info?.wid?.user || '' }
+    // Click-to-WhatsApp referral: WhatsApp Web expone context en _data
+    const ctx = msg._data?.context || msg._data?.referral
+    if (ctx && (ctx.ad_id || ctx.source_id)) {
+      payload.ad_id = String(ctx.ad_id || ctx.source_id)
+    }
     if (/\p{L}/u.test(profileName)) payload.profile_name = profileName
     return payload
   } catch (err) {

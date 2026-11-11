@@ -235,6 +235,9 @@ def parse_message(payload: Dict[str, Any], clients=()) -> Optional[Dict[str, str
         "to_phone_id": destination,
         "chat_id": chat_id,
     }
+    # Click-to-WhatsApp referral: ad_id from bridge
+    if payload.get("ad_id"):
+        parsed["ad_id"] = str(payload["ad_id"])
     profile_name = " ".join(str(payload.get("profile_name") or "").split())[:80]
     if any(ch.isalpha() for ch in profile_name):
         parsed["profile_name"] = profile_name

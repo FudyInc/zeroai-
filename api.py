@@ -1189,6 +1189,14 @@ def lead(request: Request, key: str, client: str):
     return rec
 
 
+@app.get("/api/leads/by-ad/{ad_id}")
+def leads_by_ad(request: Request, ad_id: str, client: str):
+    """Leads que vinieron de un anuncio específico (click-to-WhatsApp)."""
+    _require_client(request, client)
+    rows = _crm().leads_by_ad_id(client, ad_id)
+    return {"leads": rows, "ad_id": ad_id, "total": len(rows)}
+
+
 # --- write --------------------------------------------------------------------
 class StageMove(BaseModel):
     stage: str
@@ -1885,7 +1893,8 @@ def _process_inbound_messages(msgs: list) -> list:
             _process_owner_message(memory, crm, m) if m.get("kind") == "owner_message" else
             zero.handle_inbound(m["from"], m["text"], to_phone_id=m.get("to_phone_id"),
                                 profile_name=m.get("profile_name"),
-                                whatsapp_chat_id=m.get("chat_id"))
+                                whatsapp_chat_id=m.get("chat_id"),
+                                ad_id=m.get("ad_id"))
             for m in msgs]
 
 
