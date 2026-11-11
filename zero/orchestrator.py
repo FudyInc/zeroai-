@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from .config import (LOSETASCHILE_CHAT_OPEN_HOURS, WHATSAPP_UNREADABLE_HANDOFF_HOURS,
     LOSETASCHILE_CHOICE_STYLE,
     LOSETASCHILE_PAVER_PRICE_IDS,
+    LOSETASCHILE_FULGET_REPLY,
     LOSETASCHILE_PAVER_REVIEW_SHIPPING_REPLY,
     LOSETASCHILE_PAGO_GENERICO,
     LOSETASCHILE_TEMAS_SIN_INVENTAR,
@@ -74,7 +75,7 @@ from .losetas_polls import (DELIVERY_POLL_QUESTION as LOSETAS_DELIVERY_POLL_QUES
                             without_choice_slips, reasks_open_choice, MENU_ASIDE_CLOSING,
                             MENU_ASIDE_MARKS, menu_aside_closing, asks_which_list,
                             open_choice, area_correction, current_order,
-                            restart_request, unsupported_paver_size, paver_size_reply,
+                            asks_for_fulget, restart_request, unsupported_paver_size, paver_size_reply,
                             CHOICE_PROMPTS as LOSETAS_CHOICE_PROMPTS,
                             BORDER_MODEL_QUESTION, POOL_SHAPE_QUESTION,
                             PAVER_AREA_QUESTION, PAVER_MODEL_QUESTION,
@@ -1437,6 +1438,10 @@ class Zero:
                             "intent": "qualification", "flow_step": True}
             # A phrase the team taught as a synonym becomes that option.
             message = learned_alias(self.memory, client_id, message) or message
+            if asks_for_fulget(message):
+                # Muchos lo piden y no se fabrica: no, y solo lo del catálogo (Diego).
+                return {"reply": LOSETASCHILE_FULGET_REPLY, "intent": "info",
+                        "flow_step": True, "aside": "verbatim"}
             size = unsupported_paver_size(message)
             if (size and selected_category_from_history(order_history) == "pastelones" and
                     not paver_review_status(order_history)):

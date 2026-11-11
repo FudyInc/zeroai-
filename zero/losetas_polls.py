@@ -793,3 +793,12 @@ def restart_request(message: str) -> str | None:
     if not text or len(text.split()) > 14 or not _RESTART.search(text):
         return None
     return "measures" if _RESTART_MEASURES.search(text) else "order"
+
+
+# «fulget», «fullget», «full get», «fulguet», «fulgent», «fuljet»… (Diego, 2026-11-11).
+_FULGET_RE = re.compile(r"\bf[uo]u?l{1,2}\s?(?:g{1,2}u?|j|y)e[nt]{1,2}h?s?\b")
+
+
+def asks_for_fulget(message: str) -> bool:
+    """El cliente nombra el fulget, que PoolEdge no fabrica."""
+    return bool(_FULGET_RE.search(" ".join(_plain(message).split())))

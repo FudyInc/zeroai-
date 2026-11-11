@@ -261,3 +261,25 @@ class UstedTest(_LiveChat):
         texts += [new for _, new in config.LOSETASCHILE_LEGACY_TU_TEXTS]
         for text in texts:
             self.assertIsNone(tu.search(text), text)
+
+
+class FulgetTest(_LiveChat):
+    """Diego, 2026-11-11: muchos piden fulget; no se fabrica, solo lo del catálogo."""
+
+    def test_spellings(self):
+        from zero.losetas_polls import asks_for_fulget
+        for text in ("tienen fulget?", "Fullget", "quiero cotizar full get para mi piscina",
+                     "FÚLGET gris", "bordes fulguet", "hacen fulgent", "fuljet", "fulget's"):
+            self.assertTrue(asks_for_fulget(text), text)
+        for text in ("borde ballena", "full", "80 m2", "fue genial", "gracias, todo bien"):
+            self.assertFalse(asks_for_fulget(text), text)
+
+    def test_the_handler_says_no_and_points_to_the_catalog(self):
+        from zero.config import LOSETASCHILE_FULGET_REPLY
+        for history in ([], _paver_history()):
+            result = self.zero.converse_result(
+                "losetaschile", "hola, quiero cotizar fullget para mi piscina de 8x4",
+                history=history)
+            self.assertEqual(result["reply"], LOSETASCHILE_FULGET_REPLY)
+        self.assertIn("No trabajamos fulget", LOSETASCHILE_FULGET_REPLY)
+        self.assertIn("catálogo", LOSETASCHILE_FULGET_REPLY)

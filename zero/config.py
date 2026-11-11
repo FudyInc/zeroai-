@@ -290,6 +290,12 @@ LOSETASCHILE_TEMAS_SIN_INVENTAR = {
 }
 
 LOSETASCHILE_WHATSAPP_CATALOG_URL = "https://wa.me/c/56964537891"
+# Fulget (granito lavado) no se fabrica: lo preguntan muchos clientes con mil
+# grafías («fullget», «full get», «fulguet»). Diego, 2026-11-11: decir que no y
+# que solo hay lo del catálogo.
+LOSETASCHILE_FULGET_REPLY = (
+    "No trabajamos fulget. Solo fabricamos lo que está en nuestro catálogo: bordes de "
+    "piscina y pastelones de hormigón. Puede verlos aquí: " + LOSETASCHILE_WHATSAPP_CATALOG_URL)
 LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE = (
     "Catálogo\n" + LOSETASCHILE_WHATSAPP_CATALOG_URL
 )
