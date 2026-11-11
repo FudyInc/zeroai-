@@ -74,15 +74,32 @@ def store_review_draft(memory: Any, client_id: str, group_message_id: str,
         del index[key]
 
 
+def _stanza(message_id: str) -> str:
+    """The WhatsApp stanza id inside `<fromMe>_<chat>_<stanza>[_<author>]`.
+
+    When the bridge cannot load the quoted message it rebuilds the id as
+    `false_<chat>_<stanza>`, while the draft was stored as `true_<chat>_<stanza>_<author>`:
+    only the stanza is shared by both forms."""
+    parts = str(message_id or "").split("_")
+    return parts[2] if len(parts) >= 3 and parts[0] in ("true", "false") else ""
+
+
 def find_review_draft(memory: Any, client_id: str, quoted_id: str,
                       quoted_text: str) -> tuple[str, dict[str, Any]] | None:
     bucket = memory.clients.get(client_id, {})
     drafts = bucket.get("review_drafts") or {}
+    index = bucket.get("review_draft_index") or {}
     if quoted_id and quoted_id in drafts:
         return quoted_id, drafts[quoted_id]
-    linked = (bucket.get("review_draft_index") or {}).get(quoted_id) if quoted_id else None
+    linked = index.get(quoted_id) if quoted_id else None
     if linked in drafts:
         return linked, drafts[linked]
+    stanza = _stanza(quoted_id)
+    if stanza:
+        for key in [*drafts, *index]:
+            target = key if key in drafts else index[key]
+            if _stanza(key) == stanza and target in drafts:
+                return target, drafts[target]
     found = (bucket.get("review_draft_index") or {}).get(text_key(quoted_text)) \
         if quoted_text else None
     if found and found in drafts:

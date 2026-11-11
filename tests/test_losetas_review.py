@@ -249,6 +249,23 @@ class FlowTest(unittest.TestCase):
         self.reply(FULL, quoted_id="ZZ").assert_not_called()
         self.reply("gracias").assert_not_called()
 
+    def test_quote_rebuilt_by_bridge_finds_own_draft(self):
+        # Caso real (2026-11-11): el puente no pudo leer el mensaje citado y armó
+        # `false_<grupo>_<stanza>`; el borrador estaba guardado como
+        # `true_<grupo>_<stanza>_<autor>`. Antes, la respuesta citada no hacía nada.
+        own = f"true_{GROUP}_3EB08FB9196123B304AABA_163600000000000@lid"
+        store_review_draft(self.memory, "losetaschile", own, draft(text="otro borrador"))
+        send = self.reply(FULL, quoted_id=f"false_{GROUP}_3EB08FB9196123B304AABA")
+        self.assertEqual(send.call_count, 2)
+        drafts = self.memory.clients["losetaschile"]["review_drafts"]
+        self.assertEqual(drafts[own]["status"], "final_published")
+        self.assertEqual(drafts["G1"]["status"], "pending")
+
+    def test_other_stanza_still_finds_nothing(self):
+        own = f"true_{GROUP}_3EB0AAAA_163600000000000@lid"
+        store_review_draft(self.memory, "losetaschile", own, draft(text="otro borrador"))
+        self.reply(FULL, quoted_id=f"false_{GROUP}_3EB0BBBB").assert_not_called()
+
     def test_bridge_error_is_logged_not_retried(self):
         message = {"client": "losetaschile", "id": "r", "chat_id": GROUP, "text": FULL,
                    "to_phone_id": "56911111111", "quoted_id": "G1", "quoted_text": ""}
