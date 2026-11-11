@@ -282,7 +282,9 @@ respaldo (`config.WHATSAPP_ENGINE["anthropic"]`). En la prueba de 15 conversacio
 Sonnet acertó 7 de 8 decisiones del modelo; Haiku 5.5 y Groq, 3 de 8. Costo medido:
 ~USD 0,007 por llamada sin caché; con caché del prompt de sistema baja la parte fija a
 un décimo. Al acabarse el saldo contesta Groq y el dueño recibe el aviso
-`whatsapp_claude_sin_saldo`. El resto del sistema sigue sin gasto.
+`whatsapp_claude_sin_saldo`. El resto del sistema sigue sin gasto: con
+`ANTHROPIC_KEY_WHATSAPP_ONLY = True`, prospección, seguimientos, acciones del dashboard
+y scheduler no usan la key aunque exista.
 
 ## Lo que sigue (recomendación)
 Mientras no haya más pagos: perfeccionar lo gratis. Rework visual del dashboard

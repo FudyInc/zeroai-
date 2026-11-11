@@ -1287,6 +1287,12 @@ def _sin_motor(que: str):
         "real; ya no."))
 
 
+def _anthropic_outside_whatsapp() -> bool:
+    """La key de Anthropic solo se usa fuera de WhatsApp si la política lo permite."""
+    from zero.config import ANTHROPIC_KEY_WHATSAPP_ONLY
+    return not ANTHROPIC_KEY_WHATSAPP_ONLY
+
+
 def _agents_best(source=None):
     """El mejor cerebro disponible: Anthropic → OpenAI → modelo local (Ollama).
     El local se activa con LOCAL_MODEL en el entorno (sin costo por token).
@@ -1302,7 +1308,7 @@ def _agents_best(source=None):
 
     Sin ninguno de los dos, levanta 503. Ya no cae al mock — ver `_mock_permitido`."""
     key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
-    if key:
+    if key and _anthropic_outside_whatsapp():  # USD 5 solo para WhatsApp
         try:
             from zero.backends import AnthropicBackend
             return build_agents(backend=AnthropicBackend(api_key=key), mock=False, source=source), "live"
@@ -2104,6 +2110,9 @@ def _pipeline_agents(provider=None, source=None):
 
     required = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY",
                 "qwen": "LOCAL_MODEL"}
+    if provider == "anthropic" and not _anthropic_outside_whatsapp():
+        raise HTTPException(status_code=503,
+                            detail="La key de Anthropic está reservada para el agente de WhatsApp.")
     setting = required[provider]
     value = (os.environ.get(setting) or "").strip()
     if not value:
@@ -2944,7 +2953,7 @@ def _agents_autonomous(source=None):
         except Exception:
             pass
     key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
-    if key:
+    if key and _anthropic_outside_whatsapp():  # USD 5 solo para WhatsApp
         try:
             from zero.backends import AnthropicBackend
             return build_agents(backend=AnthropicBackend(api_key=key), mock=False,
@@ -3189,7 +3198,8 @@ def get_config():
     _, engine_mode = _agents_best()
     engine = None
     if engine_mode == "live":
-        engine = "anthropic" if (os.environ.get("ANTHROPIC_API_KEY") or "").strip() else "local"
+        engine = ("anthropic" if (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+                  and _anthropic_outside_whatsapp() else "local")
     return {
         "engine_mode": engine_mode,   # "live" | "mock"
         "engine": engine,             # "anthropic" | "local" | None (None si mock)

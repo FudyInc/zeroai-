@@ -341,6 +341,13 @@ OUTBOX_RETRY_DELAY_SECONDS = 1.0
 # ~4096 caracteres; este tope es más chico a propósito, con margen.
 MAX_INBOUND_MESSAGE_CHARS = 2000
 
+# La key de Anthropic (ANTHROPIC_API_KEY) es SOLO para el agente de WhatsApp.
+# Decisión de Diego, 2026-11-11: cargó USD 5 sin recarga automática para que
+# Sonnet 5.5 conteste WhatsApp. Prospección, seguimientos, acciones del dashboard
+# y el scheduler no la usan aunque la key exista. Para abrirla a otro uso hace
+# falta una decisión explícita de Diego.
+ANTHROPIC_KEY_WHATSAPP_ONLY = True
+
 # --- Motor de WhatsApp (actualizado 2026-10-08) -------------------------------
 # QUÉ CEREBRO contesta un WhatsApp entrante. Es el único frente del producto que
 # corre con modelo LOCAL a propósito; el resto (dashboard, scheduler, funciones)

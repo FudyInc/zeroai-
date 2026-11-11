@@ -275,10 +275,13 @@ class TheCageTest(unittest.TestCase):
         self.assertNotIn("_agents_autonomous", called)
 
     def test_the_rest_of_the_system_still_prefers_quality(self):
-        """La jaula NO se extendió: con key de Anthropic, _agents_best sigue pagando."""
+        """La jaula NO se extendió: si Diego abre la key a otros usos, _agents_best
+        vuelve a preferir Anthropic. Hoy está cerrada (ANTHROPIC_KEY_WHATSAPP_ONLY)."""
         import api
+        from zero import config
         from zero.backends import AnthropicBackend
-        with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ant-falsa"}, clear=False):
+        with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ant-falsa"}, clear=False), \
+             mock.patch.object(config, "ANTHROPIC_KEY_WHATSAPP_ONLY", False):
             with mock.patch.object(AnthropicBackend, "__init__", return_value=None):
                 _, mode = api._agents_best()
         self.assertEqual(mode, "live")

@@ -26,7 +26,11 @@ class PipelineProvider(unittest.TestCase):
             api.RunRequest(client='test', query='test', provider='automatic-paid')
 
     def test_explicit_provider_never_uses_global_priority(self):
-        with patch.dict(os.environ, {'OPENAI_API_KEY': 'test', 'ANTHROPIC_API_KEY': 'test', 'LOCAL_MODEL': 'qwen2.5:14b'}):
+        # Con la política abierta: hoy la key de Anthropic es solo de WhatsApp
+        # (tests/test_anthropic_whatsapp_only.py cubre el caso cerrado).
+        from zero import config
+        with patch.dict(os.environ, {'OPENAI_API_KEY': 'test', 'ANTHROPIC_API_KEY': 'test', 'LOCAL_MODEL': 'qwen2.5:14b'}), \
+             patch.object(config, 'ANTHROPIC_KEY_WHATSAPP_ONLY', False):
             for provider, cls in [('openai', 'OpenAIBackend'), ('anthropic', 'AnthropicBackend'), ('qwen', 'LocalBackend')]:
                 with self.subTest(provider=provider), patch('zero.backends.' + cls) as backend, patch.object(api, 'build_agents') as build, patch.object(api, '_agents_best') as fallback:
                     source = object()
