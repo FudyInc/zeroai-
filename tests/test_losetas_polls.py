@@ -33,11 +33,11 @@ class PaverOrderDetailsTest(unittest.TestCase):
 
 
     def test_bare_number_counts_only_right_after_the_area_question(self):
-        prompt = [{"role": "agent", "text": "¿Cuántos m² necesitas cubrir con pastelones?"}]
+        prompt = [{"role": "agent", "text": "¿Cuántos m² necesita cubrir con pastelones?"}]
         self.assertEqual(paver_order_details("20", prompt)["area_m2"], "20")
         self.assertIsNone(paver_order_details("0", prompt)["area_m2"])
         later = [*prompt, {"role": "lead", "text": "no sé"},
-                 {"role": "agent", "text": "¿Qué pastelón del catálogo te interesó más?"}]
+                 {"role": "agent", "text": "¿Qué pastelón del catálogo le interesó más?"}]
         self.assertIsNone(paver_order_details("1", later)["area_m2"])
 
 
@@ -60,7 +60,7 @@ class NumberedChoiceTest(unittest.TestCase):
     def test_only_the_latest_agent_prompt_counts(self):
         history = [{"role": "agent", "text": numbered_choices("product")},
                    {"role": "lead", "text": "1"},
-                   {"role": "agent", "text": "¿Cuáles son las medidas de tu piscina?"}]
+                   {"role": "agent", "text": "¿Cuáles son las medidas de su piscina?"}]
         self.assertIsNone(canonical_choice("2", history))
 
     def test_delivery_number_and_accentless_name(self):
@@ -69,7 +69,7 @@ class NumberedChoiceTest(unittest.TestCase):
         self.assertEqual(canonical_choice("retiro en fabrica", history), DELIVERY_POLL_FACTORY_PICKUP)
 
     def test_question_is_not_repeated_when_reply_already_asks_it(self):
-        text = numbered_choices("color", "Te comparto la gama. " + COLOR_POLL_QUESTION)
+        text = numbered_choices("color", "Le comparto la gama. " + COLOR_POLL_QUESTION)
         self.assertNotIn(COLOR_POLL_QUESTION, text)
         self.assertIn("7. Amarillo", text)
         self.assertTrue(numbered_choices("product").startswith(PRODUCT_POLL_QUESTION))

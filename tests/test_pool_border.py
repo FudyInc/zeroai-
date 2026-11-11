@@ -64,7 +64,7 @@ class PoolBorderCountTest(unittest.TestCase):
                 "losetaschile", "Laja española", lead={"key": "test-lead"},
                 channel="whatsapp", history=history)
         dispatch.assert_not_called()
-        self.assertIn("¿Qué color prefieres?", result["reply"])
+        self.assertIn("¿Qué color prefiere?", result["reply"])
         self.assertIn("media_asset", result)
         self.assertNotIn("quote", result)
 
@@ -133,7 +133,7 @@ class PoolBorderCountTest(unittest.TestCase):
             ]})
         memory.clients["losetaschile"]["conversations"]["test-lead"] = [
             {"role": "lead", "text": "necesito pordes para mi piscina"},
-            {"role": "agent", "text": "¿Cuáles son las medidas de tu piscina?"},
+            {"role": "agent", "text": "¿Cuáles son las medidas de su piscina?"},
         ]
         zero = Zero(build_agents(mock=True), memory=memory)
         with mock.patch.object(zero, "dispatch") as dispatch:
@@ -159,13 +159,13 @@ class PoolBorderCountTest(unittest.TestCase):
         self.assertNotIn("quote", quote_result)
         self.assertIn("Borde recto con nariz 50x50", result["reply"])
         self.assertIn("Borde ballena 50x40", result["reply"])
-        self.assertIn("¿Cuál modelo te interesa?", result["reply"])
+        self.assertIn("¿Cuál modelo le interesa?", result["reply"])
         self.assertIn(LOSETASCHILE_WHATSAPP_CATALOG_URL, result["reply"])
-        self.assertNotIn("medidas de tu piscina", result["reply"])
+        self.assertNotIn("medidas de su piscina", result["reply"])
         self.assertNotIn("$", result["reply"])
         first_contact = pool_border_models_reply("¿Qué modelos hay?", [], {"items": []})
         self.assertIn(LOSETASCHILE_WHATSAPP_CATALOG_URL, first_contact)
-        self.assertIn("¿Qué producto buscas?", first_contact)
+        self.assertIn("¿Qué producto busca?", first_contact)
         self.assertIsNone(pool_border_models_reply("¿Qué modelos de pago hay?", [],
                                                   {"items": []}))
         no_priced_models = pool_border_models_reply(
@@ -292,7 +292,7 @@ class PoolBorderCountTest(unittest.TestCase):
             result = zero.converse_result("losetaschile", "hola buenas",
                                           lead={"key": "new-lead"}, channel="whatsapp")
         dispatch.assert_not_called()
-        self.assertEqual(result["reply"], "¡Buenas noches! ¿En qué puedo ayudarte?")
+        self.assertEqual(result["reply"], "¡Buenas noches! ¿En qué puedo ayudarle?")
 
     def test_live_greetings_open_the_product_poll_without_model(self):
         # Seen live 2026-10-15: «Hola buenas tardes» reached the model and no poll was sent.
@@ -342,7 +342,7 @@ class PoolBorderCountTest(unittest.TestCase):
         history = [{"role": "lead", "text": "Bordes de piscina"},
                    {"role": "agent", "text": "Catálogo Bordes de Piscina"},
                    {"role": "agent", "text": color_question()}]
-        draft = SimpleNamespace(result={"reply": "¿Qué color prefieres?", "intent": "info"},
+        draft = SimpleNamespace(result={"reply": "¿Qué color prefiere?", "intent": "info"},
                                 status="ok")
         with mock.patch.object(zero, "dispatch", return_value=draft):
             result = zero.converse_result("losetaschile", "bordes", lead={"key": "k"},
@@ -372,7 +372,7 @@ class PoolBorderCountTest(unittest.TestCase):
         crm = CRM(None)
         rec = crm.upsert("losetaschile", {"phone": "56933333333", "source": "test"})
         for role, text in (("lead", "necesito pordes para mi piscina"),
-                           ("agent", "¿Cuáles son las medidas de tu piscina?"),
+                           ("agent", "¿Cuáles son las medidas de su piscina?"),
                            ("lead", "mi piscina mide 10 x 200 metros")):
             memory.add_turn("losetaschile", rec["key"], role, text)
         zero = Zero(build_agents(mock=True), memory=memory, crm=crm)
@@ -473,7 +473,7 @@ class PoolBorderCountTest(unittest.TestCase):
     def test_pool_order_asks_measurements_before_model(self):
         plan, question = border_plan("Necesito bordes de piscina", [])
         self.assertIsNone(plan)
-        self.assertIn("medidas de tu piscina", question)
+        self.assertIn("medidas de su piscina", question)
         self.assertIn("largo y ancho en metros", question)
         self.assertNotIn("modelo", question)
 
@@ -482,14 +482,14 @@ class PoolBorderCountTest(unittest.TestCase):
         memory.clients["losetaschile"]["conversations"]["test-lead"] = [
             {"role": "lead", "text": "Necesito bordes de piscina rectangular"},
             {"role": "lead", "text": "Borde recto con nariz"},
-            {"role": "agent", "text": "¿Cuáles son las medidas de tu piscina? Necesito largo y ancho en metros."},
+            {"role": "agent", "text": "¿Cuáles son las medidas de su piscina? Necesito largo y ancho en metros."},
         ]
         zero = Zero(build_agents(mock=True), memory=memory)
         with mock.patch.object(zero, "dispatch") as dispatch:
             result = zero.converse_result("losetaschile", "6x3 m",
                                           lead={"key": "test-lead"}, channel="whatsapp")
         dispatch.assert_not_called()
-        self.assertIn("¿Qué color prefieres?", result["reply"])
+        self.assertIn("¿Qué color prefiere?", result["reply"])
         self.assertIn("media_asset", result)
 
     def test_measurements_already_supplied_are_not_requested_again(self):
@@ -590,7 +590,7 @@ class PoolBorderCountTest(unittest.TestCase):
         plan, _ = border_plan("es romana", [
             {"role": "lead", "text": "Borde recto con nariz 50×50"},
             {"role": "lead", "text": "6x3"},
-            {"role": "agent", "text": "¿Qué color prefieres?"}])
+            {"role": "agent", "text": "¿Qué color prefiere?"}])
         self.assertEqual(plan["straight"], 36)
 
     def test_number_after_an_answered_question_is_not_reread_as_that_answer(self):
@@ -661,7 +661,7 @@ class PoolBorderCountTest(unittest.TestCase):
     def test_roman_pool_asks_for_a_photo_right_away(self):
         from zero.pool_border import POOL_PHOTO_REQUEST
         history = [{"role": "lead", "text": "Borde ballena 50x40"},
-                   {"role": "agent", "text": "¿Cuáles son las medidas de tu piscina?"}]
+                   {"role": "agent", "text": "¿Cuáles son las medidas de su piscina?"}]
         for text in ("Es romana", "mi piscina es romana de 8x4", "No es rectangular", "no"):
             with self.subTest(text=text):
                 previous = [*history, {"role": "agent", "text": "¿La piscina es rectangular?"}]
@@ -792,7 +792,7 @@ class PoolBorderCountTest(unittest.TestCase):
         dispatch.assert_not_called()
         self.assertNotIn("quote", result)
         self.assertNotIn("$230.400", result["reply"])
-        self.assertIn("compartir tu ubicación", result["reply"])
+        self.assertIn("compartir su ubicación", result["reply"])
         self.assertTrue(result["delivery_poll"])
 
     def test_shipping_coverage_questions_use_one_verified_reply(self):
@@ -858,7 +858,7 @@ class PoolBorderCountTest(unittest.TestCase):
 
     def test_mixed_product_question_does_not_define_shipping_destination(self):
         history = [{"role": "agent", "text": (
-            "Indícame el modelo, las medidas de tu piscina, las esquinas y "
+            "Indícame el modelo, las medidas de su piscina, las esquinas y "
             "la comuna de entrega para revisar despacho.")}]
         self.assertFalse(shipping_delivery_followup("¿Qué modelos hay?", history))
         self.assertFalse(shipping_delivery_followup("Los Andes", history))
@@ -875,7 +875,7 @@ class PoolBorderCountTest(unittest.TestCase):
                 dispatch.assert_not_called()
                 self.assertNotIn("quote", result)
                 self.assertNotIn("$230.400", result["reply"])
-                self.assertIn("compartir tu ubicación", result["reply"])
+                self.assertIn("compartir su ubicación", result["reply"])
 
     def test_product_and_shipping_request_keeps_product_subtotal_separate(self):
         zero = Zero(build_agents(mock=True), memory=self.priced_memory())
@@ -1070,7 +1070,7 @@ class PoolBorderCountTest(unittest.TestCase):
         dispatch.assert_not_called()
         self.assertIn(PRODUCT_POLL_QUESTION, greeting)
         self.assertIn("1. Bordes de piscina", greeting)
-        self.assertIn("medidas de tu piscina", measures)
+        self.assertIn("medidas de su piscina", measures)
         self.assertEqual(send_document.call_args.args[3], "bordes")
         self.assertIn("1. Borde recto con nariz", zero._deliver.call_args.args[3]["body"])
         turns = memory.get_conversation("losetaschile", crm.find_by_contact(
@@ -1157,7 +1157,7 @@ class PoolBorderCountTest(unittest.TestCase):
         # Straight borders go on rectangular pools: the shape is a whale-border question.
         results, send_group = self._numbered_chat(
             ["Hola", "cuanto vale el borde recto?", "6x3", "gris", "3"])
-        self.assertIn("medidas de tu piscina", results[1]["reply"])
+        self.assertIn("medidas de su piscina", results[1]["reply"])
         self.assertNotIn("rectangular", results[2]["reply"])
         self.assertIn("36 × Borde recto con nariz", send_group.call_args.args[3])
 
@@ -1166,12 +1166,12 @@ class PoolBorderCountTest(unittest.TestCase):
                                          include_whale=True)
         self.assertIn(POOL_PHOTO_MARKER, results[-1]["reply"])
         self.assertFalse(roman_pool("quiero un pastelón redondo", [
-            {"role": "agent", "text": "¿Qué pastelón del catálogo te interesó más?"}]))
+            {"role": "agent", "text": "¿Qué pastelón del catálogo le interesó más?"}]))
 
     def test_color_typed_before_the_color_question_is_not_asked_again(self):
         results, _ = self._numbered_chat(["Hola", "2", "20 m2", "gris", "3"])
-        self.assertNotIn("¿Qué color prefieres?", results[-1]["reply"])
-        self.assertIn("¿Cómo prefieres recibir tu pedido?", results[-1]["reply"])
+        self.assertNotIn("¿Qué color prefiere?", results[-1]["reply"])
+        self.assertIn("¿Cómo prefiere recibir su pedido?", results[-1]["reply"])
 
     def test_whale_border_is_quoted_with_the_same_rule(self):
         results, send_group = self._numbered_chat(

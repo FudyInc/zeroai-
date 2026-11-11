@@ -20,7 +20,7 @@ BOT = "56911111111"
 GROUP = "123456789@g.us"
 CHAT = PHONE + "@c.us"
 LOCATION = "[location] https://www.google.com/maps?q=-33.437248,-70.577911"
-STATUS = "Tu presupuesto de bordes de piscina beige con despacho está en revisión del equipo"
+STATUS = "Su presupuesto de bordes de piscina beige con despacho está en revisión del equipo"
 PRICING = {"currency": "CLP", "iva_rate": 0, "items": [
     {"id": "borde-recto-nariz-50x50", "name": "Borde recto con nariz 50x50",
      "unit_price": 3000, "unit": "unidad"},
@@ -71,7 +71,7 @@ class BorderReviewStateTest(unittest.TestCase):
         for text, body in zip(follow_ups, bodies[len(ORDER):]):
             with self.subTest(text=text):
                 self.assertIn(STATUS, body)
-                self.assertNotIn("¿Qué producto estás buscando?", body)
+                self.assertNotIn("¿Qué producto está buscando?", body)
                 self.assertNotIn("Gracias, lo anoté", body)
         self.assertEqual(self.group.call_count, 1)
 
@@ -91,8 +91,8 @@ class BorderReviewStateTest(unittest.TestCase):
 class ReviewHelpersTest(unittest.TestCase):
     def test_border_sentence_mentions_delivery_only_when_known(self):
         self.assertEqual(border_review_sentence("Gris", None),
-                         "Tu presupuesto de bordes de piscina gris está en revisión del equipo;"
-                         " te escribimos por este chat.")
+                         "Su presupuesto de bordes de piscina gris está en revisión del equipo;"
+                         " le escribimos por este chat.")
         self.assertIn("con retiro en fábrica",
                       border_review_sentence(None, "Retiro en fábrica: Los Granados 029"))
 

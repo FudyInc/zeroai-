@@ -34,9 +34,9 @@ _POOL_BORDER_REQUEST = re.compile(
     r"\bbordes?\s+(?:de|para)\s+(?:la|mi|una|nuestra|el)?\s*piscina\b",
     re.IGNORECASE,
 )
-_MEASUREMENT_QUESTION_MARKER = "medidas de tu piscina"
+_MEASUREMENT_QUESTION_MARKER = "medidas de su piscina"
 _MEASUREMENT_QUESTION = (
-    "¿Cuáles son las medidas de tu piscina? "
+    "¿Cuáles son las medidas de su piscina? "
     "Necesito largo y ancho en metros (por ejemplo, 6 × 3 m)."
 )
 _MODEL_QUESTION = re.compile(
@@ -128,11 +128,11 @@ _NOT_ROMAN = re.compile(
 _ROMAN_POOL = re.compile(r"\bpiscinas?\b.{0,25}\bromanas?\b|\bromanas?\b.{0,15}\bpiscinas?\b",
                          re.IGNORECASE)
 POOL_PHOTO_REQUEST = ("Para calcular los bordes de una piscina que no es rectangular necesito "
-                      "ver su forma. ¿Me envías una foto de la piscina por este chat? "
-                      "La revisamos y te respondemos.")
+                      "ver su forma. ¿Me envía una foto de la piscina por este chat? "
+                      "La revisamos y le respondemos.")
 POOL_PHOTO_MARKER = "foto de la piscina"
 POOL_SIZE_CONFIRMATION = ("Las medidas indicadas necesitan confirmación. "
-                          "¿Puedes confirmar el largo y ancho de tu piscina en metros?")
+                          "¿Puede confirmar el largo y ancho de su piscina en metros?")
 _OTHER_UNITS = re.compile(
     r"\b(?:cm|cent[ií]metros?|pies?|ft|pulgadas?|inches|yardas?|yd)\b",
     re.IGNORECASE,
@@ -244,19 +244,19 @@ def pool_border_models_reply(message: str, history: list[dict[str, Any]],
                          if turn.get("role") == "lead")
     context = normalize_pool_border_terms(f"{lead_text} {message}")
     if not re.search(r"\b(?:piscinas?|bordes?)\b", context, re.IGNORECASE):
-        return ("Puedes ver nuestros modelos en el catálogo de WhatsApp: "
-                f"{LOSETASCHILE_WHATSAPP_CATALOG_URL} ¿Qué producto buscas?")
+        return ("Puede ver nuestros modelos en el catálogo de WhatsApp: "
+                f"{LOSETASCHILE_WHATSAPP_CATALOG_URL} ¿Qué producto busca?")
     models = [str(item["name"]).strip() for item in pricing.get("items", [])
               if str(item.get("id") or "").startswith("borde-") and item.get("name")]
     if not models:
-        return ("Puedes ver nuestros modelos en el catálogo de WhatsApp: "
-                f"{LOSETASCHILE_WHATSAPP_CATALOG_URL} ¿Cuál te interesa?")
+        return ("Puede ver nuestros modelos en el catálogo de WhatsApp: "
+                f"{LOSETASCHILE_WHATSAPP_CATALOG_URL} ¿Cuál le interesa?")
     corner = any(str(item.get("id") or "").startswith("esquina-piscina")
                  for item in pricing.get("items", []))
     return ("En la lista de precios figuran estos bordes: " + "; ".join(models) + "." +
             (" También figura la esquina para piscina." if corner else "") +
-            f" Mira el catálogo de WhatsApp: {LOSETASCHILE_WHATSAPP_CATALOG_URL} "
-            "¿Cuál modelo te interesa?")
+            f" Vea el catálogo de WhatsApp: {LOSETASCHILE_WHATSAPP_CATALOG_URL} "
+            "¿Cuál modelo le interesa?")
 
 
 def catalog_requested(message: str) -> bool:
@@ -423,7 +423,7 @@ def border_plan(message: str, history: list[dict[str, Any]]) -> tuple[dict[str, 
     lead_texts = [normalize_customer_input(normalize_pool_border_terms(str(turn.get("text") or ""))) for turn in history
                   if turn.get("role") == "lead"]
     if re.search(r"\b(?:terraza|interior|fondo|piso)\b", message, re.IGNORECASE):
-        return None, "¿Te refieres al borde recto con nariz de la piscina o a otro producto?"
+        return None, "¿Se refiere al borde recto con nariz de la piscina o a otro producto?"
     latest_first = [message, *reversed(lead_texts)]
     dimensions = None
     for text in latest_first:
@@ -456,7 +456,7 @@ def border_plan(message: str, history: list[dict[str, Any]]) -> tuple[dict[str, 
                     _PRODUCT.search(text) or
                     (_WHALE.search(text) and "?" not in text)), None)
     if product and (_REJECT_PRODUCT.search(product) or _OTHER_PRODUCT.search(product)):
-        return None, "¿Te refieres al borde recto con nariz de la piscina o a otro producto?"
+        return None, "¿Se refiere al borde recto con nariz de la piscina o a otro producto?"
     if product is None:
         return None, BORDER_MODEL_QUESTION
     whale = bool(_WHALE.search(product))

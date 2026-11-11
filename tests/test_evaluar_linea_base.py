@@ -245,12 +245,12 @@ class SinSalidaAlMundo(unittest.TestCase):
 class LoQueLeyoElCliente(unittest.TestCase):
     def test_suma_imagen_y_encuesta_enviadas_por_el_puente(self):
         puente = [
-            {"path": "/send-catalog-image", "body": {"to": "56900000003", "caption": "Te comparto la gama"}},
+            {"path": "/send-catalog-image", "body": {"to": "56900000003", "caption": "Le comparto la gama"}},
             {"path": "/send-poll", "body": {"to": "56900000003", "poll_key": "color"}},
         ]
         texto = arnes.lo_que_leyo_el_cliente({"reply": ""}, [], puente, "56900000003")
-        self.assertIn("Te comparto la gama", texto)
-        self.assertIn("¿Qué color prefieres?", texto)
+        self.assertIn("Le comparto la gama", texto)
+        self.assertIn("¿Qué color prefiere?", texto)
         self.assertIn("Anaranjado", texto)
 
     def test_suma_lo_entregado_por_deliver_sin_duplicar(self):

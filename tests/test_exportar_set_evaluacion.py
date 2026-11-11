@@ -146,7 +146,7 @@ class Casos(unittest.TestCase):
     def _clientes(self):
         return {"losetaschile": {"conversations": {"56987654321@c.us": [
             {"role": "lead", "text": "Hola, soy Diego"},
-            {"role": "agent", "text": "¡Buenas tardes! ¿En qué puedo ayudarte?"},
+            {"role": "agent", "text": "¡Buenas tardes! ¿En qué puedo ayudarle?"},
             {"role": "lead", "text": "Necesito pastelones"},
             {"role": "agent", "text": "¿Qué medidas necesitas?"},
             {"role": "lead", "text": "Mi piscina mide 6 x 3"},

@@ -24,12 +24,12 @@ PRICING = {"currency": "CLP", "iva_rate": 0, "items": [
     {"id": "pastelones-50x50", "name": "Pastelón 50x50", "unit_price": 2600, "unit": "unidad"},
     {"id": "durmiente-16x40", "name": "Durmiente 16x40", "unit_price": 900, "unit": "unidad"},
     {"id": "deck-madera-50x50", "name": "Deck madera 50x50", "unit_price": 3600, "unit": "unidad"}]}
-COLOR_MENU = ("Te comparto la gama de colores disponible.\n\n¿Qué color prefieres?\n\n"
+COLOR_MENU = ("Le comparto la gama de colores disponible.\n\n¿Qué color prefiere?\n\n"
               "1. Anaranjado\n2. Blanco\n3. Rojo\n4. Crema\n5. Beige\n6. Gris\n7. Amarillo\n\n"
-              "Responde con el número o el nombre.")
-DELIVERY_MENU = ("¿Cómo prefieres recibir tu pedido?\n\n1. 📍 Despacho · compartir ubicación\n"
+              "Responda con el número o el nombre.")
+DELIVERY_MENU = ("¿Cómo prefiere recibir su pedido?\n\n1. 📍 Despacho · compartir ubicación\n"
                  "2. ✍️ Despacho · escribir dirección\n3. 🏭 Retiro en fábrica\n\n"
-                 "Responde con el número o el nombre.")
+                 "Responda con el número o el nombre.")
 
 
 def turns(*pairs):
@@ -53,21 +53,21 @@ class MenuReaskTest(unittest.TestCase):
 
     def test_slip_text_names_the_menu_that_was_asked(self):
         self.assertEqual(choice_slip_reply("8", "color"),
-                         f"El 8 {CHOICE_SLIP_MARK}. Elige un número del 1 al 7.")
+                         f"El 8 {CHOICE_SLIP_MARK}. Elija un número del 1 al 7.")
 
     def test_a_reask_without_a_menu_topic_opens_nothing(self):
         history = turns(("agent", "Elige lo que quieras."), ("lead", "3"))
         self.assertIsNone(open_choice(history[:1]))
 
     def test_filler_around_an_out_of_range_number_is_still_a_slip(self):
-        history = turns(("agent", "¿Qué modelo de borde te interesó más?\n\n"
+        history = turns(("agent", "¿Qué modelo de borde le interesó más?\n\n"
                                   "1. Borde recto con nariz 50×50\n2. Borde ballena 50×40"))
         for message in ("6 perdon", "el 6", "opción 7", "6"):
             self.assertEqual(invalid_choice(message, history), "border_model", message)
         for message in ("2 perdon", "20", "6 metros", "hola 6"):
             self.assertIsNone(invalid_choice(message, history), message)
         self.assertEqual(choice_slip_reply("6 perdon", "border_model"),
-                         f"El 6 {CHOICE_SLIP_MARK}. Elige 1 o 2.")
+                         f"El 6 {CHOICE_SLIP_MARK}. Elija 1 o 2.")
 
 
 class CustomerTextNormalizationTest(unittest.TestCase):
@@ -237,7 +237,7 @@ class _Flow(unittest.TestCase):
 
 class PriceFlowTest(_Flow):
     def test_price_question_asks_the_paver_area_and_the_next_number_continues(self):
-        greeting = turns(("lead", "Hola"), ("agent", "¿Qué producto estás buscando?"))
+        greeting = turns(("lead", "Hola"), ("agent", "¿Qué producto está buscando?"))
         result = self.converse("¿cuánto vale el gregoriano?", greeting)
         self.assertEqual(result["reply"], "El pastelón Gregoriano es de 40x40 y vale $1.600 c/u. "
                          + PAVER_AREA_QUESTION)
@@ -260,7 +260,7 @@ class FirstContactTest(_Flow):
                         "Hola vi su anuncio en Instagram", "vi su publicación",
                         "Buenas, quiero cotizar", "info"):
             result = self.converse(message, [])
-            self.assertRegex(result["reply"], r"^¡[^!]+! ¿En qué puedo ayudarte\?$", message)
+            self.assertRegex(result["reply"], r"^¡[^!]+! ¿En qué puedo ayudarle\?$", message)
             self.assertEqual(result["customer_poll"], "product", message)
 
     def test_concrete_first_questions_keep_their_answer(self):
@@ -278,13 +278,13 @@ class GreetingMidOrderTest(_Flow):
         history = turns(("lead", "bordes"), ("agent", "Catálogo Bordes de Piscina"),
                         ("lead", "Borde recto con nariz 50×50"), ("agent", COLOR_MENU))
         result = self.converse("hola", history)
-        self.assertRegex(result["reply"], r"^¡[^!]+! ¿Qué color prefieres\?$")
+        self.assertRegex(result["reply"], r"^¡[^!]+! ¿Qué color prefiere\?$")
         self.assertEqual(result["customer_poll"], "color")
 
     def test_greeting_with_delivery_open_resumes_delivery(self):
         history = turns(("lead", "Amarillo"), ("agent", DELIVERY_MENU))
         result = self.converse("Buenas", history)
-        self.assertIn("¿Cómo prefieres recibir tu pedido?", result["reply"])
+        self.assertIn("¿Cómo prefiere recibir su pedido?", result["reply"])
         self.assertTrue(result.get("delivery_poll"))
 
     def test_greeting_after_the_area_question_asks_it_again(self):
@@ -299,7 +299,7 @@ class GreetingMidOrderTest(_Flow):
 
 
 class ClosingTest(_Flow):
-    MENU = turns(("lead", "bordes"), ("agent", "¿Qué modelo de borde te interesó más?\n\n"
+    MENU = turns(("lead", "bordes"), ("agent", "¿Qué modelo de borde le interesó más?\n\n"
                                                "1. Borde recto con nariz 50×50\n"
                                                "2. Borde ballena 50×40"))
 
@@ -311,7 +311,7 @@ class ClosingTest(_Flow):
     def test_a_bare_ok_repeats_the_open_menu(self):
         result = self.converse("ok", self.MENU)
         self.assertEqual(result["customer_poll"], "border_model")
-        self.assertIn("¿Qué modelo de borde te interesó más?", result["reply"])
+        self.assertIn("¿Qué modelo de borde le interesó más?", result["reply"])
         area = turns(("lead", "Pastelones"), ("agent", PAVER_AREA_QUESTION))
         self.assertEqual(self.converse("dale", area)["reply"], PAVER_AREA_QUESTION)
 
@@ -352,7 +352,7 @@ class ChatTest(_LiveChat):
 
     def test_the_menu_suffix_is_never_doubled(self):
         reply = {"reply": f"Es de 40x40. {MENU_ASIDE_CLOSING}", "intent": "info", "aside": True}
-        self.turns(("agent", "¿Qué modelo de borde te interesó más?\n\n1. Borde recto con nariz "
+        self.turns(("agent", "¿Qué modelo de borde le interesó más?\n\n1. Borde recto con nariz "
                              "50×50\n2. Borde ballena 50×40"))
         with mock.patch.object(self.zero, "converse_result", return_value=reply):
             self.inbound("¿de qué medida es?")

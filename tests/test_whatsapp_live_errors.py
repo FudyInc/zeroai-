@@ -44,7 +44,7 @@ class _LiveChat(unittest.TestCase):
 class LiveErrorsTest(_LiveChat):
     def test_number_outside_the_colour_list_asks_for_a_valid_option(self):
         self.turns(("lead", "Pastelones"),
-                   ("agent", f"Te comparto la gama de colores. {COLOR_POLL_QUESTION}"))
+                   ("agent", f"Le comparto la gama de colores. {COLOR_POLL_QUESTION}"))
         result = self.zero.converse_result(
             "losetaschile", "8", history=self.memory.get_conversation("losetaschile", "56933333333"))
         self.assertIn(CHOICE_SLIP_MARK, result["reply"])
@@ -58,8 +58,8 @@ class LiveErrorsTest(_LiveChat):
         self.assertEqual(invalid_choice("9️⃣", history), "color")
         self.assertIsNone(invalid_choice("6️⃣", history))
         self.assertEqual(choice_slip_reply("9️⃣", "color"),
-                         f"El 9 {CHOICE_SLIP_MARK}. Elige un número del 1 al 7.")
-        self.assertTrue(choice_slip_reply("5", "product").endswith("Elige 1 o 2."))
+                         f"El 9 {CHOICE_SLIP_MARK}. Elija un número del 1 al 7.")
+        self.assertTrue(choice_slip_reply("5", "product").endswith("Elija 1 o 2."))
 
     def test_after_a_slip_the_next_valid_number_answers_the_open_question(self):
         sent = []
@@ -78,14 +78,14 @@ class LiveErrorsTest(_LiveChat):
             sent.clear()
             self.inbound("6")
         self.assertIn("color gris", sent[0])
-        self.assertIn("recibir tu pedido", sent[0])
+        self.assertIn("recibir su pedido", sent[0])
 
     def test_reasks_open_choice_only_when_the_step_would_send_the_menu_again(self):
         history = [{"role": "agent", "text": f"Anoté 20 m². {PAVER_MODEL_QUESTION}"}]
         again = {"reply": f"Anoté 20 m². {PAVER_MODEL_QUESTION}", "customer_poll": "paver_model"}
         self.assertEqual(reasks_open_choice(again, "Tiene otros modelos?", history), "paver_model")
         self.assertIsNone(reasks_open_choice(again, "2", history))  # a real choice
-        self.assertIsNone(reasks_open_choice({"reply": "¿Qué color prefieres?"},
+        self.assertIsNone(reasks_open_choice({"reply": "¿Qué color prefiere?"},
                                              "Tiene otros modelos?", history))
         self.assertIsNone(reasks_open_choice(again, "hola", [{"role": "agent", "text": "Hola"}]))
 
@@ -114,7 +114,7 @@ class LiveErrorsTest(_LiveChat):
             self.assertIn(PAVER_MODEL_QUESTION, dispatch.call_args.args[1].instructions)
             result = self.inbound("2")  # still answers the model menu
         self.assertEqual(dispatch.call_count, 1)
-        self.assertIn("¿Qué color prefieres?", result["reply"])
+        self.assertIn("¿Qué color prefiere?", result["reply"])
 
     def test_steps_keep_the_menu_open_after_an_aside_or_a_review_notice(self):
         from zero.config import WHATSAPP_REVIEW_NOTICES
@@ -182,11 +182,11 @@ class LiveErrorsTest(_LiveChat):
 
     def test_factory_pickup_on_pastelones_does_not_mention_a_location(self):
         history = [{"role": "lead", "text": "Pastelones"},
-                   {"role": "agent", "text": "¿Cuántos m² necesitas cubrir con pastelones?"},
+                   {"role": "agent", "text": "¿Cuántos m² necesita cubrir con pastelones?"},
                    {"role": "lead", "text": "14"},
                    {"role": "lead", "text": "Laja española"},
                    {"role": "lead", "text": "Anaranjado"},
-                   {"role": "agent", "text": "Anoté el color anaranjado. ¿Cómo prefieres recibir tu pedido?"}]
+                   {"role": "agent", "text": "Anoté el color anaranjado. ¿Cómo prefiere recibir su pedido?"}]
         result = self.zero.converse_result("losetaschile", DELIVERY_POLL_FACTORY_PICKUP,
                                            history=history)
         self.assertIn("retiro en fábrica", result["reply"])
@@ -200,7 +200,7 @@ class SecondLiveTestErrors(_LiveChat):
 
     def paver_menu(self, area="30"):
         from zero.losetas_polls import PAVER_AREA_QUESTION, PRODUCT_POLL_QUESTION
-        return (("agent", f"¡Buenas noches! ¿En qué puedo ayudarte?\n\n{PRODUCT_POLL_QUESTION}"),
+        return (("agent", f"¡Buenas noches! ¿En qué puedo ayudarle?\n\n{PRODUCT_POLL_QUESTION}"),
                 ("lead", "Pastelones"), ("agent", PAVER_AREA_QUESTION), ("lead", area),
                 ("agent", f"Anoté {area} m². {PAVER_MODEL_QUESTION}"))
 

@@ -222,3 +222,42 @@ class BrandTest(_LiveChat):  # I
         self.assertIn("*PEDIDO PASTELONES POOLEDGE · REVISIÓN INTERNA*", source)
         # Ningún encabezado en negrita lleva el nombre antiguo.
         self.assertNotRegex(source, r"\*[^*\n]*(?i:losetas)[^*\n]*\*")
+
+
+class UstedTest(_LiveChat):
+    """PoolEdge trata al cliente de usted (2026-11-11). Los chats guardados en «tú»
+    siguen funcionando: sus preguntas se leen con el texto vigente."""
+
+    def test_an_old_tu_menu_is_still_open(self):
+        from zero.losetas_polls import open_choice
+        self.turns(("lead", "bordes"), ("agent", "Anoté 7x3. ¿Qué color prefieres?"))
+        history = self.memory.get_conversation("losetaschile", "56933333333")
+        self.assertEqual(open_choice(history), "color")
+        self.assertIn("¿Qué color prefiere?", history[-1]["text"])
+
+    def test_an_old_tu_area_question_still_takes_the_answer(self):
+        self.turns(("agent", "¿Qué producto estás buscando?"), ("lead", "Pastelones"),
+                   ("agent", "¿Cuántos m² necesitas cubrir con pastelones?"))
+        result = self.zero.converse_result(
+            "losetaschile", "80",
+            history=self.memory.get_conversation("losetaschile", "56933333333"))
+        self.assertTrue(result["reply"].startswith("Anoté 80 m²."), result["reply"])
+
+    def test_lead_turns_are_never_rewritten(self):
+        self.turns(("lead", "¿Qué color prefieres?"))
+        history = self.memory.get_conversation("losetaschile", "56933333333")
+        self.assertEqual(history[-1]["text"], "¿Qué color prefieres?")
+
+    def test_fixed_texts_do_not_tutear(self):
+        import re
+        from zero import config, losetas_color, losetas_polls, losetas_shipping, pool_border
+        tu = re.compile(r"\b(?:prefieres|estás|necesitas|puedes|quieras|cuéntame|dime|"
+                        r"escríbeme|tu|tus|te|ayudarte|responderte|buscas|toca)\b", re.I)
+        texts = [v for m in (losetas_polls, losetas_shipping, losetas_color, pool_border)
+                 for k, v in vars(m).items() if k.isupper() and isinstance(v, str)]
+        texts += [config.WHATSAPP_CLOSING_REPLY, config.LOSETASCHILE_PAVER_REVIEW_SHIPPING_REPLY,
+                  *config.WHATSAPP_FALLBACK_GREETINGS, *config.WHATSAPP_FALLBACK_GREETINGS_NAMED,
+                  *config.WHATSAPP_REVIEW_NOTICES, paver_size_reply("45×40")]
+        texts += [new for _, new in config.LOSETASCHILE_LEGACY_TU_TEXTS]
+        for text in texts:
+            self.assertIsNone(tu.search(text), text)

@@ -232,7 +232,7 @@ class WhatsAppHandoffTest(unittest.TestCase):
         self.assertFalse(result.get("manual_review", False))
         self.assertEqual(result["delivery"]["status"], "sent")
         self.assertEqual(result["poll_delivery"]["status"], "error")
-        self.assertIn("compartir tu ubicación aquí", result["reply"])
+        self.assertIn("compartir su ubicación aquí", result["reply"])
 
     def test_poll_choice_gets_one_instruction_without_new_poll(self):
         result = self.inbound(DELIVERY_POLL_LOCATION)
@@ -284,7 +284,7 @@ class WhatsAppHandoffTest(unittest.TestCase):
         self.assertIsNone(SessionMemory(self.path).get_whatsapp_handoff(
             "losetaschile", "56933333333@c.us"))
         with mock.patch.object(self.zero, "converse_result", return_value={
-            "reply": "¡Hola! ¿En qué puedo ayudarte?", "intent": "general"}):
+            "reply": "¡Hola! ¿En qué puedo ayudarle?", "intent": "general"}):
             second = self.inbound("Hola")
         self.assertFalse(second.get("manual_review", False))
         self.assertEqual(second["delivery"]["status"], "sent")
@@ -304,7 +304,7 @@ class WhatsAppHandoffTest(unittest.TestCase):
         self.assertIsNone(self.memory.get_whatsapp_handoff(
             "losetaschile", "56933333333@c.us"))
         with mock.patch.object(self.zero, "converse_result", return_value={
-            "reply": "¡Hola! ¿En qué puedo ayudarte?", "intent": "general"}):
+            "reply": "¡Hola! ¿En qué puedo ayudarle?", "intent": "general"}):
             second = self.inbound("Hola")
         self.assertEqual(second["delivery"]["status"], "sent")
         self.assertEqual(self.zero._deliver.call_count, 2)

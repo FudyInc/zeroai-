@@ -75,6 +75,18 @@ def normalize_cases(cases: Any) -> List[Dict[str, Any]]:
     return limpios[:max(1, MAX_TEST_CASES_PER_CLIENT)]
 
 
+
+def _usted_turn(turn: Dict[str, Any]) -> Dict[str, Any]:
+    """Un turno del agente guardado en «tú», leído con el texto vigente en «usted»."""
+    text = turn.get("text")
+    if turn.get("role") != "agent" or not isinstance(text, str):
+        return turn
+    from .config import LOSETASCHILE_LEGACY_TU_TEXTS
+    new = text
+    for old, current in LOSETASCHILE_LEGACY_TU_TEXTS:
+        new = new.replace(old, current)
+    return turn if new == text else {**turn, "text": new}
+
 class SessionMemory:
     def __init__(self, path: Optional[str] = None):
         self.path = Path(path) if path else None
@@ -266,7 +278,10 @@ class SessionMemory:
                          limit: Optional[int] = None) -> List[Dict[str, Any]]:
         convs = self.clients.get(client_id, {}).get("conversations") or {}
         turns = convs.get(str(lead_key).lower(), [])
-        return turns[-limit:] if limit else list(turns)
+        turns = turns[-limit:] if limit else list(turns)
+        if client_id == "losetaschile":
+            turns = [_usted_turn(turn) for turn in turns]
+        return turns
 
     # --- expediente del pedido: lo que el cliente pidió y el historial no conserva ---
     # El texto guardado es la opción canónica («Bordes de piscina»): un «bordes y

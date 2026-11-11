@@ -17,18 +17,18 @@ _SHIPPING_TOPIC = re.compile(
 
 SHIPPING_COVERAGE_REPLY = (
     "Sí, hacemos despachos en Santiago y revisamos envíos a zonas cercanas "
-    "a la Región Metropolitana. ¿Dónde sería la entrega? Puedes escribir "
-    "tu dirección o compartir tu ubicación aquí; el equipo confirmará cobertura y valor."
+    "a la Región Metropolitana. ¿Dónde sería la entrega? Puede escribir "
+    "su dirección o compartir su ubicación aquí; el equipo confirmará cobertura y valor."
 )
 SHIPPING_PRICE_REPLY = (
     "El despacho se cotiza por separado. ¿Dónde sería la entrega? "
-    "Puedes escribir tu dirección o compartir tu ubicación aquí; "
+    "Puede escribir su dirección o compartir su ubicación aquí; "
     "el equipo verificará la ruta y el valor del flete."
 )
 DELIVERY_POLL_LOCATION = DELIVERY_POLL_DELIVERY_LOCATION
 DELIVERY_POLL_ADDRESS = DELIVERY_POLL_DELIVERY_ADDRESS
-DELIVERY_LOCATION_PROMPT = "Toca 📎 o + → Ubicación → Enviar ubicación actual para el despacho."
-DELIVERY_ADDRESS_PROMPT = "Escríbeme calle, número y comuna de entrega."
+DELIVERY_LOCATION_PROMPT = "Toque 📎 o + → Ubicación → Enviar ubicación actual para el despacho."
+DELIVERY_ADDRESS_PROMPT = "Escríbame calle, número y comuna de entrega."
 
 _SHARED_LOCATION = re.compile(
     r"^\[location\]\s+(https://www\.google\.com/maps\?q=[-\d.]+,[-\d.]+)$",

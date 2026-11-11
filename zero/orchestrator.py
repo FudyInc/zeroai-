@@ -486,7 +486,7 @@ def build_info_summary(icp: Dict[str, Any], lead: Optional[Dict[str, Any]] = Non
         lines += [f"   {i}. {e}" for i, e in enumerate(examples, 1)]
     else:
         lines.append("No tengo ejemplos confirmados para compartir por ahora.")
-    lines.append("Si me cuentas qué necesitas, puedo revisar los detalles con el equipo.")
+    lines.append("Si me cuenta qué necesita, puedo revisar los detalles con el equipo.")
     return "\n".join(lines)
 
 
@@ -1511,7 +1511,7 @@ class Zero:
                 if question in last_agent:
                     return {"reply": f"{salutation} {question}", "intent": "qualification",
                             "flow_step": True, "repeat_menu": True}
-            return {"reply": f"{salutation} ¿En qué puedo ayudarte?", "intent": "general",
+            return {"reply": f"{salutation} ¿En qué puedo ayudarle?", "intent": "general",
                     "customer_poll": "product"}
         if losetas_steps:
             visual_category = visual_catalog_category(message)
@@ -1551,7 +1551,7 @@ class Zero:
                 return {"reply": f"¡{greeting}! {PRODUCT_POLL_QUESTION}",
                         "intent": "qualification", "customer_poll": "product"}
             if not order_history and not _CONCRETE_FIRST_QUESTION_RE.search(message):
-                return {"reply": f"¡{greeting}! ¿En qué puedo ayudarte?", "intent": "general",
+                return {"reply": f"¡{greeting}! ¿En qué puedo ayudarle?", "intent": "general",
                         "customer_poll": "product"}
             if (_QUOTE_REQUEST_RE.search(message) and not _INFO_QUESTION_RE.search(message) and
                     not re.search(r"\b(?:bordes?\s+(?:de|para)\s+(?:(?:la|mi|una|nuestra|el)\s+)?piscinas?|pastelones?)\b",
@@ -1685,7 +1685,7 @@ class Zero:
             received = ("el retiro en fábrica" if is_factory_pickup(message)
                         else "los datos de entrega")
             return {"reply": (f"Gracias, recibí el modelo, los m² y {received}. "
-                              "El equipo arma el presupuesto y te escribe por este chat."),
+                              "El equipo arma el presupuesto y le escribe por este chat."),
                     "intent": "info",
                     "attention": "Pastelones: confirmar el tamaño del modelo y cotizar",
                     "paver_order": _paver_order(message, order_history, pricing)}
@@ -1770,9 +1770,9 @@ class Zero:
             # El modelo no debe improvisar un total cuando todavía falta revisar
             # el despacho. Respuesta determinista hasta conectar el cotizador de
             # PoolEdge con la aprobación humana del envío.
-            return {"reply": ("Para preparar tu presupuesto necesito confirmar "
+            return {"reply": ("Para preparar su presupuesto necesito confirmar "
                               "productos, cantidades y la dirección completa de entrega. "
-                              "¿Me compartes esos datos?"), "intent": "pricing"}
+                              "¿Me comparte esos datos?"), "intent": "pricing"}
         quote_mode = profile.get("quote_mode") or "automatic"
         quote = (compute_quote(pricing, extract_request(message, pricing))
                  if pricing["items"] and quote_mode == "automatic"
@@ -1790,7 +1790,9 @@ class Zero:
                              "responde a esa duda antes de pedir datos. Usa el historial para "
                              "no repetir saludos, explicaciones, preguntas ni listas de medidas "
                              "ya solicitadas. Pide solo el dato que falta. Si no logras entender "
-                             "la consulta, usa intent handoff.")
+                             "la consulta, usa intent handoff. Trata siempre al cliente "
+                             "de usted (usted, su, le; «¿en qué le puedo ayudar?»); nunca "
+                             "lo tutees.")
         if open_menu:
             instructions += (" El cliente escribió esto en vez de elegir una opción de la "
                              "pregunta abierta «" + LOSETAS_CHOICE_PROMPTS[open_menu][0] +
@@ -1848,8 +1850,8 @@ class Zero:
                 return {"reply": "", "intent": "handoff"}
         if (client_id == "losetaschile" and channel == "whatsapp" and
                 delegates_piece_calculation(message, result.get("reply") or "")):
-            result["reply"] = ("¿Me confirmas el modelo de borde y las medidas "
-                               "de la piscina para darte la cantidad exacta?")
+            result["reply"] = ("¿Me confirma el modelo de borde y las medidas "
+                               "de la piscina para darle la cantidad exacta?")
         if greeting and isinstance(result.get("reply"), str):
             result["reply"] = align_opening_greeting(result["reply"], greeting)
             if _simple_greeting(message) and not result["reply"].lstrip(" ¡!").casefold().startswith(
@@ -2096,7 +2098,7 @@ class Zero:
             wants_person = bool(_HUMAN_REQUEST_RE.search(text or "") or _UPSET_RE.search(text or ""))
             ack = (WHATSAPP_HUMAN_REQUEST_ACK if wants_person else
                    # The owner reviews the photo; the customer knows it arrived.
-                   "Gracias, recibí la foto. La revisamos y te respondemos por este chat."
+                   "Gracias, recibí la foto. La revisamos y le respondemos por este chat."
                    if photo else "")
             if ack:
                 ack_delivery = self._deliver(
@@ -2310,7 +2312,7 @@ class Zero:
                 elif shipping_delivery_followup(text, prior_turns):
                     thanks = "Gracias, recibí los datos de entrega. "
                 else:
-                    thanks = "Gracias, recibí los datos de tu pedido. "
+                    thanks = "Gracias, recibí los datos de su pedido. "
                 detail = str(delivery_detail(text, prior_turns) or "")
                 pickup = detail.startswith("Retiro en fábrica:")
                 acknowledgment = thanks + (

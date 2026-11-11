@@ -14,7 +14,7 @@ class LosetasColorTest(unittest.TestCase):
         self.assertIn("gama de colores para los bordes y pastelones", question)
         # Per-color availability is unconfirmed: the caption must not claim it.
         self.assertNotIn("disponib", question.casefold())
-        self.assertIn("¿Qué color prefieres?", question)
+        self.assertIn("¿Qué color prefiere?", question)
 
     def test_color_name_after_question(self):
         history = [{"role": "agent", "text": color_question()}]

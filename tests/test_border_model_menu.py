@@ -12,7 +12,7 @@ from tests import test_border_review_state as review
 from zero.losetas_polls import unknown_option_named
 from zero.orchestrator import _greets, _recent_agent_turn, _without_salutation
 
-MENU = "¿Qué modelo de borde te interesó más?"
+MENU = "¿Qué modelo de borde le interesó más?"
 REHEARSAL = ["Hola buenas tardes, quiero cotizar bordes para mi piscina",
              "mide 8 x 4 metros, es rectangular"]
 
@@ -36,7 +36,7 @@ class BorderModelMenuTest(review.BorderReviewStateTest):
         self.assertTrue(bodies[-2].startswith("Anoté el color blanco."), bodies[-2])
         self.assertIn(MENU, bodies[-2])
         # The color is not asked again: the next step is delivery.
-        self.assertIn("¿Cómo prefieres recibir tu pedido?", bodies[-1])
+        self.assertIn("¿Cómo prefiere recibir su pedido?", bodies[-1])
 
     def test_a_listed_model_by_name_still_advances(self):
         body = self.run_chat(REHEARSAL + ["prefiero el ballena"])[-1]

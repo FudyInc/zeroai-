@@ -26,7 +26,7 @@ _REJECT = re.compile(
 def color_question() -> str:
     """Caption for the supplied image, without claiming stock availability."""
     # Availability is not confirmed per color: the review group confirms it.
-    return ("Te comparto la gama de colores para los bordes y pastelones: "
+    return ("Le comparto la gama de colores para los bordes y pastelones: "
             "anaranjado, blanco, rojo, crema, beige, gris y amarillo. "
             f"{COLOR_POLL_QUESTION}")
 
@@ -69,7 +69,7 @@ def asks_for_colors(message: str) -> bool:
 
 def color_range_reply() -> str:
     """Pie de la imagen de la gama. No afirma stock: lo confirma el equipo."""
-    return ("Te comparto la gama de colores para los bordes y pastelones: "
+    return ("Le comparto la gama de colores para los bordes y pastelones: "
             "anaranjado, blanco, rojo, crema, beige, gris y amarillo.")
 
 

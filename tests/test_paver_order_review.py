@@ -26,7 +26,7 @@ LOCATION = parse_meta({"entry": [{"changes": [{"value": {
     "metadata": {"phone_number_id": BOT},
     "messages": [{"from": PHONE, "type": "location",
                   "location": {"latitude": -33.5, "longitude": -70.6}}]}}]}]})[0]["text"]
-REVIEW_SENTENCE = "Tu presupuesto de 40 m² de Gregoriano amarillo con despacho está en revisión"
+REVIEW_SENTENCE = "Su presupuesto de 40 m² de Gregoriano amarillo con despacho está en revisión"
 
 
 def _chat(priced=True):
@@ -184,7 +184,7 @@ class PaverOrderReviewTest(unittest.TestCase):
         # Live 2026-11-09: a «hola» restarted the catalog while the budget sat in review.
         _, bodies = self.run_chat(self.ORDER + ["Hola buenas noches"])
         self.assertIn(REVIEW_SENTENCE, bodies[-1])
-        self.assertNotIn("¿Qué producto estás buscando?", bodies[-1])
+        self.assertNotIn("¿Qué producto está buscando?", bodies[-1])
 
     def test_the_state_expires_after_the_configured_hours(self):
         self.run_chat(self.ORDER)

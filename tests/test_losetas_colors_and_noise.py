@@ -66,7 +66,7 @@ class ColorsReplyTest(unittest.TestCase):
 
     def test_mid_order_question_keeps_the_order(self):
         history = [{"role": "lead", "text": "Quiero bordes"},
-                   {"role": "agent", "text": "¿Cuáles son las medidas de tu piscina?"}]
+                   {"role": "agent", "text": "¿Cuáles son las medidas de su piscina?"}]
         result = self._ask("¿Qué colores hay?", history)
         self.assertEqual(result["media_asset"], COLOR_CATALOG_IMAGE_PATH)
         self.assertTrue(result.get("flow_step"))

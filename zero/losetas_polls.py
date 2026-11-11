@@ -10,15 +10,15 @@ from .customer_text import normalize as normalize_customer_input
 from .losetas_text import closest, normalize_customer_text, plain
 
 
-PRODUCT_POLL_QUESTION = "¿Qué producto estás buscando?"
+PRODUCT_POLL_QUESTION = "¿Qué producto está buscando?"
 PRODUCT_POLL_BORDERS = "Bordes de piscina"
 PRODUCT_POLL_PASTELONES = "Pastelones"
 PRODUCT_POLL_OPTIONS = (PRODUCT_POLL_BORDERS, PRODUCT_POLL_PASTELONES)
 
-COLOR_POLL_QUESTION = "¿Qué color prefieres?"
+COLOR_POLL_QUESTION = "¿Qué color prefiere?"
 COLOR_POLL_OPTIONS = ("Anaranjado", "Blanco", "Rojo", "Crema", "Beige", "Gris", "Amarillo")
 
-DELIVERY_POLL_QUESTION = "¿Cómo prefieres recibir tu pedido?"
+DELIVERY_POLL_QUESTION = "¿Cómo prefiere recibir su pedido?"
 DELIVERY_POLL_DELIVERY_LOCATION = "📍 Despacho · compartir ubicación"
 DELIVERY_POLL_DELIVERY_ADDRESS = "✍️ Despacho · escribir dirección"
 DELIVERY_POLL_FACTORY_PICKUP = "🏭 Retiro en fábrica"
@@ -30,21 +30,21 @@ FACTORY_ADDRESS = "Los Granados 029, La Pintana"
 FACTORY_MAP_URL = "https://maps.app.goo.gl/yd4CKEr1bqi7RwsZA"
 
 
-BORDER_MODEL_QUESTION = "¿Qué modelo de borde te interesó más?"
+BORDER_MODEL_QUESTION = "¿Qué modelo de borde le interesó más?"
 BORDER_MODEL_STRAIGHT = "Borde recto con nariz 50×50"
 BORDER_MODEL_WHALE = "Borde ballena 50×40"
 BORDER_MODEL_OPTIONS = (BORDER_MODEL_STRAIGHT, BORDER_MODEL_WHALE)
 
-PAVER_AREA_QUESTION = "¿Cuántos m² necesitas cubrir con pastelones?"
-PAVER_MODEL_QUESTION = "¿Qué pastelón del catálogo te interesó más?"
+PAVER_AREA_QUESTION = "¿Cuántos m² necesita cubrir con pastelones?"
+PAVER_MODEL_QUESTION = "¿Qué pastelón del catálogo le interesó más?"
 # Octagonal Piedra salió del menú el 2026-11-03 (Diego). Los modelos 6 a 11 se sumaron
 # el 2026-11-09 al final, para que 1–5 sigan significando lo mismo en chats abiertos.
 PAVER_MODEL_OPTIONS = ("Laja española", "Ladrillo cruzado", "Sol", "Sol rústico",
                        "Gregoriano", "Adoquín", "Flor de lis", "Corrugado 50×50",
                        "Liso 50×50", "Deck madera 50×50", "Extensión piscina 50×50")
 
-PAVER_REVIEW_SUFFIX = " está en revisión del equipo; te escribimos por este chat."
-_PAVER_REVIEW_SENTENCE = re.compile(r"Tu presupuesto de .*?" + re.escape(PAVER_REVIEW_SUFFIX))
+PAVER_REVIEW_SUFFIX = " está en revisión del equipo; le escribimos por este chat."
+_PAVER_REVIEW_SENTENCE = re.compile(r"Su presupuesto de .*?" + re.escape(PAVER_REVIEW_SUFFIX))
 
 
 def paver_review_sentence(order: dict[str, Any]) -> str:
@@ -53,7 +53,7 @@ def paver_review_sentence(order: dict[str, Any]) -> str:
     detail = str(order.get("delivery_detail") or "")
     delivery = (" con retiro en fábrica" if detail.startswith("Retiro en fábrica")
                 else " con despacho" if detail else "")
-    return f"Tu presupuesto de {order['area_m2']} m² de {order['model']}{color}{delivery}" \
+    return f"Su presupuesto de {order['area_m2']} m² de {order['model']}{color}{delivery}" \
         + PAVER_REVIEW_SUFFIX
 
 
@@ -66,7 +66,7 @@ def border_review_sentence(color: str | None = None, delivery_detail: str | None
     detail = str(delivery_detail or "")
     delivery = (" con retiro en fábrica" if detail.startswith("Retiro en fábrica")
                 else " con despacho" if detail else "")
-    return f"Tu presupuesto de bordes de piscina{tone}{delivery}" + PAVER_REVIEW_SUFFIX
+    return f"Su presupuesto de bordes de piscina{tone}{delivery}" + PAVER_REVIEW_SUFFIX
 
 
 def paver_review_status(history: list[dict[str, Any]], now: datetime | None = None) -> str | None:
@@ -148,7 +148,7 @@ CHOICE_PROMPTS = {
 }
 # Questions the WhatsApp Web bridge can send as a poll (poll-definitions.js).
 WHATSAPP_WEB_POLL_KEYS = frozenset({"product", "color", "delivery"})
-NUMBERED_HINT = "Responde con el número o el nombre."
+NUMBERED_HINT = "Responda con el número o el nombre."
 
 
 def numbered_choices(key: str, reply: str = "") -> str:
@@ -412,13 +412,13 @@ def choice_slip_reply(message: str, key: str) -> str:
     count = len(CHOICE_PROMPTS[key][1])
     valid = "1 o 2" if count == 2 else f"un número del 1 al {count}"
     number = (re.search(r"\d+", _without_keycaps(message)) or [_without_keycaps(message)])[0]
-    return f"El {number} {CHOICE_SLIP_MARK}. Elige {valid}."
+    return f"El {number} {CHOICE_SLIP_MARK}. Elija {valid}."
 
 
 # Closes an answer given mid-menu: the menu stays open for the next number.
 # The closing repeats the open question with its options: a bare «elige una opción
 # de la lista» left a customer asking «¿cuál lista?» (cliente del anuncio, 2026-11-10).
-MENU_ASIDE_CLOSING = "Para seguir con tu pedido:"
+MENU_ASIDE_CLOSING = "Para seguir con su pedido:"
 # Turns stored before 2026-11-11 close with this sentence; they are still asides.
 _LEGACY_ASIDE_CLOSING = "Para seguir, elige una opción de la lista con su número."
 MENU_ASIDE_MARKS = (MENU_ASIDE_CLOSING, _LEGACY_ASIDE_CLOSING)
@@ -772,7 +772,7 @@ def unsupported_paver_size(message: str) -> str | None:
 
 def paver_size_reply(size: str) -> str:
     return (f"Los pastelones vienen en {PAVER_SIZES[0]} y {PAVER_SIZES[1]} cm; "
-            f"{size} no lo fabricamos. ¿Cuál te sirve?")
+            f"{size} no lo fabricamos. ¿Cuál le sirve?")
 
 
 # «volver al inicio», «cargar de nuevo las medidas»: el cliente quiere rehacer el pedido

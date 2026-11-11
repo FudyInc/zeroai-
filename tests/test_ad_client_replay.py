@@ -70,12 +70,12 @@ class AdClientReplayTest(unittest.TestCase):
             "Con despacho 7 región", "Molina, 7 región"])
         self.dispatch.assert_not_called()
         self.assertIn("Bordes de piscina", bodies[0])
-        self.assertIn("¿Cuáles son las medidas de tu piscina?", bodies[1])
+        self.assertIn("¿Cuáles son las medidas de su piscina?", bodies[1])
         self.assertIn("Anoté el borde recto con nariz 50×50", bodies[2])
         self.assertIn("no hay una lista pendiente", bodies[3])
-        self.assertIn("¿Cuáles son las medidas de tu piscina?", bodies[3])
+        self.assertIn("¿Cuáles son las medidas de su piscina?", bodies[3])
         self.assertEqual(self.image.call_count, 1)   # la gama de colores va con la imagen
-        self.assertIn("¿Cómo prefieres recibir tu pedido?", bodies[5])
+        self.assertIn("¿Cómo prefiere recibir su pedido?", bodies[5])
         self.assertEqual(bodies[6], DELIVERY_PLACE_REPLY)
         self.assertIn("en revisión del equipo", bodies[7])
         for body in bodies:

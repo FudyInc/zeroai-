@@ -64,20 +64,20 @@ WHATSAPP_HUMAN_DELIVERY = {"enabled": True, "ms_per_char": 35, "min_typing_ms": 
 # Variantes de textos de respaldo (deterministas: se elige por índice estable,
 # ver whatsapp_format.pick_variant). La primera es la redacción histórica.
 WHATSAPP_FALLBACK_GREETINGS_NAMED = (
-    "¡{greeting}, {name}! ¿En qué puedo ayudarte?",
-    "¡{greeting}, {name}! Cuéntame, ¿en qué te puedo ayudar?",
-    "¡{greeting}, {name}! ¿Qué estás buscando?",
+    "¡{greeting}, {name}! ¿En qué puedo ayudarle?",
+    "¡{greeting}, {name}! Cuénteme, ¿en qué le puedo ayudar?",
+    "¡{greeting}, {name}! ¿Qué está buscando?",
 )
 WHATSAPP_FALLBACK_GREETINGS = (
-    "¡{greeting}! ¿En qué te puedo ayudar?",
-    "¡{greeting}! Cuéntame, ¿qué estás buscando?",
-    "¡{greeting}! Dime, ¿en qué te ayudo?",
+    "¡{greeting}! ¿En qué le puedo ayudar?",
+    "¡{greeting}! Cuénteme, ¿qué está buscando?",
+    "¡{greeting}! Dígame, ¿en qué le ayudo?",
 )
 # Ninguna promete plazos ni dice que una persona ya lo vio.
 WHATSAPP_REVIEW_NOTICES = (
-    "Recibí tu mensaje. Necesito revisar tu consulta antes de responderte bien; quedó pendiente en este chat.",
-    "Gracias por escribir. Voy a revisar tu consulta con cuidado y te respondo por este mismo chat.",
-    "Recibí tu consulta y la voy a revisar para responderte bien; la respuesta te llega por este chat.",
+    "Recibí su mensaje. Necesito revisar su consulta antes de responderle bien; quedó pendiente en este chat.",
+    "Gracias por escribir. Voy a revisar su consulta con cuidado y le respondo por este mismo chat.",
+    "Recibí su consulta y la voy a revisar para responderle bien; la respuesta le llega por este chat.",
 )
 
 # Texto que lee el cliente de LosetasChile cuando pide una persona o está molesto: el bot
@@ -100,12 +100,46 @@ WHATSAPP_ACTIVATION_PAUSE_REASON = "Atendido mientras el agente estaba en manual
 # Texto de Diego (2026-11-11) para quien pide una persona, reclama o insulta.
 WHATSAPP_HUMAN_REQUEST_ACK = "Le paso su mensaje a Diego, le responde él por aquí."
 # Respuesta al cliente que cierra o rechaza («gracias, luego consulto», «no quiero nada»).
-WHATSAPP_CLOSING_REPLY = "Perfecto. Cuando quieras, retomamos por este chat."
+WHATSAPP_CLOSING_REPLY = "Perfecto. Cuando quiera, retomamos por este chat."
 # Despacho consultado con un pedido de pastelones ya en revisión: el equipo lo cotiza
 # junto con el presupuesto, sin reabrir el menú de entrega.
 LOSETASCHILE_PAVER_REVIEW_SHIPPING_REPLY = (
-    "El despacho de tu pedido lo está cotizando el equipo junto con el presupuesto; "
-    "te escribimos por este chat.")
+    "El despacho de su pedido lo está cotizando el equipo junto con el presupuesto; "
+    "le escribimos por este chat.")
+# PoolEdge trata al cliente de «usted» desde el 2026-11-11 (Diego). Los turnos ya
+# guardados en «tú» se leen con su texto nuevo: así los menús y preguntas abiertos en
+# chats viejos se siguen reconociendo. Más largo primero; se reemplaza texto exacto.
+LOSETASCHILE_LEGACY_TU_TEXTS = (
+    ("¿Qué producto estás buscando?", "¿Qué producto está buscando?"),
+    ("¿Qué color prefieres?", "¿Qué color prefiere?"),
+    ("¿Cómo prefieres recibir tu pedido?", "¿Cómo prefiere recibir su pedido?"),
+    ("¿Qué modelo de borde te interesó más?", "¿Qué modelo de borde le interesó más?"),
+    ("¿Cuántos m² necesitas cubrir con pastelones?",
+     "¿Cuántos m² necesita cubrir con pastelones?"),
+    ("¿Qué pastelón del catálogo te interesó más?",
+     "¿Qué pastelón del catálogo le interesó más?"),
+    (" está en revisión del equipo; te escribimos por este chat.",
+     " está en revisión del equipo; le escribimos por este chat."),
+    ("Tu presupuesto de ", "Su presupuesto de "),
+    ("Responde con el número o el nombre.", "Responda con el número o el nombre."),
+    ("Para seguir con tu pedido:", "Para seguir con su pedido:"),
+    ("medidas de tu piscina", "medidas de su piscina"),
+    ("Te comparto la gama de colores", "Le comparto la gama de colores"),
+    ("Recibí tu mensaje. Necesito revisar tu consulta antes de responderte bien; "
+     "quedó pendiente en este chat.",
+     "Recibí su mensaje. Necesito revisar su consulta antes de responderle bien; "
+     "quedó pendiente en este chat."),
+    ("Gracias por escribir. Voy a revisar tu consulta con cuidado y te respondo por "
+     "este mismo chat.",
+     "Gracias por escribir. Voy a revisar su consulta con cuidado y le respondo por "
+     "este mismo chat."),
+    ("Recibí tu consulta y la voy a revisar para responderte bien; la respuesta te "
+     "llega por este chat.",
+     "Recibí su consulta y la voy a revisar para responderle bien; la respuesta le "
+     "llega por este chat."),
+    ("Perfecto. Cuando quieras, retomamos por este chat.",
+     "Perfecto. Cuando quiera, retomamos por este chat."),
+)
 # Precios de lista de pastelones por medida y del durmiente (ids de `pricing`).
 LOSETASCHILE_PRICE_ID_PASTELON_50 = "pastelones-50x50"
 LOSETASCHILE_PRICE_ID_DURMIENTE = "durmiente-16x40"
