@@ -35,7 +35,7 @@ def format_internal_budget(quote: dict[str, Any], *, profile_name: str | None,
     if not any(char.isalpha() for char in display):
         display = ""
     money = lambda amount: "$" + f"{round(amount):,}".replace(",", ".")
-    lines = ["*PRESUPUESTO LOSETAS CHILE · REVISIÓN INTERNA*"]
+    lines = ["*PRESUPUESTO POOLEDGE · REVISIÓN INTERNA*"]
     if display:
         lines.append(f"Cliente: {display}")
     lines.append(f"Número: +{digits}")
@@ -120,7 +120,7 @@ def format_paver_order_draft(order: dict[str, Any], *, profile_name: str | None,
     display = " ".join((profile_name or "").split())[:80]
     if not any(char.isalpha() for char in display):
         display = ""
-    lines = ["*PEDIDO PASTELONES LOSETAS CHILE · REVISIÓN INTERNA*"]
+    lines = ["*PEDIDO PASTELONES POOLEDGE · REVISIÓN INTERNA*"]
     if display:
         lines.append(f"Cliente: {display}")
     lines.extend([f"Número: +{digits}",

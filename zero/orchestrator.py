@@ -43,6 +43,7 @@ from .config import (LOSETASCHILE_CHAT_OPEN_HOURS, WHATSAPP_UNREADABLE_HANDOFF_H
     WHATSAPP_FALLBACK_GREETINGS,
     WHATSAPP_FALLBACK_GREETINGS_NAMED,
     WHATSAPP_HUMAN_REQUEST_ACK,
+    CLIENT_DISPLAY_NAMES,
     WHATSAPP_REVIEW_NOTICES,
 )
 from .channels import Outbox
@@ -73,6 +74,7 @@ from .losetas_polls import (DELIVERY_POLL_QUESTION as LOSETAS_DELIVERY_POLL_QUES
                             without_choice_slips, reasks_open_choice, MENU_ASIDE_CLOSING,
                             MENU_ASIDE_MARKS, menu_aside_closing, asks_which_list,
                             open_choice, area_correction, current_order,
+                            restart_request, unsupported_paver_size, paver_size_reply,
                             CHOICE_PROMPTS as LOSETAS_CHOICE_PROMPTS,
                             BORDER_MODEL_QUESTION, POOL_SHAPE_QUESTION,
                             PAVER_AREA_QUESTION, PAVER_MODEL_QUESTION,
@@ -115,17 +117,33 @@ _HUMAN_REQUEST_RE = re.compile(
     r"\b(?:hablar|conversar|comunicarme|contactarme|atenderme)\s+con\s+(?:un[ao]?\s+)?(?:humano|persona|asesor[ae]?|vendedor[ae]?)\b"
     r"|\b(?:quiero|necesito|prefiero)\s+(?:que\s+me\s+atienda\s+)?(?:un[ao]?\s+)?(?:humano|persona|asesor[ae]?)\b"
     # «contactame con unsuperior», «pásame con el encargado» (seen live 2026-10-27).
-    r"|\b(?:contact|comunic|p[aá]s|habl)[a-záéíóú]*\s+con\s+(?:(?:un[ao]?|el|la|alg[uú]n[ao]?)\s*)?"
-    r"(?:superior|supervisor[a]?|encargad[oa]|jef[ea]|gerente)\b",
+    r"|\b(?:cont[aá]ct|comunic|p[aá]s|habl)[a-záéíóú]*\s+con\s+(?:(?:un[ao]?|el|la|alg[uú]n[ao]?)\s*)?"
+    r"(?:superior|supervisor[a]?|encargad[oa]|jef[ea]|gerente)\b"
+    # «pásame con el dueño», «contáctame con Diego»; «habla con el dueño del terreno» no.
+    r"|\b(?:cont[aá]ct|comunic|p[aá]s)[a-záéíóú]*me\s+con\s+(?:el\s+)?(?:due[nñ]o|diego)\b"
+    # «contáctame con un superior» (cliente real, 2026-11-11), «quiero hablar con alguien».
+    r"|\b(?:hablar|conversar|comunicarme)\s+con\s+(?:alguien|una?\s+persona\s+real|el\s+due[nñ]o|diego)\b"
+    r"|\b(?:ll[aá]m(?:a|e|en)me|me\s+pueden\s+llamar|me\s+llaman)\b",
     re.IGNORECASE,
 )
 # An angry customer needs a person, not the next menu (seen live 2026-10-27).
 _UPSET_RE = re.compile(
     r"\b(?:put[ao]\s+que\s+te\s+pari[oó]|hij[oa]\s+de\s+puta|concha\s*(?:de\s*)?(?:tu|su)\s*madre|"
     r"conche?tu?ma[dr]+e|ctm|no\s+me\s+(?:sirves|serv[ií]s)|idiota|imb[eé]cil|"
-    r"est[uú]pid[oa])\b",
+    r"est[uú]pid[oa]|aweonad[oa]|aweonao|culiao|culiad[oa]|mierda|estafa\w*|"
+    r"p[eé]sim[oa]s?|mala\s+atenci[oó]n|reclamo|me\s+quiero\s+quejar)\b"
+    # A complaint about us: «No me enviaste nunca la wea» (cliente real, 2026-11-11).
+    r"|\bnunca\s+(?:me\s+)?(?:enviaste|enviaron|mandaste|mandaron|respondiste|respondieron|"
+    r"contestaste|contestaron|lleg[oó])\b"
+    r"|\bno\s+me\s+(?:enviaste|enviaron|mandaste|mandaron|respondiste|respondieron|"
+    r"contestaste|contestaron)\s+nunca\b"
+    r"|\bnadie\s+(?:me\s+)?(?:responde|contesta|respondi[oó]|contest[oó])\b"
+    r"|\b(?:hace|llevo)\s+\w+\s+(?:d[ií]as|semanas)\s+esperando\b",
     re.IGNORECASE,
 )
+
+
+_OLD_BRAND = re.compile(r"\blosetas\s*chile\b", re.IGNORECASE)
 
 
 def _same_reply(first: str, second: str) -> bool:
@@ -648,6 +666,26 @@ class Zero:
         return ""
 
     # --- sending (OUTREACH/TRACKER draft; the outbox delivers) ---------------
+    def _alert_owner_handoff(self, client_id: str, key: str, rec: dict, text: str,
+                             reason: str) -> None:
+        """Avisa al dueño por WhatsApp que un cliente pide una persona o está molesto.
+
+        Sin almacén (SessionMemory en memoria) no avisa. En los tests el envío es simulado
+        salvo OUTBOX_LIVE=1.
+        """
+        if self.memory.path is None and type(self.memory) is SessionMemory:
+            return
+        from .alerts import notify_owner
+        name = CLIENT_DISPLAY_NAMES.get(client_id, client_id)
+        alert = notify_owner(
+            f"{name}: {reason.lower()}.\n"
+            f"Cliente: {rec.get('name') or 'sin nombre'} (+{rec.get('phone') or key})\n"
+            f"Escribió: {(text or '')[:200]}\n"
+            "El agente quedó en pausa en ese chat; respóndele tú.",
+            kind="whatsapp_person", throttle_minutes=0)
+        self.memory.log("owner_alert", client=client_id, lead=key, kind="whatsapp_person",
+                        status=alert.get("status"))
+
     def _deliver(self, client_id: str, lead_key: str, to: Optional[str],
                  msg: Dict[str, Any], wa_creds: Optional[Tuple[Optional[str], Optional[str]]] = None) -> Dict[str, Any]:
         """Send one drafted message and record the outcome on the CRM record.
@@ -1336,7 +1374,21 @@ class Zero:
             recent_agent = any(turn.get("role") == "agent" for turn in order_history[-6:])
             if recent_agent and customer_closes(message) and not paver_review_status(order_history):
                 return {"reply": WHATSAPP_CLOSING_REPLY, "intent": "general", "flow_step": True}
+            if (recent_agent and restart_request(message) and
+                    not paver_review_status(order_history)):
+                # «Volver al inicio», «cargar de nuevo las medidas» (cliente real,
+                # 2026-11-11): se vuelve a ese punto; los datos viejos quedan atrás.
+                category = selected_category_from_history(order_history)
+                if restart_request(message) == "measures" and category == "pastelones":
+                    return {"reply": f"Ya, partamos de nuevo con la superficie. {PAVER_AREA_QUESTION}",
+                            "intent": "qualification", "flow_step": True}
+                if restart_request(message) == "measures" and category == "bordes":
+                    return {"reply": f"Ya, partamos de nuevo con las medidas. {POOL_MEASUREMENT_QUESTION}",
+                            "intent": "qualification", "flow_step": True}
+                return {"reply": f"Ya, partamos de nuevo. {PRODUCT_POLL_QUESTION}",
+                        "intent": "qualification", "customer_poll": "product"}
             if (recent_agent and customer_acknowledges(message) and
+                    not canonical_choice(message, order_history) and
                     not paver_review_status(order_history)):
                 # A bare «ok» to an open question: ask it again, the model adds nothing.
                 menu = open_choice(order_history)
@@ -1385,6 +1437,12 @@ class Zero:
                             "intent": "qualification", "flow_step": True}
             # A phrase the team taught as a synonym becomes that option.
             message = learned_alias(self.memory, client_id, message) or message
+            size = unsupported_paver_size(message)
+            if (size and selected_category_from_history(order_history) == "pastelones" and
+                    not paver_review_status(order_history)):
+                # «45x40»: the sizes that exist, never the generic «recibí tu mensaje».
+                return {"reply": paver_size_reply(size), "intent": "qualification",
+                        "flow_step": True}
             new_area = area_correction(message, order_history)
             if new_area:
                 return {"reply": f"Anoté {new_area} m². {PAVER_MODEL_QUESTION}",
@@ -2053,6 +2111,7 @@ class Zero:
                     self.memory.log("handoff_ack_failed", client=client_id, lead=key,
                                     error=ack_delivery.get("error"))
             if wants_person:
+                self._alert_owner_handoff(client_id, key, rec, text, reason)
                 # It must show in the attention inbox: the bot stays paused for this chat.
                 self.memory.add_knowledge_gap(
                     client_id, text, reason, chat_id=whatsapp_chat_id or key,
@@ -2362,6 +2421,8 @@ class Zero:
             # The model greets back at «Juan Pérez» after a handoff: the chat is already open.
             reply = _without_salutation(reply)
         if client_id == "losetaschile" and channel == "whatsapp" and reply:
+            # The company is PoolEdge; «Losetas Chile» is the old name (Diego, 2026-11-11).
+            reply = _OLD_BRAND.sub("PoolEdge", reply)
             reply = format_whatsapp_reply(reply)
         not_known = (client_id == "losetaschile" and channel == "whatsapp" and
                      intent != "handoff" and not res.get("flow_step") and
@@ -2510,7 +2571,7 @@ class Zero:
                     from .alerts import notify_owner
                     # Every case is a different customer: no throttle window.
                     alert = notify_owner(
-                        "Losetas Chile — piscina no rectangular.\n"
+                        "PoolEdge — piscina no rectangular.\n"
                         f"Cliente: {name_from_profile or rec.get('name') or 'sin nombre'} "
                         f"(+{rec.get('phone') or from_contact})\n"
                         f"Escribió: {(text or '')[:200]}\n"

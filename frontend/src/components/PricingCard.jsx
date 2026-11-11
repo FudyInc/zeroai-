@@ -16,7 +16,7 @@ const toRows = (pricing) => (pricing?.items || []).map((it) => ({
 }))
 const serialize = (rows) => JSON.stringify(rows.map((r) => [r.name.trim(), r.price, r.unit.trim()]))
 
-// Fotos recibidas del catálogo de Losetas Chile. Los precios siguen viniendo de
+// Fotos recibidas del catálogo de PoolEdge. Los precios siguen viniendo de
 // /api/pricing; la imagen se asocia por el ID estable del producto.
 const productPhotos = {
   losetaschile: Object.fromEntries(losetasCatalog.map((item) => [item.id, item.image])),
@@ -162,7 +162,7 @@ function LosetasGallery({ pricing }) {
   const priced = Object.fromEntries((pricing?.items || []).map((item) => [item.id, item]))
   const clp = new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 })
   return (
-    <section className="mt-6 border-t border-zinc-200 pt-5" aria-label="Fotos de productos Losetas Chile">
+    <section className="mt-6 border-t border-zinc-200 pt-5" aria-label="Fotos de productos PoolEdge">
       <h3 className="font-semibold text-sm">Fotos de productos</h3>
       <p className="text-xs text-zinc-500 mt-1 mb-3">Los productos sin precio confirmado se muestran para consulta, pero no se cotizan.</p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

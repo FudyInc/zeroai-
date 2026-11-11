@@ -1,4 +1,4 @@
-// Fichas entregadas por Losetas Chile. El precio se consulta en /api/pricing;
+// Fichas entregadas por PoolEdge. El precio se consulta en /api/pricing;
 // una foto sin precio confirmado permanece visible, pero no se cotiza.
 export const losetasCatalog = [
   {

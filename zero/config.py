@@ -97,8 +97,8 @@ WHATSAPP_OWNER_PHONE_HANDOFF_REASON = "El equipo respondió desde el teléfono"
 # trae lo que el equipo respondió desde el teléfono. Se libera uno por uno desde Atención.
 WHATSAPP_ACTIVATION_PAUSE_DAYS = 7
 WHATSAPP_ACTIVATION_PAUSE_REASON = "Atendido mientras el agente estaba en manual"
-WHATSAPP_HUMAN_REQUEST_ACK = ("Listo, le aviso a una persona del equipo para que te escriba "
-                              "por este chat.")
+# Texto de Diego (2026-11-11) para quien pide una persona, reclama o insulta.
+WHATSAPP_HUMAN_REQUEST_ACK = "Le paso su mensaje a Diego, le responde él por aquí."
 # Respuesta al cliente que cierra o rechaza («gracias, luego consulto», «no quiero nada»).
 WHATSAPP_CLOSING_REPLY = "Perfecto. Cuando quieras, retomamos por este chat."
 # Despacho consultado con un pedido de pastelones ya en revisión: el equipo lo cotiza

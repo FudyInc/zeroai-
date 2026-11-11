@@ -203,7 +203,23 @@ _ALIASES = {
 # «¿hacen despacho a Rancagua?» names an option but asks about it.
 _QUESTION = re.compile(r"\?|^\s*¿|\b(?:cu[aá]nto|cuesta|cu[aá]l|qu[eé]|c[oó]mo|d[oó]nde|"
                        r"hacen|tienen|hay|puedo|pueden|sirve|precio|valor)\b", re.IGNORECASE)
+# A message that asks: «?», «¿», or a question opening without the marks, as
+# WhatsApp often goes («aparte de laja que otros tienen», «tienen adoquín»).
+_ASKS = re.compile(r"\?|¿|^\s*(?:aparte\s+del?|adem[aá]s\s+del?|qu[eé]|cu[aá]l(?:es)?|"
+                   r"cu[aá]nto|c[oó]mo|d[oó]nde|tienen|tiene|hay|hacen|venden|sirve|"
+                   r"se\s+puede|pueden|puedo)\b", re.IGNORECASE)
+
+
+def asks_question(message: str) -> bool:
+    """True when the customer asks something; a named product there is not a pick."""
+    return bool(_ASKS.search(message or ""))
+
+
 _NEGATION = frozenset({"no", "sin", "pero", "nunca", "ninguno", "ninguna", "tampoco"})
+# «ya», «yapo», «sipo»: un sí en Chile («Yapon» no se entendió, cliente real 2026-11-11).
+CHILEAN_YES = frozenset({"si", "s", "sip", "sii", "sipo", "si po", "ya", "yapo", "ya po",
+                         "yapon", "ya pon", "dale", "ok", "oka", "okey", "okay", "claro",
+                         "claro que si", "obvio", "exacto", "correcto", "si es", "eso"})
 _UNSURE = re.compile(r"\b(?:no se|nose|ni idea|no estoy segur[oa]|los dos|las dos|"
                      r"ambos|ambas|todos|todas)\b")
 
@@ -299,6 +315,8 @@ def canonical_choice(message: str, history: list[dict[str, Any]]) -> str | None:
                 return None  # a question or a doubt, not an answer to the list
             if key == "shape" and typed in ("no", "nop", "no es", "nopo"):
                 return options[1]
+            if key == "shape" and typed in CHILEAN_YES:
+                return options[0]
             number = _menu_number(typed, len(options))
             if number:
                 return options[number - 1]
@@ -571,9 +589,15 @@ _PAVER_MODELS = (
 
 # The whole answer is the number: «30», «unos 30 metros», «aprox 30 mts». A
 # longer sentence («3 metros de ancho») is a length, not the area.
-_BARE_AREA = re.compile(r"(?:(?:unos|unas|aprox(?:imadamente)?\.?|como|son|ser[ií]an|"
-                        r"m[aá]s\s+o\s+menos)\s+)*"
-                        r"(\d{1,4}(?:[.,]\d{1,2})?)\s*(?:m|mts?|metros?)?\.?", re.IGNORECASE)
+# «80 metros seguramente» (cliente real, 2026-11-11) es 80 m²: la duda que acompaña
+# al número no lo cambia. Va al presupuesto igual; la revisión humana lo confirma.
+_AREA_HEDGE = (r"(?:unos|unas|aprox(?:imadamente)?\.?|app?rox\.?|como|son|ser[ií]an|ser[aá]n|"
+               r"m[aá]s\s+o\s+menos|maso|creo\s+que|calculo\s+que|calculo|tal\s+vez|"
+               r"quiz[aá]s?|seguramente|probablemente|aproximados?|redondos?|cuadrados?|"
+               r"en\s+total|total|igual|como\s+mucho|m[aá]ximo|m[ií]nimo)")
+_BARE_AREA = re.compile(rf"(?:{_AREA_HEDGE}[\s,]+)*"
+                        r"(\d{1,4}(?:[.,]\d{1,2})?)\s*(?:m|mts?|mt|metros?)?\.?"
+                        rf"(?:[\s,]+{_AREA_HEDGE})*[\s.!]*", re.IGNORECASE)
 
 
 def paver_order_details(message: str, history: list[dict[str, Any]]) -> dict[str, str | None]:
@@ -594,10 +618,13 @@ def paver_order_details(message: str, history: list[dict[str, Any]]) -> dict[str
                     str(turn.get("text") or "").casefold()):
                 prompt_index = index
                 break
-    candidate_text = normalize_customer_input(" ".join(
-        str(turn.get("text") or "") for turn in turns[prompt_index + 1:]
-        if turn.get("role") == "lead") if prompt_index >= 0 else "")
-    model = next((label for label, pattern in _PAVER_MODELS if pattern.search(candidate_text)), None)
+    answers = [str(turn.get("text") or "") for turn in turns[prompt_index + 1:]
+               if turn.get("role") == "lead"] if prompt_index >= 0 else []
+    candidate_text = normalize_customer_input(" ".join(answers))
+    # «aparte de sol, adoquín y laja española, ¿qué material tienen?» nombra modelos
+    # para preguntar, no para elegir (cliente real, 2026-11-11: quedó «Laja española»).
+    chosen_text = normalize_customer_input(" ".join(a for a in answers if not asks_question(a)))
+    model = next((label for label, pattern in _PAVER_MODELS if pattern.search(chosen_text)), None)
     area = _PAVER_AREA.search(candidate_text)
     # Also accept an explicit pool rectangle as a covered-area answer: «5 x 6» = 30 m².
     if not area:
@@ -677,7 +704,7 @@ def is_factory_pickup(message: str) -> bool:
 # «Veo catálogo y respondo», «lo reviso y le aviso», «después te digo»: the
 # customer asked for time. Repeating the question there reads as a bot.
 _DEFERS = re.compile(
-    r"\b(?:(?:lo |la |el |los )?(?:veo|reviso|miro|leo|chequeo|analizo)|dejame (?:ver|revisar)|"
+    r"\b(?:(?:lo |la |el |los )?(?:veo|reviso|miro|leo|chequeo|analizo)|dejame (?:ver|revisar)(?:lo|la|los|las)?|"
     r"voy a (?:ver|revisar|mirar))\b.*\b(?:y (?:te |le |les )?(?:respondo|aviso|digo|cuento|"
     r"escribo|confirmo)|luego|despues|mas (?:rato|tarde)|mañana|manana)\b"
     r"|^(?:luego|despues|mas (?:rato|tarde)) (?:te |le |les )?(?:respondo|aviso|digo|cuento|"
@@ -700,11 +727,14 @@ _CLOSES = re.compile(
     r"|(?:te\s+|le\s+|les\s+)?(?:consulto|veo|aviso|escribo|hablo|reviso|vuelvo|miro)\s+"
     r"(?:luego|despues|mas\s+tarde|mas\s+rato|mañana|manana)"
     r"|lo\s+(?:voy\s+a\s+)?(?:pienso|pensar|pensare|ver|veo|reviso|revisar)(?:\s+(?:luego|despues|mas\s+tarde))?"
-    r"|no\s+(?:quiero|necesito)\s+nada|no\s+gracias|por\s+ahora\s+no|no\s+por\s+ahora|nada\s+gracias)"
+    r"|no\s+(?:quiero|necesito)\s+nada|no\s+gracias|por\s+ahora\s+no|no\s+por\s+ahora|nada\s+gracias"
+    r"|ningun[oa](?:\s+(?:de\s+(?:esos|esas|los|las)|me\s+(?:gusta|sirve|interesa)))?|nada"
+    r"|no\s+me\s+interesa|ya\s+no\s+(?:quiero|necesito)(?:\s+nada)?)"
     rf"|(?:{_THANKS}))(?:\s+(?:{_THANKS}))*")
 
 
-_BARE_ACK = re.compile(r"(?:ok|oka|okey|okay|dale|listo|vale|bueno|perfecto)(?:\s+(?:ok|oka|okey|okay|dale|listo|vale|bueno|perfecto))*")
+_ACK_WORDS = r"ok|oka|okey|okay|dale|listo|vale|bueno|perfecto|ya|yapo|yapon|ya\s+po|sipo|si\s+po|sip"
+_BARE_ACK = re.compile(rf"(?:{_ACK_WORDS})(?:\s+(?:{_ACK_WORDS}))*")
 
 
 def customer_acknowledges(message: str) -> bool:
@@ -719,3 +749,47 @@ def customer_closes(message: str) -> bool:
     return (bool(text) and len(text.split()) <= 8 and "?" not in (message or "") and
             not re.search(r"\d", text) and bool(_CLOSES.fullmatch(text)) and
             not customer_acknowledges(message))
+
+
+# «45x40» a pastelones: esa medida no existe. El cliente recibe las medidas que sí
+# hay, no el acuse genérico (cliente real, 2026-11-11). Lados de pieza en cm.
+PAVER_SIZES = ("40×40", "50×50")
+_PIECE_SIZE = re.compile(r"(?<![\d.,])(\d{2})\s*(?:x|×|por)\s*(\d{2})(?![\d.,])", re.IGNORECASE)
+
+
+def unsupported_paver_size(message: str) -> str | None:
+    """The piece size the customer wrote when PoolEdge does not make it."""
+    found = _PIECE_SIZE.search(normalize_customer_input(message or ""))
+    if not found:
+        return None
+    left, right = (int(side) for side in found.groups())
+    if max(left, right) <= _MAX_AREA_SIDE_M or not 20 <= min(left, right) <= 100:
+        return None  # «5 x 6» or «20 x 15» is the area in metres
+    if {left, right} in ({40}, {50}):
+        return None
+    return f"{left}×{right}"
+
+
+def paver_size_reply(size: str) -> str:
+    return (f"Los pastelones vienen en {PAVER_SIZES[0]} y {PAVER_SIZES[1]} cm; "
+            f"{size} no lo fabricamos. ¿Cuál te sirve?")
+
+
+# «volver al inicio», «cargar de nuevo las medidas»: el cliente quiere rehacer el pedido
+# o una parte. Se vuelve a ese punto en vez de seguir con los datos viejos.
+_RESTART = re.compile(
+    r"\b(?:volver|volvamos|vuelvo|partir|partamos|empezar|empecemos|comenzar|comencemos|"
+    r"cargar|cargo|ingresar|reiniciar|rehacer|hacer)\b.{0,25}"
+    r"\b(?:inicio|principio|cero|de\s+nuevo|otra\s+vez|denuevo|nuevamente)\b"
+    r"|\b(?:de\s+nuevo|otra\s+vez|denuevo|nuevamente)\b.{0,20}\b(?:medidas?|metros?|m2)\b"
+    r"|^\s*(?:reiniciar|reinicio|empezar\s+de\s+nuevo|desde\s+cero)\s*$",
+    re.IGNORECASE)
+_RESTART_MEASURES = re.compile(r"\b(?:medidas?|metros?|m2|m²|superficie|tama[nñ]o)\b", re.IGNORECASE)
+
+
+def restart_request(message: str) -> str | None:
+    """«measures» when only the measures start over, «order» for the whole order."""
+    text = plain(message or "")
+    if not text or len(text.split()) > 14 or not _RESTART.search(text):
+        return None
+    return "measures" if _RESTART_MEASURES.search(text) else "order"
