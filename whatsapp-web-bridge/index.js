@@ -43,6 +43,7 @@ const { safeTypingMs } = require('./humanize')
 const { recentInbound } = require('./recovery')
 const { CATALOGS, makeCatalogPdf } = require('./catalog-document')
 const { actsFor } = require('./account-scope')
+const { sendInboxReply } = require('./inbox-reply')
 
 const host = '127.0.0.1'
 const port = Number(process.env.WHATSAPP_WEB_BRIDGE_PORT || 8810)
@@ -537,17 +538,6 @@ function summary(chat) {
   }
 }
 
-function messageData(message) {
-  return {
-    id: message.id?._serialized || '',
-    body: message.type === 'chat' ? message.body : `[${message.type || 'archivo'}]`,
-    type: message.type,
-    fromMe: !!message.fromMe,
-    timestamp: message.timestamp || null,
-    author: message.author || null,
-  }
-}
-
 async function selectedChat(id) {
   if (!/^[^/]{1,100}@(c\.us|g\.us|lid)$/.test(id)) return null
   return await client.pupPage.evaluate(chatId => {
@@ -610,6 +600,14 @@ async function sendAndConfirm(chatId, content, options, matchesCreated, expected
     rememberBounded(bridgeSent, confirmed.id)
     return confirmed
   } finally { client.off('message_create', onCreated) }
+}
+
+// Teléfono real de un chat individual; los @lid se resuelven con WhatsApp Web.
+async function chatPhone(chatId) {
+  if (chatId.endsWith('@c.us')) return chatId.split('@')[0]
+  if (!chatId.endsWith('@lid')) return null
+  const matches = await client.getContactLidAndPhone(chatId)
+  return matches?.[0]?.pn?.split('@')[0] || null
 }
 
 async function prepareMediaSend() {
@@ -720,11 +718,10 @@ const server = http.createServer(async (req, res) => {
         const text = String(JSON.parse(raw).text || '').trim()
         if (!text || text.length > 4096) return respond(res, 400, { error: 'Mensaje inválido' })
         // El panel ya registra esta respuesta y pausa el chat: no se reenvía como del dueño.
-        noteBridgeSending(jidText(chat.id), text)
-        const sent = await client.sendMessage(chat.id, text)
-        const sentId = messageId(sent)
-        if (sentId) rememberBounded(bridgeSent, sentId)
-        return respond(res, 200, { message: messageData(sent) })
+        // sendAndConfirm marca el envío como propio y lo confirma aunque
+        // sendMessage devuelva undefined; sin confirmación responde 202, no 502.
+        const out = await sendInboxReply(jidText(chat.id), text, { sendAndConfirm, resolvePhone: chatPhone })
+        return respond(res, out.status, out.body)
       }
       return respond(res, 405, { error: 'method not allowed' })
     } catch (err) {

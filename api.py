@@ -1803,8 +1803,11 @@ def whatsapp_web_reply(chat_id: str, body: WhatsAppWebReply,
         "/chats/" + urllib.parse.quote(chat_id, safe="") + "/messages", {"text": text},
         client=client,
     )
-    contact = chat_id.split("@")[0]
-    if contact.isdigit():
+    # Solo un envío confirmado queda en el historial del agente. En un chat @lid
+    # el id no es el teléfono: el puente devuelve el número real en "phone".
+    contact = chat_id.split("@")[0] if chat_id.endswith("@c.us") else ""
+    contact = contact or str(result.get("phone") or "")
+    if result.get("confirmed", True) and contact.isdigit():
         try:
             crm = make_crm(CRM_PATH)
             rec = crm.find_by_contact(phone=contact, client_id=client)

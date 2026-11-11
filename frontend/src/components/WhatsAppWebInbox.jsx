@@ -41,8 +41,10 @@ export default function WhatsAppWebInbox({ client, expectedNumber, responseMode 
   const messages = useQuery({ queryKey: ['whatsapp-web-messages', client, selected], queryFn: () => api.whatsappWebMessages(client, selected), enabled: ready && !!selected, refetchInterval: 5000, retry: false })
   const send = useMutation({
     mutationFn: (text) => api.whatsappWebReply(client, selected, text),
-    onSuccess: () => {
+    onSuccess: (data) => {
       setDraft('')
+      // Sin confirmación de WhatsApp el mensaje pudo salir: avisar, no reintentar.
+      if (data?.confirmed === false) toast.warning(data.warning || 'WhatsApp no confirmó el envío. Revisa el chat antes de reenviar.')
       qc.invalidateQueries({ queryKey: ['whatsapp-web-messages', client, selected] })
       qc.invalidateQueries({ queryKey: ['whatsapp-web-chats', client] })
     },
