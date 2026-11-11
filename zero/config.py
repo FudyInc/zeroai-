@@ -92,6 +92,11 @@ WHATSAPP_UNREADABLE_HANDOFF_HOURS = 2
 # ese chat, sin vencimiento, y entra al historial (el agente retoma con contexto).
 WHATSAPP_OWNER_PHONE_HANDOFF_CLIENTS = frozenset({"losetaschile"})
 WHATSAPP_OWNER_PHONE_HANDOFF_REASON = "El equipo respondió desde el teléfono"
+# Al pasar el agente de manual a automático, cada chat con actividad desde que quedó en
+# manual (y al menos en los últimos N días) queda pausado sin vencimiento: su historial no
+# trae lo que el equipo respondió desde el teléfono. Se libera uno por uno desde Atención.
+WHATSAPP_ACTIVATION_PAUSE_DAYS = 7
+WHATSAPP_ACTIVATION_PAUSE_REASON = "Atendido mientras el agente estaba en manual"
 WHATSAPP_HUMAN_REQUEST_ACK = ("Listo, le aviso a una persona del equipo para que te escriba "
                               "por este chat.")
 # Respuesta al cliente que cierra o rechaza («gracias, luego consulto», «no quiero nada»).

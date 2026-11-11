@@ -193,6 +193,18 @@ def parse_review_group_message(payload: Dict[str, Any], clients) -> Optional[Dic
             "quoted_text": str(payload.get("quoted_text") or "")[:4096]}
 
 
+def chats_to_pause_on_activation(chats, since_ts: float) -> list:
+    """Private chats with any activity at or after `since_ts` (epoch seconds)."""
+    out = []
+    for chat in chats or []:
+        chat_id = str((chat or {}).get("id") or "")
+        stamp = (chat or {}).get("timestamp")
+        if (re.fullmatch(r"\d{8,20}@(c\.us|lid)", chat_id)
+                and isinstance(stamp, (int, float)) and stamp >= since_ts):
+            out.append(chat_id)
+    return out
+
+
 def parse_owner_message(payload: Dict[str, Any]) -> Optional[Dict[str, str]]:
     """Lo que el dueño escribió desde el teléfono a un cliente; None si no es válido."""
     event_id = str(payload.get("id") or "")

@@ -18,7 +18,7 @@ import subprocess
 import threading
 import time
 import urllib.parse
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -2589,9 +2589,44 @@ def set_agent_profile(client: str, body: AgentProfileBody):
                "quote_mode": body.quote_mode,
                "response_mode": body.response_mode,
                "offer_flow": client == "zeroai"}
+    previous = memory.get_client_agent_profile(client).get("response_mode") or "automatic"
+    paused = _pause_chats_on_activation(memory, client) if (
+        previous == "manual" and body.response_mode == "automatic") else []
+    state = memory.clients.setdefault(client, {})
+    if body.response_mode == "manual" and previous != "manual":
+        state["manual_since"] = datetime.now(timezone.utc).isoformat()
+    elif body.response_mode == "automatic":
+        state.pop("manual_since", None)
     memory.set_client_agent_profile(client, profile)
     memory.save()
-    return {"client": client, "profile": profile}
+    return {"client": client, "profile": profile, "paused_chats": len(paused)}
+
+
+def _pause_chats_on_activation(memory, client: str) -> list:
+    """Manual → automático: pausa sin vencimiento los chats con actividad del período manual.
+
+    Lo que el equipo escribió desde el teléfono antes de que el puente lo reenviara no está
+    en el historial; el agente no retoma esos chats a ciegas. Sin la lista del puente no se
+    activa (503/409): es mejor seguir en manual que retomar un chat atendido a mano."""
+    from zero.client_integrations import whatsapp_provider
+    from zero.config import WHATSAPP_ACTIVATION_PAUSE_DAYS, WHATSAPP_ACTIVATION_PAUSE_REASON
+    from zero.whatsapp_web import chats_to_pause_on_activation
+    if whatsapp_provider(client) != "web":
+        return []
+    since = datetime.now(timezone.utc) - timedelta(days=WHATSAPP_ACTIVATION_PAUSE_DAYS)
+    try:
+        manual_since = datetime.fromisoformat(memory.clients.get(client, {}).get("manual_since") or "")
+        since = max(since, manual_since)
+    except (TypeError, ValueError):
+        pass
+    chats = _whatsapp_web_inbox_request("/chats", client=client).get("chats") or []
+    paused = []
+    for chat_id in chats_to_pause_on_activation(chats, since.timestamp()):
+        if not memory.get_whatsapp_handoff(client, chat_id):
+            memory.set_whatsapp_handoff(client, chat_id, WHATSAPP_ACTIVATION_PAUSE_REASON)
+            paused.append(chat_id)
+    memory.log("whatsapp_activation_pause", client=client, paused=len(paused))
+    return paused
 
 
 class AssignVendor(BaseModel):
