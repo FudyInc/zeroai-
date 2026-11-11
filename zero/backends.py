@@ -18,25 +18,78 @@ from typing import Any, Dict, Optional
 
 
 class AnthropicBackend:
-    """Thin wrapper over the Anthropic Messages API."""
+    """Thin wrapper over the Anthropic Messages API.
 
-    def __init__(self, api_key: Optional[str] = None):
+    Sin argumentos extra se comporta como siempre (lo usan `_agents_best` y el
+    resto del sistema). WhatsApp lo arma con su propia política
+    (`config.WHATSAPP_ENGINE["anthropic"]`):
+
+    - `model` fija el modelo y gana sobre el que pide cada agente (CONCIERGE pide
+      Opus; WhatsApp contesta con el que decidió Diego).
+    - `base_url` explícito: el SDK lee `ANTHROPIC_BASE_URL` del entorno, y en esta
+      máquina esa variable puede apuntar a un proxy local que cobra a otra cuenta.
+    - `cache_system` marca el prompt de sistema para la caché (la parte fija se
+      cobra a una fracción desde la segunda llamada en 5 minutos).
+    - `require_text`: una respuesta vacía o rechazada levanta, para que
+      `FallbackBackend` pase al respaldo en vez de dejar al cliente sin respuesta.
+    """
+
+    def __init__(self, api_key: Optional[str] = None, *, model: Optional[str] = None,
+                 base_url: Optional[str] = None, timeout: Optional[float] = None,
+                 max_retries: Optional[int] = None, max_tokens_cap: Optional[int] = None,
+                 thinking: Optional[Dict[str, Any]] = None, cache_system: bool = False,
+                 require_text: bool = False):
         import anthropic  # lazy: only needed on the live path
 
-        self.client = (
-            anthropic.Anthropic(api_key=api_key) if api_key else anthropic.Anthropic()
-        )
+        kwargs: Dict[str, Any] = {}
+        if api_key:
+            kwargs["api_key"] = api_key
+        if base_url:
+            kwargs["base_url"] = base_url
+        if timeout is not None:
+            kwargs["timeout"] = timeout
+        if max_retries is not None:
+            kwargs["max_retries"] = max_retries
+        self.client = anthropic.Anthropic(**kwargs)
+        self.model = model
+        self.max_tokens_cap = max_tokens_cap
+        self.thinking = thinking
+        self.cache_system = cache_system
+        self.require_text = require_text
+        self.last_usage: Dict[str, int] = {}
 
     def complete(self, system: str, user: str, model: str, max_tokens: int = 4096) -> str:
+        if self.max_tokens_cap:
+            max_tokens = min(max_tokens, int(self.max_tokens_cap))
+        extra: Dict[str, Any] = {}
+        if self.thinking:
+            extra["thinking"] = self.thinking
+        system_param: Any = system
+        if self.cache_system and system:
+            system_param = [{"type": "text", "text": system,
+                             "cache_control": {"type": "ephemeral"}}]
         msg = self.client.messages.create(
-            model=model,
+            model=self.model or model,
             max_tokens=max_tokens,
-            system=system,
+            system=system_param,
             messages=[{"role": "user", "content": user}],
+            **extra,
         )
-        return "".join(
+        usage = getattr(msg, "usage", None)
+        self.last_usage = {
+            k: int(getattr(usage, k, 0) or 0)
+            for k in ("input_tokens", "output_tokens",
+                      "cache_creation_input_tokens", "cache_read_input_tokens")
+        } if usage is not None else {}
+        text = "".join(
             block.text for block in msg.content if getattr(block, "type", None) == "text"
         )
+        if self.require_text:
+            if getattr(msg, "stop_reason", None) == "refusal":
+                raise RuntimeError("Anthropic rechazó la respuesta (refusal)")
+            if not text.strip():
+                raise RuntimeError("Anthropic devolvió una respuesta vacía")
+        return text
 
 
 USER_AGENT = "zero/1.0"

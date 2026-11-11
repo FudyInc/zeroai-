@@ -276,6 +276,13 @@ resumen corto.
 **Ya conectado (no está pendiente):** Vapi (llamadas salientes, `/api/call` real
 vía dashboard) y Supabase (CRM/estado en la nube, proyecto "zeroai") — activados
 por decisión explícita de Diego pese a la política de cero gasto.
+**Anthropic, solo para WhatsApp de PoolEdge (2026-11-11):** Diego cargó USD 5 (sin
+recarga automática) y eligió Sonnet 5.5 como motor principal de WhatsApp, con Groq de
+respaldo (`config.WHATSAPP_ENGINE["anthropic"]`). En la prueba de 15 conversaciones,
+Sonnet acertó 7 de 8 decisiones del modelo; Haiku 5.5 y Groq, 3 de 8. Costo medido:
+~USD 0,007 por llamada sin caché; con caché del prompt de sistema baja la parte fija a
+un décimo. Al acabarse el saldo contesta Groq y el dueño recibe el aviso
+`whatsapp_claude_sin_saldo`. El resto del sistema sigue sin gasto.
 
 ## Lo que sigue (recomendación)
 Mientras no haya más pagos: perfeccionar lo gratis. Rework visual del dashboard

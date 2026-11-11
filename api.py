@@ -1400,30 +1400,20 @@ def _agents_whatsapp(source=None):
             kind="whatsapp_engine_fallback",
         )
 
-    if WHATSAPP_ENGINE.get("primary") == "cloud" and cloud is not None:
-        # La nube contesta; su respaldo es otro modelo de la nube, después la API
-        # paga (si la política lo permite) y el local solo si `local_backup`.
-        chain = [b for b in (_whatsapp_cloud_backend(backup=True), paid) if b is not None]
-        if WHATSAPP_ENGINE.get("local_backup"):
-            last = LocalBackend(model=model, base_url=url, require_json=False)
-            last.timeout = float(WHATSAPP_ENGINE.get("local_timeout_with_backup_s") or 120.0)
-            chain.append(last)
-        tail = None
-        for nxt in reversed(chain):
-            tail = nxt if tail is None else FallbackBackend(nxt, secondary=tail)
-        if tail is None:
-            # Sin ningún respaldo, igual hay que avisar al dueño: FallbackBackend
-            # solo avisa cuando cambia de cerebro, así que el «respaldo» relanza.
-            class _NoBackup:
-                def complete(self, *a, **kw):
-                    raise RuntimeError("WhatsApp sin respaldo de la nube configurado")
-            tail = _NoBackup()
+    if WHATSAPP_ENGINE.get("primary") == "anthropic":
+        # 2026-11-11 (Diego): contesta Claude; la cadena de la nube gratis queda
+        # detrás. Sin key de Anthropic, sigue el modo nube de abajo.
+        claude = _whatsapp_anthropic_backend()
+        if claude is not None:
+            tail = _whatsapp_cloud_chain(model, url, paid=None) or _NoWhatsAppBackup()
+            backend = FallbackBackend(claude, secondary=tail,
+                                      on_fallback=_warn_whatsapp_claude)
+            agents = build_agents(backend=backend, mock=False, source=source)
+            agents["CONCIERGE"].prompt_file = "concierge-whatsapp-local.md"
+            return agents, "anthropic"
 
-        def _warn_cloud(err: Exception) -> None:
-            from zero.alerts import notify_owner
-            notify_owner(f"ZERO: el modelo principal de WhatsApp en la nube no respondió "
-                         f"({err}). Contesta el respaldo.", kind="whatsapp_engine_fallback")
-        backend = FallbackBackend(cloud, secondary=tail, on_fallback=_warn_cloud)
+    if WHATSAPP_ENGINE.get("primary") in ("cloud", "anthropic") and cloud is not None:
+        backend = _whatsapp_cloud_chain(model, url, paid=paid)
         agents = build_agents(backend=backend, mock=False, source=source)
         agents["CONCIERGE"].prompt_file = "concierge-whatsapp-local.md"
         return agents, "cloud"
@@ -1438,6 +1428,83 @@ def _agents_whatsapp(source=None):
     agents = build_agents(backend=backend, mock=False, source=source)
     agents["CONCIERGE"].prompt_file = "concierge-whatsapp-local.md"
     return agents, mode
+
+
+class _NoWhatsAppBackup:
+    """El último eslabón cuando no hay respaldo: relanza, para que el
+    FallbackBackend de arriba igual avise al dueño (solo avisa al cambiar)."""
+
+    def complete(self, *a, **kw):
+        raise RuntimeError("WhatsApp sin respaldo configurado")
+
+
+def _whatsapp_cloud_chain(model, url, paid=None):
+    """La nube gratis contesta; detrás, el otro modelo de la nube, la API paga (si
+    `fallback_to_paid`) y el local (si `local_backup`). None si no hay nube."""
+    from zero.config import WHATSAPP_ENGINE
+    from zero.backends import FallbackBackend, LocalBackend
+
+    cloud = _whatsapp_cloud_backend()
+    if cloud is None:
+        return None
+    chain = [b for b in (_whatsapp_cloud_backend(backup=True), paid) if b is not None]
+    if WHATSAPP_ENGINE.get("local_backup"):
+        last = LocalBackend(model=model, base_url=url, require_json=False)
+        last.timeout = float(WHATSAPP_ENGINE.get("local_timeout_with_backup_s") or 120.0)
+        chain.append(last)
+    tail = None
+    for nxt in reversed(chain):
+        tail = nxt if tail is None else FallbackBackend(nxt, secondary=tail)
+
+    def _warn_cloud(err: Exception) -> None:
+        from zero.alerts import notify_owner
+        notify_owner(f"ZERO: el modelo principal de WhatsApp en la nube no respondió "
+                     f"({err}). Contesta el respaldo.", kind="whatsapp_engine_fallback")
+    return FallbackBackend(cloud, secondary=tail or _NoWhatsAppBackup(),
+                           on_fallback=_warn_cloud)
+
+
+def _whatsapp_anthropic_backend():
+    """Claude como motor de WhatsApp, o None si la política no lo enciende o falta
+    la key. Nunca levanta: sin Claude, WhatsApp sigue con la nube gratis."""
+    from zero.config import WHATSAPP_ENGINE
+
+    cfg = WHATSAPP_ENGINE.get("anthropic") or {}
+    if not cfg.get("enabled") or not cfg.get("model"):
+        return None
+    key = (os.environ.get(cfg.get("key_env") or "") or "").strip()
+    if not key:
+        return None
+    try:
+        from zero.backends import AnthropicBackend
+        return AnthropicBackend(
+            api_key=key, model=cfg["model"], base_url=cfg.get("base_url"),
+            timeout=float(cfg.get("timeout_s") or 30.0),
+            max_retries=int(cfg.get("max_retries") if cfg.get("max_retries") is not None else 1),
+            max_tokens_cap=cfg.get("max_tokens"), thinking=cfg.get("thinking"),
+            cache_system=bool(cfg.get("cache_system")), require_text=True)
+    except Exception:   # noqa: BLE001 — sin SDK o mal configurado: sigue la nube
+        return None
+
+
+def _claude_sin_saldo(err: Exception) -> bool:
+    """¿La falla es saldo agotado? (400 «credit balance is too low»)."""
+    return "credit balance" in str(err).lower()
+
+
+def _warn_whatsapp_claude(err: Exception) -> None:
+    """Aviso al dueño cuando Claude no contesta y entra Groq. El saldo agotado va
+    con su propio `kind`: no puede quedar tapado por el antirrebote de otra falla."""
+    from zero.alerts import notify_owner
+    if _claude_sin_saldo(err):
+        notify_owner("ZERO: se acabó el saldo de Anthropic. WhatsApp sigue "
+                     "contestando con Groq (gratis), con menos calidad. Para volver a "
+                     "Claude, carga saldo en console.anthropic.com/settings/billing.",
+                     kind="whatsapp_claude_sin_saldo")
+        return
+    notify_owner(f"ZERO: Claude no respondió en WhatsApp ({str(err)[:200]}). "
+                 f"Contesta Groq (gratis) mientras tanto.",
+                 kind="whatsapp_engine_fallback")
 
 
 def _whatsapp_cloud_backend(backup: bool = False):
@@ -1486,8 +1553,7 @@ def _whatsapp_engine_status():
         "alerts_to": bool((os.environ.get("OWNER_WHATSAPP_TO") or "").strip()),
         # la nube como respaldo del local: "active" sale de la misma función que la arma
         # quién contesta de verdad: la nube solo si está pedida Y se puede armar
-        "primary": ("cloud" if WHATSAPP_ENGINE.get("primary") == "cloud"
-                    and _whatsapp_cloud_backend() is not None else "local"),
+        "primary": _whatsapp_primary_name(),
         "local_backup": bool(WHATSAPP_ENGINE.get("local_backup")),
         "cloud": {
             "provider": (WHATSAPP_ENGINE.get("cloud") or {}).get("provider"),
@@ -1496,7 +1562,31 @@ def _whatsapp_engine_status():
             "enabled": bool((WHATSAPP_ENGINE.get("cloud") or {}).get("enabled")),
             "active": _whatsapp_cloud_backend() is not None,
         },
+        "anthropic": {
+            "model": (WHATSAPP_ENGINE.get("anthropic") or {}).get("model"),
+            "enabled": bool((WHATSAPP_ENGINE.get("anthropic") or {}).get("enabled")),
+            "active": _whatsapp_anthropic_ready(),
+        },
     }
+
+
+def _whatsapp_anthropic_ready() -> bool:
+    """Claude se puede armar (política encendida y key presente), sin crear cliente."""
+    from zero.config import WHATSAPP_ENGINE
+    cfg = WHATSAPP_ENGINE.get("anthropic") or {}
+    return bool(cfg.get("enabled") and cfg.get("model")
+                and (os.environ.get(cfg.get("key_env") or "") or "").strip())
+
+
+def _whatsapp_primary_name() -> str:
+    """Quién contesta de verdad, con la misma precedencia que `_agents_whatsapp`."""
+    from zero.config import WHATSAPP_ENGINE
+    primary = WHATSAPP_ENGINE.get("primary")
+    if primary == "anthropic" and _whatsapp_anthropic_ready():
+        return "anthropic"
+    if primary in ("cloud", "anthropic") and _whatsapp_cloud_backend() is not None:
+        return "cloud"
+    return "local"
 
 
 def _discovery_source():

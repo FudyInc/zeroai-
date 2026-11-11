@@ -50,7 +50,8 @@ from .agent_rules import check_reply
 from .contracts import AgentResponse, Constraints, Lead, TaskPayload
 from .icp import describe_icp, is_empty, normalize_icp
 from .inbox import Inbox, MockInbox
-from .losetas_color import (COLOR_CATALOG_IMAGE_PATH, color_preference,
+from .losetas_color import (COLOR_CATALOG_IMAGE_PATH, asks_for_colors, color_preference,
+                            color_range_reply,
                             color_question, latest_color_preference, names_color)
 from .losetas_budget import format_internal_budget, format_paver_order_draft, paver_order_to_quote
 from .losetas_review import store_review_draft, today as review_today
@@ -215,8 +216,36 @@ def _unreadable_whatsapp_message(text: str, client_id: str = "") -> bool:
         return True
     # A single apparent keyboard mash with a long consonant run is not a
     # product question. Do not apply this to longer messages or model codes.
-    return bool(re.fullmatch(r"[a-záéíóúñ]{6,}[\s\d?!.,]*", value, re.IGNORECASE)
-                and re.search(r"[bcdfghjklmnpqrstvwxyz]{5,}", value, re.IGNORECASE))
+    if (re.fullmatch(r"[a-záéíóúñ]{6,}[\s\d?!.,]*", value, re.IGNORECASE)
+            and re.search(r"[bcdfghjklmnpqrstvwxyz]{5,}", value, re.IGNORECASE)):
+        return True
+    return _keyboard_noise(value)
+
+
+_MEASURE_IN_TEXT = re.compile(r"\d+(?:[.,]\d+)?\s*(?:x|por|×|m2|m²|mts?|metros?|m)\b", re.IGNORECASE)
+
+
+def _word_like(word: str) -> bool:
+    w = word.casefold()
+    if len(set(w)) == 1:  # «mmmm», «jjjj»: interjecciones, no ruido
+        return True
+    # «nstr», «bstr» (construir, obstruir) son grupos válidos en español.
+    core = re.sub(r"[nb]s[tc][rl]", "", w)
+    return bool(re.search(r"[aeiouáéíóúü]", w)) and not re.search(
+        r"[bcdfghjklmnpqrstvwxyz]{4,}", core)
+
+
+def _keyboard_noise(value: str) -> bool:
+    """Un mensaje corto en que ninguna palabra parece palabra («asdkj 3e ...»).
+
+    Sonnet 5.5 le pidió aclarar al cliente en la prueba del 2026-11-11; la
+    regla es derivar a una persona, así que no llega al modelo."""
+    if not value or len(value) > 40 or _MEASURE_IN_TEXT.search(value):
+        return False
+    words = re.findall(r"[a-záéíóúüñ]+", value, re.IGNORECASE)
+    if not any(len(w) >= 4 for w in words):
+        return False
+    return not any(_word_like(w) for w in words if len(w) >= 2)
 
 
 def _asks_again_for_supplied_measurements(message: str, reply: str,
@@ -1383,6 +1412,11 @@ class Zero:
                 if factory_location_question(message):
                     return {"reply": factory_location_reply(), "intent": "info",
                             "flow_step": True, "aside": "verbatim"}
+                # La gama sale del código con su imagen; el modelo no la describe.
+                if asks_for_colors(message):
+                    return {"reply": color_range_reply(), "intent": "info",
+                            "flow_step": True, "aside": "verbatim",
+                            "media_asset": COLOR_CATALOG_IMAGE_PATH}
                 topic = _uncovered_topic(message, knowledge)
                 if topic:
                     return {"reply": "", "intent": "handoff",

@@ -362,7 +362,9 @@ MAX_INBOUND_MESSAGE_CHARS = 2000
 WHATSAPP_ENGINE = {
     "model": "qwen3:14b",                   # decisión de Diego, 2026-10-08
     "base_url": "http://localhost:11434/v1",  # Ollama, endpoint OpenAI-compatible
-    "fallback_to_paid": False,                # política cero gasto: nunca Anthropic
+    # Anthropic como RESPALDO del local o de la nube (no confundir con "primary":
+    # "anthropic", que lo pone adelante; ver abajo).
+    "fallback_to_paid": False,
     # Motor en la nube GRATIS, como RESPALDO del local (decisión de Diego, 2026-11-08).
     # Medido ese día con el set de evaluación (161 casos, scripts/evaluar_linea_base.py):
     # qwen3:14b local 82/113 entendidos, gpt-oss-120b 81, qwen3.8-27b 82. La nube no
@@ -383,8 +385,34 @@ WHATSAPP_ENGINE = {
     # ~9 GB, en un WSL de 8 GB). WhatsApp pasa a la nube: contesta la nube y el
     # local NO entra en la cadena, para que Ollama nunca cargue el modelo.
     # "local" = el local contesta y la nube es respaldo (lo de antes).
-    "primary": "cloud",
+    # 2026-11-11 (Diego): contesta Claude (API paga, cuenta con 5 USD de saldo, sin
+    # recarga automática) y la nube gratis queda de respaldo. "cloud" vuelve a Groq.
+    # Medido ese día con 15 conversaciones simuladas por el camino real
+    # (/tmp/comparar, sin datos de clientes), en los 8 mensajes que decide el modelo:
+    # Sonnet 5.5 7/8, Haiku 5.5 3/8, qwen3.8-27b 3/8. Groq y Haiku inventaron
+    # colores y Groq además «sí emitimos boleta y factura»; Sonnet no inventó nada.
+    # Costo medido: ~3 200 tokens de entrada y ~100 de salida por llamada, 0,0074 USD
+    # sin caché; con ~14 llamadas al día los 5 USD duran ~50 días.
+    "primary": "anthropic",
     "local_backup": False,
+    "anthropic": {
+        "enabled": True,
+        "model": "claude-sonnet-5-5",
+        "key_env": "ANTHROPIC_API_KEY",
+        # Explícito a propósito: el SDK obedece ANTHROPIC_BASE_URL del entorno, y en
+        # esta máquina esa variable puede apuntar a un proxy que no es la cuenta de ZERO.
+        "base_url": "https://api.anthropic.com",
+        # Si Claude tarda más, contesta Groq: el cliente no espera.
+        "timeout_s": 30.0,
+        "max_retries": 1,
+        "max_tokens": 2048,
+        # Sonnet 5.5 no acepta {"type": "disabled"} (400): este es su «sin pensar».
+        # Un reply de WhatsApp no necesita razonamiento extendido y sale más barato.
+        "thinking": {"type": "between_tools"},
+        # El prompt de sistema se cachea: desde la segunda llamada en 5 minutos la
+        # parte fija se cobra a 0,10 USD por millón en vez de 2.
+        "cache_system": True,
+    },
     "cloud": {
         "enabled": True,
         "provider": "groq",

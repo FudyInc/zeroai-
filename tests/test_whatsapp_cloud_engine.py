@@ -87,8 +87,9 @@ class CloudPolicyTest(unittest.TestCase):
         self.assertEqual(cloud["key_env"], "GROQ_API_KEY")
         # La nube no abre la puerta al gasto: el respaldo pago sigue apagado.
         self.assertFalse(config.WHATSAPP_ENGINE["fallback_to_paid"])
-        # El PC se cayó por el modelo local: la nube contesta y el local no entra.
-        self.assertEqual(config.WHATSAPP_ENGINE["primary"], "cloud")
+        # 2026-11-11: contesta Claude y la nube queda detrás (test_whatsapp_claude_engine).
+        # El local sigue fuera: el PC se cayó por él.
+        self.assertEqual(config.WHATSAPP_ENGINE["primary"], "anthropic")
         self.assertFalse(config.WHATSAPP_ENGINE["local_backup"])
 
 
