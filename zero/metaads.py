@@ -13,8 +13,10 @@ Contrato de una campaña:
 Contrato de un anuncio pagado (`ads`):
   {ad_id, ad_name, campaign_id, campaign_name, status, post_id,
    creative: {title, body, image_url, thumbnail_url, call_to_action},
-   spend, impressions, reach, clicks, ctr, leads, cpl}
+   spend, impressions, reach, clicks, ctr, leads, cpl,
+   verdict: {code, label}}
   `cpl` es None sin leads: nunca se divide por cero ni se inventa un 0.
+  `verdict` resume el anuncio en lenguaje simple (`ad_verdict`, reglas en config).
 
 En HTTP, cada negocio necesita su token y cuenta publicitaria propios.
 """
@@ -424,7 +426,30 @@ def _ad_item(*, ad_id, ad_name, campaign_id, campaign_name, status, post_id, cre
             "campaign_name": campaign_name, "status": status, "post_id": post_id,
             "creative": creative, "spend": spend, "impressions": impressions, "reach": reach,
             "clicks": clicks, "ctr": ctr, "leads": leads,
-            "cpl": round(spend / leads) if leads else None}
+            "cpl": round(spend / leads) if leads else None,
+            "verdict": ad_verdict(spend, leads)}
+
+
+_VERDICT_LABELS = {"good": "Va bien", "ok": "Aceptable", "expensive": "Caro",
+                   "learning": "Aprendiendo", "no_results": "Sin resultados"}
+
+
+def ad_verdict(spend: int, leads: int, target: Optional[int] = None) -> Dict[str, str]:
+    """Veredicto de un anuncio según ADS_VERDICT_* (zero/config.py).
+
+    `target` = costo por consulta objetivo en CLP; por defecto CHILE["good_cpl_clp"].
+    Se lee config en cada llamada: mover la vara es cambiar la política."""
+    from . import config
+    target = target or CHILE["good_cpl_clp"]
+    spend, leads = max(int(spend or 0), 0), max(int(leads or 0), 0)
+    if leads:
+        cpl = spend / leads
+        code = ("good" if cpl <= target else
+                "expensive" if cpl > target * config.ADS_VERDICT_EXPENSIVE_FACTOR else "ok")
+    else:
+        code = ("learning" if spend < target * config.ADS_VERDICT_LEARNING_SPEND_FACTOR
+                else "no_results")
+    return {"code": code, "label": _VERDICT_LABELS[code]}
 
 
 def _lead_count(actions: Any) -> int:

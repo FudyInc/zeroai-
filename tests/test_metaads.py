@@ -672,3 +672,53 @@ class LeadDefinitionTest(unittest.TestCase):
         # ads() es nuevo y nunca muestra un CPL que no se midió (cpl=None).
         self.assertEqual(self._campaign([])["cpl_clp"], 0)
         self.assertIsNone(self._ad([])["cpl"])
+
+
+class AdVerdictTest(unittest.TestCase):
+    """Veredicto en lenguaje simple: la vara vive en config, no en la pantalla."""
+
+    def test_con_consultas_compara_el_costo_por_consulta_con_el_objetivo(self):
+        self.assertEqual(metaads.ad_verdict(6000, 1, target=6000)["code"], "good")
+        self.assertEqual(metaads.ad_verdict(9000, 1, target=6000)["code"], "ok")
+        self.assertEqual(metaads.ad_verdict(9001, 1, target=6000)["code"], "expensive")
+
+    def test_sin_consultas_aprende_hasta_gastar_el_objetivo(self):
+        self.assertEqual(metaads.ad_verdict(5999, 0, target=6000),
+                         {"code": "learning", "label": "Aprendiendo"})
+        self.assertEqual(metaads.ad_verdict(6000, 0, target=6000),
+                         {"code": "no_results", "label": "Sin resultados"})
+
+    def test_la_vara_se_lee_de_config(self):
+        from zero import config
+        with mock.patch.object(config, "ADS_VERDICT_EXPENSIVE_FACTOR", 3):
+            self.assertEqual(metaads.ad_verdict(15000, 1, target=6000)["code"], "ok")
+
+    def test_cada_anuncio_trae_su_veredicto(self):
+        with mock.patch("zero.metaads.urllib.request.urlopen",
+                        side_effect=[_resp(_AD_INSIGHTS), _resp(_ADS)]):
+            out = metaads.MetaAds("act_1", token="tok").ads("acme", fill_posts=False)
+        self.assertEqual([a["verdict"]["code"] for a in out], ["good", "learning"])
+
+
+class CampaignsBudgetTest(unittest.TestCase):
+    """GET /api/campaigns: el presupuesto del mes sale de la config, nunca inventado."""
+
+    def _summary(self, cfg):
+        import api
+        with mock.patch.object(api, "_client_meta_cfg", return_value=cfg), \
+             mock.patch.object(api, "_safe_campaigns", return_value=([], "sin_datos", None)):
+            return api.campaigns("acme")["summary"]
+
+    def test_presupuesto_configurado(self):
+        self.assertEqual(self._summary({"monthly_budget_clp": 150000})["budget_clp"], 150000)
+
+    def test_sin_presupuesto_es_none(self):
+        for cfg in ({}, {"monthly_budget_clp": 0}, {"monthly_budget_clp": "x"}):
+            self.assertIsNone(self._summary(cfg)["budget_clp"], cfg)
+
+    def test_anuncios_traen_el_objetivo_de_costo(self):
+        import api
+        with mock.patch.object(api, "_require_client"), \
+             mock.patch.object(api, "_client_meta_cfg", return_value={}):
+            out = api.campaign_ads(mock.Mock(), "acme")
+        self.assertEqual(out["target_cpl"], metaads.CHILE["good_cpl_clp"])

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { DollarSign, Users, Target, Settings2, MapPin, Sparkles, TrendingUp, AlertTriangle, X } from 'lucide-react'
+import { Users, Target, Settings2, MapPin, Sparkles, TrendingUp, AlertTriangle, X, Wallet, MessageCircle, ChevronDown } from 'lucide-react'
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip } from 'recharts'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
@@ -13,18 +13,24 @@ import { rise, fade, surface, stagger, staggerDense } from '../lib/motion'
 import { WorkspaceHero, WorkspaceSectionHeading } from '../components/WorkspaceHero'
 import { PaidAdsPanel } from '../components/PaidAdsPanel'
 import { useClientLabel } from '../lib/clientLabels'
+import { budgetPace } from '../lib/ads'
 
 const FILTERS = [
   { value: 'todas', label: 'Todas' },
   { value: 'active', label: 'Activas' },
   { value: 'paused', label: 'Pausadas' },
 ]
-const OBJ = { OUTCOME_LEADS: 'Leads', OUTCOME_TRAFFIC: 'Tráfico', OUTCOME_AWARENESS: 'Awareness' }
+const OBJ = { OUTCOME_LEADS: 'Consultas', OUTCOME_TRAFFIC: 'Visitas', OUTCOME_AWARENESS: 'Alcance', OUTCOME_ENGAGEMENT: 'Interacción' }
 // [encabezado, ¿numérica?] — las numéricas se alinean a la derecha para leer en columna.
-const COLS = [['Campaña'], ['Objetivo'], ['Zona'], ['Estado'], ['Presupuesto', 1], ['Gastado', 1], ['Leads', 1], ['CPL', 1], ['Creada']]
+const COLS = [['Campaña'], ['Objetivo'], ['Zona'], ['Estado'], ['Presupuesto', 1], ['Gastado', 1], ['Consultas', 1], ['Costo/consulta', 1], ['Creada']]
 const clp = (n) => '$' + Math.round(n || 0).toLocaleString('es-CL')
+const PACE = {
+  ok: { c: '#16a34a', bar: 'var(--color-gold-deep)' },
+  fast: { c: '#d97706', bar: '#d97706' },
+  over: { c: '#e11d48', bar: '#e11d48' },
+}
 
-// "hace X" relativo — tolera campañas sin created_at (mock aún no lo trae).
+// "hace X" relativo — tolera campañas sin created_at.
 function timeAgo(iso) {
   if (!iso) return '—'
   const d = new Date(iso)
@@ -39,7 +45,7 @@ function timeAgo(iso) {
   return `hace ${years} ${years === 1 ? 'año' : 'años'}`
 }
 
-// Leads por objetivo — agregación real de las campañas actuales (sin inventar datos).
+// Consultas por objetivo — agregación real de las campañas actuales (sin inventar datos).
 function byObjective(campaigns) {
   const m = new Map()
   for (const c of campaigns) {
@@ -52,12 +58,13 @@ function byObjective(campaigns) {
 export default function Campanas() {
   const { client } = useApp()
   const qc = useQueryClient()
-  const [filter, setFilter] = useState('todas')
+  const [filter, setFilter] = useState('active')
   const [showCfg, setShowCfg] = useState(false)
+  const [showDetail, setShowDetail] = useState(false)
   const [opt, setOpt] = useState(null)
   const [optBusy, setOptBusy] = useState(false)
   const [syncBusy, setSyncBusy] = useState(false)
-  useEffect(() => { setShowCfg(false); setOpt(null); setFilter('todas') }, [client])
+  useEffect(() => { setShowCfg(false); setShowDetail(false); setOpt(null); setFilter('todas') }, [client])
   const optimize = async () => {
     setOptBusy(true)
     try { setOpt(await api.optimizeCampaigns(client)) }
@@ -94,35 +101,23 @@ export default function Campanas() {
   const { campaigns, summary, daily_spend = [] } = data
   const trend = daily_spend.map((d) => ({ name: new Date(`${d.date}T12:00:00`).toLocaleDateString('es-CL', { weekday: 'short' }), spent: d.spent_clp }))
   const rows = filter === 'todas' ? campaigns : campaigns.filter((c) => c.status === filter)
-  const cplOk = !!summary.cpl_clp && summary.cpl_clp <= summary.good_cpl_clp
-  const cards = [
-    { l: 'Gastado (mes)', v: clp(summary.spent_clp), icon: DollarSign, tone: 'gold' },
-    { l: 'Leads de ads', v: summary.leads, icon: Users, tone: 'slate' },
-    {
-      l: 'CPL promedio', v: summary.cpl_clp ? clp(summary.cpl_clp) : '—', icon: Target, tone: 'slate',
-      note: summary.good_cpl_clp ? { text: `Objetivo Chile ≤ ${clp(summary.good_cpl_clp)}`, color: summary.cpl_clp ? (cplOk ? '#16a34a' : '#d97706') : null } : null,
-    },
-  ]
   const live = summary.source === 'live'
   const hasTrend = campaigns.length > 0 && daily_spend.length > 0
+  const openCfg = () => { setShowCfg(true); window.scrollTo({ top: 0, behavior: 'smooth' }) }
 
   return (
     <motion.div className="workspace-page" initial="hidden" animate="show" variants={rise}>
       <motion.div variants={surface}>
-        <WorkspaceHero eyebrow="Meta Ads" title="Campañas"
-          description="Revisa inversión, resultados y campañas del negocio seleccionado. Importa las respuestas de formularios y gestiona el plan desde aquí."
+        <WorkspaceHero eyebrow="Meta Ads" title="Anuncios"
+          description="Cuánto llevas invertido, cuántas personas te consultaron y qué anuncios funcionan."
           icon={Target}
-          aside={{ label: 'Campañas activas', value: summary.active, detail: `${campaigns.length} campañas registradas` }}>
+          aside={{ label: 'Campañas activas', value: summary.active, detail: `${summary.active} campañas activas de ${campaigns.length} registradas` }}>
           <Button variant="accent" onClick={optimize} disabled={optBusy || campaigns.length === 0}
             title={campaigns.length === 0 ? 'Necesitas al menos una campaña para generar un plan' : undefined}>
-            {optBusy ? <Spinner /> : <Sparkles size={15} />} {optBusy ? 'Analizando…' : 'Generar plan con IA'}
-          </Button>
-          <Button variant="soft" onClick={syncLeads} disabled={syncBusy}>
-            {syncBusy ? <Spinner /> : <Users size={15} />}
-            {syncBusy ? 'Importando…' : 'Importar formularios'}
+            {optBusy ? <Spinner /> : <Sparkles size={15} />} {optBusy ? 'Analizando…' : 'Qué hago ahora'}
           </Button>
           <Button variant="soft" onClick={() => setShowCfg((v) => !v)} aria-expanded={showCfg}>
-            <Settings2 size={15} /> {showCfg ? 'Cerrar configuración' : 'Configurar cuenta'}
+            <Settings2 size={15} /> {showCfg ? 'Cerrar configuración' : 'Presupuesto y cuenta'}
           </Button>
         </WorkspaceHero>
       </motion.div>
@@ -153,146 +148,213 @@ export default function Campanas() {
       )}
 
       <section className="workspace-section">
-        <WorkspaceSectionHeading eyebrow="01 / Rendimiento" title="Resumen del mes"
-          description="Inversión y captación registradas en Meta Ads.">
+        <WorkspaceSectionHeading eyebrow="01 / Este mes" title="¿Cómo van mis anuncios?"
+          description="Lo invertido en Meta este mes frente a lo que decidiste gastar.">
           <Badge color={live ? '#16a34a' : '#94a3b8'}>{live ? 'Meta conectado' : 'Meta sin conectar'}</Badge>
         </WorkspaceSectionHeading>
-        <motion.div className="grid grid-cols-1 sm:grid-cols-3 gap-4" variants={stagger()} initial="hidden" animate="show">
-          {cards.map((c) => {
-            const chip = c.tone === 'gold' ? 'bg-champagne/25 text-gold-deep border-champagne/60' : 'bg-brand/[0.05] text-brand/90 border-brand/10'
-            return (
-              <motion.div key={c.l} variants={surface}>
-                <Card interactive className="p-5 flex items-start justify-between h-full">
-                  <div className="min-w-0">
-                    <Eyebrow>{c.l}</Eyebrow>
-                    <div className="text-[28px] leading-none font-display font-extrabold tracking-tight text-brand mt-2.5 tabular-nums">{typeof c.v === 'number' ? <CountUp value={c.v} /> : c.v}</div>
-                    {c.note && (
-                      <div className="text-xs mt-2.5 flex items-center gap-1.5 text-zinc-500">
-                        {c.note.color && <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: c.note.color }} aria-hidden />}
-                        {c.note.text}
-                      </div>
-                    )}
-                  </div>
-                  <div className={'w-10 h-10 rounded-xl grid place-items-center border shrink-0 ' + chip}>
-                    <c.icon size={18} />
-                  </div>
-                </Card>
-              </motion.div>
-            )
-          })}
-        </motion.div>
+        <MonthSummary summary={summary} onSetBudget={openCfg} />
       </section>
 
       <PaidAdsPanel client={client} eyebrow="02 / Anuncios" />
 
-      {hasTrend && (
-        <section className="workspace-section">
-          <WorkspaceSectionHeading eyebrow="03 / Evolución" title="Tendencias"
-            description="Gasto diario y distribución de leads por objetivo." />
-          <motion.div className="grid grid-cols-1 lg:grid-cols-3 gap-4" variants={stagger()} initial="hidden" animate="show">
-            <motion.div className="lg:col-span-2" variants={surface}>
-              <Card className="p-5 h-full">
-                <SectionTitle className="flex items-center gap-2 mb-1"><TrendingUp size={16} className="text-gold-deep" /> Gasto diario</SectionTitle>
-                <div className="text-xs text-zinc-400 mb-3">Últimos 7 días, en CLP.</div>
-                <div className="h-52">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={trend} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="spentFill" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#C9A45C" stopOpacity={0.35} />
-                          <stop offset="100%" stopColor="#C9A45C" stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid vertical={false} stroke="var(--color-zinc-100)" />
-                      <XAxis dataKey="name" tick={{ fontSize: 12, fill: 'var(--color-zinc-500)' }} axisLine={false} tickLine={false} />
-                      <YAxis hide />
-                      <Tooltip cursor={{ stroke: '#C9A45C', strokeWidth: 1 }}
-                        contentStyle={{ borderRadius: 12, border: '1px solid var(--color-zinc-200)', fontSize: 13, background: 'var(--color-zinc-50)' }}
-                        labelStyle={{ color: 'var(--color-zinc-700)' }}
-                        formatter={(v) => [clp(v), 'Gasto']} />
-                      <Area type="monotone" dataKey="spent" stroke="var(--color-gold-deep)" strokeWidth={2} fill="url(#spentFill)" />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              </Card>
-            </motion.div>
-
-            <motion.div variants={surface}>
-              <Card className="p-5 h-full">
-                <SectionTitle className="mb-1">Leads por objetivo</SectionTitle>
-                <div className="text-xs text-zinc-400 mb-3">Leads del mes según el objetivo de la campaña.</div>
-                <div className="h-52">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={byObjective(campaigns)} layout="vertical" margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-                      <CartesianGrid horizontal={false} stroke="var(--color-zinc-100)" />
-                      <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12, fill: 'var(--color-zinc-500)' }} axisLine={false} tickLine={false} />
-                      <YAxis type="category" dataKey="name" tick={{ fontSize: 12, fill: 'var(--color-zinc-500)' }} axisLine={false} tickLine={false} width={78} />
-                      <Tooltip cursor={{ fill: 'var(--color-zinc-100)' }}
-                        contentStyle={{ borderRadius: 12, border: '1px solid var(--color-zinc-200)', fontSize: 13, background: 'var(--color-zinc-50)' }}
-                        labelStyle={{ color: 'var(--color-zinc-700)' }}
-                        formatter={(v) => [v, 'Leads']} />
-                      <Bar dataKey="value" radius={[0, 8, 8, 0]} maxBarSize={28} fill="var(--color-brand)" animationDuration={700} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </Card>
-            </motion.div>
-          </motion.div>
-        </section>
-      )}
-
       <section className="workspace-section">
-        <WorkspaceSectionHeading eyebrow={hasTrend ? '04 / Detalle' : '03 / Detalle'} title="Campañas registradas"
-          description="Estado, presupuesto y resultados de cada campaña.">
-          {campaigns.length > 0 && <Segmented options={FILTERS} value={filter} onChange={setFilter} />}
-        </WorkspaceSectionHeading>
-        {campaigns.length === 0 ? (
-          <motion.div variants={surface}>
-            <Card className="py-16 text-center">
-              <img src="/logo-mark.png" alt="" className="w-12 h-12 mx-auto mb-4 grayscale opacity-25" />
-              {summary.source === 'sin_datos' ? (
-                <>
-                  <div className="font-semibold text-zinc-500">Sin datos de Meta para este negocio</div>
-                  <p className="text-sm text-zinc-400 mt-1">Asigna su cuenta publicitaria en <b>Configurar cuenta</b> para ver campañas reales.</p>
-                </>
-              ) : (
-                <>
-                  <div className="font-semibold text-zinc-500">No hay campañas activas</div>
-                  <p className="text-sm text-zinc-400 mt-1">Cuando la cuenta de Meta tenga campañas, su rendimiento aparecerá aquí.</p>
-                </>
-              )}
-            </Card>
-          </motion.div>
-        ) : (
-          <motion.div variants={surface}>
-            <Card className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[820px]">
-                <thead className="bg-zinc-50 text-zinc-500 text-left text-xs uppercase tracking-wide">
-                  <tr>{COLS.map(([h, num]) => <th key={h} className={'px-5 py-3 font-medium' + (num ? ' text-right' : '')}>{h}</th>)}</tr>
-                </thead>
-                <motion.tbody variants={staggerDense()} initial="hidden" animate="show">
-                  {rows.map((c) => (
-                    <motion.tr key={c.id} variants={fade} className="border-t border-zinc-100 hover:bg-zinc-50 transition-colors">
-                      <td className="px-5 py-3 font-medium">{c.name}</td>
-                      <td className="px-5 py-3 text-zinc-500">{OBJ[c.objective] || c.objective}</td>
-                      <td className="px-5 py-3 text-zinc-500"><span className="inline-flex items-center gap-1"><MapPin size={12} />{c.region || '—'}</span></td>
-                      <td className="px-5 py-3"><Badge color={c.status === 'active' ? '#16a34a' : '#d97706'}>{c.status === 'active' ? 'Activa' : 'Pausada'}</Badge></td>
-                      <td className="px-5 py-3 tabular-nums text-right text-zinc-500">{c.budget_clp == null ? '—' : `${clp(c.budget_clp)}${c.budget_period === 'daily' ? '/día' : c.budget_period === 'lifetime' ? ' total' : ''}`}</td>
-                      <td className="px-5 py-3 tabular-nums text-right">{clp(c.spent_clp)}</td>
-                      <td className="px-5 py-3 tabular-nums text-right font-semibold">{c.leads}</td>
-                      <td className="px-5 py-3 tabular-nums text-right font-semibold" style={{ color: c.cpl_clp ? (c.cpl_clp <= summary.good_cpl_clp ? '#16a34a' : '#d97706') : undefined }}>
-                        {c.cpl_clp ? clp(c.cpl_clp) : '—'}
-                      </td>
-                      <td className="px-5 py-3 text-zinc-400">{timeAgo(c.created_at)}</td>
-                    </motion.tr>
-                  ))}
-                  {rows.length === 0 && <tr><td colSpan={COLS.length} className="px-5 py-10 text-center text-zinc-400">Sin campañas en este filtro.</td></tr>}
-                </motion.tbody>
-              </table>
-            </Card>
-          </motion.div>
+        <button className="w-full flex items-center justify-between gap-3 text-left group" onClick={() => setShowDetail((v) => !v)} aria-expanded={showDetail}>
+          <div>
+            <span className="workspace-section-eyebrow">03 / Detalle</span>
+            <h2 className="font-display font-bold text-brand text-lg">Campañas, gráficos y herramientas</h2>
+            <p className="text-sm text-zinc-500">Para revisar a fondo: gasto diario, tabla de campañas e importación de formularios.</p>
+          </div>
+          <ChevronDown size={20} className={'text-zinc-400 group-hover:text-gold-deep transition-transform shrink-0 ' + (showDetail ? 'rotate-180' : '')} />
+        </button>
+        {showDetail && (
+          <div className="space-y-5 mt-4 min-w-0 max-w-full">
+            {hasTrend && (
+              <motion.div className="grid grid-cols-1 lg:grid-cols-3 gap-4" variants={stagger()} initial="hidden" animate="show">
+                <motion.div className="lg:col-span-2" variants={surface}>
+                  <Card className="p-5 h-full">
+                    <SectionTitle className="flex items-center gap-2 mb-1"><TrendingUp size={16} className="text-gold-deep" /> Gasto diario</SectionTitle>
+                    <div className="text-xs text-zinc-400 mb-3">Últimos 7 días, en CLP.</div>
+                    <div className="h-52">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={trend} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id="spentFill" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="#C9A45C" stopOpacity={0.35} />
+                              <stop offset="100%" stopColor="#C9A45C" stopOpacity={0} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid vertical={false} stroke="var(--color-zinc-100)" />
+                          <XAxis dataKey="name" tick={{ fontSize: 12, fill: 'var(--color-zinc-500)' }} axisLine={false} tickLine={false} />
+                          <YAxis hide />
+                          <Tooltip cursor={{ stroke: '#C9A45C', strokeWidth: 1 }}
+                            contentStyle={{ borderRadius: 12, border: '1px solid var(--color-zinc-200)', fontSize: 13, background: 'var(--color-zinc-50)' }}
+                            labelStyle={{ color: 'var(--color-zinc-700)' }}
+                            formatter={(v) => [clp(v), 'Gasto']} />
+                          <Area type="monotone" dataKey="spent" stroke="var(--color-gold-deep)" strokeWidth={2} fill="url(#spentFill)" />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </Card>
+                </motion.div>
+
+                <motion.div variants={surface}>
+                  <Card className="p-5 h-full">
+                    <SectionTitle className="mb-1">Consultas por objetivo</SectionTitle>
+                    <div className="text-xs text-zinc-400 mb-3">Consultas del mes según el objetivo de la campaña.</div>
+                    <div className="h-52">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={byObjective(campaigns)} layout="vertical" margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                          <CartesianGrid horizontal={false} stroke="var(--color-zinc-100)" />
+                          <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12, fill: 'var(--color-zinc-500)' }} axisLine={false} tickLine={false} />
+                          <YAxis type="category" dataKey="name" tick={{ fontSize: 12, fill: 'var(--color-zinc-500)' }} axisLine={false} tickLine={false} width={78} />
+                          <Tooltip cursor={{ fill: 'var(--color-zinc-100)' }}
+                            contentStyle={{ borderRadius: 12, border: '1px solid var(--color-zinc-200)', fontSize: 13, background: 'var(--color-zinc-50)' }}
+                            labelStyle={{ color: 'var(--color-zinc-700)' }}
+                            formatter={(v) => [v, 'Consultas']} />
+                          <Bar dataKey="value" radius={[0, 8, 8, 0]} maxBarSize={28} fill="var(--color-brand)" animationDuration={700} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </Card>
+                </motion.div>
+              </motion.div>
+            )}
+
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <SectionTitle>Campañas registradas</SectionTitle>
+              <div className="flex flex-wrap items-center gap-2">
+                {campaigns.length > 0 && <Segmented options={FILTERS} value={filter} onChange={setFilter} />}
+                <Button variant="soft" onClick={syncLeads} disabled={syncBusy}
+                  title="Trae al CRM las personas que llenaron un formulario de Meta (no aplica a conversaciones de WhatsApp)">
+                  {syncBusy ? <Spinner /> : <Users size={15} />}
+                  {syncBusy ? 'Importando…' : 'Importar formularios'}
+                </Button>
+              </div>
+            </div>
+            {campaigns.length === 0 ? (
+              <Card className="py-16 text-center">
+                <img src="/logo-mark.png" alt="" className="w-12 h-12 mx-auto mb-4 grayscale opacity-25" />
+                {summary.source === 'sin_datos' ? (
+                  <>
+                    <div className="font-semibold text-zinc-500">Sin datos de Meta para este negocio</div>
+                    <p className="text-sm text-zinc-400 mt-1">Asigna su cuenta publicitaria en <b>Presupuesto y cuenta</b> para ver campañas reales.</p>
+                  </>
+                ) : (
+                  <>
+                    <div className="font-semibold text-zinc-500">No hay campañas activas</div>
+                    <p className="text-sm text-zinc-400 mt-1">Cuando la cuenta de Meta tenga campañas, su rendimiento aparecerá aquí.</p>
+                  </>
+                )}
+              </Card>
+            ) : (
+              <Card className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[820px]">
+                  <thead className="bg-zinc-50 text-zinc-500 text-left text-xs uppercase tracking-wide">
+                    <tr>{COLS.map(([h, num]) => <th key={h} className={'px-5 py-3 font-medium' + (num ? ' text-right' : '')}>{h}</th>)}</tr>
+                  </thead>
+                  <motion.tbody variants={staggerDense()} initial="hidden" animate="show">
+                    {rows.map((c) => (
+                      <motion.tr key={c.id} variants={fade} className="border-t border-zinc-100 hover:bg-zinc-50 transition-colors">
+                        <td className="px-5 py-3 font-medium">{c.name}</td>
+                        <td className="px-5 py-3 text-zinc-500">{OBJ[c.objective] || c.objective}</td>
+                        <td className="px-5 py-3 text-zinc-500"><span className="inline-flex items-center gap-1"><MapPin size={12} />{c.region || '—'}</span></td>
+                        <td className="px-5 py-3"><Badge color={c.status === 'active' ? '#16a34a' : '#d97706'}>{c.status === 'active' ? 'Activa' : 'Pausada'}</Badge></td>
+                        <td className="px-5 py-3 tabular-nums text-right text-zinc-500">{c.budget_clp == null ? '—' : `${clp(c.budget_clp)}${c.budget_period === 'daily' ? '/día' : c.budget_period === 'lifetime' ? ' total' : ''}`}</td>
+                        <td className="px-5 py-3 tabular-nums text-right">{clp(c.spent_clp)}</td>
+                        <td className="px-5 py-3 tabular-nums text-right font-semibold">{c.leads}</td>
+                        <td className="px-5 py-3 tabular-nums text-right font-semibold" style={{ color: c.cpl_clp ? (c.cpl_clp <= summary.good_cpl_clp ? '#16a34a' : '#d97706') : undefined }}>
+                          {c.cpl_clp ? clp(c.cpl_clp) : '—'}
+                        </td>
+                        <td className="px-5 py-3 text-zinc-400">{timeAgo(c.created_at)}</td>
+                      </motion.tr>
+                    ))}
+                    {rows.length === 0 && <tr><td colSpan={COLS.length} className="px-5 py-10 text-center text-zinc-400">Sin campañas en este filtro.</td></tr>}
+                  </motion.tbody>
+                </table>
+              </Card>
+            )}
+          </div>
         )}
       </section>
+    </motion.div>
+  )
+}
+
+// Gastado vs presupuesto del mes + consultas + costo por consulta, en lenguaje simple.
+function MonthSummary({ summary, onSetBudget }) {
+  const pace = budgetPace(summary.spent_clp, summary.budget_clp)
+  const p = pace ? PACE[pace.state] : null
+  const target = summary.good_cpl_clp
+  const cpl = summary.cpl_clp
+  const cplColor = cpl ? (cpl <= target ? '#16a34a' : '#d97706') : null
+  const paceText = !pace ? null
+    : pace.state === 'over' ? `Ya te pasaste por ${clp(summary.spent_clp - summary.budget_clp)}.`
+    : pace.state === 'fast' ? `Al ritmo actual terminarías el mes en ~${clp(pace.projected)}: más de lo presupuestado.`
+    : `Al ritmo actual terminarías el mes en ~${clp(pace.projected)}. Vas bien.`
+
+  return (
+    <motion.div className="grid grid-cols-1 lg:grid-cols-3 gap-4" variants={stagger()} initial="hidden" animate="show">
+      <motion.div className="lg:col-span-2" variants={surface}>
+        <Card className="p-5 h-full">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <Eyebrow>Invertido este mes</Eyebrow>
+              <div className="mt-2.5 flex flex-wrap items-baseline gap-x-2">
+                <span className="text-[32px] leading-none font-display font-extrabold tracking-tight text-brand tabular-nums">{clp(summary.spent_clp)}</span>
+                {pace && <span className="text-zinc-500 text-sm">de {clp(summary.budget_clp)}</span>}
+              </div>
+            </div>
+            <div className="w-10 h-10 rounded-xl grid place-items-center border shrink-0 bg-champagne/25 text-gold-deep border-champagne/60"><Wallet size={18} /></div>
+          </div>
+          {pace ? (
+            <>
+              <div className="mt-4 h-2.5 rounded-full bg-zinc-100 overflow-hidden" role="progressbar" aria-valuenow={pace.pct} aria-valuemin={0} aria-valuemax={100}
+                aria-label="Presupuesto del mes usado">
+                <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(pace.pct, 100)}%`, background: p.bar }} />
+              </div>
+              <div className="mt-2 flex flex-wrap justify-between gap-2 text-xs text-zinc-500">
+                <span>{pace.pct}% usado · día {pace.day} de {pace.daysInMonth}</span>
+                <span className="font-semibold text-brand">Te quedan {clp(pace.left)}</span>
+              </div>
+              <div className="text-sm mt-3 flex items-center gap-1.5" style={{ color: p.c }}>
+                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: p.c }} aria-hidden />{paceText}
+              </div>
+            </>
+          ) : (
+            <div className="mt-4 text-sm text-zinc-500">
+              Aún no fijas cuánto quieres invertir al mes.{' '}
+              <button className="text-gold-deep font-medium hover:underline" onClick={onSetBudget}>Fijar presupuesto</button>
+              {' '}para ver cuánto te queda.
+            </div>
+          )}
+        </Card>
+      </motion.div>
+      <div className="grid grid-cols-2 lg:grid-cols-1 gap-4">
+        <motion.div variants={surface}>
+          <Card className="p-5 h-full">
+            <div className="flex items-start justify-between gap-2">
+              <Eyebrow>Consultas</Eyebrow>
+              <MessageCircle size={16} className="text-brand/70 shrink-0" />
+            </div>
+            <div className="text-[28px] leading-none font-display font-extrabold tracking-tight text-brand mt-2.5 tabular-nums"><CountUp value={summary.leads} /></div>
+            <div className="text-xs text-zinc-500 mt-2">Personas que escribieron o dejaron datos.</div>
+          </Card>
+        </motion.div>
+        <motion.div variants={surface}>
+          <Card className="p-5 h-full">
+            <div className="flex items-start justify-between gap-2">
+              <Eyebrow>Costo por consulta</Eyebrow>
+              <Target size={16} className="text-brand/70 shrink-0" />
+            </div>
+            <div className="text-[28px] leading-none font-display font-extrabold tracking-tight tabular-nums mt-2.5" style={{ color: cplColor || undefined }}>
+              {cpl ? clp(cpl) : '—'}
+            </div>
+            <div className="text-xs text-zinc-500 mt-2">
+              {cpl ? (cpl <= target ? `Bien: bajo el objetivo de ${clp(target)}.` : `Sobre el objetivo de ${clp(target)}.`) : `Objetivo: ${clp(target)} o menos.`}
+            </div>
+          </Card>
+        </motion.div>
+      </div>
     </motion.div>
   )
 }
@@ -333,7 +395,7 @@ function OptimizePanel({ opt, onClose }) {
           )
         })}
       </div>
-      <div className="text-[11px] text-zinc-400">Son recomendaciones: nada se gasta ni se aplica automáticamente. Conecta Meta real para ejecutar el plan.</div>
+      <div className="text-[11px] text-zinc-400">Son recomendaciones: nada se gasta ni se aplica automáticamente. Los cambios se hacen en Meta.</div>
     </Card>
   )
 }
@@ -350,7 +412,7 @@ function ClientConfig({ client, onClose }) {
   const [vals, setVals] = useState(null)
   const v = vals ?? {
     ad_account: cfg.ad_account || '',
-    monthly_budget_clp: cfg.monthly_budget_clp || 300000,
+    monthly_budget_clp: cfg.monthly_budget_clp || '',
     regions: (cfg.regions || ['Santiago (RM)']).join(', '),
   }
   const set = (k, val) => setVals({ ...v, [k]: val })
@@ -378,7 +440,7 @@ function ClientConfig({ client, onClose }) {
         <div className="col-span-2"><label htmlFor="mk-account" className={LABEL}>Cuenta publicitaria Meta (act_…)</label>
           <Input id="mk-account" value={v.ad_account} onChange={(e) => set('ad_account', e.target.value)} placeholder="act_123456789 (vacío = sin conectar)" /></div>
         <div><label htmlFor="mk-budget" className={LABEL}>Presupuesto mensual (CLP)</label>
-          <Input id="mk-budget" type="number" value={v.monthly_budget_clp} onChange={(e) => set('monthly_budget_clp', e.target.value)} /></div>
+          <Input id="mk-budget" type="number" min="0" step="1000" value={v.monthly_budget_clp} onChange={(e) => set('monthly_budget_clp', e.target.value)} placeholder="Ej: 150000 (lo que pagaste este mes)" /></div>
         <div><label htmlFor="mk-regions" className={LABEL}>Zonas (foco Chile)</label>
           <Input id="mk-regions" value={v.regions} onChange={(e) => set('regions', e.target.value)} placeholder="Santiago (RM), Valparaíso" /></div>
       </div>

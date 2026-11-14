@@ -667,6 +667,17 @@ LEAD_DEFINITION = (
     ("conversacion", ("onsite_conversion.messaging_conversation_started_7d",)),
 )
 
+# --- Veredicto de un anuncio pagado (pantalla Campañas) ---------------------------
+# Traduce las métricas de Meta a una frase que se lee sin saber qué es un CPL.
+# La vara es el costo por consulta objetivo (`CHILE["good_cpl_clp"]` en metaads.py):
+#   - con consultas: «Va bien» si el costo por consulta ≤ objetivo; «Caro» si supera
+#     objetivo × ADS_VERDICT_EXPENSIVE_FACTOR; entre ambos, «Aceptable».
+#   - sin consultas: «Aprendiendo» mientras gastó menos de
+#     objetivo × ADS_VERDICT_LEARNING_SPEND_FACTOR (Meta aún no tiene con qué
+#     optimizar); pasado ese gasto sin una sola consulta, «Sin resultados».
+ADS_VERDICT_EXPENSIVE_FACTOR = 1.5
+ADS_VERDICT_LEARNING_SPEND_FACTOR = 1.0
+
 # --- Follow-up cadence (TRACKER) ---------------------------------------------
 # After OUTREACH sends the first touch (step 0), TRACKER advances a lead through
 # these steps. `day` is the offset from the first touch; the sequence closes
