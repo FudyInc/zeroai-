@@ -78,9 +78,10 @@ export const api = {
   icp: (c) => req('/api/icp?client=' + q(c)).then((d) => d.icp),
   campaigns: (c) => req('/api/campaigns?client=' + q(c)),
   optimizeCampaigns: (c) => req('/api/campaigns/optimize?client=' + q(c)),
-  campaignAds: (c) => req('/api/campaigns/ads?client=' + q(c)),
+  campaignAds: (c, since) => req('/api/campaigns/ads?client=' + q(c) + (since ? '&since=' + q(since) : '')),
   suggestAd: (c, id) => req('/api/campaigns/ads/suggest?client=' + q(c) + '&ad_id=' + q(id)),
   syncAdLeads: (c) => req('/api/campaigns/sync-leads?client=' + q(c), { method: 'POST' }),
+  leadsByAd: (c, ad_id) => req('/api/leads/by-ad/' + q(ad_id) + '?client=' + q(c)),
   instagramStatus: (c) => req('/api/instagram/status?client=' + q(c)),
   setInstagramForms: (c, ids) =>
     req('/api/instagram/forms?client=' + q(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lead_form_ids: ids }) }),

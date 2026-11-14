@@ -824,6 +824,14 @@ def _safe_campaigns(client: str, cfg: dict):
         return [], "sin_datos", str(e)[:300]
 
 
+def _positive_int(value) -> Optional[int]:
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return None
+    return n if n > 0 else None
+
+
 @app.get("/api/campaigns")
 def campaigns(client: str):
     """Campañas e Insights reales de la cuenta asignada al cliente."""
@@ -847,6 +855,9 @@ def campaigns(client: str):
             "cpl_clp": round(spent / leads) if leads else 0,
             "active": sum(1 for c in items if c["status"] == "active"),
             "currency": "CLP", "good_cpl_clp": CHILE["good_cpl_clp"],
+            # Lo que Diego decidió invertir este mes (Configurar cuenta); None si
+            # nunca se fijó — la pantalla no inventa un presupuesto.
+            "budget_clp": _positive_int(cfg.get("monthly_budget_clp")),
             "source": source, "error": error,
         },
     }
@@ -861,9 +872,11 @@ def _paid_ads(client: str, since: Optional[str] = None, fill_posts: bool = True)
     from zero.metaads import client_token, make_metaads
     cfg = _client_meta_cfg(client)
 
+    from zero.metaads import CHILE
+
     def unavailable(reason: str) -> dict:
         return {"client": client, "source": "unavailable", "reason": reason,
-                "currency": "CLP", "items": []}
+                "currency": "CLP", "target_cpl": CHILE["good_cpl_clp"], "items": []}
 
     if not cfg.get("ad_account"):
         return unavailable("Este cliente no tiene cuenta publicitaria de Meta asignada"), False
@@ -876,7 +889,8 @@ def _paid_ads(client: str, since: Optional[str] = None, fill_posts: bool = True)
         items = src.ads(client, cfg, since=since, fill_posts=fill_posts)
     except Exception as e:   # token inválido, cuenta sin acceso, moneda no CLP, red...
         return unavailable(str(e)[:300]), True
-    return {"client": client, "source": "live", "reason": None, "currency": "CLP", "items": items}, False
+    return {"client": client, "source": "live", "reason": None, "currency": "CLP",
+            "target_cpl": CHILE["good_cpl_clp"], "items": items}, False
 
 
 @app.get("/api/campaigns/ads")
