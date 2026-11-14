@@ -49,7 +49,7 @@ function sortAds(items, by) {
 
 export function PaidAdsPanel({ client, eyebrow }) {
   const [sort, setSort] = useState('spend')
-  const [period, setPeriod] = useState('month')
+  const [period, setPeriod] = useState('all')
   useEffect(() => { setSort('spend'); setPeriod('month') }, [client])
   const since = period === 'month' ? firstOfMonthChile() : undefined
   const { data, isLoading, error } = useQuery({
