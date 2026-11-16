@@ -97,6 +97,38 @@ class ClientIntegrationIsolationTest(unittest.TestCase):
         self.assertEqual(result["received"], 1)
         self.assertEqual(claim.call_args.args[1]["to_phone_id"], "56922222222")
 
+    def test_owner_message_pauses_chat_before_it_is_queued(self):
+        memory = SessionMemory(None)
+        memory.register_client("losetaschile", "STARTER")
+        memory.set_client_agent_profile("losetaschile", {
+            "whatsapp_number": "56922222222", "response_mode": "automatic"})
+        chat = "56933333333@c.us"
+        payload = {"kind": "owner_message", "id": "owner-1", "chat_id": chat,
+                   "to": "56933333333", "to_phone_id": "56922222222",
+                   "type": "chat", "text": "Ya le respondí"}
+
+        class Request:
+            headers = {"x-zero-signature": "sha256=test"}
+            async def body(self):
+                return json.dumps(payload).encode()
+
+        def claim_after_pause(event_id, message):
+            self.assertIsNotNone(memory.get_whatsapp_handoff("losetaschile", chat))
+            return True
+
+        env = {"WHATSAPP_PROVIDER": "meta",
+               secret_key("losetaschile", "WHATSAPP_PROVIDER"): "web"}
+        with mock.patch.dict(os.environ, env, clear=True), \
+             mock.patch.object(api, "make_memory", return_value=memory), \
+             mock.patch("zero.whatsapp_web._client_ports", return_value={"losetaschile": 8811}), \
+             mock.patch("zero.whatsapp_web.verify_signature", return_value=True), \
+             mock.patch("zero.whatsapp_web.claim_event", side_effect=claim_after_pause):
+            result = asyncio.run(api.whatsapp_web_inbound(Request(), BackgroundTasks()))
+        self.assertEqual(result["received"], 1)
+        handoff = memory.get_whatsapp_handoff("losetaschile", chat)
+        self.assertEqual(handoff["reason"], "El equipo respondió desde el teléfono")
+        self.assertNotIn("expires", handoff)
+
 
 if __name__ == "__main__":
     unittest.main()

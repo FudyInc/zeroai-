@@ -148,15 +148,10 @@ CHOICE_PROMPTS = {
 }
 # Questions the WhatsApp Web bridge can send as a poll (poll-definitions.js).
 WHATSAPP_WEB_POLL_KEYS = frozenset({"product", "color", "delivery"})
-NUMBERED_HINT = "Responda con el número o el nombre."
-
-
 def numbered_choices(key: str, reply: str = "") -> str:
-    """The options as a numbered list; the question is added only if missing."""
-    question, options = CHOICE_PROMPTS[key]
-    lines = [] if question.casefold() in (reply or "").casefold() else [question]
-    lines += [f"{number}. {option}" for number, option in enumerate(options, 1)]
-    return "\n".join(lines + ["", NUMBERED_HINT])
+    """Keep the flow open-ended; categorical options live in the wording only."""
+    question, _options = CHOICE_PROMPTS[key]
+    return "" if question.casefold() in (reply or "").casefold() else question
 
 
 _plain = plain
