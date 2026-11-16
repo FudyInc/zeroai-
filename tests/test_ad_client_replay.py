@@ -13,7 +13,8 @@ from unittest import mock
 
 from zero.agents import build_agents
 from zero.crm import CRM
-from zero.losetas_polls import (MENU_ASIDE_CLOSING, _LEGACY_ASIDE_CLOSING, asks_which_list,
+from zero.losetas_polls import (MENU_ASIDE_CLOSING, PRODUCT_POLL_QUESTION,
+                                BORDER_MODEL_QUESTION, _LEGACY_ASIDE_CLOSING, asks_which_list,
                                 menu_aside_closing, without_choice_slips)
 from zero.losetas_shipping import DELIVERY_PLACE_REPLY, delivery_with_place
 from zero.losetas_text import normalize_customer_text
@@ -69,7 +70,8 @@ class AdClientReplayTest(unittest.TestCase):
             "Boldes con rompeolas y nariz", "Cual lista?", "10,5 x 4 m", "5",
             "Con despacho 7 región", "Molina, 7 región"])
         self.dispatch.assert_not_called()
-        self.assertIn("Bordes de piscina", bodies[0])
+        self.assertIn(PRODUCT_POLL_QUESTION, bodies[0])
+        self.assertNotIn("1.", bodies[0])
         self.assertIn("¿Cuáles son las medidas de su piscina?", bodies[1])
         self.assertIn("Anoté el borde recto con nariz 50×50", bodies[2])
         self.assertIn("no hay una lista pendiente", bodies[3])
@@ -140,7 +142,8 @@ class VocabularyAndListsTest(unittest.TestCase):
     def test_the_aside_closing_repeats_the_open_menu(self):
         closing = menu_aside_closing("border_model")
         self.assertTrue(closing.startswith(MENU_ASIDE_CLOSING))
-        self.assertIn("1. Borde recto con nariz", closing)
+        self.assertIn(BORDER_MODEL_QUESTION, closing)
+        self.assertNotIn("1.", closing)
 
     def test_old_aside_closings_are_still_dropped_from_the_history(self):
         turns = [{"role": "agent", "text": "Es de 40x40. " + _LEGACY_ASIDE_CLOSING},

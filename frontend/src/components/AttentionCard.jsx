@@ -14,6 +14,7 @@ import { Card, Button, Badge, Select, Skeleton } from './ui'
 const TYPE = {
   pregunta: { label: 'Pregunta', color: '#b45309' },
   pedido: { label: 'Pedido', color: '#0f766e' },
+  evento: { label: 'Mensaje por revisar', color: '#b45309' },
 }
 
 export default function AttentionCard({ client }) {
@@ -42,14 +43,14 @@ export default function AttentionCard({ client }) {
   const items = attn.data?.items || []
   const options = attn.data?.options || []
   const open = items.filter((i) => i.estado === 'abierta')
-  const learned = items.filter((i) => i.estado === 'resuelta')
+  const learned = items.filter((i) => i.estado === 'resuelta' || (i.tipo === 'evento' && i.estado === 'descartada'))
 
   return (
     <div className="wa-attn">
       {open.length === 0 ? (
         <Card className="wa-attn-empty">
           <CheckCheck size={20} />
-          <p>El agente resolvió todo lo que le llegó.</p>
+          <p>No hay casos pendientes de revisión.</p>
         </Card>
       ) : (
         <div className="wa-attn-list">
@@ -62,7 +63,7 @@ export default function AttentionCard({ client }) {
       {learned.length > 0 && (
         <div className="wa-attn-learned">
           <button type="button" className="wa-attn-learned-toggle" aria-expanded={showLearned} onClick={() => setShowLearned((v) => !v)}>
-            <ChevronDown size={15} className={showLearned ? 'is-open' : ''} /> Aprendidas ({learned.length})
+            <ChevronDown size={15} className={showLearned ? 'is-open' : ''} /> Resueltas y cerradas ({learned.length})
           </button>
           {showLearned && (
             <ul>
@@ -70,7 +71,7 @@ export default function AttentionCard({ client }) {
                 <li key={item.clave}>
                   <q>{item.pregunta}</q>
                   <span className="wa-attn-arrow" aria-hidden="true">→</span>
-                  {item.estado === 'descartada' ? <em>Descartada</em>
+                  {item.estado === 'descartada' ? <em>{item.tipo === 'evento' ? 'Caso cerrado' : 'Descartada'}</em>
                     : item.equivale ? <span>equivale a «{item.equivale}»</span>
                     : <span>{item.respuesta || 'Atendida'}</span>}
                 </li>
@@ -86,7 +87,8 @@ export default function AttentionCard({ client }) {
 function CaseRow({ item, client, options, onDone, onOpenChat }) {
   const [text, setText] = useState('')
   const [option, setOption] = useState('')
-  const isQuestion = item.tipo !== 'pedido'
+  const isEvent = item.tipo === 'evento'
+  const isQuestion = item.tipo === 'pregunta' || !item.tipo
   const type = TYPE[item.tipo] || TYPE.pregunta
   const who = item.contacto || 'el cliente'
 
@@ -109,7 +111,7 @@ function CaseRow({ item, client, options, onDone, onOpenChat }) {
   })
   const dismiss = useMutation({
     mutationFn: () => api.dismissAttention(client, item.clave),
-    onSuccess: () => { toast.success(isQuestion ? 'Caso descartado' : 'Caso marcado como atendido'); onDone() },
+    onSuccess: () => { toast.success(isEvent ? 'Caso cerrado' : isQuestion ? 'Caso descartado' : 'Caso marcado como atendido'); onDone() },
     onError: (e) => toast.error('No se pudo actualizar el caso: ' + e.message),
   })
   const busy = answer.isPending || alias.isPending || dismiss.isPending
@@ -130,6 +132,7 @@ function CaseRow({ item, client, options, onDone, onOpenChat }) {
       {item.reason && <p className="wa-attn-reason">{item.reason}</p>}
 
       <div className="wa-attn-actions">
+        {!isEvent && <>
         <label className="wa-attn-label" htmlFor={`wa-attn-r-${item.clave}`}>
           {item.chat_id ? `Respuesta para ${who}` : 'Respuesta (este caso no tiene chat asociado)'}
         </label>
@@ -139,8 +142,11 @@ function CaseRow({ item, client, options, onDone, onOpenChat }) {
           <Button disabled={!text.trim() || busy} onClick={() => answer.mutate()}>
             <Send size={14} /> {answer.isPending ? 'Enviando…' : isQuestion ? 'Enviar y enseñar' : 'Enviar al cliente'}
           </Button>
+        </div>
+        </>}
+        <div className="wa-attn-buttons">
           <Button variant="ghost" disabled={busy} onClick={() => dismiss.mutate()}>
-            <X size={14} /> {isQuestion ? 'Descartar' : 'Marcar atendido'}
+            <X size={14} /> {isEvent ? 'Cerrar caso' : isQuestion ? 'Descartar' : 'Marcar atendido'}
           </Button>
         </div>
         {isQuestion && options.length > 0 && (

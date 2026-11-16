@@ -10,7 +10,7 @@ from zero.config import (LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE,
                          WHATSAPP_REVIEW_NOTICES)
 from zero.crm import CRM
 from zero.losetas_color import color_question
-from zero.losetas_polls import (PAVER_AREA_QUESTION, PAVER_MODEL_QUESTION,
+from zero.losetas_polls import (BORDER_MODEL_QUESTION, PAVER_AREA_QUESTION, PAVER_MODEL_QUESTION,
                                 DELIVERY_POLL_FACTORY_PICKUP,
                                 DELIVERY_POLL_QUESTION, PRODUCT_POLL_QUESTION)
 from zero.losetas_shipping import (DELIVERY_ADDRESS_PROMPT, DELIVERY_LOCATION_PROMPT,
@@ -1039,10 +1039,10 @@ class PoolBorderCountTest(unittest.TestCase):
         send_group.assert_not_called()
         self.assertEqual(send_document.call_args.args[3], "pastelones")
         self.assertIn(PAVER_MODEL_QUESTION, zero._deliver.call_args.args[3]["body"])
-        self.assertIn("1. Laja española", zero._deliver.call_args.args[3]["body"])
+        self.assertNotIn("1.", zero._deliver.call_args.args[3]["body"])
         self.assertEqual(result["delivery"]["status"], "sent")
 
-    def test_numbered_choices_drive_the_flow_without_polls(self):
+    def test_conversational_questions_drive_the_flow_without_polls(self):
         memory = SessionMemory(None)
         memory.register_client("losetaschile", "STARTER")
         memory.set_client_agent_profile("losetaschile", {
@@ -1069,10 +1069,11 @@ class PoolBorderCountTest(unittest.TestCase):
         send_image.assert_not_called()
         dispatch.assert_not_called()
         self.assertIn(PRODUCT_POLL_QUESTION, greeting)
-        self.assertIn("1. Bordes de piscina", greeting)
+        self.assertNotIn("1.", greeting)
         self.assertIn("medidas de su piscina", measures)
         self.assertEqual(send_document.call_args.args[3], "bordes")
-        self.assertIn("1. Borde recto con nariz", zero._deliver.call_args.args[3]["body"])
+        self.assertIn(BORDER_MODEL_QUESTION, zero._deliver.call_args.args[3]["body"])
+        self.assertNotIn("1.", zero._deliver.call_args.args[3]["body"])
         turns = memory.get_conversation("losetaschile", crm.find_by_contact(
             phone="56933333333", client_id="losetaschile")["key"])
         lead_turns = [t["text"] for t in turns if t["role"] == "lead"]

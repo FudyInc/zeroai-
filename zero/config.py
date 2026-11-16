@@ -53,6 +53,8 @@ WHATSAPP_TIME_ZONE = "America/Santiago"
 WHATSAPP_MORNING_START_HOUR = 5
 WHATSAPP_AFTERNOON_START_HOUR = 12
 WHATSAPP_EVENING_START_HOUR = 20
+WHATSAPP_INBOUND_MAX_AGE_SECONDS = 300
+WHATSAPP_INBOUND_CLOCK_SKEW_SECONDS = 60
 
 # Entrega "humana" de las respuestas AUTOMÁTICAS del agente por WhatsApp Web: un
 # bloque único y instantáneo delata a un bot. Se parte en pocos mensajes y se
@@ -231,13 +233,12 @@ REVIEW_DATE_ROLLOVER_DAYS = 60
 REVIEW_MIN_SHIPPING_CLP = 1000
 # Enlace copiado por Diego del catálogo de WhatsApp Business el 2026-10-08.
 # Cómo se ofrecen las opciones del flujo de LosetasChile (producto, color, entrega):
-#   "numbered" → en el mismo mensaje, «1. … 2. …»; el cliente responde con el
-#                número o el nombre.
+#   "conversational" → pregunta natural; el cliente responde con sus palabras.
 #   "poll"     → encuesta de WhatsApp Web.
 # Verificado el 2026-10-16: el número está en la Cloud API en coexistencia y
 # Meta entrega el voto de encuesta como `unsupported` (131051); nunca llega al
 # puente. Las encuestas quedan inservibles hasta pasar a botones oficiales.
-LOSETASCHILE_CHOICE_STYLE = "numbered"
+LOSETASCHILE_CHOICE_STYLE = "conversational"
 
 # Temas en que el agente de LosetasChile NO improvisa. Si el cliente pregunta por
 # uno y la ficha no trae ninguna de sus palabras de respaldo, la consulta pasa al

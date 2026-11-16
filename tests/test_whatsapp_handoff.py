@@ -255,6 +255,69 @@ class WhatsAppHandoffTest(unittest.TestCase):
         self.assertIsNotNone(SessionMemory(self.path).get_whatsapp_handoff(
             "losetaschile", "56933333333@c.us"))
 
+    def test_live_chat_must_contain_the_inbound_event_before_drafting(self):
+        with mock.patch("zero.whatsapp_web.read_chat_messages", return_value={"messages": [
+                {"id": "false_56933333333@c.us_OLD", "body": "Hola", "fromMe": False,
+                 "timestamp": 1700000000}]}), \
+             mock.patch.object(self.zero, "converse_result") as draft:
+            result = self.zero.handle_inbound(
+                "56933333333", "¿Qué venden?", to_phone_id="56911111111",
+                whatsapp_chat_id="56933333333@c.us",
+                whatsapp_message_id="losetaschile:false_56933333333@c.us_NEW")
+        self.assertTrue(result["manual_review"])
+        draft.assert_not_called()
+        self.zero._deliver.assert_not_called()
+
+    def test_recent_live_messages_are_added_to_the_draft_context(self):
+        older = {"id": "false_56933333333@c.us_OLD", "body": "Busco bordes para piscina",
+                 "fromMe": False, "type": "chat", "timestamp": 1700000000}
+        current = {"id": "false_56933333333@c.us_IN", "body": "¿Qué modelos tienen?",
+                   "fromMe": False, "type": "chat", "timestamp": 1700000001}
+        with mock.patch("zero.whatsapp_web.read_chat_messages", return_value={
+                "messages": [older, current]}), \
+             mock.patch.object(self.zero, "converse_result", return_value={
+                 "reply": "Le comparto el catálogo.", "intent": "general"}) as draft:
+            result = self.zero.handle_inbound(
+                "56933333333", "¿Qué modelos tienen?", to_phone_id="56911111111",
+                whatsapp_chat_id="56933333333@c.us",
+                whatsapp_message_id="losetaschile:false_56933333333@c.us_IN")
+        self.assertEqual(result["delivery"]["status"], "sent")
+        history = draft.call_args.kwargs["history"]
+        self.assertIn({"role": "lead", "text": "Busco bordes para piscina",
+                       "at": "2023-11-14T22:13:20+00:00"}, history)
+
+    def test_owner_message_appearing_during_draft_cancels_reply(self):
+        current = {"id": "false_56933333333@c.us_IN", "body": "¿Qué venden?",
+                   "fromMe": False, "timestamp": 1700000000}
+        owner = {"id": "true_56933333333@c.us_OUT", "body": "Ya le envié el catálogo",
+                 "fromMe": True, "timestamp": 1700000001}
+        with mock.patch("zero.whatsapp_web.read_chat_messages", side_effect=[
+                {"messages": [current]}, {"messages": [current, owner]}]), \
+             mock.patch.object(self.zero, "converse_result", return_value={
+                 "reply": "Le comparto el catálogo.", "intent": "general"}):
+            result = self.zero.handle_inbound(
+                "56933333333", "¿Qué venden?", to_phone_id="56911111111",
+                whatsapp_chat_id="56933333333@c.us",
+                whatsapp_message_id="losetaschile:false_56933333333@c.us_IN")
+        self.assertTrue(result["manual_review"])
+        self.zero._deliver.assert_not_called()
+        self.assertIsNotNone(SessionMemory(self.path).get_whatsapp_handoff(
+            "losetaschile", "56933333333@c.us"))
+
+    def test_switch_to_manual_during_draft_cancels_reply(self):
+        def draft(*args, **kwargs):
+            fresh = SessionMemory(self.path)
+            profile = fresh.get_client_agent_profile("losetaschile")
+            profile["response_mode"] = "manual"
+            fresh.set_client_agent_profile("losetaschile", profile)
+            fresh.save()
+            return {"reply": "Le comparto el catálogo.", "intent": "general"}
+
+        with mock.patch.object(self.zero, "converse_result", side_effect=draft):
+            result = self.inbound("¿Qué venden?")
+        self.assertTrue(result["manual_review"])
+        self.zero._deliver.assert_not_called()
+
     def test_unverified_quote_review_is_not_sent(self):
         with mock.patch.object(self.zero, "converse_result", side_effect=[
             {"reply": "Ya revisé tu cotización; está aprobada.", "intent": "pricing"},

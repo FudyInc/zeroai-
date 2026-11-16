@@ -4,11 +4,28 @@ from unittest import mock
 
 from zero.config import LOSETASCHILE_WHATSAPP_CATALOG_MESSAGE
 from zero.whatsapp_web import (parse_message, send_catalog_document, send_catalog_image,
-                               send_delivery_poll, send_group_text,
+                               read_chat_messages, send_delivery_poll, send_group_text,
                                WhatsAppWebSender)
 
 
 class WhatsAppWebCatalogTest(unittest.TestCase):
+    @mock.patch("zero.whatsapp_web.bridge_request")
+    def test_read_chat_messages_verifies_account_and_encodes_chat_id(self, bridge):
+        bridge.side_effect = [{"state": "ready", "account": "56987654321"},
+                              {"messages": [{"id": "false_56912345678@c.us_1"}]}]
+        result = read_chat_messages("losetaschile", "56987654321",
+                                    "56912345678@c.us", limit=100)
+        self.assertEqual(result["messages"][0]["id"], "false_56912345678@c.us_1")
+        self.assertEqual(bridge.call_args.args[0],
+                         "/chats/56912345678%40c.us/messages?limit=100")
+
+    @mock.patch("zero.whatsapp_web.bridge_request")
+    def test_read_chat_messages_rejects_unverified_account(self, bridge):
+        bridge.return_value = {"state": "ready", "account": "56900000000"}
+        with self.assertRaisesRegex(RuntimeError, "no coincide"):
+            read_chat_messages("losetaschile", "56987654321", "56912345678@c.us")
+        self.assertEqual(bridge.call_count, 1)
+
     @mock.patch("zero.whatsapp_web.bridge_request")
     def test_catalog_text_disables_link_preview(self, bridge):
         bridge.side_effect = [{"state": "ready", "account": "56987654321"},
