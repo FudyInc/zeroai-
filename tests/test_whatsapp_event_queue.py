@@ -55,6 +55,36 @@ class EventQueueTest(unittest.TestCase):
         self.assertIsNone(web._next_pending())
         self.assertEqual(self.row('recovered')['status'], 'needs_review')
 
+    def test_corrupt_pending_rows_do_not_block_next_valid_message(self):
+        bad = [('bad-json', '{', '2020-01-01'),
+               ('bad-shape', '[]', '2020-01-01'),
+               ('bad-date', '{"id":"bad-date"}', 'invalid'),
+               ('missing-id', '{}', '2020-01-01'),
+               ('wrong-id', '{"id":"different"}', '2020-01-01')]
+        self.queue('fresh')
+        with sqlite3.connect(self.db) as db:
+            for event_id, payload, created in bad:
+                db.execute("INSERT INTO received(id,payload,created,status) VALUES (?,?,?,'pending')",
+                           (event_id, payload, created))
+        self.assertEqual(web._next_pending()['id'], 'fresh')
+        self.assertIsNone(web._next_pending())
+        for event_id, _, _ in bad:
+            self.assertEqual(self.row(event_id)['status'], 'needs_review')
+            self.assertTrue(self.row(event_id)['finished_at'])
+
+    def test_old_review_command_is_held_while_fresh_command_proceeds(self):
+        self.queue('old-ok', kind='review_group', timestamp=time.time()-3600)
+        self.queue('fresh-ok', kind='review_group')
+        self.assertEqual(web._next_pending()['id'], 'fresh-ok')
+        self.assertEqual(self.row('old-ok')['status'], 'needs_review')
+
+    def test_review_group_parser_preserves_source_time(self):
+        with mock.patch('zero.whatsapp_web.review_group_client', return_value='example'):
+            parsed = web.parse_review_group_message({
+                'id': 'review', 'chat_id': '1234567890@g.us', 'text': 'ok',
+                'to_phone_id': '56900000002', 'timestamp': 1794780000}, ['example'])
+        self.assertEqual(parsed.get('timestamp'), 1794780000)
+
     def test_old_manual_event_still_applies_pause_and_completes(self):
         self.queue('manual', age=3600, kind='owner_message')
         def processor(messages):
@@ -106,10 +136,10 @@ class EventQueueTest(unittest.TestCase):
         self.assertEqual(parsed.get('timestamp'), 1794780000)
 
     def test_unknown_or_invalid_origin_never_reaches_processor(self):
-        for index, value in enumerate((None, 'invalid', float('nan'), time.time()+3600)):
+        for index, value in enumerate((None, 'invalid', float('nan'), time.time()+3600, 10**400)):
             self.queue(f'bad-{index}', timestamp=value)
         self.assertIsNone(web._next_pending())
-        self.assertTrue(all(self.row(f'bad-{i}')['status']=='needs_review' for i in range(4)))
+        self.assertTrue(all(self.row(f'bad-{i}')['status']=='needs_review' for i in range(5)))
 
     def test_age_limit_is_inclusive_and_rejects_next_second(self):
         self.queue('boundary', timestamp=1000)

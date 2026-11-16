@@ -52,7 +52,7 @@ def event_phase(name):
 
 
 def _event_expired(message, queued_at):
-    if message.get('kind') in ('owner_message', 'review_group'):
+    if message.get('kind') == 'owner_message':
         return False
     try:
         if isinstance(message.get('timestamp'), bool):
@@ -63,7 +63,7 @@ def _event_expired(message, queued_at):
         now = time.time()
         return (origin > now + config.WHATSAPP_INBOUND_CLOCK_SKEW_SECONDS or
                 now - min(origin, queued_at) > config.WHATSAPP_INBOUND_MAX_AGE_SECONDS)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         return True
 
 
@@ -222,10 +222,14 @@ def parse_review_group_message(payload: Dict[str, Any], clients) -> Optional[Dic
         logging.warning("Mensaje de grupo de revisión de %s ignorado: to_phone_id inválido (%s)",
                         client, event_id)
         return None
-    return {"kind": "review_group", "client": client, "id": event_id, "chat_id": chat_id,
+    parsed = {"kind": "review_group", "client": client, "id": event_id, "chat_id": chat_id,
             "text": text, "to_phone_id": destination,
             "quoted_id": str(payload.get("quoted_id") or "")[:200],
             "quoted_text": str(payload.get("quoted_text") or "")[:4096]}
+    origin = payload.get('timestamp')
+    if isinstance(origin, (int, float)) and not isinstance(origin, bool) and math.isfinite(origin) and origin > 0:
+        parsed['timestamp'] = origin
+    return parsed
 
 
 def chats_to_pause_on_activation(chats, since_ts: float) -> list:
@@ -349,8 +353,18 @@ def _next_pending() -> Optional[Dict[str, str]]:
             row = db.execute("SELECT id, payload, created FROM received WHERE status='pending' ORDER BY created, rowid LIMIT 1").fetchone()
             if row is None:
                 return None
-            message = json.loads(row[1])
-            queued_at = datetime.fromisoformat(row[2]).replace(tzinfo=timezone.utc).timestamp()
+            try:
+                message = json.loads(row[1])
+                if not isinstance(message, dict) or message.get('id') != row[0]:
+                    raise ValueError('Evento sin identidad válida')
+                created = datetime.fromisoformat(row[2])
+                if created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
+                queued_at = created.timestamp()
+            except (ValueError, TypeError, OverflowError):
+                db.execute("UPDATE received SET status='needs_review', error=?, updated=CURRENT_TIMESTAMP, finished_at=CURRENT_TIMESTAMP WHERE id=?",
+                           ('Evento incompleto o dañado; revisar antes de responder', row[0]))
+                continue
             if _event_expired(message, queued_at):
                 db.execute("UPDATE received SET status='needs_review', error=?, updated=CURRENT_TIMESTAMP, finished_at=CURRENT_TIMESTAMP WHERE id=?",
                            ('Mensaje antiguo o sin hora de origen verificable; revisar antes de responder', row[0]))

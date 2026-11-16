@@ -2,6 +2,18 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-11-16-whatsapp-cola-arranque-integracion",
+      "date": "2026-11-16",
+      "type": "change",
+      "title": "La cola aparta filas dañadas y órdenes antiguas de revisión",
+      "origin": "Revisión previa a la integración autorizada por Diego",
+      "summary": "Un evento con JSON, identidad o fecha de cola inválidos pasa a revisión y no bloquea los siguientes. Las órdenes del grupo conservan su hora de origen y también vencen a los cinco minutos; solo los mensajes manuales del equipo permanecen exentos para aplicar pausas de seguridad.",
+      "status": "Verificado en rama, integración en curso; agente en manual",
+      "scope": "Cola de eventos WhatsApp Web y lectura de órdenes de revisión",
+      "evidence": "Tres regresiones nuevas, 73 pruebas dirigidas y suite completa de 1802 pruebas aprobadas. Revisión independiente sin bloqueantes. API saludable y puente conectado a la cuenta correcta; cola sin pending/processing en comprobación previa, solo conteos agregados.",
+      "pending": "Integrar PR #3, actualizar checkout mediante pull --ff-only y cargar el código con reinicio antes de la comprobación conectada final. Mantener modo manual. Vercel frontend falla también en la base anterior; Vercel zeroai y CI Python/frontend aprobados en el primer commit del PR."
+    },
+    {
       "id": "2026-11-16-pooledge-interrupcion-envio-atencion-vencidos",
       "date": "2026-11-16",
       "type": "change",
