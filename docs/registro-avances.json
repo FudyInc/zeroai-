@@ -2,6 +2,18 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-11-16-whatsapp-historial-modelos-vivos",
+      "date": "2026-11-16",
+      "type": "change",
+      "title": "Lectura de historial sin serializar el chat completo",
+      "origin": "Comprobación conectada después del reinicio confirmado por Diego",
+      "summary": "La API y el puente estaban saludables, pero la consulta del historial falló con 502 en getChatById. Se sustituye la serialización completa del chat por lectura de modelos vivos y carga de mensajes anteriores mediante loadEarlierMsgs. El historial y las comprobaciones finales de envío usan el mismo lector, con IDs estables y dirección correcta para IDs objeto o string. Ante lectura fallida se conserva el bloqueo de envío.",
+      "status": "Corrección verificada; integración y recarga del puente en curso; agente en manual",
+      "scope": "Historial y guardas de envío de WhatsApp Web",
+      "evidence": "Regresión Node de carga anterior, orden, último mensaje, deduplicación, IDs de modelos vivos/string y rechazo de mensajes sin identidad; siete archivos JS aprobados y suite completa de 1802 pruebas Python aprobada. Lectura real sin envíos en tres chats: 9, 17 y 3 mensajes, IDs estables y último mensaje coincidente. No se imprimieron textos ni contactos.",
+      "pending": "Integrar y recargar exclusivamente el puente supervisado; verificar después el endpoint HTTP real manteniendo modo manual. El historial sigue acotado a 100 mensajes."
+    },
+    {
       "id": "2026-11-16-whatsapp-cola-arranque-integracion",
       "date": "2026-11-16",
       "type": "change",

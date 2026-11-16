@@ -41,6 +41,7 @@ const { isCustomerMessageType } = require('./customer-message')
 const { stableMessageId } = require('./message-id')
 const { safeTypingMs } = require('./humanize')
 const { sendGuarded } = require('./send-guard')
+const { readChatMessages } = require('./chat-history')
 const { recentInbound } = require('./recovery')
 const { CATALOGS, makeCatalogPdf } = require('./catalog-document')
 const { actsFor } = require('./account-scope')
@@ -567,9 +568,8 @@ async function sendAndConfirm(chatId, content, options, matchesCreated, expected
   return sendGuarded(guard, {
     typing: async () => {},
     latestId: async () => {
-      const chat = await client.getChatById(chatId)
-      const messages = await chat.fetchMessages({ limit: 1 })
-      return stableMessageId(messages[messages.length - 1]?.id)
+      const messages = await readChatMessages(client.pupPage, chatId, 1)
+      return messages[messages.length - 1]?.id
     },
     send: async () => {
   let confirmCreated
@@ -706,17 +706,7 @@ const server = http.createServer(async (req, res) => {
       if (!chat) return respond(res, 404, { error: 'Chat no encontrado' })
       if (req.method === 'GET') {
         const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit')) || 50))
-        const selected = await client.getChatById(chat.id)
-        const fetched = await selected.fetchMessages({ limit })
-        const messages = fetched.map(msg => ({
-          id: stableMessageId(msg.id) || msg.id?._serialized || '',
-          body: msg.type === 'chat' ? String(msg.body || '') : `[${msg.type || 'archivo'}]`,
-          type: msg.type,
-          fromMe: !!msg.fromMe,
-          ack: msg.ack ?? null,
-          timestamp: msg.timestamp || 0,
-          author: msg.author || null,
-        }))
+        const messages = await readChatMessages(client.pupPage, chat.id, limit)
         return respond(res, 200, { chat, messages })
       }
       if (req.method === 'POST') {
@@ -894,9 +884,8 @@ const server = http.createServer(async (req, res) => {
     }
       },
       latestId: async () => {
-        const chat = await client.getChatById(chatId)
-        const messages = await chat.fetchMessages({ limit: 1 })
-        return stableMessageId(messages[messages.length - 1]?.id)
+        const messages = await readChatMessages(client.pupPage, chatId, 1)
+        return messages[messages.length - 1]?.id
       },
       send: async () => {
     // This library can resolve sendMessage() with undefined after the message was
