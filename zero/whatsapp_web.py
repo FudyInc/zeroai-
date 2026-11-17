@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import logging
+import math
 import os
 import re
 import signal
@@ -14,7 +15,10 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from contextlib import closing
+from urllib.parse import quote
+from contextlib import closing, contextmanager
+from contextvars import ContextVar
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -30,6 +34,37 @@ _extra_bridge_threads: list[threading.Thread] = []
 _inbox_stop = threading.Event()
 _inbox_wake = threading.Event()
 _inbox_thread: Optional[threading.Thread] = None
+_event_context = ContextVar('whatsapp_event_context', default=None)
+
+
+@contextmanager
+def event_phase(name):
+    """Duraciones agregadas del evento actual; no guarda contenido ni contactos."""
+    context = _event_context.get()
+    started = time.monotonic()
+    try:
+        yield
+    finally:
+        if context is not None:
+            timings = context['timings']
+            key = name + '_ms'
+            timings[key] = timings.get(key, 0) + round((time.monotonic()-started)*1000, 3)
+
+
+def _event_expired(message, queued_at):
+    if message.get('kind') == 'owner_message':
+        return False
+    try:
+        if isinstance(message.get('timestamp'), bool):
+            return True
+        origin = float(message.get('timestamp'))
+        if not math.isfinite(origin) or origin <= 0:
+            return True
+        now = time.time()
+        return (origin > now + config.WHATSAPP_INBOUND_CLOCK_SKEW_SECONDS or
+                now - min(origin, queued_at) > config.WHATSAPP_INBOUND_MAX_AGE_SECONDS)
+    except (ValueError, TypeError, OverflowError):
+        return True
 
 
 def start_bridge() -> None:
@@ -187,10 +222,14 @@ def parse_review_group_message(payload: Dict[str, Any], clients) -> Optional[Dic
         logging.warning("Mensaje de grupo de revisión de %s ignorado: to_phone_id inválido (%s)",
                         client, event_id)
         return None
-    return {"kind": "review_group", "client": client, "id": event_id, "chat_id": chat_id,
+    parsed = {"kind": "review_group", "client": client, "id": event_id, "chat_id": chat_id,
             "text": text, "to_phone_id": destination,
             "quoted_id": str(payload.get("quoted_id") or "")[:200],
             "quoted_text": str(payload.get("quoted_text") or "")[:4096]}
+    origin = payload.get('timestamp')
+    if isinstance(origin, (int, float)) and not isinstance(origin, bool) and math.isfinite(origin) and origin > 0:
+        parsed['timestamp'] = origin
+    return parsed
 
 
 def chats_to_pause_on_activation(chats, since_ts: float) -> list:
@@ -247,6 +286,9 @@ def parse_message(payload: Dict[str, Any], clients=()) -> Optional[Dict[str, str
         "to_phone_id": destination,
         "chat_id": chat_id,
     }
+    origin = payload.get('timestamp')
+    if isinstance(origin, (int, float)) and not isinstance(origin, bool) and math.isfinite(origin) and origin > 0:
+        parsed['timestamp'] = origin
     # Click-to-WhatsApp referral: ad_id from bridge
     if payload.get("ad_id"):
         parsed["ad_id"] = str(payload["ad_id"])
@@ -272,6 +314,9 @@ def _connect_events() -> sqlite3.Connection:
         ("status", "TEXT NOT NULL DEFAULT 'completed'"),
         ("updated", "TEXT"),
         ("error", "TEXT"),
+        ("started_at", "TEXT"),
+        ("finished_at", "TEXT"),
+        ("timings", "TEXT"),
     ):
         if name not in columns:
             db.execute(f"ALTER TABLE received ADD COLUMN {name} {definition}")
@@ -304,17 +349,36 @@ def inbox_stats() -> Dict[str, Any]:
 def _next_pending() -> Optional[Dict[str, str]]:
     with closing(_connect_events()) as db, db:
         db.execute("BEGIN IMMEDIATE")
-        row = db.execute("SELECT id, payload FROM received WHERE status='pending' ORDER BY created, rowid LIMIT 1").fetchone()
-        if row is None:
-            return None
-        db.execute("UPDATE received SET status='processing', updated=CURRENT_TIMESTAMP WHERE id=? AND status='pending'", (row[0],))
-    return json.loads(row[1])
+        while True:
+            row = db.execute("SELECT id, payload, created FROM received WHERE status='pending' ORDER BY created, rowid LIMIT 1").fetchone()
+            if row is None:
+                return None
+            try:
+                message = json.loads(row[1])
+                if not isinstance(message, dict) or message.get('id') != row[0]:
+                    raise ValueError('Evento sin identidad válida')
+                created = datetime.fromisoformat(row[2])
+                if created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
+                queued_at = created.timestamp()
+            except (ValueError, TypeError, OverflowError):
+                db.execute("UPDATE received SET status='needs_review', error=?, updated=CURRENT_TIMESTAMP, finished_at=CURRENT_TIMESTAMP WHERE id=?",
+                           ('Evento incompleto o dañado; revisar antes de responder', row[0]))
+                continue
+            if _event_expired(message, queued_at):
+                db.execute("UPDATE received SET status='needs_review', error=?, updated=CURRENT_TIMESTAMP, finished_at=CURRENT_TIMESTAMP WHERE id=?",
+                           ('Mensaje antiguo o sin hora de origen verificable; revisar antes de responder', row[0]))
+                continue
+            db.execute("UPDATE received SET status='processing', updated=CURRENT_TIMESTAMP, started_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending'", (row[0],))
+            message['_queued_at'] = queued_at
+            return message
 
 
 def _finish_event(event_id: str, status: str, error: str = "") -> None:
+    context = _event_context.get()
     with closing(_connect_events()) as db, db:
-        db.execute("UPDATE received SET status=?, error=?, updated=CURRENT_TIMESTAMP WHERE id=?",
-                   (status, error[:500], event_id))
+        db.execute("UPDATE received SET status=?, error=?, updated=CURRENT_TIMESTAMP, finished_at=CURRENT_TIMESTAMP, timings=? WHERE id=?",
+                   (status, error[:500], json.dumps(context['timings']) if context else None, event_id))
 
 
 def _inbox_loop(processor) -> None:
@@ -325,11 +389,19 @@ def _inbox_loop(processor) -> None:
                 _inbox_wake.wait(2)
                 _inbox_wake.clear()
                 continue
+            context = {'message': message, 'timings': {'queue_ms': round(max(0, time.time()-message['_queued_at'])*1000, 3)}}
+            if not message.get('kind') and isinstance(message.get('timestamp'), (int, float)):
+                context['timings']['source_to_queue_ms'] = round(max(0, message['_queued_at']-message['timestamp'])*1000, 3)
+            token = _event_context.set(context)
+            processing_start = time.monotonic()
             try:
                 results = processor([message])
                 outcome = results[0] if results else {}
                 delivery = outcome.get("delivery") or {}
-                if (outcome.get("matched") and delivery.get("status") == "sent"
+                context['timings']['processing_ms'] = round((time.monotonic()-processing_start)*1000, 3)
+                if outcome.get('owner_message') and (outcome.get('paused') or outcome.get('ignored')):
+                    _finish_event(message['id'], 'completed')
+                elif (outcome.get("matched") and delivery.get("status") == "sent"
                         and delivery.get("via") == "whatsapp_web"):
                     _finish_event(message["id"], "completed")
                 elif outcome.get("matched") and outcome.get("manual_review"):
@@ -339,7 +411,10 @@ def _inbox_loop(processor) -> None:
                                   delivery.get("error") or "No se confirmó el envío de respuesta")
             except Exception as exc:
                 # The process may have sent before failing. Never send again blindly.
+                context['timings']['processing_ms'] = round((time.monotonic()-processing_start)*1000, 3)
                 _finish_event(message["id"], "needs_review", str(exc))
+            finally:
+                _event_context.reset(token)
         except Exception:
             logging.exception("WhatsApp inbox worker failed")
             _inbox_stop.wait(2)
@@ -353,7 +428,7 @@ def start_inbox_worker(processor) -> None:
         return
     # An interrupted send has an unknown outcome: expose it for review, not replay.
     with closing(_connect_events()) as db, db:
-        db.execute("UPDATE received SET status='needs_review', error='Proceso interrumpido: revisar antes de reenviar', updated=CURRENT_TIMESTAMP WHERE status='processing'")
+        db.execute("UPDATE received SET status='needs_review', error='Proceso interrumpido: revisar antes de reenviar', updated=CURRENT_TIMESTAMP, finished_at=CURRENT_TIMESTAMP WHERE status='processing'")
     _inbox_stop.clear()
     _inbox_thread = threading.Thread(target=_inbox_loop, args=(processor,), name="whatsapp-web-inbox", daemon=True)
     _inbox_thread.start()
@@ -368,6 +443,63 @@ def stop_inbox_worker() -> None:
 
 def bridge_request(path: str, body: Optional[Dict[str, Any]] = None,
                    client_id: Optional[str] = None) -> Dict[str, Any]:
+    context = _event_context.get()
+    outbound = body is not None and path.startswith('/send')
+    if outbound and context and _event_expired(context['message'], context['message']['_queued_at']):
+        raise RuntimeError('Mensaje antiguo; revisar antes de responder')
+    guarded = (outbound and context and client_id == 'losetaschile' and
+               context['message'].get('kind') not in ('owner_message', 'review_group') and
+               re.fullmatch(r'\d{8,20}@(c\.us|lid)', str((body or {}).get('chat_id') or '')))
+    if guarded:
+        body = {**body, **_guard_event_send(context, body, client_id)}
+    with event_phase('send' if outbound else 'bridge_read'):
+        result = _bridge_request(path, body, client_id)
+    if guarded and result.get('id') and result.get('ack') != -1:
+        context.setdefault('sent_ids', set()).add(str(result['id']))
+    return result
+
+
+def _guard_event_send(context, body, client_id):
+    """Releer toma manual y chat por cada parte; solo aceptar nuestros IDs confirmados."""
+    from .store import make_memory, _supabase_on
+    if _supabase_on():
+        # Una caída de la nube no autoriza consultar una copia local desactualizada.
+        from .memory_supabase import SupabaseMemory
+        memory = SupabaseMemory()
+    else:
+        memory = make_memory(os.environ.get('STATE_PATH', 'state.json'))
+    chat_id = str(body['chat_id'])
+    profile = memory.get_client_agent_profile(client_id)
+    if not profile:
+        raise RuntimeError('No se pudo verificar el estado de atención del chat')
+    if (profile.get('response_mode') == 'manual' or
+            memory.get_whatsapp_handoff(client_id, chat_id) or
+            memory.get_whatsapp_handoff(client_id, str(body.get('to') or ''))):
+        raise RuntimeError('El equipo tomó el chat; envío detenido')
+    message = context['message']
+    if chat_id != message.get('chat_id'):
+        raise RuntimeError('El envío no corresponde al chat del evento')
+    expected = str(message.get('id') or '').rsplit(':', 1)[-1]
+    account = str(message.get('to_phone_id') or profile.get('whatsapp_number') or '')
+    if not account:
+        # El evento debe identificar también la cuenta que recibe el mensaje.
+        raise RuntimeError('Falta cuenta verificable para revisar el chat')
+    response = read_chat_messages(client_id, account, chat_id, limit=100)
+    messages = response.get('messages') or []
+    source = next((i for i, item in enumerate(messages) if item.get('id') == expected), None)
+    if source is None:
+        raise RuntimeError('No se pudo verificar el mensaje de origen')
+    own_ids = context.get('sent_ids', set())
+    if any(str(item.get('id') or '') not in own_ids for item in messages[source+1:]):
+        raise RuntimeError('El chat cambió durante el envío; revisar antes de responder')
+    if messages[source].get('fromMe'):
+        raise RuntimeError('El mensaje de origen no corresponde al cliente')
+    return {'expected_last_id': str(messages[-1]['id']),
+            'expires_at': min(float(message['timestamp']), message['_queued_at']) +
+                          config.WHATSAPP_INBOUND_MAX_AGE_SECONDS}
+
+
+def _bridge_request(path, body=None, client_id=None):
     secret = os.environ.get("WHATSAPP_WEB_BRIDGE_TOKEN", "")
     if len(secret) < 32:
         raise RuntimeError("Falta configurar WHATSAPP_WEB_BRIDGE_TOKEN")
@@ -421,6 +553,18 @@ def _verified_account(client_id: str, expected_account: str) -> None:
     actual = "".join(c for c in str(status.get("account") or "") if c.isdigit())
     if status.get("state") != "ready" or actual != expected:
         raise RuntimeError("El número conectado no coincide con el asignado al cliente")
+
+
+def read_chat_messages(client_id: str, expected_account: str, chat_id: str,
+                       limit: int = 100) -> Dict[str, Any]:
+    """Read recent messages from the verified WhatsApp Web account for a chat."""
+    if not re.fullmatch(r"\d{8,20}@(c\.us|lid)", chat_id or ""):
+        raise ValueError("ID de chat inválido")
+    if not 1 <= int(limit) <= 100:
+        raise ValueError("Límite de mensajes inválido")
+    _verified_account(client_id, expected_account)
+    path = f"/chats/{quote(chat_id, safe='')}/messages?limit={int(limit)}"
+    return bridge_request(path, client_id=client_id)
 
 
 def send_group_text(client_id: str, expected_account: str,

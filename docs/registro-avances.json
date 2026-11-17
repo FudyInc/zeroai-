@@ -8,10 +8,70 @@
       "title": "Campañas vigentes y recuperación de gráficos de Meta",
       "origin": "Diego reportó 162 activas pese a tener solo dos recientes y pidió auditar gráficos",
       "summary": "El estado ACTIVE de Meta persiste en campañas finalizadas. El conteo cruza campaña, vigencia del conjunto y anuncio activo; conserva el histórico financiero. Filtro inicial Activas, anuncios vigentes por defecto e histórico explícito. Gráficos visibles e independientes con fechas y escala CLP; el fallo de gasto diario se informa sin ocultar consultas.",
-      "status": "Verificado con lectura real en worktree; sin integrar ni publicar",
+      "status": "Corrección revisada y validada; integración y publicación en curso",
       "scope": "Campañas y anuncios de Meta; PoolEdge (losetaschile)",
       "evidence": "Suite completa: 1775 pruebas Python aprobadas; 80 regresiones Meta y 38 pruebas frontend aprobadas; compilación frontend aprobada con aviso de bundle grande. Revisión independiente cerró el caso de conjuntos vencidos dentro de una campaña vigente mediante IDs de anuncios vigentes. Lectura real final: 162 campañas, 1 activa, 161 finalizadas y 1 anuncio vigente. Histórico, gasto y consultas mensuales iguales a producción. Comprobación Chromium con fixtures sin conexiones al backend: filtros, gráficos, error/reintento y vista móvil.",
-      "pending": "Integrar y publicar con autorización de git push según CLAUDE.md. Auditoría y mejoras en docs/auditoria-campanas-pooledge-2026-11-16.md. La API de anuncios pagados no incluye anuncios sin gasto."
+      "pending": "Publicar e integrar en main, actualizar producción mediante pull --ff-only y reiniciar zero-backend con sudo. Verificar API y frontend públicos. La API de anuncios pagados no incluye anuncios sin gasto."
+    },
+    {
+      "id": "2026-11-16-whatsapp-historial-modelos-vivos",
+      "date": "2026-11-16",
+      "type": "change",
+      "title": "Lectura de historial sin serializar el chat completo",
+      "origin": "Comprobación conectada después del reinicio confirmado por Diego",
+      "summary": "La API y el puente estaban saludables, pero la consulta del historial falló con 502 en getChatById. Se sustituye la serialización completa del chat por lectura de modelos vivos y carga de mensajes anteriores mediante loadEarlierMsgs. El historial y las comprobaciones finales de envío usan el mismo lector, con IDs estables y dirección correcta para IDs objeto o string. Ante lectura fallida se conserva el bloqueo de envío.",
+      "status": "Corrección verificada; integración y recarga del puente en curso; agente en manual",
+      "scope": "Historial y guardas de envío de WhatsApp Web",
+      "evidence": "Regresión Node de carga anterior, orden, último mensaje, deduplicación, IDs de modelos vivos/string y rechazo de mensajes sin identidad; siete archivos JS aprobados y suite completa de 1802 pruebas Python aprobada. Lectura real sin envíos en tres chats: 9, 17 y 3 mensajes, IDs estables y último mensaje coincidente. No se imprimieron textos ni contactos.",
+      "pending": "Integrar y recargar exclusivamente el puente supervisado; verificar después el endpoint HTTP real manteniendo modo manual. El historial sigue acotado a 100 mensajes."
+    },
+    {
+      "id": "2026-11-16-whatsapp-cola-arranque-integracion",
+      "date": "2026-11-16",
+      "type": "change",
+      "title": "La cola aparta filas dañadas y órdenes antiguas de revisión",
+      "origin": "Revisión previa a la integración autorizada por Diego",
+      "summary": "Un evento con JSON, identidad o fecha de cola inválidos pasa a revisión y no bloquea los siguientes. Las órdenes del grupo conservan su hora de origen y también vencen a los cinco minutos; solo los mensajes manuales del equipo permanecen exentos para aplicar pausas de seguridad.",
+      "status": "Verificado en rama, integración en curso; agente en manual",
+      "scope": "Cola de eventos WhatsApp Web y lectura de órdenes de revisión",
+      "evidence": "Tres regresiones nuevas, 73 pruebas dirigidas y suite completa de 1802 pruebas aprobadas. Revisión independiente sin bloqueantes. API saludable y puente conectado a la cuenta correcta; cola sin pending/processing en comprobación previa, solo conteos agregados.",
+      "pending": "Integrar PR #3, actualizar checkout mediante pull --ff-only y cargar el código con reinicio antes de la comprobación conectada final. Mantener modo manual. Vercel frontend falla también en la base anterior; Vercel zeroai y CI Python/frontend aprobados en el primer commit del PR."
+    },
+    {
+      "id": "2026-11-16-pooledge-interrupcion-envio-atencion-vencidos",
+      "date": "2026-11-16",
+      "type": "change",
+      "title": "Intervención manual durante envíos y cierre de eventos retenidos en Atención",
+      "origin": "Diego pidió completar los dos pendientes detectados por revisión antes de activar",
+      "summary": "Cada bloque automático privado de PoolEdge relee atención y chat; solo IDs propios confirmados permiten continuar. El puente vuelve a validar último mensaje y vencimiento después de escritura y preparación de PDF, imágenes o encuestas. Ante interrupción se conserva el parcial sin reintentar el conjunto. Una caída de Supabase bloquea la autorización sin recurrir a memoria local antigua. Atención lista eventos retenidos por pertenencia inequívoca y permite abrir chat y cerrar; archivar no envía, aprende, reencola ni libera pausa.",
+      "status": "Implementado y revisado en fix/whatsapp-human-handoff; sin integración ni activación",
+      "scope": "Transporte WhatsApp Web privado de PoolEdge; Atención por empresa con aislamiento de eventos",
+      "evidence": "Siete pruebas de interrupción de envío y siete de Atención añadidas. 290 pruebas dirigidas Python OK, seis archivos de pruebas JS OK. Suite completa ejecutada con autorización fuera del aislamiento: 1799 pruebas OK. Frontend compilado en copia temporal sin .env; aviso de bundle grande. Revisión independiente confirmó cierre de hallazgos. Sin acceso a datos vivos ni mensajes reales durante esta implementación.",
+      "pending": "Integrar la rama y comprobar el circuito conectado antes de activar. Los eventos históricos sin empresa explícita ni destino inequívoco se omiten por aislamiento. El historial leído sigue limitado a 100 mensajes."
+    },
+    {
+      "id": "2026-11-16-whatsapp-pendientes-vencidos",
+      "date": "2026-11-16",
+      "type": "change",
+      "title": "Bloqueo de mensajes antiguos y clasificación de atención manual",
+      "origin": "Diego autorizó continuar con la corrección identificada en la auditoría",
+      "summary": "La cola aparta mensajes entrantes con más de cinco minutos desde origen o recepción, o sin hora verificable. El transporte vuelve a comprobar antigüedad antes de solicitar envíos al puente. Los eventos manuales y de revisión interna conservan su procesamiento. Una pausa manual aplicada o un evento manual ignorado expresamente se completan sin exigir entrega. Se conserva timestamp de origen y se añaden inicio, fin y duraciones de cola, generación y puente sin contenido personal en las métricas.",
+      "status": "Preparado en worktree; sin integración ni activación",
+      "scope": "Cola WhatsApp Web y métricas del procesamiento",
+      "evidence": "12 pruebas nuevas de cola cubren vencimiento, origen inválido, frontera del límite, pausa manual, error de entrega, migración, reinicio y tiempos. Verificación final: 276 pruebas Python dirigidas y 4 Node aprobadas; node --check y git diff --check sin errores. Corregida falta de hora final al cerrar eventos interrumpidos. Suite completa actual: 1691 pruebas, con 13 errores de sockets y 7 fallas de Docker por restricciones del entorno. Detalle por nombre en el workspace PoolEdge: whatsapp/verificacion-cola-2026-11-16.md.",
+      "pending": "Antes de activar: revalidar toma manual y último mensaje entre partes de una respuesta dividida; conectar eventos vencidos de SQLite con consulta y cierre por empresa en Atención. Integrar y comprobar circuito conectado; repetir suite completa con permisos de sockets y Docker. Pendientes antiguos sin timestamp no se reenvían automáticamente."
+    },
+    {
+      "id": "2026-11-16-pooledge-auditoria-demoras-toma-manual",
+      "date": "2026-11-16",
+      "type": "change",
+      "title": "Auditoría de demoras y toma manual de WhatsApp PoolEdge",
+      "origin": "Diego pidió continuar la auditoría de conversaciones tardías y respuestas que ignoraban su atención manual",
+      "summary": "Se consultaron Supabase, SQLite y journal en solo lectura. La memoria activa tiene 45 conversaciones; 38 presentan actividad en el periodo. En el SQLite compartido hay 13 eventos entrantes con más de cinco minutos hasta su última actualización, correlacionados con interrupciones del backend. Los 233 eventos manuales del periodo se clasificaron como revisión por envío no confirmado. Falta conservar hora de origen y tiempos por fase. La rama también prepara pausa manual previa a cola, comprobación de contexto y preguntas sin menús numerados.",
+      "status": "Auditoría documentada; cambios de comportamiento preparados en worktree, sin integración ni activación",
+      "scope": "WhatsApp de PoolEdge; periodo desde el 9 de noviembre de 2026",
+      "evidence": "Informe y JSON agregados en el workspace PoolEdge: whatsapp/auditoria-2026-11-16.md y .json. Script local de solo lectura auditar_registros.py. Verificación previa de cambios: 248 pruebas Python y 4 Node aprobadas. completed no prueba envío al cliente; el SQLite no etiqueta empresa en todos los mensajes.",
+      "pending": "Barrera de antigüedad para pendientes, clasificación correcta de mensajes manuales, métricas por fase, revisión semántica de chats completos, prueba conectada e integración. Suite completa limitada por permisos del entorno."
     },
     {
       "id": "2026-11-08-ollama-keep-alive-indefinido",

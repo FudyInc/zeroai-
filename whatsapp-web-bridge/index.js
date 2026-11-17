@@ -40,6 +40,8 @@ const { polls, pollForQuestion } = require('./poll-definitions')
 const { isCustomerMessageType } = require('./customer-message')
 const { stableMessageId } = require('./message-id')
 const { safeTypingMs } = require('./humanize')
+const { sendGuarded } = require('./send-guard')
+const { readChatMessages } = require('./chat-history')
 const { recentInbound } = require('./recovery')
 const { CATALOGS, makeCatalogPdf } = require('./catalog-document')
 const { actsFor } = require('./account-scope')
@@ -194,7 +196,7 @@ async function recoverRecentMessages() {
       try {
         const message = candidate.type === 'chat'
           ? { id: { _serialized: candidate.id }, from: candidate.from,
-              fromMe: false, type: 'chat', body: candidate.body,
+              fromMe: false, type: 'chat', body: candidate.body, timestamp: candidate.timestamp,
               getContact: () => client.getContactById(candidate.from) }
           : await client.getMessageById(candidate.id)
         if (!message || message.fromMe || message.from !== candidate.from) continue
@@ -293,6 +295,7 @@ async function normalizeMessage(msg) {
     }
     const payload = { id: clientId ? `${clientId}:${stableId}` : stableId,
       from, chat_id: senderId, text: body,
+      timestamp: msg.timestamp,
       to_phone_id: account || client.info?.wid?.user || '' }
     // Click-to-WhatsApp referral: WhatsApp Web expone context en _data
     const ctx = msg._data?.context || msg._data?.referral
@@ -426,7 +429,6 @@ client.on('message_create', msg => {
 // puente (respuestas del agente, encuestas, imágenes) nunca se reenvía.
 const ownerSeen = new Set()
 const bridgeSending = new Set()
-const ownerDelayMs = 6000
 function noteBridgeSending(chatId, text) {
   if (!String(text || '').trim()) return
   const key = `${chatId}\n${String(text || '').trim()}`
@@ -439,12 +441,10 @@ async function forwardOwnerMessage(msg) {
   const chatId = jidText(msg.to) || jidText(msg.id?.remote)
   if (!/^\d{8,20}@(c\.us|lid)$/.test(chatId)) return
   const id = messageId(msg)
-  if (!id || ownerSeen.has(id)) return
-  rememberBounded(ownerSeen, id)
-  // El id de un envío del puente se conoce recién cuando sendMessage confirma.
-  await new Promise(resolve => setTimeout(resolve, ownerDelayMs))
+  if (!id || bridgeSent.has(id) || ownerSeen.has(id)) return
   const text = msg.type === 'chat' ? String(msg.body || '') : ''
-  if (bridgeSent.has(id) || (text.trim() && bridgeSending.has(`${chatId}\n${text.trim()}`))) return
+  if (text.trim() && bridgeSending.has(`${chatId}\n${text.trim()}`)) return
+  rememberBounded(ownerSeen, id)
   let phone = chatId.endsWith('@c.us') ? chatId.split('@')[0] : null
   if (!phone) {
     try {
@@ -459,9 +459,12 @@ async function forwardOwnerMessage(msg) {
 }
 
 client.on('message_create', msg => {
-  void forwardOwnerMessage(msg).catch(err => {
-    lastError = `Mensaje del dueño: ${err.message}`
-    console.error(lastError)
+  // Let per-send confirmation listeners mark bridge-generated messages first.
+  queueMicrotask(() => {
+    void forwardOwnerMessage(msg).catch(err => {
+      lastError = `Mensaje del dueño: ${err.message}`
+      console.error(lastError)
+    })
   })
 })
 
@@ -561,13 +564,21 @@ function messageId(message) {
   return typeof id === 'string' && id !== '[object Object]' ? id : null
 }
 
-async function sendAndConfirm(chatId, content, options, matchesCreated, expectedType, expectedBody) {
+async function sendAndConfirm(chatId, content, options, matchesCreated, expectedType, expectedBody, guard = {}) {
+  return sendGuarded(guard, {
+    typing: async () => {},
+    latestId: async () => {
+      const messages = await readChatMessages(client.pupPage, chatId, 1)
+      return messages[messages.length - 1]?.id
+    },
+    send: async () => {
   let confirmCreated
   const created = new Promise(resolve => { confirmCreated = resolve })
   const onCreated = message => {
     const destination = message.to?._serialized || String(message.to || '')
     const id = messageId(message)
     if (message.fromMe && destination === chatId && id && matchesCreated(message)) {
+      rememberBounded(bridgeSent, id)
       confirmCreated({ id, ack: message.ack ?? null })
     }
   }
@@ -600,6 +611,8 @@ async function sendAndConfirm(chatId, content, options, matchesCreated, expected
     rememberBounded(bridgeSent, confirmed.id)
     return confirmed
   } finally { client.off('message_create', onCreated) }
+    },
+  })
 }
 
 // Teléfono real de un chat individual; los @lid se resuelven con WhatsApp Web.
@@ -693,21 +706,8 @@ const server = http.createServer(async (req, res) => {
       if (!chat) return respond(res, 404, { error: 'Chat no encontrado' })
       if (req.method === 'GET') {
         const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit')) || 50))
-        const messages = await client.pupPage.evaluate((chatId, max) => {
-          const model = window.require('WAWebCollections').Chat.getModelsArray()
-            .find(item => item.id?._serialized === chatId)
-          const cached = model?.msgs?.getModelsArray?.() || []
-          return cached.sort((a, b) => (b.t || 0) - (a.t || 0)).slice(0, max).map(msg => ({
-            id: msg.id?._serialized || '',
-            body: msg.type === 'chat' ? String(msg.body || '') : `[${msg.type || 'archivo'}]`,
-            type: msg.type,
-            fromMe: !!msg.id?.fromMe,
-            ack: msg.ack ?? null,
-            timestamp: msg.t || null,
-            author: msg.author?._serialized || null,
-          }))
-        }, chat.id, limit)
-        return respond(res, 200, { chat, messages: messages.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0)) })
+        const messages = await readChatMessages(client.pupPage, chat.id, limit)
+        return respond(res, 200, { chat, messages })
       }
       if (req.method === 'POST') {
         let raw = ''
@@ -798,7 +798,7 @@ const server = http.createServer(async (req, res) => {
         const result = await sendAndConfirm(chatId, poll, {}, message =>
           message.type === 'poll_creation' &&
           (message.pollName === definition.question || message.body === definition.question),
-        'poll_creation', definition.question)
+        'poll_creation', definition.question, body)
         return result ? respond(res, 200, result)
           : respond(res, 502, { error: 'Poll send outcome uncertain; review chat before retry' })
       }
@@ -825,7 +825,7 @@ const server = http.createServer(async (req, res) => {
           { caption, sendMediaAsDocument: true }, message =>
             message.type === 'document' && (message.caption === caption ||
               message._data?.caption === caption || message.filename === filename),
-          'document', caption)
+          'document', caption, body)
         return result ? respond(res, 200, result)
           : respond(res, 502, { error: 'Catalog document outcome uncertain; review chat before retry' })
       }
@@ -843,7 +843,7 @@ const server = http.createServer(async (req, res) => {
       await prepareMediaSend()
       const result = await sendAndConfirm(chatId, media, { caption }, message =>
         message.type === 'image' && (message.caption === caption ||
-          message._data?.caption === caption), 'image', caption)
+          message._data?.caption === caption), 'image', caption, body)
       return result ? respond(res, 200, result)
         : respond(res, 502, { error: 'Image send outcome uncertain; review chat before retry' })
     } catch (err) {
@@ -870,6 +870,8 @@ const server = http.createServer(async (req, res) => {
       return respond(res, 400, { error: 'invalid chat id' })
     }
     const typingMs = safeTypingMs(body.typing_ms)
+    return await sendGuarded(body, {
+      typing: async () => {
     if (typingMs > 0) {
       // Best-effort: a typing failure must never block the message itself.
       try {
@@ -880,6 +882,12 @@ const server = http.createServer(async (req, res) => {
         console.error(`typing indicator failed: ${err.message}`)
       }
     }
+      },
+      latestId: async () => {
+        const messages = await readChatMessages(client.pupPage, chatId, 1)
+        return messages[messages.length - 1]?.id
+      },
+      send: async () => {
     // This library can resolve sendMessage() with undefined after the message was
     // created in WhatsApp. Listen before sending so that result is not lost.
     let confirmCreated
@@ -889,6 +897,7 @@ const server = http.createServer(async (req, res) => {
       const id = messageId(message)
       if (message.fromMe && message.type === 'chat' && message.body === text &&
           destination === chatId && id) {
+        rememberBounded(bridgeSent, id)
         confirmCreated({ id, ack: message.ack ?? null })
       }
     }
@@ -920,6 +929,8 @@ const server = http.createServer(async (req, res) => {
       rememberBounded(bridgeSent, confirmed.id)
       return respond(res, 200, { id: confirmed.id, ack: confirmed.ack ?? null })
     } finally { client.off('message_create', onCreated) }
+      },
+    })
   } catch (err) {
     lastError = err.message
     return respond(res, 502, { error: `WhatsApp Web send failed: ${err.message}` })

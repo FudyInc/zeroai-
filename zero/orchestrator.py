@@ -733,7 +733,9 @@ class Zero:
         if agent is None:
             resp = AgentResponse(task.task_id, agent_name, "error", {}, "no such agent")
         else:
-            resp = agent.run(task)
+            from .whatsapp_web import event_phase
+            with event_phase('generation'):
+                resp = agent.run(task)
         # Cuánto tardó y con qué motor. Va acá y no dentro de cada agente porque este es
         # el único punto por el que pasan TODOS: un agente nuevo queda medido sin que
         # nadie se acuerde de instrumentarlo. Envuelto en try porque medir jamás puede
@@ -1955,7 +1957,8 @@ class Zero:
 
                        profile_name: Optional[str] = None,
                        whatsapp_chat_id: Optional[str] = None,
-                       ad_id: Optional[str] = None) -> Dict[str, Any]:
+                       ad_id: Optional[str] = None,
+                       whatsapp_message_id: Optional[str] = None) -> Dict[str, Any]:
 
         """An inbound message arrived (e.g. a WhatsApp reply). Match it to its lead,
         close the loop (`register_reply`), then draft + send a reply with CONCIERGE.
@@ -2090,6 +2093,73 @@ class Zero:
             return {"matched": True, "manual_review": True,
                     "company": rec.get("company"), **out}
 
+        live_messages = None
+        def hold_for_whatsapp_review(reason: str, owner_message: Optional[Dict[str, Any]] = None):
+            self.memory.add_turn(client_id, key, "lead", text)
+            if owner_message:
+                owner_text = str(owner_message.get("body") or "").strip()
+                if owner_text and owner_message.get("type") == "chat":
+                    recent_agent = [turn for turn in self.memory.get_conversation(client_id, key)
+                                    if turn.get("role") == "agent"][-8:]
+                    if not any(" ".join(str(turn.get("text") or "").split()) ==
+                               " ".join(owner_text.split()) for turn in recent_agent):
+                        self.memory.add_turn(client_id, key, "agent", owner_text)
+                self.memory.set_whatsapp_handoff(
+                    client_id, handoff_key, "El equipo respondió desde el teléfono")
+            else:
+                self.memory.add_knowledge_gap(
+                    client_id, text, reason, chat_id=whatsapp_chat_id or key,
+                    contacto=rec.get("name") or rec.get("phone") or "", lead_key=key,
+                    tipo="pregunta")
+            self.memory.log("whatsapp_review_required", client=client_id,
+                            lead=key, reason=reason[:200])
+            self.memory.save()
+            if self.crm:
+                self.crm.log(client_id, key, "awaiting_human", reason[:200])
+                self.crm.save()
+            return {"matched": True, "manual_review": True, "intent": "handoff",
+                    "company": rec.get("company"), "reason": reason, **out}
+
+        def read_live_messages():
+            from .whatsapp_web import read_chat_messages
+            response = read_chat_messages(client_id, to_phone_id or "",
+                                          whatsapp_chat_id or "", limit=100)
+            messages = response.get("messages") if isinstance(response, dict) else None
+            if not isinstance(messages, list) or not messages:
+                raise RuntimeError("El chat no devolvió mensajes para verificar el contexto")
+            return messages
+
+        def current_event_is_latest(messages) -> bool:
+            latest = messages[-1]
+            if latest.get("fromMe"):
+                return False
+            live_id = str(latest.get("id") or "")
+            event_id = str(whatsapp_message_id or "").rsplit(":", 1)[-1]
+            return bool(event_id and live_id and live_id == event_id)
+
+        if (client_id == "losetaschile" and channel == "whatsapp" and
+                whatsapp_message_id and whatsapp_chat_id):
+            try:
+                live_messages = read_live_messages()
+            except (RuntimeError, ValueError, KeyError, TypeError) as exc:
+                return hold_for_whatsapp_review(
+                    f"No se pudo verificar el chat antes de responder: {exc}")
+            latest = live_messages[-1]
+            known_agent = {" ".join(str(turn.get("text") or "").split())
+                           for turn in self.memory.get_conversation(client_id, key)
+                           if turn.get("role") == "agent"}
+            unrecorded_owner = next((item for item in live_messages
+                                     if item.get("fromMe") and item.get("type") == "chat" and
+                                     " ".join(str(item.get("body") or "").split()) and
+                                     " ".join(str(item.get("body") or "").split()) not in known_agent), None)
+            if latest.get("fromMe") or unrecorded_owner:
+                return hold_for_whatsapp_review(
+                    "El último mensaje del chat lo envió el equipo; requiere revisión humana.",
+                    owner_message=unrecorded_owner)
+            if not current_event_is_latest(live_messages):
+                return hold_for_whatsapp_review(
+                    "El mensaje entrante ya no es el más reciente del chat.")
+
         if channel == "whatsapp" and (_HUMAN_REQUEST_RE.search(text or "") or
                                        _UPSET_RE.search(text or "") or
                                        _unreadable_whatsapp_message(text, client_id)):
@@ -2106,6 +2176,19 @@ class Zero:
                    "Gracias, recibí la foto. La revisamos y le respondemos por este chat."
                    if photo else "")
             if ack:
+                if live_messages is not None:
+                    try:
+                        latest_messages = read_live_messages()
+                    except (RuntimeError, ValueError, KeyError, TypeError) as exc:
+                        return hold_for_whatsapp_review(
+                            f"No se pudo verificar el chat antes del acuse: {exc}")
+                    latest = latest_messages[-1]
+                    if latest.get("fromMe"):
+                        return hold_for_whatsapp_review(
+                            "El equipo tomó el chat antes del acuse.", owner_message=latest)
+                    if not current_event_is_latest(latest_messages):
+                        return hold_for_whatsapp_review(
+                            "El chat cambió antes del acuse.")
                 ack_delivery = self._deliver(
                     client_id, key, rec.get("phone") or rec.get("email"),
                     {"channel": channel, "subject": None, "body": ack,
@@ -2148,6 +2231,18 @@ class Zero:
                  catalog_requested(text))):
             body = build_info_summary(self.memory.get_client_icp(client_id), rec)
             out_channel, to = pick_channel(text, rec, default_channel=channel)
+            if live_messages is not None:
+                try:
+                    latest_messages = read_live_messages()
+                except (RuntimeError, ValueError, KeyError, TypeError) as exc:
+                    return hold_for_whatsapp_review(
+                        f"No se pudo verificar el chat antes de responder: {exc}")
+                latest = latest_messages[-1]
+                if latest.get("fromMe"):
+                    return hold_for_whatsapp_review(
+                        "El equipo tomó el chat antes de responder.", owner_message=latest)
+                if not current_event_is_latest(latest_messages):
+                    return hold_for_whatsapp_review("El chat cambió antes de responder.")
             delivery = self._deliver(client_id, key, to, {
                 "channel": out_channel,
                 "subject": "Información solicitada" if out_channel == "email" else None,
@@ -2183,7 +2278,27 @@ class Zero:
         # Redactar ANTES de registrar los turnos: así el historial que ve CONCIERGE
         # son solo los turnos previos (el mensaje actual viaja aparte en `message`).
         prior_turns = self.memory.get_conversation(client_id, key)
-        res = self.converse_result(client_id, text, lead=rec, channel=channel)
+        if live_messages is not None:
+            # Add recent WhatsApp messages missing from durable memory. The live
+            # last customer message travels separately as `message`.
+            known = {(" ".join(str(turn.get("text") or "").split()).casefold(),
+                      turn.get("role")) for turn in prior_turns}
+            for item in live_messages[:-1]:
+                role = "agent" if item.get("fromMe") else "lead"
+                body = str(item.get("body") or "").strip()
+                if not body or (" ".join(body.split()).casefold(), role) in known:
+                    continue
+                try:
+                    at = datetime.fromtimestamp(float(item.get("timestamp") or 0),
+                                                 timezone.utc).isoformat()
+                except (TypeError, ValueError, OSError):
+                    at = ""
+                prior_turns.append({"role": role, "text": body[:2000], "at": at})
+                known.add((" ".join(body.split()).casefold(), role))
+            prior_turns.sort(key=lambda turn: str(turn.get("at") or ""))
+            prior_turns = prior_turns[-200:]
+        res = self.converse_result(client_id, text, lead=rec, channel=channel,
+                                   history=prior_turns)
         menu_turns = (without_choice_slips(prior_turns)
                       if client_id == "losetaschile" and channel == "whatsapp" else [])
         open_order = current_order(menu_turns)
@@ -2202,7 +2317,7 @@ class Zero:
                      not (names_color(text) and "?" not in text) else None)
         if open_menu:
             res = self.converse_result(client_id, text, lead=rec, channel=channel,
-                                       open_menu=open_menu)
+                                       open_menu=open_menu, history=prior_turns)
         # Any answer that is not a flow step leaves the open menu open.
         aside_kind = res.get("aside")
         aside_menu = open_menu or (open_choice(menu_turns) if aside_kind else None)
@@ -2213,16 +2328,28 @@ class Zero:
             fresh_memory = (type(self.memory)(str(self.memory.path)) if self.memory.path is not None
                             else type(self.memory)())
             self.memory = fresh_memory
-            if fresh_memory.get_whatsapp_handoff(client_id, handoff_key):
-                self.memory.add_turn(client_id, key, "lead", text)
-                self.memory.log("inbound_manual_review", client=client_id, lead=key,
-                                channel=channel, reason="chat_taken_during_draft")
-                self.memory.save()
-                if self.crm:
-                    self.crm.log(client_id, key, "awaiting_human", "El equipo tomó el chat")
-                    self.crm.save()
-                return {"matched": True, "manual_review": True,
-                        "company": rec.get("company"), **out}
+            fresh_profile = self.memory.get_client_agent_profile(client_id)
+            if fresh_profile.get("response_mode") == "manual" or \
+                    fresh_memory.get_whatsapp_handoff(client_id, handoff_key):
+                return hold_for_whatsapp_review("El equipo tomó el chat durante la redacción.")
+            if live_messages is not None:
+                try:
+                    latest_messages = read_live_messages()
+                except (RuntimeError, ValueError, KeyError, TypeError) as exc:
+                    return hold_for_whatsapp_review(
+                        f"No se pudo verificar el chat antes del envío: {exc}")
+                latest = latest_messages[-1]
+                if latest.get("fromMe"):
+                    latest_text = " ".join(str(latest.get("body") or "").split())
+                    known_agent = {" ".join(str(turn.get("text") or "").split())
+                                   for turn in self.memory.get_conversation(client_id, key)
+                                   if turn.get("role") == "agent"}
+                    owner_message = latest if latest_text not in known_agent else None
+                    return hold_for_whatsapp_review(
+                        "El equipo tomó el chat durante la redacción.", owner_message=owner_message)
+                if not current_event_is_latest(latest_messages):
+                    return hold_for_whatsapp_review(
+                        "El chat recibió otro mensaje durante la redacción.")
         if res.get("wait"):
             self.memory.add_turn(client_id, key, "lead", text)
             self.memory.log("inbound_waiting", client=client_id, lead=key, channel=channel)
@@ -2490,7 +2617,9 @@ class Zero:
                 numbered_key in WHATSAPP_WEB_POLL_KEYS):
             numbered_key = None  # the bridge has a poll for this question
         if numbered_key and reply:
-            reply = reply.rstrip() + "\n\n" + numbered_choices(str(numbered_key), reply)
+            choice_question = numbered_choices(str(numbered_key), reply)
+            if choice_question:
+                reply = reply.rstrip() + "\n\n" + choice_question
             res = {key_: value for key_, value in res.items()
                    if key_ not in ("customer_poll", "delivery_poll")}
         delivery = {"status": "error", "error": "El agente no produjo una respuesta"}

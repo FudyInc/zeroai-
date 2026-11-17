@@ -71,7 +71,8 @@ class NumberedChoiceTest(unittest.TestCase):
     def test_question_is_not_repeated_when_reply_already_asks_it(self):
         text = numbered_choices("color", "Le comparto la gama. " + COLOR_POLL_QUESTION)
         self.assertNotIn(COLOR_POLL_QUESTION, text)
-        self.assertIn("7. Amarillo", text)
+        self.assertEqual(text, "")
+        self.assertNotIn("1.", numbered_choices("product"))
         self.assertTrue(numbered_choices("product").startswith(PRODUCT_POLL_QUESTION))
 
 

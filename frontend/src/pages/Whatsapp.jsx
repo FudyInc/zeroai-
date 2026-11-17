@@ -143,7 +143,7 @@ export default function Whatsapp() {
 
       {client && (
         <section id="wa-atencion" className="wa-section">
-          <div className="wa-section-heading"><div><span className="wa-section-kicker">{connected && provider === 'web' ? '02' : '01'} / Atención</span><h2>Lo que el agente no pudo resolver</h2><p>Respóndelo una vez: el cliente recibe tu mensaje y el agente lo aprende para la próxima.</p></div></div>
+          <div className="wa-section-heading"><div><span className="wa-section-kicker">{connected && provider === 'web' ? '02' : '01'} / Atención</span><h2>Lo que el agente no pudo resolver</h2><p>Revisa los mensajes pendientes y los casos que necesitan atención del equipo.</p></div></div>
           <motion.div variants={surface}>
             <AttentionCard client={client} />
           </motion.div>

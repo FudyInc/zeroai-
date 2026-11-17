@@ -1846,9 +1846,11 @@ def whatsapp_web_reply(chat_id: str, body: WhatsAppWebReply,
 @app.get("/api/whatsapp/attention")
 def whatsapp_attention(client: str, include_resolved: bool = False):
     from zero.attention import choice_options
+    from zero.whatsapp_event_review import list_event_reviews
     memory = make_memory(STATE_PATH)
     items = memory.list_knowledge_gaps(client, incluir_resueltas=include_resolved)
-    abiertas = [i for i in memory.list_knowledge_gaps(client) if i.get("estado") == "abierta"]
+    items += list_event_reviews(memory, client, include_resolved)
+    abiertas = [i for i in items if i.get("estado") == "abierta"]
     return {"client": client, "items": items, "open": len(abiertas),
             "options": choice_options()}
 
@@ -1931,7 +1933,12 @@ class AttentionDismiss(BaseModel):
 
 @app.post("/api/whatsapp/attention/dismiss")
 def whatsapp_attention_dismiss(body: AttentionDismiss, client: str = Query(...)):
+    from zero.whatsapp_event_review import PREFIX, dismiss_event_review
     memory = make_memory(STATE_PATH)
+    if body.clave.startswith(PREFIX):
+        if not dismiss_event_review(memory, client, body.clave):
+            raise HTTPException(status_code=404, detail="Ese caso ya no existe")
+        return {"ok": True}
     if not memory.dismiss_knowledge_gap(client, body.clave):
         raise HTTPException(status_code=404, detail="Ese caso ya no existe")
     memory.save()
@@ -1988,6 +1995,23 @@ def _process_owner_message(memory, crm, message: dict) -> dict:
     return {"owner_message": True, "paused": True, "stored": stored}
 
 
+def _pause_owner_chat_before_queue(memory, message: dict) -> bool:
+    """Persist the takeover before the serial inbox worker can draft another reply."""
+    from zero.config import (WHATSAPP_OWNER_PHONE_HANDOFF_CLIENTS,
+                             WHATSAPP_OWNER_PHONE_HANDOFF_REASON)
+    client = message.get("client") or ""
+    if client not in WHATSAPP_OWNER_PHONE_HANDOFF_CLIENTS:
+        return False
+    chat_id = str(message.get("chat_id") or "")
+    if not chat_id:
+        return False
+    current = memory.get_whatsapp_handoff(client, chat_id)
+    if not current or current.get("expires"):
+        memory.set_whatsapp_handoff(client, chat_id, WHATSAPP_OWNER_PHONE_HANDOFF_REASON)
+        memory.save()
+    return True
+
+
 def _process_inbound_messages(msgs: list) -> list:
     """El trabajo pesado de un mensaje entrante (match/crear lead, CONCIERGE,
     enviar la respuesta) — corre DESPUÉS de que el webhook ya respondió (ver
@@ -2009,7 +2033,8 @@ def _process_inbound_messages(msgs: list) -> list:
             zero.handle_inbound(m["from"], m["text"], to_phone_id=m.get("to_phone_id"),
                                 profile_name=m.get("profile_name"),
                                 whatsapp_chat_id=m.get("chat_id"),
-                                ad_id=m.get("ad_id"))
+                                ad_id=m.get("ad_id"),
+                                whatsapp_message_id=m.get("id"))
             for m in msgs]
 
 
@@ -2083,6 +2108,10 @@ async def whatsapp_web_inbound(req: Request, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=409, detail="número Web no asignado de forma única")
     if is_owner:
         message["client"] = allowed[0]
+        # owner_message events share the serial inbox worker with customer
+        # messages. Persist the takeover synchronously so an in-flight draft
+        # sees it before the event itself reaches the worker.
+        _pause_owner_chat_before_queue(memory, message)
     if not claim_event(message["id"], message):
         return {"received": 0, "duplicate": True}
     # Inbox worker will process it; do not also run in background task.
