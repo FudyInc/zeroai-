@@ -839,17 +839,19 @@ def campaigns(client: str):
     cfg = _client_meta_cfg(client)
     items, source, error = _safe_campaigns(client, cfg)
     daily_spend = []
+    daily_spend_error = None
     if source == "live":
         try:
             daily_spend = make_metaads(cfg, client_id=client).daily_spend()
         except Exception:
-            pass  # La serie es opcional; las cifras mensuales siguen siendo reales.
+            daily_spend_error = "No se pudo obtener el gasto diario de Meta. Intenta actualizar la página."
     spent = sum(c["spent_clp"] for c in items)
     leads = sum(c["leads"] for c in items)
     return {
         "client": client,
         "campaigns": items,
         "daily_spend": daily_spend,
+        "daily_spend_error": daily_spend_error,
         "summary": {
             "spent_clp": spent, "leads": leads,
             "cpl_clp": round(spent / leads) if leads else 0,

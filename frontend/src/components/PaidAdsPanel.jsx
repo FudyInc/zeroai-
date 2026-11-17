@@ -8,7 +8,7 @@ import { Card, Button, Badge, Skeleton, Spinner, Eyebrow, SectionTitle } from '.
 import { Segmented } from './Segmented'
 import { WorkspaceSectionHeading } from './WorkspaceHero'
 import { fade, surface, staggerDense } from '../lib/motion'
-import { firstOfMonthChile, money, num, finite, VERDICT } from '../lib/ads'
+import { firstOfMonthChile, money, num, finite, VERDICT, visiblePaidAds } from '../lib/ads'
 
 /* Anuncios pagados de Meta: cada anuncio con su veredicto en lenguaje simple,
    lo que costó y cuántas consultas trajo. Las métricas técnicas van plegadas.
@@ -47,10 +47,11 @@ function sortAds(items, by) {
   })
 }
 
-export function PaidAdsPanel({ client, eyebrow }) {
+export function PaidAdsPanel({ client, eyebrow, campaigns }) {
   const [sort, setSort] = useState('spend')
+  const [scope, setScope] = useState('active')
   const [period, setPeriod] = useState('all')
-  useEffect(() => { setSort('spend'); setPeriod('month') }, [client])
+  useEffect(() => { setSort('spend'); setScope('active') }, [client])
   const since = period === 'month' ? firstOfMonthChile() : undefined
   const { data, isLoading, error } = useQuery({
     queryKey: ['campaign-ads', client, since ?? 'all'], queryFn: () => api.campaignAds(client, since),
@@ -63,7 +64,7 @@ export function PaidAdsPanel({ client, eyebrow }) {
   const unavailable = error
     ? (error.status === 404 && error.message === 'Not Found' ? 'El backend todavía no expone /api/campaigns/ads (HTTP 404).' : error.message)
     : data && data.source !== 'live' ? (data.reason || 'Meta no entregó anuncios para este negocio.') : null
-  const items = !unavailable && data ? sortAds(data.items || [], sort) : []
+  const items = !unavailable && data ? sortAds(visiblePaidAds(data.items || [], campaigns, scope), sort) : []
   // El objetivo de costo solo colorea si la API lo manda; el front no lo inventa.
   const target = typeof data?.target_cpl === 'number' ? data.target_cpl : null
 
@@ -74,10 +75,12 @@ export function PaidAdsPanel({ client, eyebrow }) {
           ? `Cada anuncio con su veredicto. «Va bien» = cada consulta te costó ${money(target)} o menos.`
           : 'Cada anuncio con su veredicto, lo que costó y las consultas que trajo.'}>
         <div className="flex flex-wrap items-center gap-2">
+          {campaigns && <Segmented options={[{ value: 'active', label: 'Activos' }, { value: 'history', label: 'Historial' }]} value={scope} onChange={setScope} />}
           <Segmented options={PERIODS} value={period} onChange={setPeriod} />
           {items.length > 1 && <Segmented options={SORTS} value={sort} onChange={setSort} />}
         </div>
       </WorkspaceSectionHeading>
+      {campaigns && scope === 'active' && <p className="text-xs text-zinc-500 mb-3">Solo anuncios activos de campañas vigentes, con gasto en el período seleccionado.</p>}
       {isLoading ? (
         <div className="space-y-3">{[0, 1].map((i) => <Skeleton key={i} className="h-36 w-full" />)}</div>
       ) : unavailable ? (
@@ -89,16 +92,16 @@ export function PaidAdsPanel({ client, eyebrow }) {
         </motion.div>
       ) : items.length === 0 ? (
         <Card className="py-14 text-center">
-          <div className="font-semibold text-zinc-500">{period === 'month' ? 'Sin gasto en anuncios este mes' : 'Sin anuncios pagados'}</div>
+          <div className="font-semibold text-zinc-500">{campaigns && scope === 'active' ? 'No hay anuncios activos con gasto en este período' : period === 'month' ? 'Sin gasto en anuncios este mes' : 'Sin anuncios pagados'}</div>
           <p className="text-sm text-zinc-400 mt-1">
-            {period === 'month' ? 'Revisa «Todo» para ver anuncios de meses anteriores.' : 'Meta respondió, pero esta cuenta no tiene anuncios con gasto.'}
+            {campaigns && scope === 'active' ? 'Puedes revisar «Historial» para ver anuncios de campañas anteriores.' : period === 'month' ? 'Revisa «Todo» para ver anuncios de meses anteriores.' : 'Meta respondió, pero esta cuenta no tiene anuncios con gasto.'}
           </p>
         </Card>
       ) : (
         <>
           <motion.div className="space-y-3" variants={staggerDense()} initial="hidden" animate="show">
             {items.map((ad, i) => (
-              <AdCard key={ad.ad_id ?? i} ad={ad} client={client} currency={data.currency} target={target} />
+              <AdCard key={ad.ad_id ?? i} ad={ad} campaign={campaigns?.find((c) => String(c.id) === String(ad.campaign_id))} client={client} currency={data.currency} target={target} />
             ))}
           </motion.div>
           <p className="text-xs text-zinc-400 mt-3">
@@ -110,7 +113,7 @@ export function PaidAdsPanel({ client, eyebrow }) {
   )
 }
 
-function AdCard({ ad, client, currency, target }) {
+function AdCard({ ad, client, currency, target, campaign }) {
   const [open, setOpen] = useState(false)
   const [showMetrics, setShowMetrics] = useState(false)
   const [sug, setSug] = useState(null)
@@ -118,7 +121,16 @@ function AdCard({ ad, client, currency, target }) {
   const cr = ad.creative || {}
   const thumb = cr.thumbnail_url || cr.image_url
   const statusKey = String(ad.status || '').toUpperCase()
-  const st = STATUS[statusKey] || { l: ad.status || '—', c: '#94a3b8' }
+  const campaignState = {
+    completed: { l: 'Campaña finalizada', c: '#64748b' },
+    scheduled: { l: 'Campaña programada', c: '#2563eb' },
+    paused: { l: 'Campaña pausada', c: '#d97706' },
+    inactive: { l: 'Sin anuncios activos', c: '#64748b' },
+  }[campaign?.status]
+  const outsideDelivery = campaign?.status === 'active' && statusKey === 'ACTIVE'
+    && Array.isArray(campaign.active_ad_ids)
+    && !campaign.active_ad_ids.some((id) => String(id) === String(ad.ad_id))
+  const st = campaignState || (outsideDelivery ? { l: 'Sin entrega activa', c: '#64748b' } : null) || STATUS[statusKey] || { l: ad.status || '—', c: '#94a3b8' }
   const verdict = VERDICT[ad.verdict?.code]
   const hasLeads = (ad.leads || 0) > 0 && ad.cpl != null
   const body = cr.body || ''
