@@ -37,7 +37,9 @@ class MetaAdsCampaignsTest(unittest.TestCase):
         ]})
         insights = json.dumps({"data": [{"campaign_id": "1", "spend": "12500.00", "account_currency": "CLP",
                                          "actions": [{"action_type": "lead", "value": "5"}]}]})
-        with mock.patch("zero.metaads.urllib.request.urlopen", side_effect=[_resp(campaigns), _resp(insights)]):
+        with mock.patch("zero.metaads.urllib.request.urlopen", side_effect=[_resp(campaigns), _resp(insights),
+            _resp(json.dumps({"data": [{"id": "s1", "campaign_id": "1", "effective_status": "ACTIVE"}]})),
+            _resp(json.dumps({"data": [{"adset_id": "s1", "effective_status": "ACTIVE"}]}))]):
             out = metaads.MetaAds("act_1").campaigns("acme")
             self.assertEqual(out[0]["id"], "1")
             self.assertEqual(out[0]["status"], "active")
@@ -108,7 +110,7 @@ class MetaAdsCampaignsTest(unittest.TestCase):
     def test_campaigns_ignora_items_no_dict(self):
         body = json.dumps({"data": ["oops", {"id": "1", "name": "Camp A"}]})
         with mock.patch("zero.metaads.urllib.request.urlopen", side_effect=[
-            _resp(body), _resp(json.dumps({"data": []})), _resp(json.dumps({"currency": "CLP"})),
+            _resp(body), _resp(json.dumps({"data": []})), _resp(json.dumps({"currency": "CLP"})), _resp(json.dumps({"data": []})),
         ]):
             out = metaads.MetaAds("act_1").campaigns("acme")
             self.assertEqual(len(out), 1)
@@ -660,7 +662,7 @@ class LeadDefinitionTest(unittest.TestCase):
         ins = json.dumps({"data": [{"campaign_id": "1", "spend": "7000", "account_currency": "CLP",
                                     "actions": actions}]})
         with mock.patch.dict(os.environ, {"META_ADS_TOKEN": "tok"}), \
-             mock.patch("zero.metaads.urllib.request.urlopen", side_effect=[_resp(camps), _resp(ins)]):
+             mock.patch("zero.metaads.urllib.request.urlopen", side_effect=[_resp(camps), _resp(ins), _resp(json.dumps({"data": []}))]):
             return metaads.MetaAds("act_1").campaigns("acme")[0]
 
     def test_campanas_tambien_cuentan_conversaciones(self):
@@ -722,3 +724,74 @@ class CampaignsBudgetTest(unittest.TestCase):
              mock.patch.object(api, "_client_meta_cfg", return_value={}):
             out = api.campaign_ads(mock.Mock(), "acme")
         self.assertEqual(out["target_cpl"], metaads.CHILE["good_cpl_clp"])
+
+
+class CampaignDailySpendAvailabilityTest(unittest.TestCase):
+    def _campaigns(self, daily):
+        import api
+        items = [{"status": "active", "spent_clp": 100, "leads": 2}]
+        with mock.patch.object(api, "_client_meta_cfg", return_value={}), \
+             mock.patch.object(api, "_safe_campaigns", return_value=(items, "live", None)), \
+             mock.patch("zero.metaads.MetaAds.daily_spend", daily), \
+             mock.patch("zero.metaads.make_metaads", return_value=metaads.MetaAds("act_test", "test")):
+            return api.campaigns("acme")
+
+    def test_daily_failure_preserves_summary_and_reports_unavailable(self):
+        result = self._campaigns(mock.Mock(side_effect=RuntimeError("private upstream detail")))
+        self.assertEqual(result["summary"]["spent_clp"], 100)
+        self.assertEqual(result["summary"]["leads"], 2)
+        self.assertEqual(result["daily_spend"], [])
+        self.assertTrue(result["daily_spend_error"])
+        self.assertNotIn("private upstream detail", result["daily_spend_error"])
+
+    def test_empty_daily_series_is_not_an_error(self):
+        result = self._campaigns(mock.Mock(return_value=[]))
+        self.assertEqual(result["daily_spend"], [])
+        self.assertIsNone(result["daily_spend_error"])
+
+class CampaignDeliveryTest(unittest.TestCase):
+    def _read(self, sets, ads, campaign_status="ACTIVE"):
+        def pages(path, token, params, **kwargs):
+            if path.endswith('/campaigns'):
+                return [{"id": "c1", "effective_status": campaign_status}]
+            if path.endswith('/insights'):
+                return [{"campaign_id": "c1", "spend": "100", "account_currency": "CLP"}]
+            if path.endswith('/adsets'):
+                return sets
+            if path.endswith('/ads'):
+                return ads
+            raise AssertionError(path)
+        with mock.patch("zero.metaads._graph_pages", side_effect=pages):
+            return metaads.MetaAds("act_test", "test").campaigns("acme")[0]
+
+    def test_enabled_campaign_with_expired_adset_is_completed(self):
+        item = self._read([{"id": "s1", "campaign_id": "c1", "effective_status": "ACTIVE", "end_time": "2000-01-01T00:00:00+0000"}], [{"adset_id": "s1", "effective_status": "ACTIVE"}])
+        self.assertEqual(item["status"], "completed")
+        self.assertEqual(item["spent_clp"], 100)
+
+    def test_active_requires_current_adset_and_active_ad(self):
+        sets = [{"id": "s1", "campaign_id": "c1", "effective_status": "ACTIVE"}]
+        self.assertEqual(self._read(sets, [{"adset_id": "s1", "effective_status": "ACTIVE"}])["status"], "active")
+        self.assertEqual(self._read(sets, [{"adset_id": "s1", "effective_status": "PAUSED"}])["status"], "inactive")
+        self.assertEqual(self._read(sets, [{"adset_id": "other", "effective_status": "ACTIVE"}])["status"], "inactive")
+
+    def test_future_adset_is_scheduled(self):
+        self.assertEqual(self._read([{"id": "s1", "campaign_id": "c1", "effective_status": "ACTIVE", "start_time": "2999-01-01T00:00:00+0000"}], [])["status"], "scheduled")
+
+    def test_paused_campaign_stays_paused_with_current_ad(self):
+        self.assertEqual(self._read([{"id": "s1", "campaign_id": "c1", "effective_status": "ACTIVE"}], [{"adset_id": "s1", "effective_status": "ACTIVE"}], "PAUSED")["status"], "paused")
+
+    def test_invalid_schedule_is_not_counted_active(self):
+        self.assertEqual(self._read([{"id": "s1", "campaign_id": "c1", "effective_status": "ACTIVE", "end_time": "broken"}], [{"adset_id": "s1", "effective_status": "ACTIVE"}])["status"], "inactive")
+
+    def test_missing_adsets_is_inactive(self):
+        self.assertEqual(self._read([], [])["status"], "inactive")
+
+    def test_active_ids_exclude_expired_adset_in_same_campaign(self):
+        sets = [{"id": "current", "campaign_id": "c1", "effective_status": "ACTIVE"},
+                {"id": "ended", "campaign_id": "c1", "effective_status": "ACTIVE", "end_time": "2000-01-01T00:00:00+0000"}]
+        ads = [{"id": "live", "adset_id": "current", "effective_status": "ACTIVE"},
+               {"id": "old", "adset_id": "ended", "effective_status": "ACTIVE"}]
+        item = self._read(sets, ads)
+        self.assertEqual(item["status"], "active")
+        self.assertEqual(item.get("active_ad_ids"), ["live"])

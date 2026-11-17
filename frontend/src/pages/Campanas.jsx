@@ -21,6 +21,13 @@ const FILTERS = [
   { value: 'paused', label: 'Pausadas' },
 ]
 const OBJ = { OUTCOME_LEADS: 'Consultas', OUTCOME_TRAFFIC: 'Visitas', OUTCOME_AWARENESS: 'Alcance', OUTCOME_ENGAGEMENT: 'Interacción' }
+const CAMPAIGN_STATUS = {
+  active: { label: 'Activa', color: '#16a34a' },
+  paused: { label: 'Pausada', color: '#d97706' },
+  completed: { label: 'Finalizada', color: '#64748b' },
+  scheduled: { label: 'Programada', color: '#2563eb' },
+  inactive: { label: 'Sin anuncios activos', color: '#64748b' },
+}
 // [encabezado, ¿numérica?] — las numéricas se alinean a la derecha para leer en columna.
 const COLS = [['Campaña'], ['Objetivo'], ['Zona'], ['Estado'], ['Presupuesto', 1], ['Gastado', 1], ['Consultas', 1], ['Costo/consulta', 1], ['Creada']]
 const clp = (n) => '$' + Math.round(n || 0).toLocaleString('es-CL')
@@ -64,7 +71,7 @@ export default function Campanas() {
   const [opt, setOpt] = useState(null)
   const [optBusy, setOptBusy] = useState(false)
   const [syncBusy, setSyncBusy] = useState(false)
-  useEffect(() => { setShowCfg(false); setShowDetail(false); setOpt(null); setFilter('todas') }, [client])
+  useEffect(() => { setShowCfg(false); setShowDetail(false); setOpt(null); setFilter('active') }, [client])
   const optimize = async () => {
     setOptBusy(true)
     try { setOpt(await api.optimizeCampaigns(client)) }
@@ -98,11 +105,10 @@ export default function Campanas() {
     ),
   })
   if (gate) return gate
-  const { campaigns, summary, daily_spend = [] } = data
-  const trend = daily_spend.map((d) => ({ name: new Date(`${d.date}T12:00:00`).toLocaleDateString('es-CL', { weekday: 'short' }), spent: d.spent_clp }))
+  const { campaigns, summary, daily_spend = [], daily_spend_error } = data
+  const trend = daily_spend.map((d) => ({ date: d.date, spent: d.spent_clp }))
   const rows = filter === 'todas' ? campaigns : campaigns.filter((c) => c.status === filter)
   const live = summary.source === 'live'
-  const hasTrend = campaigns.length > 0 && daily_spend.length > 0
   const openCfg = () => { setShowCfg(true); window.scrollTo({ top: 0, behavior: 'smooth' }) }
 
   return (
@@ -155,71 +161,88 @@ export default function Campanas() {
         <MonthSummary summary={summary} onSetBudget={openCfg} />
       </section>
 
-      <PaidAdsPanel client={client} eyebrow="02 / Anuncios" />
+      <PaidAdsPanel client={client} campaigns={campaigns} eyebrow="02 / Anuncios" />
+
+      <section className="workspace-section">
+        <WorkspaceSectionHeading eyebrow="03 / Rendimiento" title="Gasto y consultas"
+          description="Gasto diario de la cuenta y consultas del mes de todas las campañas." />
+        <motion.div className="grid grid-cols-1 lg:grid-cols-3 gap-4" variants={stagger()} initial="hidden" animate="show">
+          <motion.div className="lg:col-span-2 min-w-0" variants={surface}>
+            <Card className="p-5 h-full">
+              <SectionTitle className="flex items-center gap-2 mb-1"><TrendingUp size={16} className="text-gold-deep" /> Gasto diario</SectionTitle>
+              <div className="text-xs text-zinc-400 mb-3">Últimos 7 días de la cuenta, en CLP.</div>
+              {daily_spend_error ? (
+                <div role="status" className="min-h-52 flex flex-col items-start justify-center gap-3 text-sm text-amber-800">
+                  <span className="flex items-center gap-2"><AlertTriangle size={16} /> No se pudo cargar el gasto diario.</span>
+                  <p>Los totales del mes siguen disponibles. Vuelve a intentarlo para recuperar el gráfico.</p>
+                  <Button variant="soft" onClick={() => refetch()}>Reintentar</Button>
+                </div>
+              ) : trend.length === 0 ? (
+                <div className="min-h-52 flex items-center text-sm text-zinc-500">{live ? 'Meta no entregó gasto diario para los últimos 7 días.' : 'Conecta Meta para ver el gasto diario.'}</div>
+              ) : (
+              <div className="h-52">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={trend} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="spentFill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#C9A45C" stopOpacity={0.35} />
+                        <stop offset="100%" stopColor="#C9A45C" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid vertical={false} stroke="var(--color-zinc-100)" />
+                    <XAxis dataKey="date" tickFormatter={(date) => new Date(`${date}T12:00:00`).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit' })} tick={{ fontSize: 12, fill: 'var(--color-zinc-500)' }} axisLine={false} tickLine={false} />
+                    <YAxis width={74} tickFormatter={clp} tick={{ fontSize: 11, fill: 'var(--color-zinc-500)' }} axisLine={false} tickLine={false} />
+                    <Tooltip cursor={{ stroke: '#C9A45C', strokeWidth: 1 }}
+                      contentStyle={{ borderRadius: 12, border: '1px solid var(--color-zinc-200)', fontSize: 13, background: 'var(--color-zinc-50)' }}
+                      labelStyle={{ color: 'var(--color-zinc-700)' }}
+                      labelFormatter={(date) => new Date(`${date}T12:00:00`).toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric' })}
+                      formatter={(v) => [clp(v), 'Gasto']} />
+                    <Area type="monotone" dataKey="spent" stroke="var(--color-gold-deep)" strokeWidth={2} fill="url(#spentFill)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+              )}
+            </Card>
+          </motion.div>
+
+          <motion.div className="min-w-0" variants={surface}>
+            <Card className="p-5 h-full">
+              <SectionTitle className="mb-1">Consultas por objetivo</SectionTitle>
+              <div className="text-xs text-zinc-400 mb-3">Consultas del mes según el objetivo de la campaña.</div>
+              {campaigns.length === 0 ? (
+                <div className="min-h-52 flex items-center text-sm text-zinc-500">Sin datos de campañas para mostrar consultas por objetivo.</div>
+              ) : (
+              <div className="h-52">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={byObjective(campaigns)} layout="vertical" margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                    <CartesianGrid horizontal={false} stroke="var(--color-zinc-100)" />
+                    <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12, fill: 'var(--color-zinc-500)' }} axisLine={false} tickLine={false} />
+                    <YAxis type="category" dataKey="name" tick={{ fontSize: 12, fill: 'var(--color-zinc-500)' }} axisLine={false} tickLine={false} width={78} />
+                    <Tooltip cursor={{ fill: 'var(--color-zinc-100)' }}
+                      contentStyle={{ borderRadius: 12, border: '1px solid var(--color-zinc-200)', fontSize: 13, background: 'var(--color-zinc-50)' }}
+                      labelStyle={{ color: 'var(--color-zinc-700)' }}
+                      formatter={(v) => [v, 'Consultas']} />
+                    <Bar dataKey="value" radius={[0, 8, 8, 0]} maxBarSize={28} fill="var(--color-brand)" animationDuration={700} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              )}
+            </Card>
+          </motion.div>
+        </motion.div>
+      </section>
 
       <section className="workspace-section">
         <button className="w-full flex items-center justify-between gap-3 text-left group" onClick={() => setShowDetail((v) => !v)} aria-expanded={showDetail}>
           <div>
-            <span className="workspace-section-eyebrow">03 / Detalle</span>
-            <h2 className="font-display font-bold text-brand text-lg">Campañas, gráficos y herramientas</h2>
-            <p className="text-sm text-zinc-500">Para revisar a fondo: gasto diario, tabla de campañas e importación de formularios.</p>
+            <span className="workspace-section-eyebrow">04 / Detalle</span>
+            <h2 className="font-display font-bold text-brand text-lg">Campañas y herramientas</h2>
+            <p className="text-sm text-zinc-500">Tabla de campañas e importación de formularios de Meta.</p>
           </div>
           <ChevronDown size={20} className={'text-zinc-400 group-hover:text-gold-deep transition-transform shrink-0 ' + (showDetail ? 'rotate-180' : '')} />
         </button>
         {showDetail && (
           <div className="space-y-5 mt-4 min-w-0 max-w-full">
-            {hasTrend && (
-              <motion.div className="grid grid-cols-1 lg:grid-cols-3 gap-4" variants={stagger()} initial="hidden" animate="show">
-                <motion.div className="lg:col-span-2" variants={surface}>
-                  <Card className="p-5 h-full">
-                    <SectionTitle className="flex items-center gap-2 mb-1"><TrendingUp size={16} className="text-gold-deep" /> Gasto diario</SectionTitle>
-                    <div className="text-xs text-zinc-400 mb-3">Últimos 7 días, en CLP.</div>
-                    <div className="h-52">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={trend} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
-                          <defs>
-                            <linearGradient id="spentFill" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="0%" stopColor="#C9A45C" stopOpacity={0.35} />
-                              <stop offset="100%" stopColor="#C9A45C" stopOpacity={0} />
-                            </linearGradient>
-                          </defs>
-                          <CartesianGrid vertical={false} stroke="var(--color-zinc-100)" />
-                          <XAxis dataKey="name" tick={{ fontSize: 12, fill: 'var(--color-zinc-500)' }} axisLine={false} tickLine={false} />
-                          <YAxis hide />
-                          <Tooltip cursor={{ stroke: '#C9A45C', strokeWidth: 1 }}
-                            contentStyle={{ borderRadius: 12, border: '1px solid var(--color-zinc-200)', fontSize: 13, background: 'var(--color-zinc-50)' }}
-                            labelStyle={{ color: 'var(--color-zinc-700)' }}
-                            formatter={(v) => [clp(v), 'Gasto']} />
-                          <Area type="monotone" dataKey="spent" stroke="var(--color-gold-deep)" strokeWidth={2} fill="url(#spentFill)" />
-                        </AreaChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </Card>
-                </motion.div>
-
-                <motion.div variants={surface}>
-                  <Card className="p-5 h-full">
-                    <SectionTitle className="mb-1">Consultas por objetivo</SectionTitle>
-                    <div className="text-xs text-zinc-400 mb-3">Consultas del mes según el objetivo de la campaña.</div>
-                    <div className="h-52">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={byObjective(campaigns)} layout="vertical" margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-                          <CartesianGrid horizontal={false} stroke="var(--color-zinc-100)" />
-                          <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12, fill: 'var(--color-zinc-500)' }} axisLine={false} tickLine={false} />
-                          <YAxis type="category" dataKey="name" tick={{ fontSize: 12, fill: 'var(--color-zinc-500)' }} axisLine={false} tickLine={false} width={78} />
-                          <Tooltip cursor={{ fill: 'var(--color-zinc-100)' }}
-                            contentStyle={{ borderRadius: 12, border: '1px solid var(--color-zinc-200)', fontSize: 13, background: 'var(--color-zinc-50)' }}
-                            labelStyle={{ color: 'var(--color-zinc-700)' }}
-                            formatter={(v) => [v, 'Consultas']} />
-                          <Bar dataKey="value" radius={[0, 8, 8, 0]} maxBarSize={28} fill="var(--color-brand)" animationDuration={700} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </Card>
-                </motion.div>
-              </motion.div>
-            )}
-
             <div className="flex flex-wrap items-center justify-between gap-3">
               <SectionTitle>Campañas registradas</SectionTitle>
               <div className="flex flex-wrap items-center gap-2">
@@ -258,7 +281,7 @@ export default function Campanas() {
                         <td className="px-5 py-3 font-medium">{c.name}</td>
                         <td className="px-5 py-3 text-zinc-500">{OBJ[c.objective] || c.objective}</td>
                         <td className="px-5 py-3 text-zinc-500"><span className="inline-flex items-center gap-1"><MapPin size={12} />{c.region || '—'}</span></td>
-                        <td className="px-5 py-3"><Badge color={c.status === 'active' ? '#16a34a' : '#d97706'}>{c.status === 'active' ? 'Activa' : 'Pausada'}</Badge></td>
+                        <td className="px-5 py-3"><Badge color={CAMPAIGN_STATUS[c.status]?.color || '#64748b'}>{CAMPAIGN_STATUS[c.status]?.label || 'Estado no disponible'}</Badge></td>
                         <td className="px-5 py-3 tabular-nums text-right text-zinc-500">{c.budget_clp == null ? '—' : `${clp(c.budget_clp)}${c.budget_period === 'daily' ? '/día' : c.budget_period === 'lifetime' ? ' total' : ''}`}</td>
                         <td className="px-5 py-3 tabular-nums text-right">{clp(c.spent_clp)}</td>
                         <td className="px-5 py-3 tabular-nums text-right font-semibold">{c.leads}</td>

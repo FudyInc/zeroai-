@@ -54,3 +54,18 @@ export const VERDICT = {
   learning: { l: 'Aprendiendo', c: '#64748b', hint: () => 'Lleva poco gasto: Meta todavía está buscando a quién mostrarlo. Dale unos días.' },
   no_results: { l: 'Sin resultados', c: '#e11d48', hint: () => 'Ya gastó y nadie ha consultado. Revisa el anuncio o mueve ese dinero a uno que funcione.' },
 }
+
+// Una campaña puede conservar ACTIVE en Meta después del fin de sus conjuntos.
+// El backend determina su vigencia; el anuncio además debe seguir activo.
+export function visiblePaidAds(items, campaigns, scope = 'active') {
+  if (!campaigns || scope === 'history') return items
+  const activeCampaigns = new Map(campaigns.filter((c) => c.status === 'active').map((c) => [
+    String(c.id), Array.isArray(c.active_ad_ids) ? new Set(c.active_ad_ids.map(String)) : null,
+  ]))
+  return items.filter((ad) => {
+    const campaignId = String(ad.campaign_id)
+    if (!activeCampaigns.has(campaignId) || String(ad.status).toLowerCase() !== 'active') return false
+    const activeAdIds = activeCampaigns.get(campaignId)
+    return activeAdIds === null || activeAdIds.has(String(ad.ad_id))
+  })
+}

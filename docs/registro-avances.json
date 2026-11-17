@@ -2,6 +2,18 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-11-16-pooledge-campanas-vigencia-graficos",
+      "date": "2026-11-16",
+      "type": "change",
+      "title": "Campañas vigentes y recuperación de gráficos de Meta",
+      "origin": "Diego reportó 162 activas pese a tener solo dos recientes y pidió auditar gráficos",
+      "summary": "El estado ACTIVE de Meta persiste en campañas finalizadas. El conteo cruza campaña, vigencia del conjunto y anuncio activo; conserva el histórico financiero. Filtro inicial Activas, anuncios vigentes por defecto e histórico explícito. Gráficos visibles e independientes con fechas y escala CLP; el fallo de gasto diario se informa sin ocultar consultas.",
+      "status": "Corrección revisada y validada; integración y publicación en curso",
+      "scope": "Campañas y anuncios de Meta; PoolEdge (losetaschile)",
+      "evidence": "Suite completa: 1775 pruebas Python aprobadas; 80 regresiones Meta y 38 pruebas frontend aprobadas; compilación frontend aprobada con aviso de bundle grande. Revisión independiente cerró el caso de conjuntos vencidos dentro de una campaña vigente mediante IDs de anuncios vigentes. Lectura real final: 162 campañas, 1 activa, 161 finalizadas y 1 anuncio vigente. Histórico, gasto y consultas mensuales iguales a producción. Comprobación Chromium con fixtures sin conexiones al backend: filtros, gráficos, error/reintento y vista móvil.",
+      "pending": "Publicar e integrar en main, actualizar producción mediante pull --ff-only y reiniciar zero-backend con sudo. Verificar API y frontend públicos. La API de anuncios pagados no incluye anuncios sin gasto."
+    },
+    {
       "id": "2026-11-16-whatsapp-historial-modelos-vivos",
       "date": "2026-11-16",
       "type": "change",

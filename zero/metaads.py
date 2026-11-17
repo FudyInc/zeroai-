@@ -66,6 +66,7 @@ class MockMetaAds:
             cpl = round(spent / leads) if leads else 0
             out.append({
                 "id": f"mock-{client_id}-{i}",
+                "active_ad_ids": [f"mock-ad-{client_id}-{i}"] if status == "active" else [],
                 "name": name, "objective": obj, "status": status, "region": region,
                 "budget_clp": budget, "spent_clp": spent, "leads": leads, "cpl_clp": cpl,
             })
@@ -173,6 +174,27 @@ class MetaAds:
             raise RuntimeError(_NOT_CLP)
         by_campaign = {str(r.get("campaign_id")): r for r in insights
                        if isinstance(r, dict) and r.get("campaign_id")}
+        # ACTIVE en campaña persiste después del fin de los conjuntos. Solo una
+        # combinación vigente de campaña, conjunto y anuncio cuenta como activa.
+        adsets = _graph_pages(f"{self.account}/adsets", self.token, {
+            "fields": "id,campaign_id,effective_status,start_time,end_time", "limit": 100,
+        }, strict=True) if items else []
+        ads = _graph_pages(f"{self.account}/ads", self.token, {
+            "fields": "id,adset_id,effective_status", "limit": 100,
+            "filtering": json.dumps([{"field": "effective_status", "operator": "IN", "value": ["ACTIVE"]}]),
+        }, strict=True) if adsets else []
+        active_adsets = {str(a.get("adset_id")) for a in ads
+                         if a.get("adset_id") and a.get("effective_status") == "ACTIVE"}
+        by_campaign_sets: Dict[str, List[Dict[str, Any]]] = {}
+        for adset in adsets:
+            by_campaign_sets.setdefault(str(adset.get("campaign_id")), []).append(adset)
+        now = datetime.now(timezone.utc)
+        current_adsets = {str(a.get("id")) for a in adsets if a.get("id") and
+                          _campaign_delivery_status({"effective_status": "ACTIVE"}, [a], active_adsets, now) == "active"}
+        ads_by_set: Dict[str, List[str]] = {}
+        for ad in ads:
+            if ad.get("id") and ad.get("effective_status") == "ACTIVE" and str(ad.get("adset_id")) in current_adsets:
+                ads_by_set.setdefault(str(ad.get("adset_id")), []).append(str(ad["id"]))
         out: List[Dict[str, Any]] = []
         for c in items:
             if not isinstance(c, dict):
@@ -183,9 +205,13 @@ class MetaAds:
             daily = c.get("daily_budget")
             lifetime = c.get("lifetime_budget")
             budget = daily if daily is not None else lifetime
+            campaign_sets = by_campaign_sets.get(str(c.get("id")), [])
+            status = _campaign_delivery_status(c, campaign_sets, active_adsets, now)
+            active_ad_ids = [ad_id for adset in campaign_sets
+                             for ad_id in ads_by_set.get(str(adset.get("id")), [])] if status == "active" else []
             out.append({
                 "id": c.get("id"), "name": c.get("name"), "objective": c.get("objective"),
-                "status": "active" if c.get("effective_status") == "ACTIVE" else "paused",
+                "status": status, "active_ad_ids": active_ad_ids,
                 "region": ((cfg or {}).get("regions") or [CHILE["default_region"]])[0],
                 "budget_clp": _amount(budget) if budget is not None else None,
                 "budget_period": "daily" if daily is not None else "lifetime" if lifetime is not None else None,
@@ -368,6 +394,34 @@ class MetaAds:
                                           "campaign_name": row.get("campaign_name"),
                                           "lead_id": row.get("id")}})
         return leads
+
+
+def _campaign_delivery_status(campaign, adsets, active_adsets, now):
+    if campaign.get("effective_status") != "ACTIVE":
+        return "paused"
+    scheduled = False
+    ended = 0
+    for adset in adsets:
+        start = _parse_graph_time(adset.get("start_time"))
+        end = _parse_graph_time(adset.get("end_time"))
+        if (adset.get("start_time") and start is None) or (adset.get("end_time") and end is None):
+            continue
+        if end is not None and end <= now:
+            ended += 1
+            continue
+        if adset.get("effective_status") != "ACTIVE":
+            continue
+        if start is not None and start > now:
+            scheduled = True
+        elif str(adset.get("id")) in active_adsets:
+            return "active"
+    if scheduled:
+        return "scheduled"
+    if adsets and ended == len(adsets):
+        return "completed"
+    if any(a.get("effective_status") in {"PAUSED", "CAMPAIGN_PAUSED"} for a in adsets):
+        return "paused"
+    return "inactive"
 
 
 def _parse_graph_time(value: Any) -> Optional[datetime]:
