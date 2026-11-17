@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
-import { Columns3 } from 'lucide-react'
+import { Columns3, RefreshCw } from 'lucide-react'
 import { api } from '../lib/api'
 import { STAGES, LANE, scoreColor } from '../lib/util'
-import { Skeleton, pageState, StageSelect } from '../components/ui'
+import { Button, Skeleton, pageState, StageSelect } from '../components/ui'
+import { leadIdentity } from '../lib/leadIdentity'
 import { Segmented } from '../components/Segmented'
 import { useApp } from '../App'
 import { NoClient } from './Dashboard'
@@ -27,7 +28,10 @@ export default function Pipeline() {
   const clientLabel = useClientLabel()
   const { client, openLead, runId, setRunId, scoped } = useApp()
   const qc = useQueryClient()
-  const { data: board, isLoading, error, refetch } = useQuery({ queryKey: ['board', client], queryFn: () => api.board(client), enabled: !!client })
+  const { data: board, isLoading, isFetching, error, refetch } = useQuery({
+    queryKey: ['board', client], queryFn: () => api.board(client), enabled: !!client,
+    refetchOnWindowFocus: 'always',
+  })
   const drag = useRef(null)           // { key, from }
   const [over, setOver] = useState(null)
   const [dense, setDense] = useState('comodo')
@@ -99,7 +103,13 @@ export default function Pipeline() {
           title="Etapas del pipeline"
           description="Arrastra una tarjeta a otra columna o usa su menú para cambiarla de etapa. Tócala para ver el detalle."
         >
-          <Segmented options={DENSITY} value={dense} onChange={setDense} />
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button variant="soft" onClick={() => refetch()} disabled={isFetching} aria-busy={isFetching}>
+              <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} />
+              {isFetching ? 'Actualizando…' : 'Actualizar'}
+            </Button>
+            <Segmented options={DENSITY} value={dense} onChange={setDense} />
+          </div>
         </WorkspaceSectionHeading>
         <motion.div className="flex min-w-0 w-full gap-3 sm:gap-4 overflow-x-auto rounded-2xl border border-zinc-200/70 bg-zinc-50/60 dark:bg-zinc-100/30 p-2 sm:p-3 pb-3" variants={stagger()} initial="hidden" animate="show">
         {BOARD.map((stage) => {
@@ -123,7 +133,9 @@ export default function Pipeline() {
                 <span className="ml-auto bg-white dark:bg-zinc-100 text-zinc-500 rounded-full px-2 py-0.5 text-[11px]">{leads.length}</span>
               </div>
               <motion.div className="space-y-2.5 min-h-[60px]" variants={staggerDense()}>
-                {leads.map((r) => (
+                {leads.map((r) => {
+                  const identity = leadIdentity(r)
+                  return (
                   <motion.div
                     key={r.key}
                     layout
@@ -135,16 +147,18 @@ export default function Pipeline() {
                     className={'cursor-grab active:cursor-grabbing bg-white dark:bg-zinc-50 border border-champagne/50 dark:border-zinc-700/40 rounded-xl shadow-[0_1px_2px_rgba(44,53,41,0.04)] hover:shadow-[0_14px_34px_-18px_rgba(44,53,41,0.20)] hover:-translate-y-0.5 dark:hover:border-zinc-600/60 transition-all ' + (compact ? 'p-3' : 'p-4')}
                   >
                     <div className="flex justify-between items-start gap-2">
-                      <div className={'min-w-0 break-words font-semibold ' + (compact ? 'text-sm' : '')}>{r.company}</div>
+                      <div className={'min-w-0 break-words font-semibold ' + (compact ? 'text-sm' : '')}>{identity.title}</div>
                       <span className="font-extrabold tabular-nums" style={{ color: scoreColor(r.score) }}>{r.score ?? '—'}</span>
                     </div>
+                    {identity.company && <div className="text-xs text-zinc-500 mt-1 break-words">{identity.company}</div>}
+                    {identity.phone && <div className="text-xs text-zinc-500 mt-1 break-words">{identity.phone}</div>}
                     {/* Va en ambas densidades: son 4px y en compacto es lo único que
                         queda del recorrido, que es justo cuando más se agradece. */}
                     <LeadRoute lead={r} compact />
                     {!compact && (
                       <>
                         <div className="text-xs text-zinc-500 mt-2">{r.role || '—'}</div>
-                        <div className="text-xs text-zinc-400">{r.email || r.phone || '—'}</div>
+                        {identity.email && <div className="text-xs text-zinc-400 break-words">{identity.email}</div>}
                         {r.source === 'instagram_ads' && r.income_range && (
                           <div className="text-xs text-zinc-600 mt-2 flex items-center gap-1.5 flex-wrap">
                             <span><span className="font-medium">Renta:</span> {r.income_range}</span>
@@ -152,11 +166,11 @@ export default function Pipeline() {
                           </div>
                         )}
                         <StageSelect value={r.stage} onClick={(e) => e.stopPropagation()} onChange={(e) => move(r.key, e.target.value)}
-                          aria-label={`Etapa de ${r.company}`} className="mt-3" />
+                          aria-label={`Etapa de ${identity.title}`} className="mt-3" />
                       </>
                     )}
                   </motion.div>
-                ))}
+                )})}
                 {leads.length === 0 && (
                   <div className="text-[12px] text-zinc-500 text-center py-6 border border-dashed border-zinc-300 rounded-xl">
                     suelta aquí
