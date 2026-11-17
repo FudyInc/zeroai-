@@ -2357,10 +2357,11 @@ class Zero:
             return {"matched": True, "waiting": True, "intent": "qualification",
                     "company": rec.get("company"), **out}
         reply, intent = res.get("reply") or "", res.get("intent") or "general"
-        if (client_id == "losetaschile" and channel == "whatsapp" and not prior_turns and reply and
+        if (client_id == "losetaschile" and channel == "whatsapp" and reply and
+                (not prior_turns or _greets(text)) and
                 (res.get("greet_first") or res.get("aside") == "verbatim") and
                 not re.match(r"[\s¡]*(?:hola|buen[oa]s)", reply, re.IGNORECASE)):
-            reply = f"¡{whatsapp_greeting()}! {reply}"  # a fixed answer to a first message still greets
+            reply = f"¡{whatsapp_greeting()}! {reply}"  # greet back even when a fixed answer resumes an existing chat
         quote = res.get("quote")
         paver_order = res.get("paver_order")
         if client_id == "losetaschile" and channel == "whatsapp" and (quote or paver_order):

@@ -2,6 +2,18 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-11-17-whatsapp-saludo-pregunta-con-historial",
+      "date": "2026-11-17",
+      "type": "change",
+      "title": "Saludo en consultas de ubicación con historial previo",
+      "origin": "Diego detectó que el agente respondía la ubicación sin devolver el saludo durante una prueba autorizada",
+      "summary": "Las respuestas fijas de PoolEdge devuelven el saludo cuando el cliente saluda y pregunta, aunque exista historial. Se conserva la respuesta comercial, el saludo según la hora de Chile y el control de saludos duplicados; una consulta intermedia sin saludo no reinicia la conversación.",
+      "status": "Corregido y verificado en rama; pendiente de publicación y activación",
+      "scope": "Composición de respuestas fijas de WhatsApp para PoolEdge; sin cambios de precios, ficha o modo de atención",
+      "evidence": "Prueba reprodujo dos fallos con saludo y consulta de ubicación en historial existente. Corrección: 76 pruebas dirigidas y 1814 de suite completa aprobadas. Revisión independiente sin hallazgos; 13 pruebas adicionales de ubicación y saludo aprobadas. Sin envíos reales.",
+      "pending": "Publicar e integrar la rama fix/whatsapp-greeting-question; actualizar producción por pull y reiniciar backend; repetir prueba autorizada en WhatsApp."
+    },
+    {
       "id": "2026-11-17-pipeline-nombre-telefono",
       "date": "2026-11-17",
       "type": "change",

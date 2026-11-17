@@ -3,6 +3,7 @@ import unittest
 from unittest import mock
 
 from zero.agents import build_agents
+from zero.crm import CRM
 from zero.losetas_polls import FACTORY_ADDRESS, FACTORY_MAP_URL
 from zero.losetas_shipping import factory_location_question, factory_location_reply
 from zero.memory import SessionMemory
@@ -69,6 +70,52 @@ class FactoryLocationReplyTest(unittest.TestCase):
         dispatch.assert_not_called()
         self.assertIn(FACTORY_ADDRESS, result["reply"])
         self.assertTrue(result.get("flow_step"))
+
+
+class ReturningCustomerGreetingTest(unittest.TestCase):
+    def setUp(self):
+        self.memory = SessionMemory(None)
+        self.memory.register_client("losetaschile", "STARTER")
+        self.memory.set_client_agent_profile("losetaschile", {
+            "whatsapp_number": "56911111111", "response_mode": "automatic"})
+        self.phone = "56900000077"
+        crm = CRM(None)
+        crm.upsert("losetaschile", {"phone": self.phone, "source": "test"})
+        self.zero = Zero(build_agents(mock=True), memory=self.memory, crm=crm)
+        self.sent = []
+        def deliver(client, key, to, message, **kwargs):
+            self.sent.append(message["body"])
+            return {"status": "sent", "via": "test"}
+        self.zero._deliver = deliver
+
+    def ask(self, text, previous=True):
+        if previous:
+            self.memory.add_turn("losetaschile", self.phone, "lead", "Bordes de piscina")
+            self.memory.add_turn("losetaschile", self.phone, "agent",
+                                 "¿Cómo prefiere recibir su pedido?")
+        with mock.patch("zero.orchestrator.whatsapp_greeting", return_value="Buenas tardes"):
+            self.zero.handle_inbound(self.phone, text, to_phone_id="56911111111",
+                                     whatsapp_chat_id=self.phone + "@c.us")
+        return self.sent[-1]
+
+    def test_returning_customer_greeting_with_location_question_gets_a_greeting(self):
+        for text in ("Hola de donde son?", "Buenas tardes, ¿dónde están ubicados?"):
+            with self.subTest(text=text):
+                reply = self.ask(text)
+                self.assertRegex(reply, r"^¡Buenas tardes!")
+                self.assertIn("Los Granados 029, La Pintana", reply)
+                self.assertIn(FACTORY_MAP_URL, reply)
+                self.assertEqual(reply.count("Buenas tardes"), 1)
+
+    def test_mid_order_location_question_without_greeting_does_not_restart_chat(self):
+        reply = self.ask("¿Dónde están ubicados?")
+        self.assertTrue(reply.startswith("Nuestra fábrica"))
+        self.assertNotIn("Buenas tardes", reply)
+
+    def test_first_location_question_still_greets(self):
+        reply = self.ask("¿Dónde están ubicados?", previous=False)
+        self.assertRegex(reply, r"^¡Buenas tardes!")
+        self.assertIn(FACTORY_MAP_URL, reply)
 
 
 if __name__ == "__main__":
