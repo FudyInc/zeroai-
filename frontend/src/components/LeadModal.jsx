@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { api } from '../lib/api'
 import { useDismiss } from '../hooks/useDismiss'
 import { STAGES, scoreColor } from '../lib/util'
+import { leadIdentity } from '../lib/leadIdentity'
 import { Badge, Skeleton, Button, Input } from './ui'
 import IncomeBadge from './IncomeBadge'
 import ConversationThread from './ConversationThread'
@@ -62,13 +63,15 @@ export default function LeadModal({ client, leadKey, onClose }) {
 }
 
 function LeadBody({ r, client, onClose }) {
+  const identity = leadIdentity(r)
   const stg = STAGES[r.stage] || { l: r.stage, c: '#94a3b8' }
   const o = r.outreach
   return (
     <>
       <div className="flex justify-between items-start gap-3">
         <div>
-          <div className="text-lg font-bold">{r.company}</div>
+          <div className="text-lg font-bold break-words">{identity.title}</div>
+          {identity.company && <div className="text-sm text-zinc-500 break-words">{identity.company}</div>}
           <div className="text-sm text-zinc-500">{r.role || '—'}</div>
         </div>
         <button onClick={onClose} className="text-zinc-400 hover:text-zinc-700 transition"><X size={20} /></button>
@@ -81,7 +84,11 @@ function LeadBody({ r, client, onClose }) {
         </span>
       </div>
 
-      <div className="text-sm text-zinc-600 mt-3">{r.email || r.phone || '—'} · canal {r.channel || '—'}</div>
+      <div className="text-sm text-zinc-600 mt-3 space-y-1 break-words">
+        {identity.phone && <div>{identity.phone}</div>}
+        {identity.email && <div>{identity.email}</div>}
+        <div>Canal {r.channel || '—'}</div>
+      </div>
 
       {r.source === 'instagram_ads' && (
         <div className="mt-3 rounded-xl border border-zinc-200 bg-white dark:bg-zinc-50 p-3 space-y-1">

@@ -2,6 +2,18 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-11-17-pipeline-nombre-telefono",
+      "date": "2026-11-17",
+      "type": "change",
+      "title": "Nombre y teléfono del cliente en Pipeline",
+      "origin": "Diego pidió actualizar Pipeline y mostrar el nombre además del número",
+      "summary": "Las tarjetas muestran el nombre registrado y el teléfono en densidad cómoda y compacta; conservan empresa distinta y la ficha muestra teléfono y correo simultáneamente. Botón Actualizar y recarga al recuperar foco. Sin nombre disponible se indica Sin nombre registrado; no se infiere identidad desde el número ni la clave.",
+      "status": "Revisado y verificado; publicación en curso",
+      "scope": "Presentación de Pipeline y ficha de leads; sin cambios al backend ni escrituras al CRM",
+      "evidence": "43 pruebas frontend y compilación aprobadas; 1811 pruebas Python OK. Chromium con datos ficticios verificó ambas densidades, ficha y actualización. Revisión independiente sin bloqueantes. Consulta real solo lectura: 65 clientes, 56 con nombre y 65 con teléfono; los nueve nombres restantes tampoco están disponibles en memoria.",
+      "pending": "Integrar y verificar despliegue Vercel zeroai. Los contactos sin nombre requieren un nombre confirmado; no se inventan."
+    },
+    {
       "id": "2026-11-16-pooledge-campanas-vigencia-graficos",
       "date": "2026-11-16",
       "type": "change",
