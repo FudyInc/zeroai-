@@ -346,3 +346,13 @@ el backend local con el puente `ready`. Falta repetir la prueba en el teléfono.
 Sigue pendiente: qué modelos de pastelones son 50×50 (hoy el flujo de pastelones
 recoge modelo, m² y entrega, pero no arma presupuesto). Un saludo a mitad de un
 pedido vuelve a mandar la encuesta de producto.
+
+## Saludo y consulta en una conversación existente — 2026-11-17
+
+Corrección verificada en la rama `fix/whatsapp-greeting-question`, pendiente de
+publicación y activación. Si el cliente saluda y pregunta por la ubicación, la
+respuesta fija devuelve el saludo según la hora de Chile aunque exista historial.
+Conserva la dirección y Maps; una pregunta intermedia sin saludo no vuelve a
+saludar. La prueba reproduce el recorrido real sin datos de clientes ni envíos.
+Validación: 76 pruebas dirigidas y 1.814 de suite completa aprobadas; revisión
+independiente sin hallazgos. No modifica la ficha activa ni los precios.
