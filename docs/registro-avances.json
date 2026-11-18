@@ -2,6 +2,18 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-11-18-pooledge-transporte-regional",
+      "date": "2026-11-18",
+      "type": "change",
+      "title": "Condiciones de transporte regional en WhatsApp",
+      "origin": "Corrección de Diego sobre envíos a Arica",
+      "summary": "Indica mínimo regional, preparación del pallet y cotización del transportista al consultar por Arica, Antofagasta o regiones.",
+      "status": "En rama",
+      "scope": "WhatsApp de PoolEdge",
+      "evidence": "Prueba de conversación con menú anterior y consulta por precio.",
+      "pending": "Activación y verificación conectada."
+    },
+    {
       "id": "2026-11-18-whatsapp-cobertura-sin-redaccion-de-menu",
       "date": "2026-11-18",
       "type": "change",

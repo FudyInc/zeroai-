@@ -213,7 +213,8 @@ class WhatsAppHandoffTest(unittest.TestCase):
         send_poll.assert_called_once()
 
     def test_coverage_reply_survives_old_shipping_answer_and_location_aside(self):
-        for message in ("Despachan a arica?", "¿Tienen despachos a Antofagasta?"):
+        for message in ("Despachan a arica?", "¿Tienen despachos a Antofagasta?",
+                        "¿Cuánto cuesta el envío a Arica?"):
             with self.subTest(message=message):
                 self.memory.add_turn("losetaschile", "56933333333", "agent", SHIPPING_COVERAGE_REPLY + " ¿Cómo prefiere recibir su pedido?")
                 self.memory.add_turn("losetaschile", "56933333333", "agent",
@@ -225,8 +226,11 @@ class WhatsAppHandoffTest(unittest.TestCase):
                 self.assertEqual(result.get("delivery", {}).get("status"), "sent")
                 self.assertFalse(result.get("manual_review", False))
                 body = self.zero._deliver.call_args.args[3]["body"]
-                self.assertIn("despachos en Santiago", body)
-                self.assertIn("zonas cercanas", body)
+                self.assertIn("empresa de transporte", body)
+                self.assertIn("valor del flete por pallet", body)
+                self.assertIn("$200.000", body)
+                self.assertNotIn("?", body)
+                self.assertFalse(result.get("poll_delivery"))
                 self.assertNotIn("Recibí", body)
                 dispatch.assert_not_called()
 

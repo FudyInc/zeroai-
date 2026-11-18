@@ -798,8 +798,7 @@ class PoolBorderCountTest(unittest.TestCase):
     def test_shipping_coverage_questions_use_one_verified_reply(self):
         zero = Zero(build_agents(mock=True), memory=self.priced_memory())
         for question in ("¿Tienen despachos?", "¿Despachan a Los Andes?",
-                         "¿Hacen envíos a regiones?", "¿Hay flete a mi comuna?",
-                         "le llegan a arika?"):
+                         "¿Hay flete a mi comuna?"):
             with self.subTest(question=question), mock.patch.object(zero, "dispatch") as dispatch:
                 result = zero.converse_result(
                     "losetaschile", question, lead={"key": "test-lead"},
@@ -809,6 +808,17 @@ class PoolBorderCountTest(unittest.TestCase):
                 self.assertTrue(result["delivery_poll"])
                 self.assertNotIn("quote", result)
         self.assertFalse(shipping_coverage_request("¿Llegan los bordes dañados?"))
+
+    def test_regional_transport_is_quoted_by_the_carrier(self):
+        zero = Zero(build_agents(mock=True), memory=self.priced_memory())
+        for question, place in (("¿Hacen envíos a regiones?", "regiones"),
+                                ("le llegan a arika?", "Arica")):
+            with self.subTest(question=question):
+                result = zero.converse_result(
+                    "losetaschile", question, lead={"key": "test-lead"}, channel="whatsapp")
+                self.assertIn(f"a {place} enviamos por empresa de transporte", result["reply"])
+                self.assertIn("flete por pallet", result["reply"])
+                self.assertFalse(result.get("delivery_poll"))
 
     def test_poll_choice_gets_one_short_instruction(self):
         zero = Zero(build_agents(mock=True), memory=self.priced_memory())
