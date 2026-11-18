@@ -123,6 +123,11 @@ Las preguntas por el **precio** del flete mantienen una respuesta aparte que
 solicita dirección completa y revisión; los pedidos de productos con flete no
 pierden su cotización estructurada.
 
+Verificado con Diego el 17 de noviembre de 2026. Para Arica el envío se hace por
+empresa de transporte. La compra mínima regional es de $200.000 en productos.
+PoolEdge prepara el pallet y la transportista cotiza el flete por pallet. Al
+consultar la modalidad para un destino informado basta explicar esas condiciones.
+
 Diego fijó de forma provisional **$2.000 CLP por km** desde
 `Los Granados 029, La Pintana`, ubicación resuelta desde el enlace que entregó.
 La tarifa vive en `zero/config.py` y el cálculo exacto en `zero/quotes.py`.

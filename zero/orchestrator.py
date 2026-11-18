@@ -64,7 +64,7 @@ from .attention import fixed_answer, learned_alias, learned_answer
 from .losetas_shipping import (SHIPPING_COVERAGE_REPLY, SHIPPING_PRICE_REPLY,
                                delivery_detail, delivery_poll_choice_response,
                                factory_location_question, factory_location_reply,
-                               shipping_coverage_request, shipping_delivery_followup,
+                               regional_transport_reply, shipping_coverage_request, shipping_delivery_followup,
                                wants_order_change, delivery_with_place, DELIVERY_PLACE_REPLY)
 from .losetas_polls import (DELIVERY_POLL_QUESTION as LOSETAS_DELIVERY_POLL_QUESTION,
                             PRODUCT_POLL_QUESTION,
@@ -1432,6 +1432,12 @@ class Zero:
                             "intent": "qualification", "flow_step": True}
                 return {"reply": "", "intent": "handoff",
                         "gap_reason": "El cliente pregunta por una lista que no está abierta"}
+            if not (review_status or wants_order_change(message) or wants_product_quote(message)
+                    or wants_border_budget(message)):
+                transport = regional_transport_reply(message)
+                if transport:
+                    return {"reply": transport, "intent": "info", "flow_step": True,
+                            "greet_first": True}
             if open_choice(order_history) == "delivery" and delivery_with_place(message):
                 return {"reply": DELIVERY_PLACE_REPLY, "intent": "info", "flow_step": True}
             if POOL_MEASUREMENT_QUESTION in last_agent and not has_pool_size(message):
