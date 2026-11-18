@@ -164,7 +164,7 @@ class PaverOrderReviewTest(unittest.TestCase):
 
     def test_status_and_thanks_keep_review_state_without_customer_notices(self):
         for text in ("ok gracias", "Gracias", "listo", "👍", "¿Y?", "¿ya?",
-                     "¿Cuándo me llega el presupuesto?", "¿Cómo me llamo?"):
+                     "¿Cuándo me llega el presupuesto?"):
             with self.subTest(text=text):
                 results, bodies = self.run_chat(self.ORDER + [text])
                 self.assertEqual(bodies[-1], "")

@@ -33,13 +33,28 @@ class SilentReviewTest(unittest.TestCase):
 
     def test_model_written_review_notice_is_also_silent(self):
         for reply in ("Recibí su mensaje. Voy a revisar su consulta y le respondo por este chat.",
-                      "Gracias por escribir a PoolEdge."):
+                      "Gracias por escribir a PoolEdge.",
+                      "¡Buenas tardes! Gracias por escribir a PoolEdge."):
             with self.subTest(reply=reply), mock.patch.object(self.zero, "converse_result",
                     return_value={"reply": reply, "intent": "info"}):
                 result = self.inbound("¿Qué pasó con mi pedido?")
                 self.assertTrue(result.get("manual_review"))
                 self.zero._deliver.assert_not_called()
                 self.assertTrue(self.memory.list_knowledge_gaps("losetaschile"))
+
+    def test_known_name_question_during_review_gets_an_answer(self):
+        from datetime import datetime, timezone
+        from zero.losetas_polls import paver_review_sentence
+        self.zero.crm.upsert("losetaschile", {"phone": PHONE, "name": "Cliente Prueba"})
+        self.memory.set_lead_note("losetaschile", PHONE, "budget_review", {
+            "text": paver_review_sentence({"area_m2":"40", "model":"Gregoriano"}),
+            "at": datetime.now(timezone.utc).isoformat()})
+        answer = AgentResponse("test", "CONCIERGE", "done", {
+            "reply":"Su nombre es Cliente Prueba.", "intent":"info"})
+        with mock.patch.object(self.zero, "dispatch", return_value=answer):
+            result = self.inbound("¿Cómo me llamo?")
+        self.assertEqual(result.get("delivery", {}).get("status"), "sent")
+        self.assertIn("Cliente Prueba", self.zero._deliver.call_args.args[3]["body"])
 
     def test_known_location_is_still_answered_and_greeted(self):
         self.inbound("Hola, ¿de dónde son?")

@@ -2592,7 +2592,8 @@ class Zero:
                      _admits_not_knowing(reply))
         generic_notice = (client_id in WHATSAPP_SILENT_REVIEW_CLIENTS and channel == "whatsapp" and
                           (reply.strip() in WHATSAPP_REVIEW_NOTICES or
-                           re.search(LOSETASCHILE_REVIEW_NOTICE_PATTERN, reply, re.IGNORECASE)))
+                           re.search(LOSETASCHILE_REVIEW_NOTICE_PATTERN,
+                                     _without_salutation(reply), re.IGNORECASE)))
         if channel == "whatsapp" and (intent == "handoff" or not reply.strip() or repeated or
                                       unsafe_shipping or unsupported_review or unsupported_count
                                       or not_known or generic_notice):

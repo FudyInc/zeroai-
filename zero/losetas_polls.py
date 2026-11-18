@@ -102,7 +102,6 @@ _REVIEW_STATUS_MESSAGE = re.compile(
     rf"(?:{_REVIEW_THANKS})(?:\s+(?:{_REVIEW_THANKS}))*|y|ya|entendido|de acuerdo"
     r"|cuando\s+(?:me\s+)?(?:llega|mandan|envian|enviaran|mandaran|estara)\s+(?:el\s+)?"
     r"(?:presupuesto|cotizacion)|como\s+(?:va|vamos)\s+(?:mi\s+)?(?:pedido|presupuesto)"
-    r"|como\s+me\s+llamo"
     # While the budget is with the team, a stray digit, «alo?», «no entendí» or
     # «estábamos en un presupuesto» is the customer asking where things are (live 2026-11-09).
     r"|\d{1,2}|no|si|alo+|hola+\s+alo+|sigues?\s+ahi|hay\s+alguien(?:\s+ahi)?"

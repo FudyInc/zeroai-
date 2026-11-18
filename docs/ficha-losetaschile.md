@@ -370,6 +370,6 @@ en metadata, sin fingir un mensaje enviado. Precios y presupuesto no cambian.
 Corrección en `fix/whatsapp-quiet-review`, pendiente de publicación y reinicio del
 backend. Las pruebas no envían a contactos o grupos reales ni usan modelos de pago.
 
-Validación del 17/11: 1.823 pruebas de suite completa aprobadas, incluidas
+Validación del 17/11: 1.824 pruebas de suite completa aprobadas, incluidas
 regresiones de revisión silenciosa, presupuestos duplicados y avisos del modelo.
 Ficha activa versión 12 verificada; banco y respuestas comerciales conservados.
