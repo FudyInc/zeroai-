@@ -2,6 +2,18 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-11-17-whatsapp-revision-silenciosa",
+      "date": "2026-11-17",
+      "type": "change",
+      "title": "Atención sin acuses ni avisos de revisión al cliente",
+      "origin": "Diego corrigió el tono del agente: responder con información o preguntar lo necesario, sin llenar el chat con recibido, agradecimientos de bienvenida o avisos de revisión",
+      "summary": "PoolEdge saluda sin agradecimiento de relleno. Las consultas sin respuesta, derivaciones, fotos por revisar y borradores internos no generan avisos al cliente. Se conserva Atención, las pausas y el grupo interno. El estado de presupuesto se guarda como metadata y no como un mensaje supuestamente enviado; números y agradecimientos posteriores no reabren menús u ofertas antiguas. Una barrera detecta avisos genéricos redactados por el modelo.",
+      "status": "Corrección verificada en rama; pendiente de publicación y activación",
+      "scope": "WhatsApp de PoolEdge; sin cambios de precios ni del formato del presupuesto",
+      "evidence": "Regresiones reproducidas antes de corregir. 263 pruebas dirigidas y 1823 de suite completa aprobadas. Revisión independiente detectó dos salidas pendientes (duplicados y agradecimiento del modelo); ambas reproducidas y corregidas. Ficha viva versión12,3943 caracteres, relectura verificada; banco y respuestas fijas conservados. Sin mensajes reales ni llamadas a motores de pago.",
+      "pending": "Integrar rama fix/whatsapp-quiet-review y reiniciar zero-backend. Comprobar prueba autorizada después del reinicio; sudo requiere contraseña de Diego."
+    },
+    {
       "id": "2026-11-17-whatsapp-saludo-pregunta-con-historial",
       "date": "2026-11-17",
       "type": "change",

@@ -260,7 +260,7 @@ class FirstContactTest(_Flow):
                         "Hola vi su anuncio en Instagram", "vi su publicación",
                         "Buenas, quiero cotizar", "info"):
             result = self.converse(message, [])
-            self.assertRegex(result["reply"], r"^¡[^!]+! Gracias por escribir a PoolEdge\.$", message)
+            self.assertRegex(result["reply"], r"^¡[^!]+!$", message)
             self.assertEqual(result["customer_poll"], "product", message)
 
     def test_concrete_first_questions_keep_their_answer(self):
@@ -327,19 +327,21 @@ class ChatTest(_LiveChat):
         for turn in self.memory.get_conversation("losetaschile", "56933333333"):
             turn["at"] = now
 
-    def test_human_request_is_acknowledged_once_and_opens_an_attention_case(self):
+    def test_human_request_silently_opens_attention_case(self):
         self.inbound("quiero hablar con una persona")
-        self.assertEqual(self.sent(), [WHATSAPP_HUMAN_REQUEST_ACK])
+        self.assertEqual(self.sent(), [])
         gaps = self.memory.list_knowledge_gaps("losetaschile")
         self.assertEqual([gap["tipo"] for gap in gaps], ["pedido"])
         self.inbound("hola?")
-        self.assertEqual(len(self.sent()), 1)  # the bot stays paused
+        self.assertEqual(len(self.sent()), 0)  # the bot stays paused
 
-    def test_shipping_price_with_an_order_in_review_has_a_fixed_reply_and_no_menu(self):
+    def test_shipping_price_for_order_in_review_stays_internal_without_menu(self):
         self.review_turns()
         self.memory.set_client_pricing("losetaschile", PRICING)
-        self.inbound("¿cuánto cuesta el despacho a Maipú?")
-        self.assertEqual(self.sent(), [LOSETASCHILE_PAVER_REVIEW_SHIPPING_REPLY])
+        result = self.inbound("¿Cuánto cuesta el despacho?")
+        self.assertTrue(result["manual_review"])
+        self.assertEqual(self.sent(), [])
+        self.assertTrue(self.memory.list_knowledge_gaps("losetaschile"))
 
     def test_cancelling_an_order_in_review_goes_to_a_person_and_sends_nothing_to_the_group(self):
         self.review_turns()

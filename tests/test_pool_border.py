@@ -292,7 +292,7 @@ class PoolBorderCountTest(unittest.TestCase):
             result = zero.converse_result("losetaschile", "hola buenas",
                                           lead={"key": "new-lead"}, channel="whatsapp")
         dispatch.assert_not_called()
-        self.assertEqual(result["reply"], "¡Buenas noches! Gracias por escribir a PoolEdge.")
+        self.assertEqual(result["reply"], "¡Buenas noches!")
 
     def test_live_greetings_open_the_product_poll_without_model(self):
         # Seen live 2026-10-15: «Hola buenas tardes» reached the model and no poll was sent.
@@ -724,7 +724,7 @@ class PoolBorderCountTest(unittest.TestCase):
                 "56933333333", "Pastelones?", to_phone_id="56911111111",
                 whatsapp_chat_id="56933333333@c.us")
         self.assertTrue(result["manual_review"])
-        self.assertNotIn("18 pastelones", zero._deliver.call_args.args[3]["body"])
+        zero._deliver.assert_not_called()
         self.assertTrue(unquoted_piece_count("alrededor de 18 pastelones", None))
         self.assertTrue(unquoted_piece_count("alrededor de 18 unidades", None))
         self.assertTrue(unquoted_piece_count("unos dieciocho pastelones", None))
@@ -961,10 +961,8 @@ class PoolBorderCountTest(unittest.TestCase):
         dispatch.assert_not_called()
         self.assertEqual(result["delivery"]["status"], "accepted")
         self.assertTrue(result["manual_review"])
-        self.assertEqual(result["customer_ack"]["id"], "ack-1")
-        acknowledgment = zero._deliver.call_args.args[3]["body"]
-        self.assertIn("datos de entrega", acknowledgment)
-        self.assertNotIn("$", acknowledgment)
+        self.assertIsNone(result["customer_ack"])
+        zero._deliver.assert_not_called()
         self.assertEqual(send_group.call_args.args[:3],
                          ("losetaschile", "56911111111", "123456789@g.us"))
         internal = send_group.call_args.args[3]
@@ -1205,8 +1203,8 @@ class PoolBorderCountTest(unittest.TestCase):
         self.assertTrue(self._last_zero.memory.get_whatsapp_handoff(
             "losetaschile", "56944444444@c.us"))
         bodies = [c.args[3]["body"] for c in self._last_zero._deliver.call_args_list]
-        self.assertIn("foto de la piscina", bodies[-2])
-        self.assertIn("recibí la foto", bodies[-1])
+        self.assertIn("foto de la piscina", bodies[-1])
+        self.assertNotIn("recibí la foto", bodies[-1])
         [caso] = self._last_zero.memory.list_knowledge_gaps("losetaschile")
         self.assertIn("foto", caso["reason"])
 
@@ -1217,8 +1215,8 @@ class PoolBorderCountTest(unittest.TestCase):
                 include_whale=True)
         alert.assert_called_once()
         bodies = [c.args[3]["body"] for c in self._last_zero._deliver.call_args_list]
-        self.assertIn("Quedo atento a la foto", bodies[-2])
-        self.assertIn("recibí la foto", bodies[-1])
+        self.assertIn("Quedo atento a la foto", bodies[-1])
+        self.assertNotIn("recibí la foto", bodies[-1])
         self.assertEqual(len(self._last_zero.memory.list_knowledge_gaps("losetaschile")), 1)
 
     def test_question_about_whale_border_is_not_a_selection(self):

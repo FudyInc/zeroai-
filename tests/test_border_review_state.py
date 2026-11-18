@@ -60,17 +60,17 @@ class BorderReviewStateTest(unittest.TestCase):
         self.zero, self.group = zero, group
         return bodies
 
-    def test_the_order_reaches_the_group_and_the_ack_states_the_review(self):
+    def test_the_order_reaches_the_group_without_a_customer_ack(self):
         bodies = self.run_chat(ORDER)
         self.assertEqual(self.group.call_count, 1)
-        self.assertIn(STATUS, bodies[-1])
+        self.assertEqual(bodies[-1], "")
 
-    def test_live_follow_ups_get_the_status_not_the_model(self):
+    def test_live_followups_remain_internal_without_model_or_customer_notice(self):
         follow_ups = ["1", "No entendi", "Estabamos en un presupuesto", "Alo?", "Hola"]
         bodies = self.run_chat(ORDER + follow_ups)
         for text, body in zip(follow_ups, bodies[len(ORDER):]):
             with self.subTest(text=text):
-                self.assertIn(STATUS, body)
+                self.assertEqual(body, "")
                 self.assertNotIn("¿Qué producto está buscando?", body)
                 self.assertNotIn("Gracias, lo anoté", body)
         self.assertEqual(self.group.call_count, 1)
@@ -80,8 +80,7 @@ class BorderReviewStateTest(unittest.TestCase):
         # got the generic info summary instead of the status.
         bodies = self.run_chat(ORDER + ["1", "Okay gracias", "Bkn"])
         for body in bodies[-2:]:
-            self.assertTrue(body.startswith("Gracias, lo anoté."), body)
-            self.assertIn(STATUS, body)
+            self.assertEqual(body, "")
 
     def test_a_new_request_still_goes_through_the_flow(self):
         bodies = self.run_chat(ORDER + ["quiero cotizar pastelones"])

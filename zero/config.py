@@ -296,7 +296,24 @@ LOSETASCHILE_WHATSAPP_CATALOG_URL = "https://wa.me/c/56964537891"
 # que solo hay lo del catálogo.
 # Primer saludo: la pregunta («¿Qué producto está buscando?») la hace la encuesta que
 # sale justo después. Diego, 2026-11-11: «¿en qué puedo ayudarle?» no suena bien.
-LOSETASCHILE_GREETING_TAIL = "Gracias por escribir a PoolEdge."
+LOSETASCHILE_GREETING_TAIL = ""
+# Diego, 2026-11-17: una revisión pendiente se comunica solo al equipo.
+WHATSAPP_SILENT_REVIEW_CLIENTS = frozenset({"losetaschile"})
+LOSETASCHILE_REVIEW_NOTICE_PATTERN = (
+    r"^\s*gracias por escribir(?:nos)?(?:\s+a\s+PoolEdge)?[.!]?\s*$|"
+    r"\brecib[ií]\s+(?:su|tu|el)\s+(?:mensaje|consulta)\b"
+    r"|\b(?:voy a|vamos a|necesito)\s+revisar\s+(?:su|tu|la)\s+consulta\b"
+    r"|\b(?:le|te)\s+(?:respondo|escribimos|respondemos)\s+por\s+(?:este|el mismo)\s+chat\b"
+)
+LOSETASCHILE_FALLBACK_GREETINGS = (
+    "¡{greeting}! ¿Qué está buscando?",
+    "¡{greeting}! Cuénteme qué está buscando.",
+)
+LOSETASCHILE_FALLBACK_GREETINGS_NAMED = (
+    "¡{greeting}, {name}! ¿Qué está buscando?",
+    "¡{greeting}, {name}! Cuénteme qué está buscando.",
+)
+
 LOSETASCHILE_FULGET_REPLY = (
     "No trabajamos fulget. Solo fabricamos lo que está en nuestro catálogo: bordes de "
     "piscina y pastelones de hormigón. Puede verlos aquí: " + LOSETASCHILE_WHATSAPP_CATALOG_URL)

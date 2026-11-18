@@ -163,11 +163,11 @@ class LiveErrorsTest(_LiveChat):
         self.assertEqual(result["intent"], "handoff")
         self.assertIsNotNone(self.memory.get_whatsapp_handoff("losetaschile", "56933333333@c.us"))
 
-    def test_an_insult_hands_the_chat_to_a_person_with_one_acknowledgment(self):
+    def test_insult_silently_hands_chat_to_person(self):
         from zero.config import WHATSAPP_HUMAN_REQUEST_ACK
         result = self.inbound("en la puta que te pario")
         self.assertEqual(result["intent"], "handoff")
-        self.assertEqual(self.sent(), [WHATSAPP_HUMAN_REQUEST_ACK])
+        self.assertEqual(self.sent(), [])
 
     def test_a_product_complaint_is_not_mistaken_for_anger(self):
         from zero.orchestrator import _UPSET_RE
