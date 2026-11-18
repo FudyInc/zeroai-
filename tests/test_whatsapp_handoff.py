@@ -12,7 +12,7 @@ from zero.config import (LOSETASCHILE_FALLBACK_GREETINGS as WHATSAPP_FALLBACK_GR
 from zero.contracts import AgentResponse
 from zero.memory import SessionMemory
 from zero.losetas_shipping import (DELIVERY_LOCATION_PROMPT, DELIVERY_POLL_LOCATION,
-                                   SHIPPING_COVERAGE_REPLY)
+                                   SHIPPING_COVERAGE_REPLY, SHIPPING_PRICE_REPLY)
 from zero.orchestrator import Zero, _unverified_quote_review_claim
 
 
@@ -211,6 +211,36 @@ class WhatsAppHandoffTest(unittest.TestCase):
         self.assertEqual(body, format_whatsapp_reply(SHIPPING_COVERAGE_REPLY))
         self.assertEqual(result["poll_delivery"]["id"], "poll-1")
         send_poll.assert_called_once()
+
+    def test_coverage_reply_survives_old_shipping_answer_and_location_aside(self):
+        for message in ("Despachan a arica?", "¿Tienen despachos a Antofagasta?"):
+            with self.subTest(message=message):
+                self.memory.add_turn("losetaschile", "56933333333", "agent", SHIPPING_COVERAGE_REPLY + " ¿Cómo prefiere recibir su pedido?")
+                self.memory.add_turn("losetaschile", "56933333333", "agent",
+                                     "Nuestra fábrica está en Los Granados 029, La Pintana.\n\n"
+                                     "Para seguir con su pedido:\n¿Cómo prefiere recibir su pedido?")
+                answer = AgentResponse("test", "CONCIERGE", "done", {"reply":"", "intent":"handoff"})
+                with mock.patch.object(self.zero, "dispatch", return_value=answer) as dispatch:
+                    result = self.inbound(message)
+                self.assertEqual(result.get("delivery", {}).get("status"), "sent")
+                self.assertFalse(result.get("manual_review", False))
+                body = self.zero._deliver.call_args.args[3]["body"]
+                self.assertIn("despachos en Santiago", body)
+                self.assertIn("zonas cercanas", body)
+                self.assertNotIn("Recibí", body)
+                dispatch.assert_not_called()
+
+    def test_shipping_price_reply_is_not_replaced_by_a_menu_redraft(self):
+        self.memory.add_turn("losetaschile", "56933333333", "agent", SHIPPING_PRICE_REPLY)
+        self.memory.add_turn("losetaschile", "56933333333", "agent",
+                             "Nuestra fábrica está en Los Granados 029, La Pintana.\n\n"
+                             "Para seguir con su pedido:\n¿Cómo prefiere recibir su pedido?")
+        answer = AgentResponse("test", "CONCIERGE", "done", {"reply":"", "intent":"handoff"})
+        with mock.patch.object(self.zero, "dispatch", return_value=answer) as dispatch:
+            result = self.inbound("¿Cuánto cuesta el despacho?")
+        self.assertEqual(result.get("delivery", {}).get("status"), "sent")
+        self.assertIn("El despacho se cotiza por separado", self.zero._deliver.call_args.args[3]["body"])
+        dispatch.assert_not_called()
 
     def test_second_coverage_question_remains_answerable(self):
         self.memory.set_client_knowledge(

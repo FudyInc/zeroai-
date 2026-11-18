@@ -373,3 +373,15 @@ backend. Las pruebas no envían a contactos o grupos reales ni usan modelos de p
 Validación del 17/11: 1.824 pruebas de suite completa aprobadas, incluidas
 regresiones de revisión silenciosa, presupuestos duplicados y avisos del modelo.
 Ficha activa versión 12 verificada; banco y respuestas comerciales conservados.
+
+
+## Respuesta de cobertura con historial previo — 2026-11-18
+
+La respuesta confirmada de cobertura se conserva aunque exista una respuesta
+anterior y un menú de entrega abierto. No se sustituye por una redacción del
+modelo ni por silencio. Lo mismo aplica a la explicación de cómo se cotiza
+el flete. La política comercial no cambia: esta corrección no confirma destinos
+ni valores particulares. Preparado en `fix/whatsapp-coverage-reply`; pendiente
+de publicación y reinicio para activarlo.
+
+Verificación: 1.826 pruebas completas aprobadas y revisión independiente sin hallazgos.

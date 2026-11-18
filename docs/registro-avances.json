@@ -2,6 +2,18 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-11-18-whatsapp-cobertura-sin-redaccion-de-menu",
+      "date": "2026-11-18",
+      "type": "change",
+      "title": "Respuesta de cobertura preservada al retomar un menú de entrega",
+      "origin": "Diego probó una consulta de cobertura regional y el agente guardó silencio pese a existir respuesta confirmada",
+      "summary": "El historial filtrado podía conservar una respuesta antigua de cobertura o flete como última pregunta. Al responder nuevamente la cobertura, la guarda de repetición la sustituía por una redacción del modelo con el menú abierto y terminaba en revisión. Se conserva la respuesta determinista de cobertura o precio de flete, sin cambiar cobertura ni valores ni añadir avisos genéricos.",
+      "status": "Corregido en rama; publicación y activación pendientes",
+      "scope": "Relectura de menú en WhatsApp de PoolEdge; sin cambios a la política comercial",
+      "evidence": "Regresión reprodujo el silencio con consulta de cobertura y respuesta anterior más aparte de ubicación. 86 pruebas dirigidas y1826 de suite completa aprobadas. Revisión independiente sin hallazgos;29 pruebas de handoff aprobadas. Sin mensajes reales ni llamadas a modelos de pago.",
+      "pending": "Integrar fix/whatsapp-coverage-reply, actualizar producción y reiniciar backend; prueba conectada autorizada después del reinicio."
+    },
+    {
       "id": "2026-11-17-whatsapp-revision-silenciosa",
       "date": "2026-11-17",
       "type": "change",

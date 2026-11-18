@@ -2332,6 +2332,7 @@ class Zero:
         # A bare color («gris») keeps the old behaviour, which the flow reads later on.
         open_menu = (reasks_open_choice(res, text, menu_turns)
                      if menu_turns and not _simple_greeting(text) and not res.get("repeat_menu") and
+                     res.get("reply") not in (SHIPPING_COVERAGE_REPLY, SHIPPING_PRICE_REPLY) and
                      not (names_color(text) and "?" not in text) else None)
         if open_menu:
             res = self.converse_result(client_id, text, lead=rec, channel=channel,
