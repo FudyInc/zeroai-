@@ -192,7 +192,7 @@ class PersonOrComplaintTest(_LiveChat):  # H
                         or {"status": "sent"}):
             result = self.inbound("No me enviaste nunca la wea")
         self.assertTrue(result["manual_review"])
-        self.assertEqual(self.sent(), [WHATSAPP_HUMAN_REQUEST_ACK])
+        self.assertEqual(self.sent(), [])
         self.assertEqual([k for k, _ in sent], ["whatsapp_person"])
         self.assertIn("pooledge", sent[0][1].casefold())
         self.assertIn("pausa", sent[0][1])

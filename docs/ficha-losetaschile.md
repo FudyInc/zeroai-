@@ -356,3 +356,20 @@ Conserva la dirección y Maps; una pregunta intermedia sin saludo no vuelve a
 saludar. La prueba reproduce el recorrido real sin datos de clientes ni envíos.
 Validación: 76 pruebas dirigidas y 1.814 de suite completa aprobadas; revisión
 independiente sin hallazgos. No modifica la ficha activa ni los precios.
+
+
+## Atención sin mensajes de relleno — instrucción de Diego, 2026-11-17
+
+Responder la consulta concreta con información confirmada o preguntar únicamente
+el dato que falta para avanzar. Si el agente no puede responder, registrar el caso
+en Atención sin acuse de recibido, promesa de respuesta ni aviso de derivación al
+cliente. El saludo no incluye «gracias por escribir». Los borradores siguen en el
+grupo interno sin un aviso adicional al cliente. Se conserva el estado del pedido
+en metadata, sin fingir un mensaje enviado. Precios y presupuesto no cambian.
+
+Corrección en `fix/whatsapp-quiet-review`, pendiente de publicación y reinicio del
+backend. Las pruebas no envían a contactos o grupos reales ni usan modelos de pago.
+
+Validación del 17/11: 1.824 pruebas de suite completa aprobadas, incluidas
+regresiones de revisión silenciosa, presupuestos duplicados y avisos del modelo.
+Ficha activa versión 12 verificada; banco y respuestas comerciales conservados.

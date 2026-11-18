@@ -58,10 +58,12 @@ class PaverOrderReviewTest(unittest.TestCase):
                 mock.patch.dict(os.environ, {"LOSETASCHILE_REVIEW_GROUP_ID": GROUP}), \
                 mock.patch.object(zero, "dispatch"):
             for text in messages:
+                before = zero._deliver.call_count
                 results.append(zero.handle_inbound(
                     PHONE, text.replace("{model}", model), to_phone_id=BOT, profile_name="Cliente Uno",
                     whatsapp_chat_id=CHAT))
-                bodies.append(zero._deliver.call_args.args[3]["body"])
+                bodies.append(zero._deliver.call_args.args[3]["body"]
+                              if zero._deliver.call_count > before else "")
         self.zero, self.send_group = zero, send_group
         return results, bodies
 
@@ -76,7 +78,7 @@ class PaverOrderReviewTest(unittest.TestCase):
             self.assertIn(expected, draft)
         self.assertIn("Precio unitario: $1.600", draft)
         self.assertEqual(results[-1]["delivery"]["status"], "accepted")
-        self.assertIn(REVIEW_SENTENCE, bodies[-1])
+        self.assertEqual(bodies[-1], "")
         self.assertNotIn("$", bodies[-1])
 
     def test_priced_model_shows_its_unit_price_unpriced_says_pending(self):
@@ -139,11 +141,11 @@ class PaverOrderReviewTest(unittest.TestCase):
         self.assertIsNone(format_paver_order_draft(
             {**order, "area_m2": None}, profile_name=None, phone=PHONE))
 
-    def test_repeated_location_gets_a_normal_acknowledgement(self):
+    def test_repeated_location_is_silent_without_duplicate_draft(self):
         results, bodies = self.run_chat(self.ORDER + [LOCATION])
         self.assertEqual(self.send_group.call_count, 1)  # no second notice
         self.assertNotIn("revisar tu consulta", bodies[-1].casefold())
-        self.assertIn(REVIEW_SENTENCE, bodies[-1])
+        self.assertEqual(bodies[-1], "")
         self.assertFalse(results[-1].get("manual_review") and results[-1].get("intent") == "handoff")
 
     def test_repeat_does_not_open_a_question_gap(self):
@@ -160,14 +162,14 @@ class PaverOrderReviewTest(unittest.TestCase):
         self.assertEqual((gap["tipo"], gap["reason"], gap["veces"]),
                          ("pedido", "Pastelones: cotizar", 2))
 
-    def test_status_and_thanks_are_answered_from_the_order_state(self):
+    def test_status_and_thanks_keep_review_state_without_customer_notices(self):
         for text in ("ok gracias", "Gracias", "listo", "👍", "¿Y?", "¿ya?",
-                     "¿Cuándo me llega el presupuesto?", "¿Cómo me llamo?"):
+                     "¿Cuándo me llega el presupuesto?"):
             with self.subTest(text=text):
                 results, bodies = self.run_chat(self.ORDER + [text])
-                self.assertIn(REVIEW_SENTENCE, bodies[-1])
+                self.assertEqual(bodies[-1], "")
                 self.assertEqual(self.send_group.call_count, 1)
-                self.assertEqual(self.zero.memory.list_knowledge_gaps("losetaschile"), [])
+                self.assertTrue(results[-1].get("waiting"))
 
     def test_other_messages_go_through_the_flow_and_open_a_pedido_gap(self):
         for text in ("cancela el pedido", "mejor con otro color",
@@ -180,10 +182,10 @@ class PaverOrderReviewTest(unittest.TestCase):
                     "Pedido en revisión") and text in gap["pregunta"]]
                 self.assertEqual([gap["tipo"] for gap in mine], ["pedido"])
 
-    def test_greeting_mid_review_gives_the_status_not_the_product_menu(self):
+    def test_greeting_mid_review_does_not_restart_product_menu(self):
         # Live 2026-11-09: a «hola» restarted the catalog while the budget sat in review.
         _, bodies = self.run_chat(self.ORDER + ["Hola buenas noches"])
-        self.assertIn(REVIEW_SENTENCE, bodies[-1])
+        self.assertEqual(bodies[-1], "")
         self.assertNotIn("¿Qué producto está buscando?", bodies[-1])
 
     def test_the_state_expires_after_the_configured_hours(self):
@@ -192,6 +194,7 @@ class PaverOrderReviewTest(unittest.TestCase):
         turns = next(iter(zero.memory.clients["losetaschile"]["conversations"].values()))
         old = (datetime.now(timezone.utc) -
                timedelta(hours=config.LOSETASCHILE_PAVER_REVIEW_STATE_HOURS + 1)).isoformat()
+        zero.memory.lead_notes("losetaschile", PHONE)["budget_review"]["at"] = old
         for turn in turns:
             turn["at"] = old
         self.assertIsNone(paver_review_status(turns))
@@ -206,8 +209,10 @@ class PaverOrderReviewTest(unittest.TestCase):
         self.run_chat(self.ORDER)
         zero = self.zero
         turns = next(iter(zero.memory.clients["losetaschile"]["conversations"].values()))
+        old = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat()
+        zero.memory.lead_notes("losetaschile", PHONE)["budget_review"]["at"] = old
         for turn in turns:
-            turn["at"] = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat()
+            turn["at"] = old
         before = len(zero.memory.list_knowledge_gaps("losetaschile"))
         zero.handle_inbound(PHONE, "Hola", to_phone_id=BOT, whatsapp_chat_id=CHAT)
         body = zero._deliver.call_args.args[3]["body"]
@@ -230,7 +235,7 @@ class PaverOrderReviewTest(unittest.TestCase):
         self.assertIn("retiro en fábrica", paver_review_sentence(
             {**order, "delivery_detail": "Retiro en fábrica: Y"}))
 
-    def test_group_not_configured_still_acknowledges_and_opens_the_gap(self):
+    def test_group_not_configured_is_silent_and_opens_internal_gap(self):
         zero = _chat()
         with mock.patch("zero.whatsapp_web.send_catalog_document",
                         return_value={"id": "d", "ack": 0}), \
@@ -241,11 +246,11 @@ class PaverOrderReviewTest(unittest.TestCase):
                 zero.handle_inbound(PHONE, text.replace("{model}", "Gregoriano"),
                                     to_phone_id=BOT, whatsapp_chat_id=CHAT)
         send_group.assert_not_called()
-        self.assertIn(REVIEW_SENTENCE, zero._deliver.call_args.args[3]["body"])
+        self.assertNotIn(REVIEW_SENTENCE, zero._deliver.call_args.args[3]["body"])
         (gap,) = zero.memory.list_knowledge_gaps("losetaschile")
         self.assertEqual(gap["tipo"], "pedido")
 
-    def test_failed_group_send_acknowledges_opens_the_gap_and_is_not_retried(self):
+    def test_failed_group_send_is_silent_opens_gap_and_is_not_retried(self):
         zero = _chat()
         with mock.patch("zero.whatsapp_web.send_catalog_document",
                         return_value={"id": "d", "ack": 0}), \
@@ -256,7 +261,7 @@ class PaverOrderReviewTest(unittest.TestCase):
             for text in self.ORDER:
                 zero.handle_inbound(PHONE, text.replace("{model}", "Gregoriano"),
                                     to_phone_id=BOT, whatsapp_chat_id=CHAT)
-            self.assertIn(REVIEW_SENTENCE, zero._deliver.call_args.args[3]["body"])
+            self.assertNotIn(REVIEW_SENTENCE, zero._deliver.call_args.args[3]["body"])
             self.assertEqual(
                 [gap["tipo"] for gap in zero.memory.list_knowledge_gaps("losetaschile")],
                 ["pedido"])

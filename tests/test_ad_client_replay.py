@@ -79,7 +79,7 @@ class AdClientReplayTest(unittest.TestCase):
         self.assertEqual(self.image.call_count, 1)   # la gama de colores va con la imagen
         self.assertIn("¿Cómo prefiere recibir su pedido?", bodies[5])
         self.assertEqual(bodies[6], DELIVERY_PLACE_REPLY)
-        self.assertIn("en revisión del equipo", bodies[7])
+        self.assertEqual(bodies[7], "")
         for body in bodies:
             self.assertNotIn("lista numérica", body)
             self.assertNotIn(_LEGACY_ASIDE_CLOSING, body)

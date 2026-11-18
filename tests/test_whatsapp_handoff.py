@@ -6,7 +6,8 @@ from unittest import mock
 
 from zero.agents import build_agents
 from zero.crm import CRM
-from zero.config import (WHATSAPP_FALLBACK_GREETINGS, WHATSAPP_FALLBACK_GREETINGS_NAMED,
+from zero.config import (LOSETASCHILE_FALLBACK_GREETINGS as WHATSAPP_FALLBACK_GREETINGS,
+                         LOSETASCHILE_FALLBACK_GREETINGS_NAMED as WHATSAPP_FALLBACK_GREETINGS_NAMED,
                          WHATSAPP_HUMAN_REQUEST_ACK, WHATSAPP_REVIEW_NOTICES)
 from zero.contracts import AgentResponse
 from zero.memory import SessionMemory
@@ -41,15 +42,14 @@ class WhatsAppHandoffTest(unittest.TestCase):
     def test_request_for_human_stops_bot_and_survives_reload(self):
         first = self.inbound("Necesito hablar con una persona")
         self.assertTrue(first["manual_review"])
-        self.assertEqual(self.zero._deliver.call_count, 1)
-        self.assertEqual(self.zero._deliver.call_args.args[3]["body"], WHATSAPP_HUMAN_REQUEST_ACK)
+        self.zero._deliver.assert_not_called()
         gaps = self.memory.list_knowledge_gaps("losetaschile")
         self.assertEqual([g["tipo"] for g in gaps], ["pedido"])
         self.assertIsNotNone(SessionMemory(self.path).get_whatsapp_handoff(
             "losetaschile", "56933333333@c.us"))
         second = self.inbound("Hola, sigo esperando")
         self.assertTrue(second["manual_review"])
-        self.assertEqual(self.zero._deliver.call_count, 1)  # paused: no second acknowledgment
+        self.zero._deliver.assert_not_called()
         self.assertIsNone(self.memory.get_whatsapp_handoff("petlabs", "56933333333@c.us"))
 
     def test_model_uncertainty_hands_off_and_another_business_still_responds(self):
@@ -57,14 +57,14 @@ class WhatsAppHandoffTest(unittest.TestCase):
             "reply": "Voy a pedir apoyo al equipo.", "intent": "handoff"}):
             result = self.inbound("No sé explicar bien lo que necesito")
         self.assertTrue(result["manual_review"])
-        self.assertEqual(result["delivery"]["status"], "sent")
+        self.assertEqual(result["delivery"]["status"], "not_sent")
         self.assertIsNone(self.memory.get_whatsapp_handoff(
             "losetaschile", "56933333333@c.us"))
         with mock.patch.object(self.zero, "converse_result", return_value={
             "reply": "Te cuento las opciones.", "intent": "explain"}):
             other = self.inbound("¿Qué venden?", client="petlabs")
         self.assertFalse(other.get("manual_review", False))
-        self.assertEqual(self.zero._deliver.call_count, 2)
+        self.assertEqual(self.zero._deliver.call_count, 1)
 
     def test_repeated_answer_reviews_one_message_without_blocking_next(self):
         with mock.patch.object(self.zero, "converse_result", return_value={
@@ -73,16 +73,15 @@ class WhatsAppHandoffTest(unittest.TestCase):
             second = self.inbound("Estoy en La Florida")
         self.assertEqual(first["delivery"]["status"], "sent")
         self.assertTrue(second["manual_review"])
-        self.assertEqual(second["delivery"]["status"], "sent")
-        self.assertIn(self.zero._deliver.call_args.args[3]["body"], WHATSAPP_REVIEW_NOTICES)
-        self.assertEqual(self.zero._deliver.call_count, 2)
+        self.assertEqual(second["delivery"]["status"], "not_sent")
+        self.assertEqual(self.zero._deliver.call_count, 1)
         self.assertIsNone(self.zero.memory.get_whatsapp_handoff(
             "losetaschile", "56933333333@c.us"))
         with mock.patch.object(self.zero, "converse_result", return_value={
             "reply": "Gracias, revisaré el despacho a La Florida.", "intent": "general"}):
             resumed = self.inbound("¿Y el despacho?")
         self.assertEqual(resumed["delivery"]["status"], "sent")
-        self.assertEqual(self.zero._deliver.call_count, 3)
+        self.assertEqual(self.zero._deliver.call_count, 2)
 
     def test_empty_agent_reply_hands_off(self):
         with mock.patch.object(self.zero, "converse_result", return_value={}):
@@ -193,8 +192,8 @@ class WhatsAppHandoffTest(unittest.TestCase):
             result = self.inbound("¿Hacen despacho a La Florida?")
         self.assertEqual(draft.call_count, 2)
         self.assertTrue(result["manual_review"])
-        self.assertEqual(result["delivery"]["status"], "sent")
-        self.assertNotIn("Hacemos despacho", self.zero._deliver.call_args.args[3]["body"])
+        self.assertEqual(result["delivery"]["status"], "not_sent")
+        self.zero._deliver.assert_not_called()
 
     @mock.patch("zero.orchestrator.LOSETASCHILE_CHOICE_STYLE", "poll")
     def test_verified_shipping_coverage_is_sent_without_handoff(self):
@@ -325,12 +324,12 @@ class WhatsAppHandoffTest(unittest.TestCase):
         ]):
             result = self.inbound("¿Qué pasó con mi cotización?")
         self.assertTrue(result["manual_review"])
-        self.assertEqual(result["delivery"]["status"], "sent")
-        self.assertNotIn("revisé", self.zero._deliver.call_args.args[3]["body"])
+        self.assertEqual(result["delivery"]["status"], "not_sent")
+        self.zero._deliver.assert_not_called()
         self.assertIsNone(self.memory.get_whatsapp_handoff(
             "losetaschile", "56933333333@c.us"))
 
-    def test_real_unverified_consulta_draft_gets_notice_then_greeting(self):
+    def test_unverified_consulta_draft_is_silent_then_next_greeting_is_answered(self):
         draft = "¡Hola Diego! Ya revisé tu consulta. ¿Cuál modelo y medidas necesitas?"
         self.assertTrue(_unverified_quote_review_claim(draft))
         self.assertFalse(_unverified_quote_review_claim(
@@ -342,8 +341,8 @@ class WhatsAppHandoffTest(unittest.TestCase):
             first = self.inbound("¿Qué pasó con mi pedido?")
         self.assertEqual(generated.call_count, 2)
         self.assertTrue(first["manual_review"])
-        self.assertEqual(first["delivery"]["status"], "sent")
-        self.assertNotIn("Ya revisé", self.zero._deliver.call_args.args[3]["body"])
+        self.assertEqual(first["delivery"]["status"], "not_sent")
+        self.zero._deliver.assert_not_called()
         self.assertIsNone(SessionMemory(self.path).get_whatsapp_handoff(
             "losetaschile", "56933333333@c.us"))
         with mock.patch.object(self.zero, "converse_result", return_value={
@@ -351,11 +350,10 @@ class WhatsAppHandoffTest(unittest.TestCase):
             second = self.inbound("Hola")
         self.assertFalse(second.get("manual_review", False))
         self.assertEqual(second["delivery"]["status"], "sent")
-        self.assertEqual(self.zero._deliver.call_count, 2)
+        self.assertEqual(self.zero._deliver.call_count, 1)
 
-    def test_failed_review_notice_does_not_retry_uncertain_delivery(self):
+    def test_silent_review_does_not_use_delivery_before_next_real_reply(self):
         self.zero._deliver = mock.Mock(side_effect=[
-            {"status": "error", "via": "whatsapp_web", "error": "timeout"},
             {"status": "sent", "via": "whatsapp_web"},
         ])
         with mock.patch.object(self.zero, "converse_result", side_effect=[
@@ -363,14 +361,14 @@ class WhatsAppHandoffTest(unittest.TestCase):
             {"reply": "Ya revisé tu consulta.", "intent": "info"},
         ]):
             first = self.inbound("¿Qué pasó con mi pedido?")
-        self.assertEqual(first["delivery"]["status"], "error")
+        self.assertEqual(first["delivery"]["status"], "not_sent")
         self.assertIsNone(self.memory.get_whatsapp_handoff(
             "losetaschile", "56933333333@c.us"))
         with mock.patch.object(self.zero, "converse_result", return_value={
             "reply": "¡Hola! ¿En qué puedo ayudarle?", "intent": "general"}):
             second = self.inbound("Hola")
         self.assertEqual(second["delivery"]["status"], "sent")
-        self.assertEqual(self.zero._deliver.call_count, 2)
+        self.assertEqual(self.zero._deliver.call_count, 1)
 
     def test_inbox_handoff_control_is_scoped_to_selected_business(self):
         import api

@@ -45,7 +45,9 @@ from .config import (LOSETASCHILE_CHAT_OPEN_HOURS, WHATSAPP_UNREADABLE_HANDOFF_H
     WHATSAPP_FALLBACK_GREETINGS_NAMED,
     WHATSAPP_HUMAN_REQUEST_ACK,
     CLIENT_DISPLAY_NAMES,
-    WHATSAPP_REVIEW_NOTICES,
+    WHATSAPP_REVIEW_NOTICES, WHATSAPP_SILENT_REVIEW_CLIENTS,
+    LOSETASCHILE_REVIEW_NOTICE_PATTERN, LOSETASCHILE_FALLBACK_GREETINGS,
+    LOSETASCHILE_FALLBACK_GREETINGS_NAMED,
 )
 from .channels import Outbox
 from .agent_rules import check_reply
@@ -1368,6 +1370,8 @@ class Zero:
         order_history = history or []
         if client_id == "losetaschile" and channel == "whatsapp":
             order_history = without_choice_slips(current_order(order_history))
+            review_status = paver_review_status(order_history, pending=self.memory.lead_notes(
+                client_id, (lead or {}).get("key") or "").get("budget_review"))
             # Typos fixed and loose sizes rewritten before any step reads it.
             message = normalize_customer_text(message)
             if customer_defers(message) and any(
@@ -1375,10 +1379,10 @@ class Zero:
                 # The customer asked for time: wait for them, send nothing.
                 return {"reply": "", "intent": "qualification", "wait": True}
             recent_agent = any(turn.get("role") == "agent" for turn in order_history[-6:])
-            if recent_agent and customer_closes(message) and not paver_review_status(order_history):
+            if recent_agent and customer_closes(message) and not review_status:
                 return {"reply": WHATSAPP_CLOSING_REPLY, "intent": "general", "flow_step": True}
             if (recent_agent and restart_request(message) and
-                    not paver_review_status(order_history)):
+                    not review_status):
                 # «Volver al inicio», «cargar de nuevo las medidas» (cliente real,
                 # 2026-11-11): se vuelve a ese punto; los datos viejos quedan atrás.
                 category = selected_category_from_history(order_history)
@@ -1392,7 +1396,7 @@ class Zero:
                         "intent": "qualification", "customer_poll": "product"}
             if (recent_agent and customer_acknowledges(message) and
                     not canonical_choice(message, order_history) and
-                    not paver_review_status(order_history)):
+                    not review_status):
                 # A bare «ok» to an open question: ask it again, the model adds nothing.
                 menu = open_choice(order_history)
                 last_agent = " ".join(next((str(turn.get("text") or "") for turn in reversed(order_history)
@@ -1411,7 +1415,7 @@ class Zero:
                                         for turn in reversed(order_history)
                                         if turn.get("role") == "agent"), "").split())
             if (recent_agent and asks_which_list(message) and
-                    not paver_review_status(order_history)):
+                    not review_status):
                 # «¿Cuál lista?»: show the open question itself. The model once
                 # answered «No tengo una lista numérica disponible» (2026-11-10).
                 menu = open_choice(order_history)
@@ -1446,7 +1450,7 @@ class Zero:
                         "flow_step": True, "aside": "verbatim"}
             size = unsupported_paver_size(message)
             if (size and selected_category_from_history(order_history) == "pastelones" and
-                    not paver_review_status(order_history)):
+                    not review_status):
                 # «45x40»: the sizes that exist, never the generic «recibí tu mensaje».
                 return {"reply": paver_size_reply(size), "intent": "qualification",
                         "flow_step": True}
@@ -1454,8 +1458,8 @@ class Zero:
             if new_area:
                 return {"reply": f"Anoté {new_area} m². {PAVER_MODEL_QUESTION}",
                         "intent": "qualification", "customer_poll": "paver_model"}
-            chosen = canonical_choice(message, order_history)
-            stray = None if chosen else invalid_choice(message, order_history)
+            chosen = None if review_status else canonical_choice(message, order_history)
+            stray = None if chosen or review_status else invalid_choice(message, order_history)
             if chosen:
                 message = chosen
             elif stray:
@@ -1490,8 +1494,12 @@ class Zero:
         # A question asked mid-menu skips the fixed steps: they would only send the menu again.
         losetas_steps = client_id == "losetaschile" and channel == "whatsapp" and not open_menu
         if losetas_steps:
-            in_review = paver_review_reply(message, order_history, _simple_greeting(message))
+            in_review = paver_review_reply(message, order_history, _simple_greeting(message), status=review_status)
             if in_review:
+                if client_id in WHATSAPP_SILENT_REVIEW_CLIENTS:
+                    return {"reply": "", "intent": "info", "wait": True,
+                            **({} if review_thanks(message) else
+                               {"attention": "Cliente retoma un pedido en revisión"})}
                 # Only an acknowledgement, a status question or an exact repeat is
                 # answered from the open order; anything else goes through the flow.
                 if _simple_greeting(message):
@@ -1518,7 +1526,7 @@ class Zero:
                 if question in last_agent:
                     return {"reply": f"{salutation} {question}", "intent": "qualification",
                             "flow_step": True, "repeat_menu": True}
-            return {"reply": f"{salutation} {LOSETASCHILE_GREETING_TAIL}", "intent": "general",
+            return {"reply": f"{salutation} {LOSETASCHILE_GREETING_TAIL}".rstrip(), "intent": "general",
                     "customer_poll": "product"}
         if losetas_steps:
             visual_category = visual_catalog_category(message)
@@ -1558,7 +1566,7 @@ class Zero:
                 return {"reply": f"¡{greeting}! {PRODUCT_POLL_QUESTION}",
                         "intent": "qualification", "customer_poll": "product"}
             if not order_history and not _CONCRETE_FIRST_QUESTION_RE.search(message):
-                return {"reply": f"¡{greeting}! {LOSETASCHILE_GREETING_TAIL}", "intent": "general",
+                return {"reply": f"¡{greeting}! {LOSETASCHILE_GREETING_TAIL}".rstrip(), "intent": "general",
                         "customer_poll": "product"}
             if (_QUOTE_REQUEST_RE.search(message) and not _INFO_QUESTION_RE.search(message) and
                     not re.search(r"\b(?:bordes?\s+(?:de|para)\s+(?:(?:la|mi|una|nuestra|el)\s+)?piscinas?|pastelones?)\b",
@@ -1577,16 +1585,16 @@ class Zero:
             )
             if choice_reply and not factory_order_ready:
                 return {"reply": choice_reply, "intent": "info"}
-        if (losetas_steps and wants_order_change(message) and paver_review_status(order_history)):
+        if (losetas_steps and wants_order_change(message) and review_status):
             # Cancelling or changing an order in review is for a person: the model would
             # claim it is done.
             return {"reply": "", "intent": "handoff",
                     "review_reason": "Cliente pide cancelar o cambiar el pedido en revisión"}
         if (losetas_steps and shipping_price_request(message) and
-                paver_review_status(order_history)):
+                review_status):
             # The team quotes the freight with the budget: no delivery menu again.
-            return {"reply": LOSETASCHILE_PAVER_REVIEW_SHIPPING_REPLY, "intent": "info",
-                    "flow_step": True}
+            return {"reply": "", "intent": "handoff",
+                    "review_reason": "Cliente consulta el flete de un pedido en revisión"}
         if (losetas_steps and
                 shipping_price_request(message)):
             return {"reply": SHIPPING_PRICE_REPLY, "intent": "pricing",
@@ -1799,7 +1807,9 @@ class Zero:
                              "ya solicitadas. Pide solo el dato que falta. Si no logras entender "
                              "la consulta, usa intent handoff. Trata siempre al cliente "
                              "de usted (usted, su, le; «¿qué está buscando?»); nunca "
-                             "lo tutees.")
+                             "lo tutees. No envíes acuses de recibido ni agradecimientos por escribir "
+                             "ni avisos de que vas a revisar, responder o derivar al equipo. "
+                             "Si no puedes responder con datos confirmados, usa intent handoff sin texto.")
         if open_menu:
             instructions += (" El cliente escribió esto en vez de elegir una opción de la "
                              "pregunta abierta «" + LOSETAS_CHOICE_PROMPTS[open_menu][0] +
@@ -2061,8 +2071,10 @@ class Zero:
                 # La opción canónica reemplaza el texto: el expediente guarda la extensión.
                 self.memory.set_lead_note(client_id, key, "extension", True)
             text = learned_alias(self.memory, client_id, text) or text
-            text = canonical_choice(text, without_choice_slips(
-                self.memory.get_conversation(client_id, key))) or text
+            choice_history = without_choice_slips(self.memory.get_conversation(client_id, key))
+            if not paver_review_status(choice_history, pending=self.memory.lead_notes(
+                    client_id, key).get("budget_review")):
+                text = canonical_choice(text, choice_history) or text
         if name_from_profile and channel == "whatsapp":
             display_names = self.memory.clients.setdefault(client_id, {}).setdefault(
                 "whatsapp_display_names", {})
@@ -2175,6 +2187,8 @@ class Zero:
                    # The owner reviews the photo; the customer knows it arrived.
                    "Gracias, recibí la foto. La revisamos y le respondemos por este chat."
                    if photo else "")
+            if client_id in WHATSAPP_SILENT_REVIEW_CLIENTS and channel == "whatsapp":
+                ack = ""
             if ack:
                 if live_messages is not None:
                     try:
@@ -2228,7 +2242,9 @@ class Zero:
         offer_flow = self.memory.get_client_agent_profile(client_id).get("offer_flow", True)
         if (offer_flow and pending and accepts_offer(text) and not
                 (client_id == "losetaschile" and channel == "whatsapp" and
-                 catalog_requested(text))):
+                 (catalog_requested(text) or paver_review_status(
+                     self.memory.get_conversation(client_id, key),
+                     pending=self.memory.lead_notes(client_id, key).get("budget_review"))))):
             body = build_info_summary(self.memory.get_client_icp(client_id), rec)
             out_channel, to = pick_channel(text, rec, default_channel=channel)
             if live_messages is not None:
@@ -2302,8 +2318,10 @@ class Zero:
         menu_turns = (without_choice_slips(prior_turns)
                       if client_id == "losetaschile" and channel == "whatsapp" else [])
         open_order = current_order(menu_turns)
-        if (paver_review_status(open_order) and
-                not paver_review_reply(text, open_order, _simple_greeting(text))):
+        pending_review = self.memory.lead_notes(client_id, key).get("budget_review")
+        if (paver_review_status(open_order, pending=pending_review) and
+                not paver_review_reply(text, open_order, _simple_greeting(text),
+                                       status=paver_review_status(open_order, pending=pending_review))):
             # The order is with the team: whatever else she writes, they must see it.
             self.memory.add_knowledge_gap(
                 client_id, f"Pedido en revisión: el cliente escribió «{text[:200]}»",
@@ -2351,10 +2369,14 @@ class Zero:
                     return hold_for_whatsapp_review(
                         "El chat recibió otro mensaje durante la redacción.")
         if res.get("wait"):
+            if res.get("attention"):
+                self.memory.add_knowledge_gap(
+                    client_id, text, res["attention"], chat_id=whatsapp_chat_id or key,
+                    contacto=rec.get("name") or "", lead_key=key, tipo="pedido")
             self.memory.add_turn(client_id, key, "lead", text)
             self.memory.log("inbound_waiting", client=client_id, lead=key, channel=channel)
             self.memory.save()
-            return {"matched": True, "waiting": True, "intent": "qualification",
+            return {"matched": True, "waiting": True, "manual_review": True, "intent": "qualification",
                     "company": rec.get("company"), **out}
         reply, intent = res.get("reply") or "", res.get("intent") or "general"
         if (client_id == "losetaschile" and channel == "whatsapp" and reply and
@@ -2386,8 +2408,8 @@ class Zero:
                 if signatures.get(key) == signature:
                     self.memory.log("internal_budget_already_sent", client=client_id, lead=key)
                     self.memory.save()
-                    if paver_order:
-                        # Same order again: the customer still gets a normal answer.
+                    if paver_order and client_id not in WHATSAPP_SILENT_REVIEW_CLIENTS:
+                        # Only businesses that opted into review notices receive an acknowledgment.
                         repeat_ack = "Gracias, lo anoté. " + paver_review_sentence(paver_order)
                         try:
                             repeat_delivery = self._deliver(
@@ -2439,6 +2461,12 @@ class Zero:
                     tipo="pedido")
             customer_ack = None
             if delivery["status"] == "accepted" or paver_order:
+                sentence = (paver_review_sentence(paver_order) if paver_order else
+                            border_review_sentence(res.get("selected_tone"),
+                                                   delivery_detail(text, prior_turns)))
+                self.memory.set_lead_note(client_id, key, "budget_review",
+                                          {"text": sentence, "at": datetime.now(timezone.utc).isoformat()})
+            if client_id not in WHATSAPP_SILENT_REVIEW_CLIENTS and (delivery["status"] == "accepted" or paver_order):
                 tone = res.get("selected_tone")
                 if color_preference(text, prior_turns):
                     thanks = f"Gracias, anoté el color {tone}. "
@@ -2529,9 +2557,9 @@ class Zero:
             # Un saludo nuevo no debe silenciar el chat por una respuesta anterior igual.
             # Responder sin repetir preguntas viejas ni inventar datos del negocio.
             greeting = whatsapp_greeting()
-            reply = (pick_variant(WHATSAPP_FALLBACK_GREETINGS_NAMED, key, self._last_agent_text(client_id, key),
+            reply = (pick_variant(LOSETASCHILE_FALLBACK_GREETINGS_NAMED, key, self._last_agent_text(client_id, key),
                                   greeting=greeting, name=introduced_name) if introduced_name
-                     else pick_variant(WHATSAPP_FALLBACK_GREETINGS, key,
+                     else pick_variant(LOSETASCHILE_FALLBACK_GREETINGS, key,
                                        self._last_agent_text(client_id, key), greeting=greeting))
             intent, quote = "general", None
             repeated = False
@@ -2562,12 +2590,17 @@ class Zero:
         not_known = (client_id == "losetaschile" and channel == "whatsapp" and
                      intent != "handoff" and not res.get("flow_step") and
                      _admits_not_knowing(reply))
+        generic_notice = (client_id in WHATSAPP_SILENT_REVIEW_CLIENTS and channel == "whatsapp" and
+                          (reply.strip() in WHATSAPP_REVIEW_NOTICES or
+                           re.search(LOSETASCHILE_REVIEW_NOTICE_PATTERN,
+                                     _without_salutation(reply), re.IGNORECASE)))
         if channel == "whatsapp" and (intent == "handoff" or not reply.strip() or repeated or
                                       unsafe_shipping or unsupported_review or unsupported_count
-                                      or not_known):
+                                      or not_known or generic_notice):
             reason = ((res.get("review_reason") or res.get("gap_reason") or
                        "El agente no entendió la consulta")
                       if intent == "handoff" else
+                      "Aviso genérico sin respuesta a la consulta" if generic_notice else
                       "El agente no tenía la información" if not_known else
                       "Respuesta sobre despacho requiere revisión" if unsafe_shipping else
                       "Revisión de consulta no comprobada" if unsupported_review else
@@ -2592,6 +2625,10 @@ class Zero:
             if self.crm:
                 self.crm.log(client_id, key, "awaiting_human", reason)
                 self.crm.save()
+            if client_id in WHATSAPP_SILENT_REVIEW_CLIENTS and channel == "whatsapp":
+                return {"matched": True, "manual_review": True, "intent": "handoff",
+                        "delivery": {"status": "not_sent", "reason": "internal_review"},
+                        "company": rec.get("company"), **out}
             notice = pick_variant(WHATSAPP_REVIEW_NOTICES, key,
                                   self._last_agent_text(client_id, key))
             notice_delivery = self._deliver(

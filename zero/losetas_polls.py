@@ -69,11 +69,15 @@ def border_review_sentence(color: str | None = None, delivery_detail: str | None
     return f"Su presupuesto de bordes de piscina{tone}{delivery}" + PAVER_REVIEW_SUFFIX
 
 
-def paver_review_status(history: list[dict[str, Any]], now: datetime | None = None) -> str | None:
+def paver_review_status(history: list[dict[str, Any]], now: datetime | None = None,
+                        pending: dict[str, Any] | None = None) -> str | None:
     """The sentence we gave for a paver order in review, while the state has not expired.
 
     A turn without a readable timestamp counts as expired: never trap the chat."""
     now = now or datetime.now(timezone.utc)
+    # A silent review is durable metadata, never a fabricated sent turn.
+    if isinstance(pending, dict):
+        history = [*history, {**pending, "role": "agent"}]
     for turn in reversed(history):
         if turn.get("role") != "agent":
             continue
@@ -98,7 +102,6 @@ _REVIEW_STATUS_MESSAGE = re.compile(
     rf"(?:{_REVIEW_THANKS})(?:\s+(?:{_REVIEW_THANKS}))*|y|ya|entendido|de acuerdo"
     r"|cuando\s+(?:me\s+)?(?:llega|mandan|envian|enviaran|mandaran|estara)\s+(?:el\s+)?"
     r"(?:presupuesto|cotizacion)|como\s+(?:va|vamos)\s+(?:mi\s+)?(?:pedido|presupuesto)"
-    r"|como\s+me\s+llamo"
     # While the budget is with the team, a stray digit, «alo?», «no entendí» or
     # «estábamos en un presupuesto» is the customer asking where things are (live 2026-11-09).
     r"|\d{1,2}|no|si|alo+|hola+\s+alo+|sigues?\s+ahi|hay\s+alguien(?:\s+ahi)?"
@@ -117,10 +120,10 @@ def review_thanks(message: str) -> bool:
 
 
 def paver_review_reply(message: str, history: list[dict[str, Any]],
-                       is_greeting: bool = False) -> str | None:
+                       is_greeting: bool = False, status: str | None = None) -> str | None:
     """The status sentence when the message only acknowledges, asks for the status,
     or repeats a message the order already answered; None for anything else."""
-    status = paver_review_status(history)
+    status = status or paver_review_status(history)
     value = " ".join((message or "").split())
     if not status or not value:
         return None
