@@ -64,11 +64,11 @@ _MIXED_PRODUCT_PROMPT = re.compile(
 
 def regional_transport_reply(message: str) -> str | None:
     """Confirmed carrier destinations and explicit general questions about regions."""
-    destination = re.search(r"\b(arica|antofagasta|regiones)\b", message, re.IGNORECASE)
+    destination = re.search(r"\b(ari[ck]a|antofagasta|regiones)\b", message, re.IGNORECASE)
     if not destination or not shipping_coverage_request(message):
         return None
     place = destination[1].lower()
-    label = "regiones" if place == "regiones" else place.capitalize()
+    label = {"regiones": "regiones", "arika": "Arica"}.get(place, place.capitalize())
     return (f"Sí, a {label} enviamos por empresa de transporte desde $200.000 en productos. "
             "Nosotros armamos el pallet y la empresa de transporte cotiza el valor del flete por pallet.")
 
