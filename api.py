@@ -33,7 +33,7 @@ load_env()   # secrets locales (.env) — los de Render env ya están en os.envi
 from zero.cloud_env import backed_up_keys, load_into_environ, save_secret
 load_into_environ()   # + secretos guardados en la nube (sobreviven a redeploys)
 from zero.agents import build_agents
-from zero.config import (AGENCY_CLIENT_ID, AVG_DEAL_VALUE_CLP, CLIENT_DISPLAY_NAMES, CRM_OPEN_STAGES, CRM_STAGES,
+from zero.config import (AGENCY_CLIENT_ID, CLIENT_DISPLAY_NAMES, CRM_OPEN_STAGES, CRM_STAGES,
                          MAX_CORRIDAS_RECORDADAS,
                          DEFAULT_INBOUND_CLIENT_ID, DEFAULT_INBOUND_WHATSAPP_NUMBER,
                          DEFAULT_VENDOR_ID, LEAD_ADS_MAX_FORMS, MAX_INBOUND_MESSAGE_CHARS,
@@ -713,7 +713,7 @@ def kpis(client: str):
         "total": sum(counts.values()),
         "in_pipeline": sum(counts.get(s, 0) for s in CRM_OPEN_STAGES),
         "won": won,
-        "pipeline_clp": won * AVG_DEAL_VALUE_CLP,
+        "pipeline_clp": None,  # La etapa ganada no registra el monto del pedido.
     }
 
 

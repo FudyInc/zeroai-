@@ -2,6 +2,18 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-11-18-ganados-sin-importe",
+      "date": "2026-11-18",
+      "type": "change",
+      "title": "Contar oportunidades ganadas sin asignarles un importe",
+      "origin": "Corrección de Diego sobre el indicador del dashboard.",
+      "summary": "Se retira la tarjeta monetaria calculada a partir del valor promedio de proyección. El resumen muestra el conteo de ganados del CRM.",
+      "status": "Corregido en código",
+      "scope": "Indicadores comerciales del dashboard y API de KPIs",
+      "evidence": "El endpoint devuelve el conteo y un importe nulo cuando solo se conoce la etapa del lead.",
+      "pending": "Verificar la publicación."
+    },
+    {
       "id": "2026-11-18-piloto-interfaz-leads",
       "date": "2026-11-18",
       "type": "change",
