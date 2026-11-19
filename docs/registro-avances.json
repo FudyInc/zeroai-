@@ -14,6 +14,18 @@
       "pending": "Verificar la activación del panel y la tarea periódica."
     },
     {
+      "id": "2026-11-19-nombre-en-listado-leads",
+      "date": "2026-11-19",
+      "type": "change",
+      "title": "Mostrar y buscar el nombre del contacto en Leads",
+      "origin": "Diego pidió que cada lead aparezca con su nombre en el listado.",
+      "summary": "La fila muestra el nombre registrado y la empresa cuando es distinta. La búsqueda por nombre se aplica a los contactos cargados del negocio activo.",
+      "status": "Verificado en desarrollo",
+      "scope": "Listado de Leads para todos los negocios.",
+      "evidence": "Chromium con datos sintéticos en 390 y 1440 px: nombre y empresa, búsqueda y registros sin nombre. Compilación y pruebas del frontend aprobadas.",
+      "pending": "Comprobar publicación del frontend."
+    },
+    {
       "id": "2026-11-18-ganados-sin-importe",
       "date": "2026-11-18",
       "type": "change",
