@@ -726,6 +726,31 @@ class CampaignsBudgetTest(unittest.TestCase):
         self.assertEqual(out["target_cpl"], metaads.CHILE["good_cpl_clp"])
 
 
+class CampaignPlanTest(unittest.TestCase):
+    def test_only_active_campaigns_reach_agent(self):
+        import api
+        active = {"status": "active"}
+        items = [active, {"status": "completed"}, {"status": "scheduled"}]
+        agent = mock.Mock()
+        agent.optimize_campaigns.return_value = {"plan": "Revisar"}
+        with mock.patch.object(api, "_client_meta_cfg", return_value={}), \
+             mock.patch.object(api, "_safe_campaigns", return_value=(items, "live", None)), \
+             mock.patch.object(api, "_agent_op", side_effect=lambda op: (op(agent), "live")):
+            self.assertEqual(api.optimize_campaigns("acme")["plan"], "Revisar")
+        agent.optimize_campaigns.assert_called_once_with("acme", [active], good_cpl_clp=metaads.CHILE["good_cpl_clp"])
+
+    def test_unavailable_or_empty_account_skips_agent(self):
+        import api
+        for source, error, status in (("live", None, 409), ("sin_datos", None, 400), ("sin_datos", "error", 502)):
+            with self.subTest(source=source, error=error), \
+                 mock.patch.object(api, "_client_meta_cfg", return_value={}), \
+                 mock.patch.object(api, "_safe_campaigns", return_value=([], source, error)), \
+                 mock.patch.object(api, "_agent_op") as agent, self.assertRaises(api.HTTPException) as exc:
+                api.optimize_campaigns("acme")
+            self.assertEqual(exc.exception.status_code, status)
+            agent.assert_not_called()
+
+
 class CampaignDailySpendAvailabilityTest(unittest.TestCase):
     def _campaigns(self, daily):
         import api

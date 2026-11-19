@@ -69,3 +69,16 @@ export function visiblePaidAds(items, campaigns, scope = 'active') {
     return activeAdIds === null || activeAdIds.has(String(ad.ad_id))
   })
 }
+
+// Prioridad al abrir la pantalla. Usa los mismos totales y objetivo que el resumen.
+export function campaignReview(summary, now = new Date()) {
+  if (summary.error) return { title: 'Vuelve a consultar Meta', detail: 'Falló la lectura de la cuenta. Actualiza los datos para volver a intentarlo.' }
+  if (summary.source !== 'live') return { title: 'Conecta tu cuenta de Meta', detail: 'Asigna la cuenta publicitaria de este negocio para consultar sus campañas.' }
+  const pace = budgetPace(summary.spent_clp, summary.budget_clp, now)
+  if (pace?.state === 'over') return { title: 'Revisa el gasto del mes', detail: `La inversión supera tu presupuesto mensual en ${money(summary.spent_clp - summary.budget_clp)}.` }
+  if (!summary.active) return { title: 'Sin campañas en circulación', detail: 'Cuando Meta registre una campaña activa, podrás pedirle al agente que la revise.' }
+  if (!pace) return { title: 'Define cuánto quieres invertir', detail: 'Con un presupuesto mensual podrás ver cuánto queda y si el gasto va demasiado rápido.' }
+  if (pace.state === 'fast') return { title: 'Revisa el ritmo de gasto', detail: `Si sigue el ritmo actual, la inversión del mes llegaría a ${money(pace.projected)} frente a ${money(summary.budget_clp)} previstos.` }
+  if (summary.leads > 0 && summary.cpl_clp > summary.good_cpl_clp) return { title: 'Revisa el costo por consulta', detail: `Este mes cada consulta costó en promedio ${money(summary.cpl_clp)}. El objetivo es ${money(summary.good_cpl_clp)}.` }
+  return { title: 'Sigue el rendimiento de tus campañas', detail: summary.leads ? 'El gasto va dentro del ritmo previsto y el costo promedio por consulta está dentro del objetivo.' : 'Todavía no se registran consultas este mes. Puedes revisar los anuncios que están circulando.' }
+}

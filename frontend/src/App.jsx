@@ -136,7 +136,9 @@ export default function App() {
     queryKey: ['accounts'], queryFn: api.accounts, enabled: authed === true && newBusinessOpen,
   })
   useEffect(() => {
-    if (!client && clients.length) setClient(clients[0])
+    if (!client && clients.length) {
+      setClient(clients.includes('losetaschile') ? 'losetaschile' : clients[0])
+    }
   }, [clients, client])
 
   // Rol con alcance sin clientes asignados: el backend responde 403 a todo; se
