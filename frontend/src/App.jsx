@@ -62,15 +62,19 @@ const TITLES = {
 }
 
 export default function App() {
-  const [client, setClient] = useState(null)
-  const [leadKey, setLeadKey] = useState(null)
-  useEffect(() => { setLeadKey(null) }, [client])
+  // La paleta puede seleccionar un negocio y abrir su lead en el mismo evento.
+  const [{ client, leadKey }, setSelection] = useState({ client: null, leadKey: null })
+  const setClient = (nextClient) => setSelection((current) =>
+    current.client === nextClient ? current : { client: nextClient, leadKey: null })
+  const setLeadKey = (key) => setSelection((current) => ({ ...current, leadKey: key }))
   const [runOpen, setRunOpen] = useState(false)
   /* La corrida recién disparada. Vive acá y no en Leads porque quien la dispara es el
      modal global —desde cualquier página— y quien la muestra es Leads: es el único
      punto que los dos ven. Tras un F5 se pierde, y ahí Leads lo reengancha solo
      preguntando por /api/pipeline/runs. */
-  const [runId, setRunId] = useState(null)
+  const [run, setRun] = useState(null)
+  const runId = run?.client === client ? run.id : null
+  const setRunId = (id, owner = client) => setRun({ client: owner, id })
   const { pathname } = useLocation()
   const nav = useNavigate()
   const qc = useQueryClient()
@@ -241,7 +245,7 @@ export default function App() {
           </main>
         </div>
 
-        <LeadModal client={client} leadKey={leadKey} onClose={() => setLeadKey(null)} />
+        <LeadModal key={client} client={client} leadKey={leadKey} onClose={() => setLeadKey(null)} />
         <RunModal open={runOpen} onClose={() => setRunOpen(false)} onStarted={setRunId} />
         {newBusinessOpen && (businessAccounts ? (
           <NewClientModal plans={businessAccounts.plans} existingClients={clients}
@@ -439,7 +443,7 @@ function RunModal({ open, onClose, onStarted }) {
       .then((d) => {
         setClient(targetClient)
         onClose()
-        onStarted?.(d.run)
+        onStarted?.(d.run, targetClient)
         nav(scoped ? homePath(role) : '/leads')
       })
       .catch((e) => setRunError(`No se pudo iniciar la búsqueda: ${e.message}`))

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
-import { Search, Users } from 'lucide-react'
+import { ChevronRight, Search, Users } from 'lucide-react'
 import { api } from '../lib/api'
 import { STAGES, scoreColor } from '../lib/util'
 import { Card, Skeleton, Button, Input, StageSelect } from '../components/ui'
@@ -22,6 +22,13 @@ const GROUPS = [
 ]
 const PAGE = 50
 const viewKey = (client) => `zero_leads_view_${client}`
+
+function LeadScore({ value }) {
+  return <span className="inline-flex items-center gap-1.5 font-semibold tabular-nums">
+    <span aria-hidden="true" className="size-2 shrink-0 rounded-full" style={{ backgroundColor: scoreColor(value) }} />
+    {value ?? '—'}
+  </span>
+}
 
 export default function Leads() {
   const clientLabel = useClientLabel()
@@ -123,66 +130,83 @@ export default function Leads() {
       )}
 
       <section className="workspace-section">
-        <WorkspaceSectionHeading eyebrow="01 / Contactos" title="Explora tus leads"
-          description="Filtra por estado o busca entre los registros cargados." />
-      <motion.div className="flex flex-wrap items-center gap-2" variants={fade}>
-        <div className="relative flex-1 min-w-[220px]">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
-          <Input className="pl-9" placeholder="Buscar en lo cargado…" value={q} onChange={(e) => setQ(e.target.value)} />
-        </div>
-        <Segmented options={GROUPS} value={group} onChange={setGroup} />
-        {!isLoading && <span className="text-xs text-zinc-400">{leads.length} de {total}</span>}
-      </motion.div>
-
-      <motion.div variants={surface}>
-        <Card className="overflow-hidden overflow-x-auto">
-        <table className="w-full text-sm min-w-[640px]">
-          <thead className="bg-zinc-50 text-zinc-500 text-left text-xs uppercase tracking-wide">
-            <tr>{['Empresa', 'Cargo', 'Contacto', 'Score', 'Etapa'].map((h) => <th key={h} className="px-5 py-3 font-medium">{h}</th>)}</tr>
-          </thead>
-          <motion.tbody variants={staggerDense()} initial="hidden" animate="show">
-            {isLoading && [0, 1, 2, 3, 4].map((i) => (
-              <tr key={i} className="border-t border-zinc-100">
-                {[0, 1, 2, 3, 4].map((j) => <td key={j} className="px-5 py-3"><Skeleton className="h-4 w-24" /></td>)}
-              </tr>
-            ))}
-
-            {!isLoading && !error && rows.map((r) => (
-              <motion.tr key={r.key} variants={fade}
-                onClick={() => openLead(r.key)} className="border-t border-zinc-100 hover:bg-zinc-50 cursor-pointer transition-colors">
-                <td className="px-5 py-3 font-medium">{r.company}</td>
-                <td className="px-5 py-3 text-zinc-500">{r.role || '—'}</td>
-                <td className="px-5 py-3 text-zinc-500">{r.email || r.phone || '—'}</td>
-                <td className="px-5 py-3 font-extrabold tabular-nums" style={{ color: scoreColor(r.score) }}>{r.score ?? '—'}</td>
-                <td className="px-5 py-3" onClick={(e) => e.stopPropagation()}>
-                  <StageSelect value={r.stage} onChange={(e) => move(r.key, e.target.value)} aria-label={`Etapa de ${r.company}`} />
-                </td>
-              </motion.tr>
-            ))}
-
-            {!isLoading && error && (
-              <tr><td colSpan={5} className="px-5 py-12 text-center">
-                <p className="text-rose-600 font-medium">No se pudieron cargar los leads.</p>
-                <Button variant="soft" className="mt-3" onClick={() => refetch()}>Reintentar</Button>
-              </td></tr>
-            )}
-            {!isLoading && !error && rows.length === 0 && (
-              <tr><td colSpan={5} className="px-5 py-10 text-center text-zinc-400">
-                {total ? 'Ningún lead coincide.' : 'Sin leads. Usá “Buscar leads”.'}
-              </td></tr>
-            )}
-          </motion.tbody>
-        </table>
-        </Card>
-      </motion.div>
-
-      {hasNextPage && (
-        <motion.div className="flex justify-center" variants={fade}>
-          <Button variant="soft" onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
-            {isFetchingNextPage ? 'Cargando…' : `Cargar más (${leads.length} de ${total})`}
-          </Button>
+        <WorkspaceSectionHeading title="Contactos">
+          {!isLoading && !error && <span role="status" className="text-xs tabular-nums text-zinc-600">
+            {needle ? `${filtrados.length} ${filtrados.length === 1 ? 'coincidencia' : 'coincidencias'} · ` : ''}{leads.length} de {total} cargados
+          </span>}
+        </WorkspaceSectionHeading>
+        <motion.div className="flex flex-wrap items-center gap-3" variants={fade}>
+          <div className="relative min-w-0 grow basis-64">
+            <Search aria-hidden="true" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+            <Input type="search" aria-label="Buscar en los contactos cargados" className="pl-9"
+              placeholder="Buscar en los contactos cargados…" value={q} onChange={(e) => setQ(e.target.value)} />
+          </div>
+          <Segmented label="Filtrar por estado" options={GROUPS} value={group} onChange={setGroup} />
         </motion.div>
-      )}
+
+        <motion.div variants={surface} className="min-w-0">
+          <Card className="overflow-hidden">
+            <table aria-label="Contactos del negocio" className="w-full table-fixed text-left text-sm">
+              <thead className="bg-zinc-50 text-xs text-zinc-600">
+                <tr>
+                  <th scope="col" className="px-3 py-3 sm:px-4">Empresa</th>
+                  <th scope="col" className="hidden px-4 py-3 lg:table-cell">Contacto</th>
+                  <th scope="col" className="hidden w-20 px-3 py-3 sm:table-cell">Score</th>
+                  <th scope="col" className="w-36 px-2 py-3 sm:w-40 sm:px-4">Etapa</th>
+                </tr>
+              </thead>
+              <motion.tbody variants={staggerDense()} initial="hidden" animate="show">
+                {isLoading && [0, 1, 2, 3, 4].map((i) => (
+                  <tr key={i} aria-hidden="true" className="border-t border-zinc-100">
+                    <td colSpan={4} className="p-4"><Skeleton className="h-5 w-full" /></td>
+                  </tr>
+                ))}
+                {!isLoading && !error && rows.map((r) => (
+                  <motion.tr key={r.key} variants={fade} onClick={() => openLead(r.key)}
+                    className="cursor-pointer border-t border-zinc-100 hover:bg-zinc-50 focus-within:bg-zinc-50">
+                    <td className="px-3 py-3 sm:px-4">
+                      <button type="button" onClick={(e) => { e.stopPropagation(); openLead(r.key) }}
+                        aria-label={`Abrir detalle de ${r.company}`}
+                        className="inline-flex max-w-full min-h-9 items-center gap-1 rounded text-left font-semibold text-brand hover:underline focus-visible:outline-2 focus-visible:outline-gold-deep">
+                        <span className="[overflow-wrap:anywhere]">{r.company}</span>
+                        <ChevronRight size={14} aria-hidden="true" className="shrink-0 text-gold-deep" />
+                      </button>
+                      {r.role && <div className="text-xs text-zinc-600 [overflow-wrap:anywhere]">{r.role}</div>}
+                      <div className="mt-1 text-xs text-zinc-600 [overflow-wrap:anywhere] lg:hidden">{r.email || r.phone || '—'}</div>
+                    </td>
+                    <td className="hidden px-4 py-3 text-zinc-600 [overflow-wrap:anywhere] lg:table-cell">{r.email || r.phone || '—'}</td>
+                    <td className="hidden px-3 py-3 font-semibold tabular-nums sm:table-cell"><LeadScore value={r.score} /></td>
+                    <td className="px-2 py-3 sm:px-4" onClick={(e) => e.stopPropagation()}>
+                      <StageSelect className="min-h-9 max-w-full pl-2 pr-6" value={r.stage} onChange={(e) => move(r.key, e.target.value)} aria-label={`Etapa de ${r.company}`} />
+                      <div className="mt-1 px-1 text-xs tabular-nums text-zinc-600 sm:hidden">Score <LeadScore value={r.score} /></div>
+                    </td>
+                  </motion.tr>
+                ))}
+                {!isLoading && error && (
+                  <tr><td colSpan={4} className="px-4 py-10 text-center">
+                    <p role="alert" className="text-rose-600 font-medium">No se pudieron cargar los leads.</p>
+                    <Button variant="soft" className="mt-3" onClick={() => refetch()}>Reintentar</Button>
+                  </td></tr>
+                )}
+                {!isLoading && !error && rows.length === 0 && (
+                  <tr><td colSpan={4} className="px-4 py-10 text-center text-zinc-600">
+                    {filtrados.length ? 'Los contactos que coinciden aparecen en la búsqueda en curso.'
+                      : needle ? 'Sin coincidencias entre los contactos cargados.'
+                      : group === 'todos' ? 'Este negocio todavía no tiene leads.' : 'Sin leads en este grupo.'}
+                  </td></tr>
+                )}
+              </motion.tbody>
+            </table>
+          </Card>
+        </motion.div>
+
+        {hasNextPage && (
+          <motion.div className="flex justify-center" variants={fade}>
+            <Button variant="soft" onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
+              {isFetchingNextPage ? 'Cargando…' : `Cargar más (${leads.length} de ${total})`}
+            </Button>
+          </motion.div>
+        )}
       </section>
     </motion.div>
   )

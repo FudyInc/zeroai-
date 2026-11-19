@@ -2,6 +2,12 @@
 
 Cada corrida del pipeline puebla un **CRM durable** (`crm.json`, o Supabase si está configurado): un registro por lead con su **etapa** en el funnel y su **historial** completo de interacciones. Código en `zero/crm.py` (y `zero/crm_supabase.py`).
 
+## Vista Leads del dashboard
+
+Verificación local del piloto el 2026-11-18. En **Leads**, selecciona un grupo de etapas y busca por empresa, cargo, correo o teléfono. La búsqueda recorre los contactos cargados del negocio activo. Para ampliar esa búsqueda, usa **Cargar más**. Los filtros y el texto de búsqueda se recuerdan por negocio en el navegador.
+
+El nombre de la empresa abre el detalle con clic o teclado. El selector de etapa permite actualizar el lead desde la lista. En pantallas estrechas, el contacto queda bajo la empresa y el score bajo la etapa. Al cambiar de negocio se cierra el detalle anterior y solo puede mostrarse una corrida asociada al negocio seleccionado. La revisión autenticada en producción está pendiente.
+
 ## El gate — lead calificado
 
 Un lead se **entrega** solo si se cumplen **todas** (ver `zero/config.py`):
