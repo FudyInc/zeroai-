@@ -201,3 +201,14 @@ Consulta el reporte de costos filtrado por esa clave, desde el primer minuto com
 tras la referencia. La actualización depende del retraso del proveedor.
 Sin integración muestra el último saldo registrado con su fecha. Si falla la consulta
 se identifica el importe como histórico. Las credenciales quedan en el servidor.
+
+### Lectura de Billing para la cuenta individual · 19/11/2026
+
+El lector de Windows refresca cada cinco minutos la ventana de Brave dedicada a
+`https://platform.claude.com/settings/billing#pooledge-credit`. Comprueba el dominio,
+la organización configurada, el rótulo Credit balance y la actualización de la página.
+Publica únicamente el saldo y la hora verificada en .runtime/pooledge-billing.json.
+El administrador ve el dato oficial de esa cuenta dedicada a PoolEdge. Si pasan más de
+doce minutos, la barra pasa a gris con la hora de la última lectura. Requiere Windows
+con la sesión iniciada, Brave conectado y esa pestaña visible en su propia ventana.
+Para reanudar tras cerrar Brave, abrir el enlace marcado en una ventana de la sesión correcta.

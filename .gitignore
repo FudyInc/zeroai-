@@ -61,3 +61,5 @@ whatsapp-web-events.sqlite3*
 
 # Configuración local del lanzador de Claude.
 .claude/launch.json
+
+/.runtime/pooledge-billing.json

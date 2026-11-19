@@ -35,3 +35,16 @@ class CreditTest(unittest.TestCase):
         queries = [parse_qs(urlparse(call.args[0].full_url).query) for call in request.call_args_list]
         self.assertTrue(all(q["api_key_ids[]"] == ["apikey_test"] for q in queries))
         self.assertEqual([q.get("time_bucket_width") for q in queries], [["1m"], None, ["1m"]])
+
+    def test_verified_and_stale_billing_override_manual_reference(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        import json
+        with TemporaryDirectory() as folder:
+            file = Path(folder) / "billing.json"
+            with patch("zero.pooledge_credit.BILLING_FILE", file):
+                for time, state in (("15:09", "billing"), ("14:30", "billing_stale")):
+                    file.write_text(json.dumps({"at": f"2026-11-18T{time}:00+00:00", "available": 0}))
+                    result = credit_status(self.record, self.now)
+                    self.assertEqual(result["state"], state)
+                    self.assertEqual(result["available"], 0)

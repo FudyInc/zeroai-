@@ -3,11 +3,27 @@ import json
 import os
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 CLIENT = "losetaschile"
 FIELD = "whatsapp_claude_credit"
+
+
+BILLING_FILE = Path(__file__).resolve().parents[1] / ".runtime" / "pooledge-billing.json"
+
+
+def billing_observation(saved, now):
+    try:
+        observation = json.loads(BILLING_FILE.read_text(encoding="utf-8-sig"))
+        at = datetime.fromisoformat(observation["at"])
+        amount = Decimal(str(observation["available"]))
+        if saved <= at <= now and amount.is_finite() and amount >= 0:
+            return at, amount
+    except (OSError, ValueError, KeyError, TypeError, ArithmeticError):
+        pass
+    return None
 
 
 def source():
@@ -49,6 +65,11 @@ def credit_status(record, now=None):
     capacity = Decimal(str(record["capacity"]))
     saved = datetime.fromisoformat(record["at"])
     now = now or datetime.now(timezone.utc)
+    observed = billing_observation(saved, now)
+    if observed:
+        at, amount = observed
+        return {"state": "billing" if now - at <= timedelta(minutes=12) else "billing_stale",
+                "available": float(amount), "capacity": float(capacity), "at": at.isoformat()}
     end = now.replace(second=0, microsecond=0)
     # The first partial minute is excluded to avoid charging usage prior to calibration.
     start = saved.replace(second=0, microsecond=0)
