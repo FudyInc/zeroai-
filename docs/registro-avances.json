@@ -2,6 +2,18 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-11-18-analisis-campanas-visible",
+      "date": "2026-11-18",
+      "type": "change",
+      "title": "Mostrar el botón de análisis cuando faltan campañas activas",
+      "origin": "Diego informó que el botón no aparecía",
+      "summary": "Campañas explica cuándo se habilita el análisis y mantiene visible la acción.",
+      "status": "Corregido en código",
+      "scope": "Dashboard de campañas",
+      "evidence": "Meta devolvió cero campañas activas para Pooledge.",
+      "pending": "Verificación de la versión pública."
+    },
+    {
       "id": "2026-11-18-pooledge-negocio-inicial",
       "date": "2026-11-18",
       "type": "change",

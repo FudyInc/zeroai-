@@ -112,6 +112,8 @@ export default function Campanas() {
   const trend = daily_spend.map((d) => ({ date: d.date, spent: d.spent_clp }))
   const rows = filter === 'todas' ? campaigns : campaigns.filter((c) => c.status === filter)
   const live = summary.source === 'live'
+  const analysisUnavailable = !live ? 'Para analizar, se necesitan datos de Meta.'
+    : summary.active === 0 ? 'El análisis se habilita cuando haya una campaña activa.' : null
   const review = campaignReview(summary)
   const needsConfig = !summary.error && (!live || (summary.active > 0 && !summary.budget_clp))
   const refresh = () => {
@@ -127,13 +129,15 @@ export default function Campanas() {
         <WorkspaceHero eyebrow="Campañas · Meta Ads" title={review.title}
           description={review.detail} icon={Target}
           aside={{ label: 'Campañas activas', value: live ? summary.active : '—', detail: live ? `De ${campaigns.length} registradas · Última lectura ${new Date(dataUpdatedAt).toLocaleString('es-CL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'America/Santiago' })} (Chile)` : 'Lectura pendiente' }}>
-          {live && summary.active > 0 && <Button variant={needsConfig ? "soft" : "accent"} onClick={optimize} disabled={optBusy}>
+          <Button variant={needsConfig ? "soft" : "accent"} onClick={optimize} disabled={optBusy || !!analysisUnavailable}
+            aria-describedby={analysisUnavailable ? "campaign-analysis-hint" : undefined}>
             {optBusy ? <Spinner /> : <Sparkles size={15} />} {optBusy ? 'Analizando…' : 'Analizar campañas activas'}
-          </Button>}
+          </Button>
           <Button variant={summary.error ? "accent" : "soft"} onClick={refresh} disabled={isFetching}>{isFetching ? 'Actualizando…' : 'Actualizar datos'}</Button>
           <Button variant={needsConfig ? "accent" : "soft"} onClick={() => setShowCfg((v) => !v)} aria-expanded={showCfg}>
             <Settings2 size={15} /> {showCfg ? 'Cerrar configuración' : 'Presupuesto y cuenta'}
           </Button>
+          {analysisUnavailable && <p id="campaign-analysis-hint" className="basis-full text-sm">{analysisUnavailable}</p>}
         </WorkspaceHero>
       </motion.div>
 
