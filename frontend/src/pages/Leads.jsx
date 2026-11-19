@@ -4,6 +4,7 @@ import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { ChevronRight, Search, Users } from 'lucide-react'
 import { api } from '../lib/api'
+import { leadIdentity } from '../lib/leadIdentity'
 import { STAGES, scoreColor } from '../lib/util'
 import { Card, Skeleton, Button, Input, StageSelect } from '../components/ui'
 import { Segmented } from '../components/Segmented'
@@ -97,7 +98,7 @@ export default function Leads() {
   const total = data?.pages[0]?.total ?? 0
   const needle = q.trim().toLowerCase()
   const filtrados = needle
-    ? leads.filter((r) => [r.company, r.role, r.email, r.phone].some((x) => (x || '').toLowerCase().includes(needle)))
+    ? leads.filter((r) => [leadIdentity(r).title, r.company, r.role, r.email, r.phone].some((x) => typeof x === 'string' && x.toLowerCase().includes(needle)))
     : leads
   /* Se comparan normalizados porque el nombre viaja por dos caminos distintos (la
      corrida y el CRM) y basta una mayúscula o un espacio de más para que el mismo lead
@@ -149,7 +150,7 @@ export default function Leads() {
             <table aria-label="Contactos del negocio" className="w-full table-fixed text-left text-sm">
               <thead className="bg-zinc-50 text-xs text-zinc-600">
                 <tr>
-                  <th scope="col" className="px-3 py-3 sm:px-4">Empresa</th>
+                  <th scope="col" className="px-3 py-3 sm:px-4">Nombre y empresa</th>
                   <th scope="col" className="hidden px-4 py-3 lg:table-cell">Contacto</th>
                   <th scope="col" className="hidden w-20 px-3 py-3 sm:table-cell">Score</th>
                   <th scope="col" className="w-36 px-2 py-3 sm:w-40 sm:px-4">Etapa</th>
@@ -161,27 +162,31 @@ export default function Leads() {
                     <td colSpan={4} className="p-4"><Skeleton className="h-5 w-full" /></td>
                   </tr>
                 ))}
-                {!isLoading && !error && rows.map((r) => (
-                  <motion.tr key={r.key} variants={fade} onClick={() => openLead(r.key)}
-                    className="cursor-pointer border-t border-zinc-100 hover:bg-zinc-50 focus-within:bg-zinc-50">
-                    <td className="px-3 py-3 sm:px-4">
-                      <button type="button" onClick={(e) => { e.stopPropagation(); openLead(r.key) }}
-                        aria-label={`Abrir detalle de ${r.company}`}
-                        className="inline-flex max-w-full min-h-9 items-center gap-1 rounded text-left font-semibold text-brand hover:underline focus-visible:outline-2 focus-visible:outline-gold-deep">
-                        <span className="[overflow-wrap:anywhere]">{r.company}</span>
-                        <ChevronRight size={14} aria-hidden="true" className="shrink-0 text-gold-deep" />
-                      </button>
-                      {r.role && <div className="text-xs text-zinc-600 [overflow-wrap:anywhere]">{r.role}</div>}
-                      <div className="mt-1 text-xs text-zinc-600 [overflow-wrap:anywhere] lg:hidden">{r.email || r.phone || '—'}</div>
-                    </td>
-                    <td className="hidden px-4 py-3 text-zinc-600 [overflow-wrap:anywhere] lg:table-cell">{r.email || r.phone || '—'}</td>
-                    <td className="hidden px-3 py-3 font-semibold tabular-nums sm:table-cell"><LeadScore value={r.score} /></td>
-                    <td className="px-2 py-3 sm:px-4" onClick={(e) => e.stopPropagation()}>
-                      <StageSelect className="min-h-9 max-w-full pl-2 pr-6" value={r.stage} onChange={(e) => move(r.key, e.target.value)} aria-label={`Etapa de ${r.company}`} />
-                      <div className="mt-1 px-1 text-xs tabular-nums text-zinc-600 sm:hidden">Score <LeadScore value={r.score} /></div>
-                    </td>
-                  </motion.tr>
-                ))}
+                {!isLoading && !error && rows.map((r) => {
+                  const identity = leadIdentity(r)
+                  return (
+                    <motion.tr key={r.key} variants={fade} onClick={() => openLead(r.key)}
+                      className="cursor-pointer border-t border-zinc-100 hover:bg-zinc-50 focus-within:bg-zinc-50">
+                      <td className="px-3 py-3 sm:px-4">
+                        <button type="button" onClick={(e) => { e.stopPropagation(); openLead(r.key) }}
+                          aria-label={`Abrir detalle de ${identity.title}`}
+                          className="inline-flex max-w-full min-h-9 items-center gap-1 rounded text-left font-semibold text-brand hover:underline focus-visible:outline-2 focus-visible:outline-gold-deep">
+                          <span className="[overflow-wrap:anywhere]">{identity.title}</span>
+                          <ChevronRight size={14} aria-hidden="true" className="shrink-0 text-gold-deep" />
+                        </button>
+                        {identity.company && <div className="text-xs text-zinc-600 [overflow-wrap:anywhere]">{identity.company}</div>}
+                        {r.role && <div className="text-xs text-zinc-600 [overflow-wrap:anywhere]">{r.role}</div>}
+                        <div className="mt-1 text-xs text-zinc-600 [overflow-wrap:anywhere] lg:hidden">{r.email || r.phone || '—'}</div>
+                      </td>
+                      <td className="hidden px-4 py-3 text-zinc-600 [overflow-wrap:anywhere] lg:table-cell">{r.email || r.phone || '—'}</td>
+                      <td className="hidden px-3 py-3 font-semibold tabular-nums sm:table-cell"><LeadScore value={r.score} /></td>
+                      <td className="px-2 py-3 sm:px-4" onClick={(e) => e.stopPropagation()}>
+                        <StageSelect className="min-h-9 max-w-full pl-2 pr-6" value={r.stage} onChange={(e) => move(r.key, e.target.value)} aria-label={`Etapa de ${identity.title}`} />
+                        <div className="mt-1 px-1 text-xs tabular-nums text-zinc-600 sm:hidden">Score <LeadScore value={r.score} /></div>
+                      </td>
+                    </motion.tr>
+                  )
+                })}
                 {!isLoading && error && (
                   <tr><td colSpan={4} className="px-4 py-10 text-center">
                     <p role="alert" className="text-rose-600 font-medium">No se pudieron cargar los leads.</p>

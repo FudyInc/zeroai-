@@ -4,9 +4,9 @@ Cada corrida del pipeline puebla un **CRM durable** (`crm.json`, o Supabase si e
 
 ## Vista Leads del dashboard
 
-Verificación local del piloto el 2026-11-18. En **Leads**, selecciona un grupo de etapas y busca por empresa, cargo, correo o teléfono. La búsqueda recorre los contactos cargados del negocio activo. Para ampliar esa búsqueda, usa **Cargar más**. Los filtros y el texto de búsqueda se recuerdan por negocio en el navegador.
+Verificación local del piloto el 2026-11-18. En **Leads**, selecciona un grupo de etapas y busca por nombre, empresa, cargo, correo o teléfono. La búsqueda recorre los contactos cargados del negocio activo. Para ampliar esa búsqueda, usa **Cargar más**. Los filtros y el texto de búsqueda se recuerdan por negocio en el navegador.
 
-El nombre de la empresa abre el detalle con clic o teclado. El selector de etapa permite actualizar el lead desde la lista. En pantallas estrechas, el contacto queda bajo la empresa y el score bajo la etapa. Al cambiar de negocio se cierra el detalle anterior y solo puede mostrarse una corrida asociada al negocio seleccionado. La revisión autenticada en producción está pendiente.
+Desde la revisión local del 2026-11-19, el nombre registrado abre el detalle con clic o teclado y la empresa aparece debajo si es distinta. Cuando falta el nombre se muestra la empresa disponible o «Sin nombre registrado». El selector de etapa permite actualizar el lead desde la lista. En pantallas estrechas, el contacto queda bajo la empresa y el score bajo la etapa. Al cambiar de negocio se cierra el detalle anterior y solo puede mostrarse una corrida asociada al negocio seleccionado. La revisión autenticada en producción está pendiente.
 
 ## El gate — lead calificado
 
