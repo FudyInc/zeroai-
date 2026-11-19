@@ -1716,6 +1716,37 @@ def whatsapp_web_status(client: str):
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+class PoolEdgeCreditBody(BaseModel):
+    available: float
+    capacity: float
+
+
+@app.get("/api/pooledge/claude-credit")
+def pooledge_credit(client: str):
+    from zero.pooledge_credit import CLIENT, FIELD, credit_status
+    if client != CLIENT:
+        raise HTTPException(404, detail=_CLIENT_NOT_FOUND)
+    memory = make_memory(STATE_PATH)
+    return credit_status(memory.clients.get(client, {}).get(FIELD))
+
+
+@app.post("/api/pooledge/claude-credit")
+def update_pooledge_credit(client: str, body: PoolEdgeCreditBody):
+    from datetime import datetime, timezone
+    from zero.pooledge_credit import CLIENT, FIELD
+    if client != CLIENT:
+        raise HTTPException(404, detail=_CLIENT_NOT_FOUND)
+    if not (0 <= body.available <= body.capacity <= 100000000 and body.capacity > 0):
+        raise HTTPException(422, detail="Revisa el saldo y el cupo de referencia en USD.")
+    memory = make_memory(STATE_PATH)
+    if client not in memory.clients:
+        raise HTTPException(404, detail=_CLIENT_NOT_FOUND)
+    memory.clients[client][FIELD] = {"available": body.available, "capacity": body.capacity,
+                                    "at": datetime.now(timezone.utc).isoformat()}
+    memory.save()
+    return {"ok": True}
+
+
 @app.get("/api/whatsapp/readiness")
 def whatsapp_client_readiness(client: str):
     """Configuration status for one business; connection health is separate."""

@@ -10,6 +10,7 @@ import { api, BASE } from '../lib/api'
 import { Card, Button, Badge, Skeleton, SectionTitle, Input } from '../components/ui'
 import { STAGES } from '../lib/util'
 import { useApp } from '../App'
+import ClaudeCredit from '../components/ClaudeCredit'
 import AgentTester from '../components/AgentTester'
 import KnowledgeHistory from '../components/KnowledgeHistory'
 import CasesLab from '../components/CasesLab'
@@ -31,7 +32,7 @@ import { useClientLabel } from '../lib/clientLabels'
 
 export default function Whatsapp() {
   const clientLabel = useClientLabel()
-  const { client: ctxClient } = useApp()
+  const { client: ctxClient, role } = useApp()
   // Sin cliente por defecto: ese cliente de prueba ya se borró del CRM, y volver a
   // usarlo como fallback lo resucitaría en la base real con solo abrir la página.
   const client = ctxClient || ''
@@ -111,6 +112,7 @@ export default function Whatsapp() {
           </div>
           <div className="wa-hero-side">
           <MasterSwitch client={client} mode={readinessQ.data?.response_mode} loading={readinessQ.isLoading} />
+          {client === 'losetaschile' && (!role || role === 'admin') && <ClaudeCredit />}
           <div className="wa-hero-progress">
             <span>Preparación del negocio</span>
             <strong>{readyItems == null ? '…' : `${readyItems}/4`}</strong>

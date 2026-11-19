@@ -39,6 +39,10 @@ async function req(path, opts = {}) {
 const q = encodeURIComponent
 
 export const api = {
+  claudeCredit: () => req('/api/pooledge/claude-credit?client=losetaschile'),
+  saveClaudeCredit: (body) => req('/api/pooledge/claude-credit?client=losetaschile', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  }),
   avances: () => req('/api/avances').then((d) => d.entries),
   clients: () => req('/api/clients').then((d) => { setClientLabels(d.labels); return d.clients }),
   accounts: () => req('/api/accounts'),
