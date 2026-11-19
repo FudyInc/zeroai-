@@ -2,6 +2,18 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-11-18-credito-claude-pooledge",
+      "date": "2026-11-18",
+      "type": "change",
+      "title": "Crédito Claude del agente WhatsApp de PoolEdge",
+      "origin": "Solicitud de Diego",
+      "summary": "Barra con saldo registrado o estimado, USD, fecha y umbrales de alerta.",
+      "status": "Implementado",
+      "scope": "PoolEdge, administrador",
+      "evidence": "Pruebas de cálculo, filtro por clave y compilación del panel.",
+      "pending": "Registrar saldo y conectar credenciales de lectura de costos en producción."
+    },
+    {
       "id": "2026-11-18-analisis-campanas-visible",
       "date": "2026-11-18",
       "type": "change",
