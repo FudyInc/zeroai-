@@ -27,3 +27,11 @@ La tabla inicia en Activas. Los gráficos quedan visibles, independientes, con f
 ## Validación
 
 Las pruebas de regresión cubren fin de vigencia, inicio futuro, ausencia de anuncios activos, conjuntos ausentes, fechas inválidas y conjuntos vigentes/vencidos dentro de una misma campaña. El backend entrega los IDs de anuncios vigentes para filtrar también ese último caso. La lectura real del backend corregido confirmó el conteo y la conservación de los totales. Suite completa: 1775 pruebas Python y 38 pruebas frontend aprobadas; compilación aprobada con aviso de bundle grande. Chromium con datos sintéticos verificó filtros, gráficos independientes, fallo/reintento y vista móvil. Estas comprobaciones no equivalen a un despliegue.
+
+## Revisión del flujo del 18 de noviembre de 2026
+
+La pantalla pedía un clic para saber qué revisar. El plan recibía todo el historial, incluso campañas finalizadas. Cuando fallaba la conexión, el resumen podía mostrar cero como gasto del mes. La configuración se podía editar antes de terminar la lectura de la cuenta.
+
+La revisión al abrir Campañas usa el presupuesto, el gasto y el costo objetivo existentes. Muestra una prioridad y el motivo. La acción de actualizar vuelve a consultar campañas y anuncios. El plan detallado se pide a demanda y el servidor comprueba la vigencia antes de analizar. Las recomendaciones se revisan en pantalla y los cambios de pauta se hacen en Meta.
+
+Verificado en desarrollo con pruebas de prioridades y del endpoint, compilación y navegación móvil en Chromium con una cuenta ficticia. Pendiente de integración y comprobación autenticada en producción. Para una siguiente iteración, una revisión programada podría registrar en el dashboard los cambios de prioridad entre visitas.

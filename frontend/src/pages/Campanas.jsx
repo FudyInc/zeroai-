@@ -13,7 +13,7 @@ import { rise, fade, surface, stagger, staggerDense } from '../lib/motion'
 import { WorkspaceHero, WorkspaceSectionHeading } from '../components/WorkspaceHero'
 import { PaidAdsPanel } from '../components/PaidAdsPanel'
 import { useClientLabel } from '../lib/clientLabels'
-import { budgetPace } from '../lib/ads'
+import { budgetPace, campaignReview } from '../lib/ads'
 
 const FILTERS = [
   { value: 'todas', label: 'Todas' },
@@ -68,15 +68,18 @@ export default function Campanas() {
   const [filter, setFilter] = useState('active')
   const [showCfg, setShowCfg] = useState(false)
   const [showDetail, setShowDetail] = useState(false)
-  const [opt, setOpt] = useState(null)
-  const [optBusy, setOptBusy] = useState(false)
+  const [showPlan, setShowPlan] = useState(false)
   const [syncBusy, setSyncBusy] = useState(false)
-  useEffect(() => { setShowCfg(false); setShowDetail(false); setOpt(null); setFilter('active') }, [client])
-  const optimize = async () => {
-    setOptBusy(true)
-    try { setOpt(await api.optimizeCampaigns(client)) }
-    catch (e) { toast.error('No se pudo optimizar: ' + e.message) }
-    finally { setOptBusy(false) }
+  const plan = useQuery({
+    queryKey: ['campaign-plan', client], queryFn: () => api.optimizeCampaigns(client),
+    enabled: false, retry: false,
+  })
+  const optBusy = showPlan && plan.isFetching
+  const opt = showPlan && !plan.isFetching && !plan.error ? plan.data : null
+  useEffect(() => { setShowCfg(false); setShowDetail(false); setShowPlan(false); setFilter('active') }, [client])
+  const optimize = () => {
+    setShowPlan(true)
+    plan.refetch()
   }
   const syncLeads = async () => {
     const selectedClient = client
@@ -90,7 +93,7 @@ export default function Campanas() {
     } catch (e) { toast.error('No se pudo importar: ' + e.message) }
     finally { setSyncBusy(false) }
   }
-  const { data, isLoading, error, refetch } = useQuery({
+  const { data, dataUpdatedAt, isFetching, isLoading, error, refetch } = useQuery({
     queryKey: ['campaigns', client], queryFn: () => api.campaigns(client), enabled: !!client,
   })
   if (!client) return <NoClient />
@@ -109,26 +112,32 @@ export default function Campanas() {
   const trend = daily_spend.map((d) => ({ date: d.date, spent: d.spent_clp }))
   const rows = filter === 'todas' ? campaigns : campaigns.filter((c) => c.status === filter)
   const live = summary.source === 'live'
+  const review = campaignReview(summary)
+  const needsConfig = !summary.error && (!live || (summary.active > 0 && !summary.budget_clp))
+  const refresh = () => {
+    setShowPlan(false)
+    refetch()
+    qc.invalidateQueries({ queryKey: ['campaign-ads', client] })
+  }
   const openCfg = () => { setShowCfg(true); window.scrollTo({ top: 0, behavior: 'smooth' }) }
 
   return (
     <motion.div className="workspace-page" initial="hidden" animate="show" variants={rise}>
       <motion.div variants={surface}>
-        <WorkspaceHero eyebrow="Meta Ads" title="Anuncios"
-          description="Cuánto llevas invertido, cuántas personas te consultaron y qué anuncios funcionan."
-          icon={Target}
-          aside={{ label: 'Campañas activas', value: summary.active, detail: `${summary.active} campañas activas de ${campaigns.length} registradas` }}>
-          <Button variant="accent" onClick={optimize} disabled={optBusy || campaigns.length === 0}
-            title={campaigns.length === 0 ? 'Necesitas al menos una campaña para generar un plan' : undefined}>
-            {optBusy ? <Spinner /> : <Sparkles size={15} />} {optBusy ? 'Analizando…' : 'Qué hago ahora'}
-          </Button>
-          <Button variant="soft" onClick={() => setShowCfg((v) => !v)} aria-expanded={showCfg}>
+        <WorkspaceHero eyebrow="Campañas · Meta Ads" title={review.title}
+          description={review.detail} icon={Target}
+          aside={{ label: 'Campañas activas', value: live ? summary.active : '—', detail: live ? `De ${campaigns.length} registradas · Última lectura ${new Date(dataUpdatedAt).toLocaleString('es-CL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'America/Santiago' })} (Chile)` : 'Lectura pendiente' }}>
+          {live && summary.active > 0 && <Button variant={needsConfig ? "soft" : "accent"} onClick={optimize} disabled={optBusy}>
+            {optBusy ? <Spinner /> : <Sparkles size={15} />} {optBusy ? 'Analizando…' : 'Analizar campañas activas'}
+          </Button>}
+          <Button variant={summary.error ? "accent" : "soft"} onClick={refresh} disabled={isFetching}>{isFetching ? 'Actualizando…' : 'Actualizar datos'}</Button>
+          <Button variant={needsConfig ? "accent" : "soft"} onClick={() => setShowCfg((v) => !v)} aria-expanded={showCfg}>
             <Settings2 size={15} /> {showCfg ? 'Cerrar configuración' : 'Presupuesto y cuenta'}
           </Button>
         </WorkspaceHero>
       </motion.div>
 
-      {(optBusy || summary.error || showCfg || opt) && (
+      {(optBusy || summary.error || showCfg || showPlan) && (
         <section className="workspace-section">
           {optBusy && (
             <motion.div variants={fade} initial="hidden" animate="show">
@@ -149,7 +158,8 @@ export default function Campanas() {
             </motion.div>
           )}
           {showCfg && <ClientConfig key={client} client={client} onClose={() => setShowCfg(false)} />}
-          {opt && <OptimizePanel opt={opt} onClose={() => setOpt(null)} />}
+          {showPlan && !optBusy && plan.error && <Card role="alert" className="p-4 text-sm">No se pudo preparar el plan. {plan.error.message} <Button variant="soft" onClick={optimize}>Reintentar análisis</Button></Card>}
+          {opt && <OptimizePanel opt={opt} onClose={() => setShowPlan(false)} />}
         </section>
       )}
 
@@ -158,7 +168,7 @@ export default function Campanas() {
           description="Lo invertido en Meta este mes frente a lo que decidiste gastar.">
           <Badge color={live ? '#16a34a' : '#94a3b8'}>{live ? 'Meta conectado' : 'Meta sin conectar'}</Badge>
         </WorkspaceSectionHeading>
-        <MonthSummary summary={summary} onSetBudget={openCfg} />
+        {live ? <MonthSummary summary={summary} onSetBudget={openCfg} /> : <p className="text-sm text-zinc-500">El gasto y las consultas estarán disponibles cuando se pueda leer la cuenta.</p>}
       </section>
 
       <PaidAdsPanel client={client} campaigns={campaigns} eyebrow="02 / Anuncios" />
@@ -331,7 +341,7 @@ function MonthSummary({ summary, onSetBudget }) {
           </div>
           {pace ? (
             <>
-              <div className="mt-4 h-2.5 rounded-full bg-zinc-100 overflow-hidden" role="progressbar" aria-valuenow={pace.pct} aria-valuemin={0} aria-valuemax={100}
+              <div className="mt-4 h-2.5 rounded-full bg-zinc-100 overflow-hidden" role="progressbar" aria-valuenow={Math.min(pace.pct, 100)} aria-valuemin={0} aria-valuemax={100}
                 aria-label="Presupuesto del mes usado">
                 <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(pace.pct, 100)}%`, background: p.bar }} />
               </div>
@@ -386,8 +396,8 @@ function MonthSummary({ summary, onSetBudget }) {
 // quedaba como una pastilla clara pegada de más — Badge ya resuelve
 // color+alpha (y su versión oscura) solo, con el mismo `c`.
 const ACTIONS = {
-  scale: { l: 'Escalar', c: '#16a34a' },
-  reallocate: { l: 'Realojar', c: '#d97706' },
+  scale: { l: 'Aumentar inversión', c: '#16a34a' },
+  reallocate: { l: 'Redistribuir presupuesto', c: '#d97706' },
   pause: { l: 'Pausar', c: '#e11d48' },
   keep: { l: 'Mantener', c: '#64748b' },
 }
@@ -430,7 +440,7 @@ const LABEL = 'block mb-1.5 text-[11px] font-semibold uppercase tracking-[0.13em
 function ClientConfig({ client, onClose }) {
   const clientLabel = useClientLabel()
   const qc = useQueryClient()
-  const { data } = useQuery({ queryKey: ['marketing', client], queryFn: () => api.marketing(client) })
+  const { data, isLoading, error, refetch } = useQuery({ queryKey: ['marketing', client], queryFn: () => api.marketing(client) })
   const cfg = data?.config || {}
   const [vals, setVals] = useState(null)
   const v = vals ?? {
@@ -452,6 +462,8 @@ function ClientConfig({ client, onClose }) {
       onClose?.()
     } catch (e) { toast.error('No se pudo guardar: ' + e.message) }
   }
+  const gate = pageState({ isLoading, error, onRetry: refetch, skeleton: <Skeleton className="h-32 w-full" /> })
+  if (gate) return gate
   return (
     <Card className="p-5 space-y-4">
       <div className="flex items-center justify-between">
@@ -463,7 +475,7 @@ function ClientConfig({ client, onClose }) {
         <div className="col-span-2"><label htmlFor="mk-account" className={LABEL}>Cuenta publicitaria Meta (act_…)</label>
           <Input id="mk-account" value={v.ad_account} onChange={(e) => set('ad_account', e.target.value)} placeholder="act_123456789 (vacío = sin conectar)" /></div>
         <div><label htmlFor="mk-budget" className={LABEL}>Presupuesto mensual (CLP)</label>
-          <Input id="mk-budget" type="number" min="0" step="1000" value={v.monthly_budget_clp} onChange={(e) => set('monthly_budget_clp', e.target.value)} placeholder="Ej: 150000 (lo que pagaste este mes)" /></div>
+          <Input id="mk-budget" type="number" min="0" step="1000" value={v.monthly_budget_clp} onChange={(e) => set('monthly_budget_clp', e.target.value)} placeholder="Ej. 150000" /></div>
         <div><label htmlFor="mk-regions" className={LABEL}>Zonas (foco Chile)</label>
           <Input id="mk-regions" value={v.regions} onChange={(e) => set('regions', e.target.value)} placeholder="Santiago (RM), Valparaíso" /></div>
       </div>

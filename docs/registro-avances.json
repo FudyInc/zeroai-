@@ -2,6 +2,30 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-11-18-pooledge-negocio-inicial",
+      "date": "2026-11-18",
+      "type": "change",
+      "title": "Pooledge como negocio inicial del dashboard",
+      "origin": "Solicitud de Diego",
+      "summary": "Al abrir o recargar, se selecciona Pooledge si figura entre los negocios disponibles. El selector permite cambiar durante la sesión.",
+      "status": "En desarrollo",
+      "scope": "Selector de negocio del dashboard",
+      "evidence": "frontend/src/App.jsx",
+      "pending": "Publicar y verificar en producción."
+    },
+    {
+      "id": "2026-11-18-pooledge-revision-campanas",
+      "date": "2026-11-18",
+      "type": "change",
+      "title": "Revisión automática al abrir Campañas",
+      "origin": "Auditoría solicitada por Diego",
+      "summary": "Prioridad de revisión, actualización de datos y análisis de campañas vigentes.",
+      "status": "Verificado en desarrollo",
+      "scope": "Pantalla compartida de Campañas y análisis Meta",
+      "evidence": "Pruebas frontend y de Meta, compilación y navegación móvil con datos sintéticos.",
+      "pending": "Integrar y verificar en producción."
+    },
+    {
       "id": "2026-11-18-pooledge-transporte-regional",
       "date": "2026-11-18",
       "type": "change",

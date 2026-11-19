@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { budgetPace, firstOfMonthChile, money, num, todayChile, VERDICT, visiblePaidAds } from './ads.js'
+import { campaignReview, budgetPace, firstOfMonthChile, money, num, todayChile, VERDICT, visiblePaidAds } from './ads.js'
 
 test('el mes se calcula en hora de Chile, no del navegador', () => {
   // 2026-12-01 02:00 UTC = 2026-11-30 23:00 en Santiago (UTC-3 en verano).
@@ -76,4 +76,19 @@ test('un conjunto vencido no reaparece por compartir campaña con un anuncio vig
   assert.deepEqual(visiblePaidAds(mixed, campaigns, 'history').map((ad) => ad.ad_id),
     ['live', 'expired-in-current'])
   assert.deepEqual(visiblePaidAds(mixed, [{ ...campaigns[0], active_ad_ids: [] }]), [])
+})
+
+test('la revisión prioriza fallos, exceso real y falta de campañas antes de proyectar gasto', () => {
+  const date = new Date('2026-11-10T15:00:00Z')
+  const base = { source: 'live', active: 1, budget_clp: 100000, spent_clp: 20000, leads: 5, cpl_clp: 4000, good_cpl_clp: 6000 }
+  const review = (changes) => campaignReview({ ...base, ...changes }, date).title
+  assert.match(review({ error: 'error', source: 'sin_datos' }), /consultar Meta/)
+  assert.match(review({ source: 'sin_datos' }), /Conecta/)
+  assert.match(review({ active: 0, spent_clp: 110000 }), /gasto del mes/)
+  assert.match(review({ active: 0, spent_clp: 90000 }), /Sin campañas/)
+  assert.match(review({ budget_clp: null }), /Define/)
+  assert.match(review({ spent_clp: 50000 }), /ritmo/)
+  assert.match(review({ cpl_clp: 6500 }), /costo/)
+  assert.match(campaignReview({ ...base, leads: 0 }, date).detail, /Todavía/)
+  assert.match(review({}), /Sigue/)
 })

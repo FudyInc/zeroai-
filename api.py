@@ -1006,8 +1006,14 @@ def optimize_campaigns(client: str):
     """Claude gestiona: analiza las campañas del cliente y propone un plan (no gasta)."""
     from zero.metaads import CHILE
     cfg = _client_meta_cfg(client)
-    items, _src, _err = _safe_campaigns(client, cfg)
-    res, mode = _agent_op(lambda z: z.optimize_campaigns(client, items, good_cpl_clp=CHILE["good_cpl_clp"]))
+    items, source, error = _safe_campaigns(client, cfg)
+    if source != "live":
+        raise HTTPException(status_code=502 if error else 400,
+                            detail="No se pudo leer Meta." if error else "Conecta la cuenta de Meta.")
+    active = [campaign for campaign in items if campaign["status"] == "active"]
+    if not active:
+        raise HTTPException(status_code=409, detail="Ya no hay campañas activas para analizar.")
+    res, mode = _agent_op(lambda z: z.optimize_campaigns(client, active, good_cpl_clp=CHILE["good_cpl_clp"]))
     return {"recommendations": res.get("recommendations", []), "plan": res.get("plan", ""), "mode": mode}
 
 
