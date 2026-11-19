@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueries } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Users, GitBranch, Trophy, DollarSign, Plus, Rocket, Bell, CheckCircle2 } from 'lucide-react'
+import { Users, GitBranch, Trophy, Plus, Rocket, Bell, CheckCircle2 } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Cell, Tooltip } from 'recharts'
 import { api } from '../lib/api'
 import { STAGES, repliedRecently } from '../lib/util'
@@ -39,7 +39,6 @@ export default function Dashboard() {
     { label: 'Leads totales', value: kpis?.total, icon: Users, tone: 'gold' },
     { label: 'En pipeline', value: kpis?.in_pipeline, icon: GitBranch, tone: 'slate' },
     { label: 'Ganados', value: kpis?.won, icon: Trophy, tone: 'slate' },
-    { label: 'Pipeline ganado', value: kpis?.pipeline_clp, prefix: '$', icon: DollarSign, tone: 'slate' },
   ]
 
   const inChart = (st) => chartG === 'todas' ? true : chartG === 'cerradas' ? CLOSED.includes(st) : OPEN.includes(st)
@@ -71,7 +70,7 @@ export default function Dashboard() {
       <section className="workspace-section">
         <WorkspaceSectionHeading eyebrow="02 / Indicadores" title="Rendimiento comercial"
           description="Una vista rápida del volumen y el resultado de tu pipeline." />
-      <motion.div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5" variants={stagger()} initial="hidden" animate="show">
+      <motion.div className="grid grid-cols-1 sm:grid-cols-3 gap-5" variants={stagger()} initial="hidden" animate="show">
         {cards.map((c) => {
           const chip = c.tone === 'gold'
             ? 'bg-champagne/25 text-gold-deep border-champagne/60'
@@ -82,7 +81,7 @@ export default function Dashboard() {
                 <div className="min-w-0">
                   <Eyebrow>{c.label}</Eyebrow>
                   <div className="text-[32px] leading-none font-display font-extrabold tracking-tight text-brand mt-2.5 tabular-nums">
-                    {kpisQ.isLoading ? <Skeleton className="h-8 w-20 mt-1" /> : <CountUp value={c.value ?? 0} prefix={c.prefix || ''} />}
+                    {kpisQ.isLoading ? <Skeleton className="h-8 w-20 mt-1" /> : <CountUp value={c.value ?? 0} />}
                   </div>
                 </div>
                 <div className={'w-10 h-10 rounded-xl grid place-items-center border shrink-0 ' + chip}>
