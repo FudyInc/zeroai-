@@ -187,3 +187,17 @@ muestran bajo el nombre, en negrita y con «x unidad». La vista previa de
 bordes y los dos PDF de una página se comprobaron localmente. El formato nuevo
 se activó en el backend local: salud OK y puente LosetasChile ready. La entrega
 en WhatsApp sigue pendiente de comprobación real.
+
+## Crédito de Claude para WhatsApp de PoolEdge · 18/11/2026
+
+En la página de WhatsApp, el administrador registra el saldo real en USD y el cupo de referencia
+para la barra. Se conserva en la ficha interna de PoolEdge. Hasta el 10 % es crítico,
+hasta el 30 % es bajo y sobre el 30 % es disponible. Después de recargar o de un ajuste
+de créditos se registra el nuevo saldo de facturación.
+
+Para descontar costos estimados, el backend necesita ANTHROPIC_ADMIN_API_KEY con acceso a
+analítica y POOLEDGE_WHATSAPP_CLAUDE_KEY_ID con el ID público de la clave dedicada al agente.
+Consulta el reporte de costos filtrado por esa clave, desde el primer minuto completo
+tras la referencia. La actualización depende del retraso del proveedor.
+Sin integración muestra el último saldo registrado con su fecha. Si falla la consulta
+se identifica el importe como histórico. Las credenciales quedan en el servidor.
