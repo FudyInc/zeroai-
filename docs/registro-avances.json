@@ -2,6 +2,18 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-11-18-piloto-interfaz-leads",
+      "date": "2026-11-18",
+      "type": "change",
+      "title": "Piloto de interfaz en Leads para los negocios del dashboard",
+      "origin": "Diego aprobó comenzar por Leads para mejorar la interfaz de todos los clientes por etapas.",
+      "summary": "La lista adapta contacto y score al ancho disponible, permite abrir la empresa con teclado y distingue los estados del filtro. El detalle y la búsqueda en curso quedan vinculados al negocio seleccionado. Los botones y filtros compartidos muestran foco visible, los filtros comunican la selección y los títulos de sección son encabezados navegables.",
+      "status": "Verificado en desarrollo local",
+      "scope": "Vista Leads, selección de negocio y componentes compartidos del dashboard.",
+      "evidence": "Chromium local con datos sintéticos a 320, 390, 768 y 1440 px en ambos temas. Se probaron filtros, paginación, teclado, etapa y cambio de negocio con una corrida activa. Se comprobó el selector compartido en Preferencias, el operador con una o ninguna asignación y la recuperación tras un error 503 simulado. Pasaron 29 pruebas del frontend, 1529 del núcleo y la compilación de Vite.",
+      "pending": "Verificar la vista autenticada en producción y decidir la extensión del piloto a otros módulos."
+    },
+    {
       "id": "2026-11-18-analisis-campanas-visible",
       "date": "2026-11-18",
       "type": "change",

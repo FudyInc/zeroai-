@@ -11,18 +11,20 @@ const VARIANTS = {
   dark: { box: 'bg-brand-surface shadow-sm', pill: 'bg-brand-grad shadow', on: 'text-white', off: 'text-white/70 hover:text-white' },
 }
 
-export function Segmented({ options, value, onChange, variant = 'light', className = '' }) {
+export function Segmented({ options, value, onChange, variant = 'light', className = '', label }) {
   const id = useId()
   const v = VARIANTS[variant] || VARIANTS.light
   return (
-    <div className={`inline-flex gap-1 p-1 rounded-full ${v.box} ${className}`}>
+    <div role={label ? 'group' : undefined} aria-label={label} className={`inline-flex max-w-full flex-wrap gap-1 p-1 rounded-2xl sm:rounded-full ${v.box} ${className}`}>
       {options.map((o) => {
         const active = o.value === value
         return (
           <button
             key={o.value}
+            type="button"
+            aria-pressed={active}
             onClick={() => onChange(o.value)}
-            className="relative px-4 py-1.5 text-sm font-semibold rounded-full outline-none"
+            className="relative rounded-full px-2 py-2 text-xs font-semibold focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold-deep sm:px-4 sm:py-1.5 sm:text-sm"
           >
             {active && (
               <motion.span

@@ -30,7 +30,7 @@ export function Button({ className, variant = 'primary', ...p }) {
   return (
     <button
       className={cn(
-        'inline-flex items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all duration-150 active:scale-[.97] disabled:opacity-50 disabled:pointer-events-none',
+        'inline-flex items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-[background-color,color,box-shadow,filter,scale] duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold-deep motion-safe:active:scale-[.97] disabled:opacity-50 disabled:pointer-events-none',
         variants[variant], className,
       )}
       {...p}
@@ -70,9 +70,9 @@ export function Eyebrow({ children, className }) {
    a <Eyebrow> para el patrón de cabecera consistente en cada página. */
 export function SectionTitle({ children, className }) {
   return (
-    <div className={cn('font-display font-bold text-lg tracking-tight text-brand', className)}>
+    <h2 className={cn('font-display font-bold text-lg tracking-tight text-brand', className)}>
       {children}
-    </div>
+    </h2>
   )
 }
 
