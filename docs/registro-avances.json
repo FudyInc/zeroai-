@@ -2,6 +2,18 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-11-19-pooledge-credito-billing",
+      "date": "2026-11-19",
+      "type": "change",
+      "title": "Saldo automático del WhatsApp de PoolEdge desde Billing",
+      "origin": "Diego pidió automatizar el saldo conservando la cuenta individual",
+      "summary": "Lectura desde la ventana de facturación con validación de organización y vigencia.",
+      "status": "Implementado en rama",
+      "scope": "PoolEdge, administrador",
+      "evidence": "Lectura real contrastada con Billing, y pruebas de saldo cero y vencido.",
+      "pending": "Verificar la activación del panel y la tarea periódica."
+    },
+    {
       "id": "2026-11-19-nombre-en-listado-leads",
       "date": "2026-11-19",
       "type": "change",
