@@ -25,6 +25,12 @@ async function main() {
   recent.push({ id: 'true_123456789@lid_DEF456', type: 'chat', body: 'Respuesta propia', t: 31 })
   assert.equal((await readChatMessages(page, '123456789@lid', 1))[0].fromMe, true)
   recent.pop()
+  // Anuncio de clic a WhatsApp: los avisos del sistema no son el último mensaje.
+  recent.push({ id: 'false_123456789@lid_TPL1', type: 'notification_template', body: '', t: 32 })
+  recent.push({ id: 'false_123456789@lid_E2E1', type: 'e2e_notification', body: '', t: 33 })
+  assert.equal((await readChatMessages(page, '123456789@lid', 1))[0].id, 'latest')
+  assert.deepEqual((await readChatMessages(page, '123456789@lid', 100)).map(x => x.type), ['chat'])
+  recent.pop(); recent.pop()
   await assert.rejects(readChatMessages(page, '999999999@lid', 100), /Chat no encontrado/)
   pages = [[msg('latest', 20, 'Nuevo')]]
   assert.equal((await readChatMessages(page, '123456789@lid', 100)).length, 1)

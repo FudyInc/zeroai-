@@ -1,11 +1,12 @@
 'use strict'
+const { systemTypes } = require('./customer-message')
 
 // Evita getChatById/getChatModel: serializar el chat completo falla en algunas
 // versiones de WhatsApp Web, aun cuando su colección y mensajes están disponibles.
 async function readChatMessages(page, chatId, limit = 100) {
   if (!/^\d[\d-]{7,39}@(c\.us|lid|g\.us)$/.test(chatId) ||
       !Number.isInteger(limit) || limit < 1 || limit > 100) throw Error('Consulta de chat inválida')
-  return page.evaluate(async ({ chatId, limit }) => {
+  return page.evaluate(async ({ chatId, limit, systemTypes }) => {
     const chat = window.require('WAWebCollections').Chat.getModelsArray()
       .find(item => item.id?._serialized === chatId)
     if (!chat) throw Error('Chat no encontrado')
@@ -22,7 +23,7 @@ async function readChatMessages(page, chatId, limit = 100) {
     }
     const unique = items => {
       const out = new Map()
-      for (const item of items.filter(item => !item.isNotification)) {
+      for (const item of items.filter(item => !item.isNotification && !systemTypes.includes(item.type))) {
         const id = idOf(item)
         if (!id || id === '[object Object]') throw Error('Mensaje sin id estable')
         out.set(id, item)
@@ -44,7 +45,7 @@ async function readChatMessages(page, chatId, limit = 100) {
       ack: msg.ack ?? null, timestamp: msg.t || 0,
       author: msg.author?._serialized || (typeof msg.author === 'string' ? msg.author : null),
     }))
-  }, { chatId, limit })
+  }, { chatId, limit, systemTypes })
 }
 
 module.exports = { readChatMessages }
