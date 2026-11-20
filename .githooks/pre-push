@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# pre-push — la suite en verde es condición para empujar.
+#
+# Por qué existe: la regla «Cierre» de CLAUDE.md («nada se declara terminado sin
+# la suite en verde») se rompió el 2026-11-11 — commit y push sin verificador, y
+# el código empujado estaba roto. Una regla escrita no frenó eso; este hook sí.
+#
+# Qué hace: por cada commit que se empuja, lo saca a un worktree temporal LIMPIO
+# y corre ahí la suite. Prueba el commit exacto, no el árbol de trabajo: los
+# cambios sin commitear no pueden ni salvar ni hundir el push.
+#
+# Instalación (una vez por clon; todos los worktrees comparten .git/hooks, sea
+# cual sea su rama, incluidas las viejas que no traen .githooks/):
+#     cp .githooks/pre-push "$(git rev-parse --git-common-dir)/hooks/pre-push"
+# Este archivo es la fuente; si cambia, se vuelve a copiar. No se usa
+# core.hooksPath: activarlo haría que git ignore .git/hooks.
+# Ojo: la suite corre sin .env, state.json ni crm.json (son locales); lo que
+# pasa aquí es lo que pasa en una máquina limpia, no en la tuya.
+#
+# Escape de emergencia humano: git push --no-verify. A los agentes se les niega
+# en .claude/hooks/guardia-push.sh.
+set -u
+
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX
+CERO=0000000000000000000000000000000000000000
+probados=" "
+fallo=0
+tmp=""
+arbol=""
+
+limpiar() {
+    [ -n "$arbol" ] && git worktree remove --force "$arbol" >/dev/null 2>&1
+    [ -n "$tmp" ] && rm -rf "$tmp"
+    # Sin `git worktree prune`: podaría también entradas de worktrees ajenos.
+    tmp=""; arbol=""
+}
+# Ctrl-C o kill a mitad de la suite: no dejar worktrees temporales colgando.
+trap 'limpiar; echo "pre-push: interrumpido — push rechazado." >&2; exit 130' INT TERM HUP
+
+while read -r _local_ref local_sha _remote_ref _remote_sha; do
+    [ -z "${local_sha:-}" ] && continue
+    [ "$local_sha" = "$CERO" ] && continue           # borrar una rama remota: nada que probar
+    case "$probados" in *" $local_sha "*) continue ;; esac
+    probados="$probados$local_sha "
+
+    if ! git cat-file -e "$local_sha:tests" 2>/dev/null; then
+        echo "pre-push: ${local_sha:0:7} no tiene tests/ — nada que probar." >&2
+        continue
+    fi
+
+    tmp=$(mktemp -d "${TMPDIR:-/tmp}/zero-pre-push.XXXXXX") || { echo "pre-push: no pude crear un directorio temporal" >&2; exit 1; }
+    arbol="$tmp/arbol"
+    if ! git worktree add --quiet --detach "$arbol" "$local_sha" >/dev/null 2>&1; then
+        echo "pre-push: no pude sacar ${local_sha:0:7} a un worktree temporal — push rechazado." >&2
+        limpiar; exit 1
+    fi
+
+    echo "pre-push: corriendo la suite sobre ${local_sha:0:7} (checkout limpio)…" >&2
+    salida="$tmp/suite.txt"
+    # Entorno mínimo: ni credenciales exportadas (Supabase, Groq, Meta…) ni
+    # escotillas tipo ZERO_PIPELINE_MOCK_OK se cuelan de la shell que empuja; la
+    # suite corre como en una máquina limpia. stdin cerrado: el stdin del hook es
+    # la lista de refs del while, y un test que lo leyera se comería las demás.
+    ( cd "$arbol" && env -i PATH="$PATH" HOME="$HOME" LANG="${LANG:-C.UTF-8}" TMPDIR="${TMPDIR:-/tmp}" \
+        python3 -m unittest discover -s tests -t . ) >"$salida" 2>&1 </dev/null
+    rc=$?
+    resumen=$(grep -E '^Ran [0-9]+ tests? in ' "$salida" | tail -1)
+    ultima=$(grep -E '^(OK|FAILED)' "$salida" | tail -1)
+
+    # Verde = código de salida 0 Y una línea «Ran N» con N>0 Y «OK». Las tres:
+    # una suite que no corrió nada también sale con 0 y no prueba nada.
+    if [ "$rc" -eq 0 ] && [ -n "$resumen" ] && ! printf '%s' "$resumen" | grep -qE '^Ran 0 ' \
+       && printf '%s' "$ultima" | grep -qE '^OK'; then
+        echo "pre-push: ${local_sha:0:7} verde — $resumen, $ultima" >&2
+    else
+        fallo=1
+        echo "pre-push: ${local_sha:0:7} ROJO — push rechazado." >&2
+        echo "  ${resumen:-(la suite no imprimió «Ran N tests»)} · ${ultima:-(sin línea OK/FAILED)} · salida=$rc" >&2
+        grep -E '^(FAIL|ERROR): ' "$salida" | head -15 | sed 's/^/  /' >&2
+        echo "  Reprodúcelo: python3 -m unittest discover -s tests -t ." >&2
+    fi
+
+    limpiar
+done
+
+exit "$fallo"
