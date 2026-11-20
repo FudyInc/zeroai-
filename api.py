@@ -718,9 +718,53 @@ def kpis(client: str):
     }
 
 
+def _excel_report_orders(orders):
+    if not isinstance(orders, list):
+        raise ValueError("historial de Excel inválido")
+
+    def reason(value):
+        if value is not None and (not isinstance(value, str) or not value.strip()):
+            raise ValueError("motivo inválido")
+        return value
+
+    def snapshot(item, *, historical=False):
+        if item is None and not historical:
+            return None
+        at, pieces, total = item["at"], item["pieces"], item["total"]
+        if at is not None or historical:
+            stamp = datetime.fromisoformat(at.replace("Z", "+00:00"))
+            if stamp.tzinfo is None:
+                raise ValueError("fecha del presupuesto sin zona horaria")
+            at = stamp.isoformat()
+        if ((total is None and not historical)
+                or any(value is not None and (type(value) is not int or value < 0)
+                       for value in (pieces, total))):
+            raise ValueError("piezas o total inválidos")
+        safe = {"at": at, "pieces": pieces, "total": total}
+        if historical:
+            safe["reason"] = reason(item["reason"])
+        return safe
+
+    safe = []
+    for order in orders:
+        order_id, status, history = order["order_id"], order["status"], order["history"]
+        if (not re.fullmatch(r"PE-\d{6}-\d+", order_id) or status not in ("applied", "queued", "review")
+                or not isinstance(history, list)):
+            raise ValueError("pedido del historial inválido")
+        safe.append({
+            "order_id": order_id,
+            "status": status,
+            "reason": reason(order["reason"]),
+            "current": snapshot(order["current"]),
+            "pending": snapshot(order["pending"]),
+            "history": [snapshot(item, historical=True) for item in history],
+        })
+    return safe
+
+
 @app.get("/api/pooledge/excel-review")
 def pooledge_excel_review(request: Request, client: str):
-    """Incidencias del importador privado para el operador de PoolEdge."""
+    """Estado e historial del importador privado para el operador de PoolEdge."""
     if not getattr(request.state, "auth", None):
         raise HTTPException(status_code=401, detail="no autorizado")
     _require_client(request, client)
@@ -739,9 +783,12 @@ def pooledge_excel_review(request: Request, client: str):
             if not re.fullmatch(r"PE-\d{6}-\d+", order_id) or not isinstance(reason, str) or not reason.strip():
                 raise ValueError("incidencia inválida")
             issues.append({"order_id": order_id, "reason": reason})
+        response = {"updated_at": checked.isoformat(), "issues": issues}
+        if "orders" in report:
+            response["orders"] = _excel_report_orders(report["orders"])
     except (OSError, UnicodeError, KeyError, ValueError, AttributeError, TypeError) as exc:
         raise HTTPException(status_code=503, detail="Informe del Excel aún no disponible") from exc
-    return {"updated_at": checked.isoformat(), "issues": issues}
+    return response
 
 
 @app.get("/api/board")

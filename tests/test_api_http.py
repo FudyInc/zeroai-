@@ -677,7 +677,42 @@ class ApiSupabaseAuthHttpTest(unittest.TestCase):
             status, body = self._get(path, token)
             self.assertEqual(status, 200)
             self.assertEqual(body["issues"], [issue])
+            self.assertNotIn("orders", body)
         self.excel_review.write_text("{}")
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self._get(path, operator)
+        self.assertEqual(caught.exception.code, 503)
+
+    def test_excel_review_exposes_only_safe_order_history_to_assigned_roles(self):
+        path = "/api/pooledge/excel-review?client=losetaschile"
+        current = {"at": None, "pieces": 64, "total": 524000}
+        pending = {"at": "2026-11-20T12:00:00+00:00", "pieces": 68, "total": 548000}
+        revision = dict(pending, reason=None)
+        rejected = {"at": "2026-11-19T12:00:00+00:00", "pieces": None, "total": None,
+                    "reason": "Total de piezas inconsistente"}
+        expected = {"order_id": "PE-201126-0000", "status": "queued", "reason": None,
+                    "current": current, "pending": pending, "history": [rejected, revision]}
+        order = dict(expected, name="Cliente privado",
+                     current=dict(current, phone="dato privado"),
+                     pending=dict(pending, address="dato privado"),
+                     history=[dict(rejected, raw="dato privado"), dict(revision, notes="dato privado")])
+        report = {"updated_at": pending["at"], "issues": [], "orders": [order]}
+        self.excel_review.write_text(json.dumps(report), encoding="utf-8")
+        self.addCleanup(self.excel_review.unlink, missing_ok=True)
+
+        operator = self._jwt(role="operador", clients=["losetaschile"])
+        for token in (operator, self._jwt(role="admin")):
+            status, body = self._get(path, token)
+            self.assertEqual(status, 200)
+            self.assertEqual(body["orders"], [expected])
+        for token, code in ((None, 401), (self._jwt(role="cco"), 403),
+                            (self._jwt(role="operador", clients=["acme"]), 404)):
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                self._get(path, token)
+            self.assertEqual(caught.exception.code, code)
+
+        order["history"][0]["total"] = {"phone": "dato privado"}
+        self.excel_review.write_text(json.dumps(report), encoding="utf-8")
         with self.assertRaises(urllib.error.HTTPError) as caught:
             self._get(path, operator)
         self.assertEqual(caught.exception.code, 503)
