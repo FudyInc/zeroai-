@@ -212,3 +212,19 @@ El administrador ve el dato oficial de esa cuenta dedicada a PoolEdge. Si pasan 
 doce minutos, la barra pasa a gris con la hora de la última lectura. Requiere Windows
 con la sesión iniciada, Brave conectado y esa pestaña visible en su propia ventana.
 Para reanudar tras cerrar Brave, abrir el enlace marcado en una ventana de la sesión correcta.
+
+### Correcciones y abonos de PoolEdge · 20/11/2026
+
+Durante la revisión de un pedido, un cambio explícito de color o a retiro genera
+un nuevo borrador en el grupo. La versión anterior queda cerrada. El equipo
+completa el borrador vigente y reenvía el presupuesto al cliente por el canal habitual.
+Si falla el envío del reemplazo, Atención permite revisar el caso.
+
+Para una corrida adicional de bordes se pregunta qué tramo cubrir cuando falta
+ese dato. Si hay una curva, se solicita foto o croquis para revisar la cantidad.
+
+Cuando el cliente informa una transferencia, el equipo la comprueba. Después
+responde en el grupo citando el borrador o el presupuesto con, por ejemplo,
+`abono confirmado $10.000`. El monto debe coincidir con el pago comprobado.
+El aviso del cliente suspende la solicitud de abono del pedido vinculado.
+El saldo se calcula con el total revisado. Flujo comprobado en pruebas locales.

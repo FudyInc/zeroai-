@@ -5,8 +5,8 @@ from datetime import date
 from unittest import mock
 
 from zero.losetas_budget import format_customer_budget
-from zero.losetas_polls import FACTORY_ADDRESS, FACTORY_MAP_URL
-from zero.losetas_review import (final_messages as _final, handle_review_message, read_owner_reply,
+from zero.losetas_polls import FACTORY_ADDRESS, FACTORY_MAP_URL, PRODUCT_POLL_QUESTION
+from zero.losetas_review import (customer_review_change, record_review_change, final_messages as _final, handle_review_message, read_owner_reply,
                                  store_review_draft)
 from zero.memory import SessionMemory
 from zero.whatsapp_web import parse_message
@@ -238,6 +238,72 @@ class FlowTest(unittest.TestCase):
         fixed = FULL.replace("80000", "90000")
         send = self.reply(fixed, id="r2")
         self.assertIn("*TOTAL: $392.400*", send.call_args_list[0].args[3])
+
+    def test_early_confirmation_is_used_once_the_total_is_known(self):
+        stored = self.memory.clients["losetaschile"]["review_drafts"]["G1"]
+        stored["deposit_reported"] = True
+        ack = self.reply("Abono confirmado $10.000")
+        self.assertEqual(stored.get("confirmed_deposit"), 10000)
+        self.assertNotIn("Saldo:", ack.call_args.args[3])
+        self.reply("Abono confirmado $10.000").assert_not_called()
+        ready = self.reply(FULL)
+        self.assertEqual(ready.call_count, 1)
+        self.assertIn("Saldo: $372.400", ready.call_args.args[3])
+        self.assertNotIn("Abono para confirmar", ready.call_args.args[3])
+
+    def test_deposit_ack_handles_uncertain_bridge_without_second_payment(self):
+        stored = self.memory.clients["losetaschile"]["review_drafts"]["G1"]
+        stored.update(deposit_reported=True, reviewed_total=382400)
+        message = {"client": "losetaschile", "chat_id": GROUP, "to_phone_id": "56911111111",
+                   "quoted_id": "G1", "text": "Abono confirmado $10.000"}
+        with mock.patch("zero.whatsapp_web.send_group_text", side_effect=RuntimeError("bridge")) as send:
+            handle_review_message(self.memory, message)
+            handle_review_message(self.memory, message)
+        send.assert_called_once()
+        self.assertEqual(stored.get("confirmed_deposit"), 10000)
+        self.assertEqual(self.memory.actions[-1]["action"], "review_group_send_uncertain")
+
+    def test_legacy_draft_and_unrelated_preferences(self):
+        self.memory.set_lead_note("losetaschile", "k1", "budget_review", {"text": "En revisión"})
+        def change(message):
+            return customer_review_change(self.memory, "losetaschile", "k1", message, [], "En revisión")
+        self.assertIsNone(change("mejor lo pienso"))
+        self.assertIsNone(change("prefiero esperar"))
+        self.assertIsNone(change("¿Ya transferí?"))
+        self.assertIsNone(change("No he pagado"))
+        self.assertEqual(change("ya transferí $15.000")["reported_draft"], "G1")
+        store_review_draft(self.memory, "losetaschile", "G2", draft(text="Otro pedido"))
+        self.assertIsNone(change("ya transferí $15.000")["reported_draft"])
+
+    def test_unassigned_report_is_consumed_once_and_only_within_the_same_order(self):
+        for lead, restart, expired in (("first", False, False), ("restart", True, False),
+                                       ("expired", False, True)):
+            with self.subTest(lead=lead):
+                self.memory.add_turn("losetaschile", lead, "agent", PRODUCT_POLL_QUESTION)
+                self.memory.add_turn("losetaschile", lead, "lead", "bordes de piscina")
+                history = self.memory.get_conversation("losetaschile", lead)
+                change = customer_review_change(self.memory, "losetaschile", lead, "ya aboné", history, None)
+                record_review_change(self.memory, "losetaschile", change)
+                if restart:
+                    self.memory.add_turn("losetaschile", lead, "agent", PRODUCT_POLL_QUESTION)
+                if expired:
+                    note = self.memory.lead_notes("losetaschile", lead)["unassigned_deposit"].copy()
+                    self.memory.set_lead_note("losetaschile", lead, "unassigned_deposit",
+                                              dict(note, at="2000-01-01T00:00:00+00:00"))
+                store_review_draft(self.memory, "losetaschile", lead, draft(lead=lead))
+                stored = self.memory.clients["losetaschile"]["review_drafts"]
+                self.assertEqual(bool(stored[lead].get("deposit_reported")), not restart and not expired)
+                store_review_draft(self.memory, "losetaschile", lead + "2", draft(lead=lead))
+                self.assertFalse(stored[lead + "2"].get("deposit_reported"))
+
+    def test_team_can_confirm_by_quoting_the_final_budget(self):
+        stored = self.memory.clients["losetaschile"]["review_drafts"]["G1"]
+        stored["deposit_reported"] = True
+        self.reply(FULL)
+        ack = self.reply("abono confirmado $10.000", quoted_id="x")
+        self.assertEqual(ack.call_count, 1)
+        self.assertIn("Saldo: $372.400", ack.call_args.args[3])
+        self.reply("abono confirmado $10.000", quoted_id="x").assert_not_called()
 
     def test_missing_data_posts_one_short_line(self):
         send = self.reply("despacho 80000")

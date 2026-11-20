@@ -11,14 +11,18 @@ from __future__ import annotations
 import hashlib
 import re
 import unicodedata
-from datetime import date as Date, datetime
+from datetime import date as Date, datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from .attention import fixed_answer
-from .config import (LOSETASCHILE_DEPOSIT_CLP, REVIEW_DATE_ROLLOVER_DAYS, REVIEW_DRAFTS_KEPT,
+from .config import (LOSETASCHILE_DEPOSIT_CLP, LOSETASCHILE_PAVER_REVIEW_STATE_HOURS, REVIEW_DATE_ROLLOVER_DAYS, REVIEW_DRAFTS_KEPT,
                      REVIEW_MIN_SHIPPING_CLP, WHATSAPP_TIME_ZONE)
 from .losetas_budget import format_customer_budget
+from .losetas_color import COLOR_NAMES
+from .losetas_polls import FACTORY_ADDRESS, PRODUCT_POLL_QUESTION, selected_category_from_history
+from .losetas_text import plain
+from .pool_border import POOL_PHOTO_REQUEST
 
 _WEEKDAYS = ("lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo")
 _MONTHS = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
@@ -60,6 +64,127 @@ def today() -> Date:
 
 # --- drafts in memory --------------------------------------------------------
 
+EXTENSION_QUESTION = "¿La corrida adicional va alrededor de toda la piscina o solo en un lado?"
+_EXTRA_ROW = re.compile(
+    r"^(?:(?:quiero(?: agregar)?|agregar|agregue(?:le|me)?|anada(?:le|me)?) )?"
+    r"(?:otra corrida|(?:una|1) corrida (?:mas|adicional))\b")
+_ROW_SCOPE = re.compile(r"\b(?:lados?|alrededor|perimetro|completa|seccion|extremo|curva|irregular|romana)\b|^(?:todo|toda)$")
+
+
+def _extension_request(message, history, review_status, draft_id):
+    if "?" in message:
+        return None
+    value = plain(message)
+    previous = next((t.get("text", "") for t in reversed(history) if t.get("role") == "agent"), "")
+    followup = EXTENSION_QUESTION in previous and _ROW_SCOPE.search(value)
+    if not followup:
+        if not _EXTRA_ROW.match(value):
+            return None
+        if not ("bordes de piscina" in (review_status or "") or
+                selected_category_from_history(history) == "bordes"):
+            return None
+    result = {"intent": "qualification", "flow_step": True}
+    if draft_id and review_status:
+        result["replaces_draft"] = draft_id
+    if re.search(r"\b(?:curva|irregular|romana)\b", value):
+        return {**result, "reply": POOL_PHOTO_REQUEST,
+                "attention": "Revisar la foto o el croquis para calcular la extensión"}
+    if _ROW_SCOPE.search(value):
+        return {**result, "reply": "", "wait": True,
+                "attention": "Revisar cobertura y cantidad de la extensión solicitada"}
+    return {**result, "reply": EXTENSION_QUESTION}
+
+
+_PAYMENT_REPORT = re.compile(
+    r"(?:(?:si|listo|gracias) )?(?:ya )?(?:transferi|abone|pague|hice la transferencia)"
+    r"(?: (?:el abono|las diez lucas|los diez mil|(?:los )?\d+(?: \d{3})*(?: pesos| mil| lucas)?))?")
+_COLOR_CHOICE = "|".join(COLOR_NAMES)
+_CORRECTION = re.compile(rf"(?:mejor |prefiero |cambielo a )?(?:(?P<color>{_COLOR_CHOICE})(?: y )?)?"
+                         r"(?P<pickup>lo retiro yo|retiro en fabrica|paso a retirar|lo paso a retirar)?")
+
+
+def _current_order_notice(at, history):
+    """A notice may attach to the next draft only while the same order is open."""
+    try:
+        notice = datetime.fromisoformat(at)
+        if not timedelta() <= datetime.now(timezone.utc) - notice <= timedelta(hours=LOSETASCHILE_PAVER_REVIEW_STATE_HOURS):
+            return False
+        for turn in reversed(history):
+            if turn.get("role") == "agent" and PRODUCT_POLL_QUESTION in str(turn.get("text") or ""):
+                return notice >= datetime.fromisoformat(turn.get("at"))
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
+def customer_review_change(memory, client_id, lead, message, history, review_status):
+    """Draft a response to a specific order change, without mutating stored state."""
+    notes = memory.lead_notes(client_id, lead).get("budget_review") or {}
+    drafts = memory.clients.get(client_id, {}).get("review_drafts", {})
+    draft_id = notes.get("draft_id")
+    if notes.get("at") and not _current_order_notice(notes["at"], history or memory.get_conversation(client_id, lead)):
+        draft_id, review_status = None, None
+    if not draft_id and review_status:  # Older review notes lack the group message ID.
+        candidates = [k for k, d in drafts.items() if d.get("lead") == lead and
+                      d.get("status") in ("pending", "needs_data", "budget_sent", "final_published")]
+        if len(candidates) == 1:
+            draft_id = candidates[0]
+    draft = drafts.get(draft_id, {})
+    if draft.get("lead") != lead or draft.get("status") == "superseded":
+        draft_id, draft = None, {}
+    value = plain(message)
+    if not any(q in message for q in "¿?") and _PAYMENT_REPORT.fullmatch(value):
+        unassigned_lead = None
+        if not draft_id and not review_status and lead:
+            turns = history or memory.get_conversation(client_id, lead)
+            if selected_category_from_history(turns):
+                unassigned_lead = lead
+        return {"reply": "Gracias por avisar. El equipo va a verificar su abono.",
+                "intent": "info", "flow_step": True, "reported_draft": draft_id,
+                "unassigned_deposit_lead": unassigned_lead,
+                "attention": "Verificar el abono informado por el cliente"}
+    extension = _extension_request(message, history, review_status, draft_id)
+    if extension:
+        return extension
+    if review_status and draft and "?" not in message:
+        change = _CORRECTION.fullmatch(value)
+        if change and (change["color"] or change["pickup"]) and draft.get("quote"):
+            quote = dict(draft["quote"])
+            if change["pickup"]:
+                quote["delivery_detail"] = f"Retiro en fábrica: {FACTORY_ADDRESS}"
+            color = change["color"] or draft.get("color")
+            if color == draft.get("color") and quote == draft["quote"]:
+                return {"reply": "", "intent": "pricing", "wait": True}
+            result = {"reply": "", "intent": "pricing", "quote": quote,
+                      "selected_tone": color, "replaces_draft": draft_id}
+            if draft.get("paver_order"):
+                result.update(quote=None, paver_order=dict(draft["paver_order"], color=color,
+                              delivery_detail=quote.get("delivery_detail")))
+            return result
+        if (re.match(r"^(?:mejor|prefiero|cambie(?:lo|me)?|cambiar|agregue|quiero cambiar)\b", value)
+                and re.search(r"\b(?:modelo|color|retiro|despacho|formato|cantidad|piezas?|bordes?|"
+                              rf"pastelon(?:es)?|corridas?|{_COLOR_CHOICE}|\d+)\b", value)):
+            return {"reply": "", "intent": "pricing", "wait": True, "replaces_draft": draft_id,
+                    "attention": "Actualizar y revisar el pedido antes de emitir el presupuesto"}
+    return None
+
+
+def record_review_change(memory, client_id, change):
+    drafts = memory.clients.get(client_id, {}).get("review_drafts", {})
+    replaced = drafts.get(change.get("replaces_draft"))
+    if replaced:
+        replaced["status"] = "superseded"
+    reported = drafts.get(change.get("reported_draft"))
+    if reported:
+        reported["deposit_reported"] = True
+    unassigned = change.get("unassigned_deposit_lead")
+    if unassigned:
+        memory.set_lead_note(client_id, unassigned, "unassigned_deposit", {"at": datetime.now(timezone.utc).isoformat()})
+    if replaced or reported or unassigned:
+        memory.save()
+    return replaced
+
+
 def store_review_draft(memory: Any, client_id: str, group_message_id: str,
                        draft: dict[str, Any]) -> None:
     """Remember a published draft by group message id and by text hash; keep the last N."""
@@ -67,6 +192,12 @@ def store_review_draft(memory: Any, client_id: str, group_message_id: str,
     drafts = bucket.setdefault("review_drafts", {})
     index = bucket.setdefault("review_draft_index", {})
     drafts[group_message_id] = dict(draft, status="pending")
+    lead = draft.get("lead")
+    notice = memory.lead_notes(client_id, lead).get("unassigned_deposit") if lead else None
+    if notice:
+        if _current_order_notice(notice.get("at"), memory.get_conversation(client_id, lead)):
+            drafts[group_message_id]["deposit_reported"] = True
+        memory.set_lead_note(client_id, lead, "unassigned_deposit", None)
     index[text_key(draft.get("text", ""))] = group_message_id
     while len(drafts) > REVIEW_DRAFTS_KEPT:
         drafts.pop(next(iter(drafts)))
@@ -322,13 +453,20 @@ def final_messages(draft: dict[str, Any], reading: dict[str, Any], knowledge: st
         customer=name if any(c.isalpha() for c in name) else "Cliente", phone=phone,
         address=fields["address"], color=draft.get("color"), pool=fields["pool"],
         shipping=fields["shipping"], shipping_label=label,
-        delivery=fields["delivery"], deposit=LOSETASCHILE_DEPOSIT_CLP,
+        delivery=fields["delivery"], deposit=None if draft.get("deposit_reported") else LOSETASCHILE_DEPOSIT_CLP,
         map_url=fields["map_url"], pickup=fields["pickup"])
     if budget is None:
         early = any(day < issued for day in fields["delivery"])
         return only("No cuadra: " + ("fecha anterior a la emisión" if early else
                                      "cifras o datos del presupuesto no son consistentes"))
     total = quote["total"] + (fields["shipping"] or 0)
+    if draft.get("deposit_reported"):
+        amount = draft.get("confirmed_deposit")
+        if amount is not None:
+            if amount > total:
+                return only("Revisar el total y el abono confirmado.")
+            budget += f"\nAbono confirmado: {_money(amount)}. Saldo: {_money(total - amount)}."
+        return {"messages": [budget], "budget": True, "payment": False}
     bank = bank_block(knowledge)
     if not bank:
         return {"messages": [budget, "Falta en la ficha: datos de transferencia"],
@@ -370,9 +508,42 @@ def handle_review_message(memory: Any, message: dict[str, str]) -> dict[str, Any
         return out
     found = find_review_draft(memory, client_id, message.get("quoted_id", ""),
                               message.get("quoted_text", ""))
+    confirmation = re.fullmatch(r"abono confirmado\s+\$?([1-9]\d{0,2}(?:\.\d{3}){1,3}|[1-9]\d{0,11})",
+                                message.get("text", "").strip(), re.I)
+    if not found and confirmation and message.get("quoted_id"):
+        quoted = message["quoted_id"]
+        for key, item in memory.clients.get(client_id, {}).get("review_drafts", {}).items():
+            published = item.get("final_message_id")
+            if published and (published == quoted or (_stanza(quoted) and _stanza(quoted) == _stanza(published))):
+                found = key, item
+                break
     if not found:
         return out
     draft_id, draft = found
+    if draft.get("status") == "superseded":
+        return out
+    if confirmation:
+        if not draft.get("deposit_reported") or draft.get("confirmed_deposit") is not None:
+            return out
+        amount = int(confirmation[1].replace(".", ""))
+        total = draft.get("reviewed_total")
+        # Before freight is reviewed, a deposit within the product subtotal is unambiguous.
+        ceiling = total if total is not None else (draft.get("quote") or {}).get("total")
+        if ceiling is None or amount > ceiling:
+            acknowledgment = "Revise el total del presupuesto antes de confirmar el abono."
+        else:
+            draft["confirmed_deposit"] = amount
+            memory.save()
+            acknowledgment = f"Abono confirmado: {_money(amount)}."
+            if total is not None:
+                acknowledgment += f" Saldo: {_money(total - amount)}."
+        try:
+            whatsapp_web.send_group_text(client_id, message["to_phone_id"], message["chat_id"], acknowledgment)
+        except (RuntimeError, ValueError) as exc:
+            memory.log("review_group_send_uncertain", client=client_id, lead=draft.get("lead"),
+                       error=str(exc)[:300])
+            memory.save()
+        return out
     if not draft.get("quote") and draft.get("order") == "pastelones":
         # Drafts published before paver drafts carried a quote: rebuilt from the
         # one line the code wrote, only when its figures add up.
@@ -403,11 +574,15 @@ def handle_review_message(memory: Any, message: dict[str, str]) -> dict[str, Any
                            lead=draft.get("lead"), error=str(exc)[:300])
                 break
             sent += 1
+            if plan["budget"] and position == 0:
+                draft["final_message_id"] = result.get("id")
             if not (plan["budget"] and position == 0) and not (
                     plan["payment"] and position == 1):
                 link_followup(memory, client_id, draft_id, text, result)
         budget_out = plan["budget"] and sent >= 1
         payment_out = plan["payment"] and sent == len(plan["messages"])
+        if budget_out:
+            draft["reviewed_total"] = draft["quote"]["total"] + (reading["fields"]["shipping"] or 0)
         if payment_out:
             draft["status"] = "final_published"
             memory.log("final_budget_ready", client=client_id, lead=draft.get("lead"),
