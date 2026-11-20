@@ -175,6 +175,7 @@ _ROLE_ALLOWED: dict = {
     # usa el front); progress y runs, no todo /api/pipeline.
     "operador": (
         ("GET", "/api/clients"),                # selector (filtrado a su alcance)
+        ("GET", "/api/pooledge/excel-review"),    # incidencias del libro, acotadas por cliente
         ("GET", "/api/board"),                  # Pipeline.jsx
         ("GET", "/api/leads"),                  # lista, /pending, /search, /{key}
         ("POST", "/api/leads/*/stage"),         # ficha: mover etapa
@@ -715,6 +716,32 @@ def kpis(client: str):
         "won": won,
         "pipeline_clp": None,  # La etapa ganada no registra el monto del pedido.
     }
+
+
+@app.get("/api/pooledge/excel-review")
+def pooledge_excel_review(request: Request, client: str):
+    """Incidencias del importador privado para el operador de PoolEdge."""
+    if not getattr(request.state, "auth", None):
+        raise HTTPException(status_code=401, detail="no autorizado")
+    _require_client(request, client)
+    if client != "losetaschile":
+        raise HTTPException(status_code=404, detail=_CLIENT_NOT_FOUND)
+    path = Path(os.environ.get("POOLEDGE_EXCEL_REVIEW_FILE",
+                               "~/.local/state/pooledge-excel/revision.json")).expanduser()
+    try:
+        report = json.loads(path.read_text(encoding="utf-8"))
+        checked = datetime.fromisoformat(report["updated_at"].replace("Z", "+00:00"))
+        if checked.tzinfo is None or not isinstance(report["issues"], list):
+            raise ValueError("formato de revisión")
+        issues = []
+        for item in report["issues"]:
+            order_id, reason = item["order_id"], item["reason"]
+            if not re.fullmatch(r"PE-\d{6}-\d+", order_id) or not isinstance(reason, str) or not reason.strip():
+                raise ValueError("incidencia inválida")
+            issues.append({"order_id": order_id, "reason": reason})
+    except (OSError, UnicodeError, KeyError, ValueError, AttributeError, TypeError) as exc:
+        raise HTTPException(status_code=503, detail="Informe del Excel aún no disponible") from exc
+    return {"updated_at": checked.isoformat(), "issues": issues}
 
 
 @app.get("/api/board")

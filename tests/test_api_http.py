@@ -609,6 +609,8 @@ class ApiSupabaseAuthHttpTest(unittest.TestCase):
         memory = SessionMemory(env["STATE_PATH"])
         memory.register_client("acme", "GROWTH")
         memory.save()
+        cls.excel_review = Path(cls._tmpdir) / "revision.json"
+        env["POOLEDGE_EXCEL_REVIEW_FILE"] = str(cls.excel_review)
         env["SUPABASE_JWT_SECRET"] = cls.JWT_SECRET
         env["AUTH_USERS_PATH"] = os.path.join(tempfile.mkdtemp(), "users.json")
         env["ZERO_PIPELINE_MOCK_OK"] = "1"
@@ -655,6 +657,30 @@ class ApiSupabaseAuthHttpTest(unittest.TestCase):
 
     def _jwt(self, **kw) -> str:
         return _make_supabase_jwt(self.JWT_SECRET, **kw)
+
+    def test_excel_review_requires_assigned_business_and_reports_missing_file(self):
+        path = "/api/pooledge/excel-review?client=losetaschile"
+        for token, code in ((None, 401), (self._jwt(role="cco"), 403),
+                            (self._jwt(role="operador", clients=["acme"]), 404)):
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                self._get(path, token)
+            self.assertEqual(caught.exception.code, code)
+        operator = self._jwt(role="operador", clients=["losetaschile"])
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self._get(path, operator)
+        self.assertEqual(caught.exception.code, 503)
+        issue = {"order_id": "PE-201126-0000", "reason": "Total de piezas inconsistente"}
+        self.excel_review.write_text(json.dumps({
+            "updated_at": "2026-11-20T12:00:00Z", "issues": [dict(issue, raw="dato privado")],
+        }))
+        for token in (operator, self._jwt(role="admin")):
+            status, body = self._get(path, token)
+            self.assertEqual(status, 200)
+            self.assertEqual(body["issues"], [issue])
+        self.excel_review.write_text("{}")
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self._get(path, operator)
+        self.assertEqual(caught.exception.code, 503)
 
     def test_admin_jwt_passes_any_route(self):
         # /api/vendors no está en la lista de rutas permitidas para "cro" —
