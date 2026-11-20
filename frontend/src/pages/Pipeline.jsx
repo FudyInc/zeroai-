@@ -15,6 +15,7 @@ import LeadRoute from '../components/LeadRoute'
 import IncomeBadge from '../components/IncomeBadge'
 import { WorkspaceHero, WorkspaceSectionHeading } from '../components/WorkspaceHero'
 import PipelineRun from '../components/PipelineRun'
+import PoolEdgeExcelReview from '../components/PoolEdgeExcelReview'
 import { useClientLabel } from '../lib/clientLabels'
 
 /* Columnas del tablero: el camino del lead (LANE) y, al final, las dos salidas. ORDER
@@ -26,7 +27,7 @@ const DENSITY = [{ value: 'comodo', label: 'Cómodo' }, { value: 'compacto', lab
 
 export default function Pipeline() {
   const clientLabel = useClientLabel()
-  const { client, openLead, runId, setRunId, scoped } = useApp()
+  const { client, openLead, runId, setRunId, scoped, role } = useApp()
   const qc = useQueryClient()
   const { data: board, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: ['board', client], queryFn: () => api.board(client), enabled: !!client,
@@ -91,6 +92,9 @@ export default function Pipeline() {
           }}
         />
       </motion.div>
+      {client === 'losetaschile' && (role === 'admin' || role === 'operador') && (
+        <PoolEdgeExcelReview client={client} />
+      )}
       {scoped && runId && (
         <div className="mb-4">
           <PipelineRun runId={runId} onFin={() => qc.invalidateQueries({ queryKey: ['board'] })} />

@@ -49,6 +49,7 @@ export const api = {
   setPlan: (c, tier) =>
     req('/api/accounts/' + q(c) + '/plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tier }) }),
   kpis: (c) => req('/api/kpis?client=' + q(c)),
+  pooledgeExcelReview: (c) => req('/api/pooledge/excel-review?client=' + q(c)),
   board: (c) => req('/api/board?client=' + q(c)),
   leads: (c, { group = 'todos', limit = 50, offset = 0 } = {}) =>
     req(`/api/leads?client=${q(c)}&group=${q(group)}&limit=${limit}&offset=${offset}`),
