@@ -216,6 +216,8 @@ async function recoverRecentMessages() {
   }
 }
 
+const salesInbox = require('./sales-inbox').attachSalesInbox(client, sessionDir)
+
 client.on('qr', async qr => {
   state = 'scan_qr'
   clearTimeout(readinessTimer)
@@ -652,7 +654,7 @@ const server = http.createServer(async (req, res) => {
   if (req.headers.authorization !== `Bearer ${secret}`) return respond(res, 401, { error: 'unauthorized' })
   const url = new URL(req.url, 'http://127.0.0.1')
   if (req.method === 'GET' && req.url === '/status') {
-    return respond(res, 200, { state, qr: qrDataUrl, account, error: lastError, pendingInbound: pending.size })
+    return respond(res, 200, { state, qr: qrDataUrl, account, error: lastError, pendingInbound: pending.size, salesInbox })
   }
   if (req.method === 'GET' && req.url === '/diagnostics') {
     try {
