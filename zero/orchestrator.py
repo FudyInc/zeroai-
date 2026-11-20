@@ -274,8 +274,16 @@ def _asks_again_for_supplied_measurements(message: str, reply: str,
                                            history: List[Dict[str, Any]]) -> bool:
     lead_text = " ".join([message] + [str(turn.get("text") or "") for turn in history
                                      if turn.get("role") == "lead"])
-    measurements = re.search(r"\b\d+(?:[.,]\d+)?\s*(?:x|por|×)\s*\d+(?:[.,]\d+)?\b"
-                             r"|\b\d+(?:[.,]\d+)?\s*(?:m|mts?|metros?)\b", lead_text, re.IGNORECASE)
+    # «Borde de 50x50 con nariz» nombra la pieza, en centímetros; no son las medidas
+    # de la piscina. Contarla así silenció la pregunta por medidas de un contacto
+    # nuevo (2026-11-20). Mismo umbral que pool_border: un lado de piscina no llega a 20 m.
+    measurements = any(
+        not (match.group(1) and min(float(match.group(1).replace(",", ".")),
+                                    float(match.group(2).replace(",", "."))) >= 20)
+        and not match.group(3)
+        for match in re.finditer(
+            r"\b(\d+(?:[.,]\d+)?)\s*(?:x|por|×)\s*(\d+(?:[.,]\d+)?)\b(\s*cms?\b)?"
+            r"|\b\d+(?:[.,]\d+)?\s*(?:m|mts?|metros?)\b", lead_text, re.IGNORECASE))
     return bool(measurements and re.search(r"\bmedidas?\b|\bmetros?\s+lineales?\b", reply, re.IGNORECASE)
                 and re.search(r"(?:\?|\b(?:dime|das|indica|necesito|envía|envia|comparte)\b)",
                               reply, re.IGNORECASE))
