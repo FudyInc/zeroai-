@@ -93,10 +93,12 @@ _SIZE = re.compile(
     re.IGNORECASE,
 )
 # «Borde ballena 50×40» names the piece, not the pool: reading it as the pool
-# once quoted 360 borders for an 8×4 pool.
+# once quoted 360 borders for an 8×4 pool, and «Borde con nariz de 50x50» 400
+# for a 7×3,5 one. A product word, then up to four words that are not the pool
+# («con nariz», «gris», «color»), then the size.
 _ITEM_SIZE_PREFIX = re.compile(
-    r"\b(?:pastelones?|esquinas?|bordes?(?:\s+(?:rectos?(?:\s+con\s+nariz)?|"
-    r"ballena(?:\s+(?:nariz|curvo))?))?)\s+(?:de\s+)?$", re.IGNORECASE)
+    r"\b(?:pastelones?|esquinas?|bordes?|nariz|ballena)\b"
+    r"(?:[\s,]+(?!(?:piscinas?|piletas?)\b)[^\W\d]+){0,4}[\s,]+(?:de\s+)?$", re.IGNORECASE)
 # Piece sizes are in centimetres (50×40, 23×40); a pool side is at most 50 m,
 # so «bordes recto 8x4» is still the pool.
 _PIECE_SIDE_MIN = 20

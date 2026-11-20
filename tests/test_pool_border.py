@@ -94,6 +94,22 @@ class PoolBorderCountTest(unittest.TestCase):
         plan, _ = border_plan("¿Cuánto cuestan los bordes rectos 50x50?", history)
         self.assertEqual((plan["straight"], plan["corners"]), (36, 4))
 
+    def test_piece_size_after_any_border_wording_is_not_the_pool(self):
+        # Real chat 2026-11-20: «Borde con nariz de 50x50 … piscina es de 7 x 3.50»
+        # was read as a 50×50 m pool: 400 borders instead of 42.
+        for text in ("Borde con nariz de 50x50 gris y la piscina  es de 7 x 3.50 rectangular",
+                     "Borde nariz 50x50 gris, piscina de 7 x 3.50 rectangular",
+                     "Quiero el borde con nariz gris de 50x50 para piscina rectangular de 7 x 3.50",
+                     "La piscina es rectangular de 7 x 3.50 y quiero borde con nariz de 50x50"):
+            with self.subTest(text=text):
+                plan, _ = border_plan(text, [])
+                self.assertEqual((plan["straight"], plan["corners"]), (42, 4))
+
+    def test_piece_size_alone_still_asks_for_the_pool(self):
+        plan, reply = border_plan("Borde con nariz de 50x50 gris", [])
+        self.assertIsNone(plan)
+        self.assertTrue(reply)
+
     def test_rejected_pastelones_do_not_trigger_order_budget(self):
         self.assertFalse(wants_border_budget("No quiero pastelones"))
         self.assertFalse(wants_border_budget("No quiero pastelones, ¿cuánto cuestan?"))
