@@ -1,3 +1,4 @@
+import { showsAttentionQueue } from '../lib/whatsapp-attention'
 import { useState } from 'react'
 import { Link, NavLink } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -64,9 +65,9 @@ export default function Sidebar({ mobileOpen = false, onClose = () => {}, userna
   // Misma queryKey que WhatsAppAttentionWatcher: comparten la petición.
   const attention = useQuery({
     queryKey: ['whatsapp-attention', client], queryFn: () => api.whatsappAttention(client),
-    enabled: !!client && canSeePage('/whatsapp', role, authEnabled), refetchInterval: 30000, retry: false,
+    enabled: showsAttentionQueue(client) && canSeePage('/whatsapp', role, authEnabled), refetchInterval: 30000, retry: false,
   })
-  const badges = { '/whatsapp': attention.data?.open || 0 }
+  const badges = { '/whatsapp': showsAttentionQueue(client) && attention.data?.open || 0 }
   const noRoleAssigned = authEnabled && !role
   const reveal = (text) => (
     <motion.span animate={{ opacity: open ? 1 : 0, width: open ? 'auto' : 0 }} transition={{ duration: 0.2 }}

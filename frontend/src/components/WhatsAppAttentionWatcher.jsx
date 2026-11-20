@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
-import { attentionCaseKey, attentionOf, handoffKey, unseenAttentionCases, unseenHumanRequests } from '../lib/whatsapp-attention'
+import { showsAttentionQueue, attentionCaseKey, attentionOf, handoffKey, unseenAttentionCases, unseenHumanRequests } from '../lib/whatsapp-attention'
 
 // Lleva a la sección «Atención» de /whatsapp. Si la página aún no montó, reintenta
 // unos instantes hasta que exista el ancla.
@@ -35,7 +35,7 @@ export default function WhatsAppAttentionWatcher({ client, enabled, onOpen }) {
   // Misma clave que el contador del menú: una sola petición compartida.
   const attention = useQuery({
     queryKey: ['whatsapp-attention', client], queryFn: () => api.whatsappAttention(client),
-    enabled: enabled && !!client, refetchInterval: 30000, retry: false,
+    enabled: enabled && showsAttentionQueue(client), refetchInterval: 30000, retry: false,
   })
   const account = status.data?.account || ''
   // Mismo criterio que la bandeja (WhatsAppWebInbox): número exacto. Si la bandeja
@@ -58,7 +58,7 @@ export default function WhatsAppAttentionWatcher({ client, enabled, onOpen }) {
     catch { attnSeenRef.current = new Set() }
   }, [client])
   useEffect(() => {
-    if (!attention.data?.items) return
+    if (!enabled || !showsAttentionQueue(client) || !attention.data?.items) return
     const fresh = unseenAttentionCases(attention.data.items, attnSeenRef.current)
     if (!fresh.length) return
     fresh.forEach((item) => attnSeenRef.current.add(attentionCaseKey(item)))
@@ -78,7 +78,7 @@ export default function WhatsAppAttentionWatcher({ client, enabled, onOpen }) {
       duration: 8000,
       action: { ...respond, label: 'Ver casos' },
     })
-  }, [attention.data, client, nav])
+  }, [attention.data, client, enabled, nav])
   useEffect(() => {
     if (!ready || !chats.data?.chats) return
     const mode = readiness.data?.response_mode

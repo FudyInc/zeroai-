@@ -1,3 +1,5 @@
+export const showsAttentionQueue = (client) => Boolean(client) && client !== 'losetaschile'
+
 const REVIEW_NOTICE = 'Necesito revisar tu consulta antes de responderte bien; quedó pendiente en este chat.'
 
 export const attentionOf = (chat, responseMode = 'automatic') => {
