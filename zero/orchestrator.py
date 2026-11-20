@@ -58,7 +58,8 @@ from .losetas_color import (COLOR_CATALOG_IMAGE_PATH, asks_for_colors, color_pre
                             color_range_reply,
                             color_question, latest_color_preference, names_color)
 from .losetas_budget import format_internal_budget, format_paver_order_draft, paver_order_to_quote
-from .losetas_review import store_review_draft, today as review_today
+from .losetas_review import (customer_review_change, record_review_change, store_review_draft,
+                            today as review_today)
 from .losetas_text import normalize_customer_text, plain
 from .attention import fixed_answer, learned_alias, learned_answer
 from .losetas_shipping import (SHIPPING_COVERAGE_REPLY, SHIPPING_PRICE_REPLY,
@@ -1374,6 +1375,10 @@ class Zero:
                 client_id, (lead or {}).get("key") or "").get("budget_review"))
             # Typos fixed and loose sizes rewritten before any step reads it.
             message = normalize_customer_text(message)
+            change = customer_review_change(self.memory, client_id, (lead or {}).get("key") or "",
+                                            message, order_history, review_status)
+            if change:
+                return change
             if customer_defers(message) and any(
                     turn.get("role") == "agent" for turn in order_history[-6:]):
                 # The customer asked for time: wait for them, send nothing.
@@ -2073,6 +2078,8 @@ class Zero:
             # «2» answers the numbered options; store the option itself, because
             # later steps read the order back from the conversation.
             text = normalize_customer_text(text)
+            if restart_request(text) == "order" and self.memory.lead_notes(client_id, key).get("unassigned_deposit"):
+                self.memory.set_lead_note(client_id, key, "unassigned_deposit", None)
             if mentions_extension(text):
                 # La opción canónica reemplaza el texto: el expediente guarda la extensión.
                 self.memory.set_lead_note(client_id, key, "extension", True)
@@ -2101,6 +2108,15 @@ class Zero:
         response_mode = profile.get("response_mode") or "automatic"
         handoff = self.memory.get_whatsapp_handoff(client_id, handoff_key) if channel == "whatsapp" else None
         if response_mode == "manual" or handoff:
+            if channel == "whatsapp" and client_id == "losetaschile":
+                history = without_choice_slips(current_order(self.memory.get_conversation(client_id, key)))
+                status = paver_review_status(history, pending=self.memory.lead_notes(client_id, key).get("budget_review"))
+                change = customer_review_change(self.memory, client_id, key, text, history, status)
+                if change:
+                    record_review_change(self.memory, client_id, change)
+                    self.memory.add_knowledge_gap(client_id, text, change.get("attention") or
+                        "Actualizar el presupuesto con el cambio solicitado", chat_id=handoff_key,
+                        lead_key=key, tipo="pedido")
             self.memory.add_turn(client_id, key, "lead", text)
             self.memory.log("inbound_manual_review", client=client_id, lead=key,
                             channel=channel, reason="business_manual" if response_mode == "manual" else "chat_handoff")
@@ -2375,6 +2391,9 @@ class Zero:
                 if not current_event_is_latest(latest_messages):
                     return hold_for_whatsapp_review(
                         "El chat recibió otro mensaje durante la redacción.")
+        replaced = None
+        if client_id == "losetaschile" and channel == "whatsapp":
+            replaced = record_review_change(self.memory, client_id, res)
         if res.get("wait"):
             if res.get("attention"):
                 self.memory.add_knowledge_gap(
@@ -2447,6 +2466,9 @@ class Zero:
                                 "whatsapp_display_names", {}).get(key) or "").split())[:80],
                         "phone": re.sub(r"\D", "", from_contact or ""),
                         "color": res.get("selected_tone") or (paver_order or {}).get("color"),
+                        "paver_order": paver_order,
+                        **{k: replaced[k] for k in ("deposit_reported", "confirmed_deposit")
+                           if replaced and k in replaced},
                         "quote": final_quote, "order": "pastelones" if paver_order else None,
                         "issued": review_today().isoformat(), "text": internal_budget})
                     # Keep the group-send dedupe durable before sending the
@@ -2460,6 +2482,9 @@ class Zero:
                     delivery = {"status": "error", "error": str(exc)}
                     if paver_order:
                         signatures[key] = signature  # the next message must not post it again
+            if replaced and delivery["status"] != "accepted":
+                self.memory.add_knowledge_gap(client_id, text, "Verificar en el grupo el borrador de reemplazo",
+                                              chat_id=handoff_key, lead_key=key, tipo="pedido")
             if paver_order and delivery["status"] != "accepted" and res.get("attention"):
                 # Not in the group: the dashboard's attention list is the only trace.
                 self.memory.add_knowledge_gap(
@@ -2470,9 +2495,11 @@ class Zero:
             if delivery["status"] == "accepted" or paver_order:
                 sentence = (paver_review_sentence(paver_order) if paver_order else
                             border_review_sentence(res.get("selected_tone"),
+                                                   (quote or {}).get("delivery_detail") or
                                                    delivery_detail(text, prior_turns)))
                 self.memory.set_lead_note(client_id, key, "budget_review",
-                                          {"text": sentence, "at": datetime.now(timezone.utc).isoformat()})
+                                          {"text": sentence, "at": datetime.now(timezone.utc).isoformat(),
+                                           "draft_id": delivery.get("id")})
             if client_id not in WHATSAPP_SILENT_REVIEW_CLIENTS and (delivery["status"] == "accepted" or paver_order):
                 tone = res.get("selected_tone")
                 if color_preference(text, prior_turns):

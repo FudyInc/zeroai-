@@ -2,6 +2,18 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-11-20-pooledge-cambios-de-pedido",
+      "date": "2026-11-20",
+      "type": "change",
+      "title": "Cambios de pedido y abonos en WhatsApp",
+      "origin": "Diego aprobó la ronda de mejoras del agente de PoolEdge.",
+      "summary": "Las correcciones de color y retiro reemplazan el borrador. Las extensiones ambiguas pasan a revisión. El equipo verifica los abonos informados y el saldo se calcula con el monto confirmado.",
+      "status": "Verificado en pruebas locales",
+      "scope": "PoolEdge, WhatsApp y grupo de presupuestos",
+      "evidence": "Conversaciones de prueba con aprobación del borrador anterior, cambio a retiro, extensiones y confirmación de abono.",
+      "pending": "Observar el primer pedido real posterior a la publicación."
+    },
+    {
       "id": "2026-11-19-pooledge-credito-billing",
       "date": "2026-11-19",
       "type": "change",
