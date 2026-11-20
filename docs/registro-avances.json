@@ -2,6 +2,18 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-11-20-historial-excel-pooledge",
+      "date": "2026-11-20",
+      "type": "change",
+      "title": "Estado e historial de pedidos de Vendidos Diego",
+      "origin": "Diego aprobó mostrar pedidos aplicados, en cola y en revisión con historial por número PE",
+      "summary": "Pipeline muestra piezas, total vigente, cambios pendientes y versiones recibidas con sus discrepancias cuando corresponde.",
+      "status": "Instalado y verificado",
+      "scope": "Sincronizador local, API operativa y dashboard publicado",
+      "evidence": "1.756 pruebas locales aprobadas. El informe real muestra 68 piezas por $548.000 y la versión de 64 piezas por $524.000. API operativa con acceso anónimo rechazado y panel público verificado en versión 7484747.",
+      "pending": "Observar el primer pedido nuevo del equipo en el panel."
+    },
+    {
       "id": "2026-11-20-pooledge-cambios-de-pedido",
       "date": "2026-11-20",
       "type": "change",
@@ -12,6 +24,30 @@
       "scope": "PoolEdge, WhatsApp y grupo de presupuestos",
       "evidence": "Conversaciones de prueba con aprobación del borrador anterior, cambio a retiro, extensiones y confirmación de abono.",
       "pending": "Observar el primer pedido real posterior a la publicación."
+    },
+    {
+      "id": "2026-11-20-vendidos-diego-excel-automatico",
+      "date": "2026-11-20",
+      "type": "change",
+      "title": "Vendidos Diego actualiza ventas y correcciones por número PE",
+      "origin": "Diego aprobó automatizar las altas, correcciones y revisión de presupuestos del grupo",
+      "summary": "El puente captura los presupuestos de texto en una cola privada y el importador agrega o actualiza la fila del PE. Conserva pagos, estados y fecha de venta. Los reenvíos de versiones anteriores se identifican mediante el historial. Las discrepancias quedan en el panel de Pipeline de PoolEdge.",
+      "status": "Instalado y verificado en el equipo operativo",
+      "scope": "Grupo Vendidos Diego, Excel del Escritorio, cola local y panel de Pipeline",
+      "evidence": "Puente conectado con captura habilitada, temporizador activo y ciclo real con 22 mensajes disponibles, una venta y tres versiones históricas, cero discrepancias. Suite completa de 1.754 pruebas OK. En una copia del libro real, Excel de Windows recalculó comisión y saldo y conservó 5.557 fórmulas. Endpoint activo y acceso anónimo rechazado. Panel publicado y verificado en zeroai-six.vercel.app/pipeline, versión 1905a8b.",
+      "pending": "Observar la recepción y aplicación del primer presupuesto real posterior a la activación."
+    },
+    {
+      "id": "2026-11-20-ampliacion-venta-pooledge",
+      "date": "2026-11-20",
+      "type": "change",
+      "title": "Cuatro bordes adicionales en la venta confirmada",
+      "origin": "Pedido de Diego y presupuesto final de Vendidos Diego",
+      "summary": "64 bordes y 4 esquinas, 68 piezas. Productos $408.000, despacho $140.000, total $548.000, abono $10.000 y saldo $538.000.",
+      "status": "Verificado en Excel del Escritorio y cola local",
+      "scope": "Pedido existente",
+      "evidence": "Lectura del grupo y del XLSX guardado, comisión recalculada $40.800 y registro SQLite cotejado.",
+      "pending": "Ninguno para esta corrección."
     },
     {
       "id": "2026-11-19-pooledge-credito-billing",
