@@ -586,6 +586,28 @@ def _asunto(msg: Dict[str, Any], company: Optional[str] = None) -> Optional[str]
         msg.get("company") or company)
 
 
+def _agent_sent_texts(turns: list) -> set:
+    """Textos que el agente dejó en el chat, también cada parte de un mensaje dividido.
+
+    La entrega «humana» divide una respuesta larga por párrafos (split_whatsapp_parts)
+    y el historial la guarda entera. Sin las partes, «Buenas tardes.» enviado por el
+    agente se leía como respuesta del equipo y el chat quedaba pausado (2026-11-21).
+    """
+    known = set()
+    for turn in turns:
+        if turn.get("role") != "agent":
+            continue
+        raw = str(turn.get("text") or "")
+        for text in (raw, format_whatsapp_reply(raw)):
+            paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text.strip()) if p.strip()]
+            known.add(" ".join(text.split()))
+            for i in range(len(paragraphs)):
+                known.add(" ".join(paragraphs[i].split()))
+                known.add(" ".join("\n\n".join(paragraphs[i:]).split()))
+    known.discard("")
+    return known
+
+
 def _skip_repeated_agent_budget(memory, client_id: str, key: str,
                                 res: Dict[str, Any]) -> Dict[str, Any]:
     """El mismo presupuesto del agente no vuelve al grupo (prueba del 2026-11-21).
@@ -2168,8 +2190,7 @@ class Zero:
                 if owner_text and owner_message.get("type") == "chat":
                     recent_agent = [turn for turn in self.memory.get_conversation(client_id, key)
                                     if turn.get("role") == "agent"][-8:]
-                    if not any(" ".join(str(turn.get("text") or "").split()) ==
-                               " ".join(owner_text.split()) for turn in recent_agent):
+                    if " ".join(owner_text.split()) not in _agent_sent_texts(recent_agent):
                         self.memory.add_turn(client_id, key, "agent", owner_text)
                 self.memory.set_whatsapp_handoff(
                     client_id, handoff_key, "El equipo respondió desde el teléfono")
@@ -2212,9 +2233,7 @@ class Zero:
                 return hold_for_whatsapp_review(
                     f"No se pudo verificar el chat antes de responder: {exc}")
             latest = live_messages[-1]
-            known_agent = {" ".join(str(turn.get("text") or "").split())
-                           for turn in self.memory.get_conversation(client_id, key)
-                           if turn.get("role") == "agent"}
+            known_agent = _agent_sent_texts(self.memory.get_conversation(client_id, key))
             unrecorded_owner = next((item for item in live_messages
                                      if item.get("fromMe") and item.get("type") == "chat" and
                                      " ".join(str(item.get("body") or "").split()) and
@@ -2426,9 +2445,7 @@ class Zero:
                 latest = latest_messages[-1]
                 if latest.get("fromMe"):
                     latest_text = " ".join(str(latest.get("body") or "").split())
-                    known_agent = {" ".join(str(turn.get("text") or "").split())
-                                   for turn in self.memory.get_conversation(client_id, key)
-                                   if turn.get("role") == "agent"}
+                    known_agent = _agent_sent_texts(self.memory.get_conversation(client_id, key))
                     owner_message = latest if latest_text not in known_agent else None
                     return hold_for_whatsapp_review(
                         "El equipo tomó el chat durante la redacción.", owner_message=owner_message)
