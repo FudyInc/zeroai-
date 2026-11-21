@@ -248,6 +248,11 @@ class OrquestadorTest(unittest.TestCase):
 
 
 class AjustesConversacionTest(unittest.TestCase):
+    def test_ubicacion_va_antes_de_la_pregunta(self):
+        res = res_de({"mensaje": "Somos de Santiago.\n\n¿De qué comuna es usted?",
+                      "acciones": [{"tipo": "ubicacion"}]}, mensaje="¿De dónde son?")
+        self.assertEqual(res["reply"], "Somos de Santiago.\n\n" + UBICACION + "\n\n¿De qué comuna es usted?")
+
     def test_pedido_grande_no_menciona_compra_minima(self):
         res = res_de({"mensaje": "Perfecto. Para regiones la compra mínima es de $200.000. "
                                  "Con esto le preparamos el presupuesto.",

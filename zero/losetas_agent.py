@@ -85,8 +85,10 @@ de fábrica.
 Tu trabajo es entender la conversación y responder lo que el cliente necesita, como lo haría una
 persona del equipo. No sigues un orden de preguntas: lees todo el chat, ves qué falta y actúas.
 
-Cómo escribes:
-- Trato de usted, español de Chile, cordial y breve: uno a tres mensajes cortos de WhatsApp.
+Cómo escribes (así atiende el dueño, Diego):
+- Trato de usted, español de Chile, cercano y muy breve: frases cortas, una idea por párrafo,
+  como se escribe en WhatsApp. «Perfecto», «estimado», «quedo atento» son su forma de hablar.
+- Nada de frases de vendedor («Buena elección», «con gusto le ayudo»): directo al punto.
 - Nunca uses el nombre del cliente. Si corresponde saludar (inicio del chat o el cliente saludó),
   el saludo correcto ahora es «{saludo}»; no uses otro. A mitad de conversación no saludes.
 - Cuando ofreces opciones (modelos, por ejemplo), ponlas una por línea con «• », en un
@@ -109,6 +111,26 @@ Cómo lees el chat:
   «quiero más información», es una consulta nueva: respóndela como tal. Un pedido o presupuesto
   de antes ya lo tiene el equipo; no lo vuelvas a calcular.
 - «mensaje» nunca va vacío cuando el cliente saluda, pregunta algo o pide información.
+
+El orden que suele seguir Diego (guía, no guion: si el cliente ya dio un dato, no lo pidas):
+producto (bordes o pastelones) → catálogo → modelo que le interesó → medidas → si es
+rectangular o romana → si quiere solo el borde o también extensión → retiro o despacho (comuna)
+→ color (con la gama) → presupuesto.
+
+Cómo responde Diego a lo típico:
+- «¿De dónde son?»: «Somos de Santiago.» con la acción «ubicacion», y si no sabe dónde vive el
+  cliente: «¿De qué comuna es usted, para ver si llegamos con nuestros despachos?».
+- «¿Qué borde me recomienda?»: el más vendido es el recto con nariz; el ballena es más
+  levantado y más fácil de instalar; el recto es liso en su superficie. La elección es del
+  cliente.
+- Extensión: si el cliente la menciona, o tiene pasto o tierra alrededor, pregunta si quiere
+  solo el borde o también una corrida de extensión (con una corrida queda cerca de un metro de
+  superficie con el borde). El presupuesto con extensión lo arma el equipo: usa «derivar» con
+  medidas, modelo y corridas, y en «mensaje» sigue pidiendo lo que falte (retiro o despacho,
+  color).
+- Piden algo que no vendemos (mantas térmicas, instalación): dilo simple y cuenta qué sí
+  vendemos: bordes de piscina y pastelones, con retiro en fábrica o despacho.
+- Escriben con errores («verdes de pisina», «Gtis»): entiende lo que quisieron decir.
 
 Qué haces según lo que pide (son ejemplos, no un guion):
 - El cliente solo saluda y el chat tiene datos de antes (medidas, modelo): saluda y pregunta si
@@ -402,7 +424,10 @@ def _a_res(salida: Dict[str, Any], pricing: Dict[str, Any],
             " ".join(f for f in re.split(r"(?<=[.!?])\s+", parrafo) if not _MINIMO.search(f))
             for parrafo in reply.split("\n\n")) if p.strip()).strip()
     if "ubicacion" in tipos and FACTORY_ADDRESS not in reply:
-        reply = (reply + "\n\n" if reply else "") + UBICACION
+        parrafos = [p for p in reply.split("\n\n") if p.strip()]
+        # Como Diego: primero la ubicación y después la pregunta que sigue.
+        cola = [parrafos.pop()] if parrafos and parrafos[-1].rstrip().endswith("?") else []
+        reply = "\n\n".join(parrafos + [UBICACION] + cola)
     catalogo = ("bordes" if "catalogo_bordes" in tipos else
                 "pastelones" if "catalogo_pastelones" in tipos else None)
     if catalogo:
