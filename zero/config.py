@@ -299,6 +299,22 @@ LOSETASCHILE_WHATSAPP_CATALOG_URL = "https://wa.me/c/56964537891"
 LOSETASCHILE_GREETING_TAIL = ""
 # Diego, 2026-11-17: una revisión pendiente se comunica solo al equipo.
 WHATSAPP_SILENT_REVIEW_CLIENTS = frozenset({"losetaschile"})
+
+# Agente que conduce la conversación de PoolEdge (Diego, 2026-11-20): el modelo lee el
+# chat completo y la ficha completa y decide qué responder; el código ejecuta las
+# acciones (catálogo, gama, ubicación, presupuesto al grupo, derivar) y revisa la
+# respuesta antes de enviarla. Reemplaza los pasos fijos del flujo, que respondían
+# antes de que el modelo leyera el mensaje. «modo» = "flujo" vuelve al flujo anterior.
+# Opus 5.5 por decisión de Diego; esfuerzo bajo y la ficha en caché acotan el gasto
+# del crédito de Anthropic, que es solo para este agente.
+LOSETASCHILE_AGENT = {
+    "modo": "conduce",
+    "model": "claude-opus-5-5",
+    "effort": "low",
+    "max_tokens": 4000,
+    "timeout_s": 60.0,
+    "turnos_historial": 80,
+}
 LOSETASCHILE_REVIEW_NOTICE_PATTERN = (
     r"^\s*gracias por escribir(?:nos)?(?:\s+a\s+PoolEdge)?[.!]?\s*$|"
     r"\brecib[ií]\s+(?:su|tu|el)\s+(?:mensaje|consulta)\b"

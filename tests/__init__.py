@@ -23,3 +23,11 @@ os.environ.setdefault(
     "AGENT_TELEMETRY_PATH",
     os.path.join(tempfile.gettempdir(), f"zero-telemetria-tests-{os.getpid()}.json"),
 )
+
+# El agente que conduce (zero/losetas_agent.py) llama a Claude con saldo real. La suite
+# completa ejercita el flujo anterior, que sigue disponible con «modo» = "flujo"; las
+# pruebas del agente nuevo activan "conduce" con un modelo simulado
+# (tests/test_losetas_agent.py). Así ninguna prueba gasta crédito ni sale a la red.
+from zero.config import LOSETASCHILE_AGENT as _AGENTE  # noqa: E402
+
+_AGENTE["modo"] = "flujo"

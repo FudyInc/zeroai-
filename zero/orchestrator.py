@@ -18,7 +18,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from .config import (LOSETASCHILE_CHAT_OPEN_HOURS, WHATSAPP_UNREADABLE_HANDOFF_HOURS,
+from .config import (LOSETASCHILE_AGENT, LOSETASCHILE_CHAT_OPEN_HOURS, WHATSAPP_UNREADABLE_HANDOFF_HOURS,
     LOSETASCHILE_CHOICE_STYLE,
     LOSETASCHILE_PAVER_PRICE_IDS,
     LOSETASCHILE_FULGET_REPLY, LOSETASCHILE_GREETING_TAIL,
@@ -2343,8 +2343,19 @@ class Zero:
                 known.add((" ".join(body.split()).casefold(), role))
             prior_turns.sort(key=lambda turn: str(turn.get("at") or ""))
             prior_turns = prior_turns[-200:]
-        res = self.converse_result(client_id, text, lead=rec, channel=channel,
-                                   history=prior_turns)
+        agent_led = (client_id == "losetaschile" and channel == "whatsapp" and
+                     LOSETASCHILE_AGENT.get("modo") == "conduce")
+        if agent_led:
+            from .losetas_agent import responder as agent_reply
+            res = agent_reply(
+                text, prior_turns, knowledge=self.memory.get_client_knowledge(client_id),
+                pricing_raw=self.memory.get_client_pricing(client_id),
+                nombres=[name_from_profile or "", rec.get("name") or "",
+                         self.memory.clients.get(client_id, {}).get(
+                             "whatsapp_display_names", {}).get(key) or ""])
+        else:
+            res = self.converse_result(client_id, text, lead=rec, channel=channel,
+                                       history=prior_turns)
         menu_turns = (without_choice_slips(prior_turns)
                       if client_id == "losetaschile" and channel == "whatsapp" else [])
         open_order = current_order(menu_turns)
@@ -2361,7 +2372,7 @@ class Zero:
             self.memory.save()
         # A bare color («gris») keeps the old behaviour, which the flow reads later on.
         open_menu = (reasks_open_choice(res, text, menu_turns)
-                     if menu_turns and not _simple_greeting(text) and not res.get("repeat_menu") and
+                     if not agent_led and menu_turns and not _simple_greeting(text) and not res.get("repeat_menu") and
                      res.get("reply") not in (SHIPPING_COVERAGE_REPLY, SHIPPING_PRICE_REPLY) and
                      not (names_color(text) and "?" not in text) else None)
         if open_menu:
@@ -2369,7 +2380,7 @@ class Zero:
                                        open_menu=open_menu, history=prior_turns)
         # Any answer that is not a flow step leaves the open menu open.
         aside_kind = res.get("aside")
-        aside_menu = open_menu or (open_choice(menu_turns) if aside_kind else None)
+        aside_menu = None if agent_led else (open_menu or (open_choice(menu_turns) if aside_kind else None))
         # A teammate may take the chat while the local model is drafting. Reload
         # persisted state before sending, so that takeover wins over the draft.
         if channel == "whatsapp" and whatsapp_chat_id and (
@@ -2421,6 +2432,16 @@ class Zero:
         quote = res.get("quote")
         paver_order = res.get("paver_order")
         if client_id == "losetaschile" and channel == "whatsapp" and (quote or paver_order):
+            if agent_led and reply.strip() not in ("", ".") and whatsapp_chat_id:
+                # El agente respondió algo además del presupuesto (p. ej. la ubicación para
+                # retirar): eso sí sale. El presupuesto nunca llega al cliente automático.
+                said = self._deliver(
+                    client_id, key, rec.get("phone") or from_contact,
+                    {"channel": channel, "subject": None, "body": format_whatsapp_reply(reply),
+                     "whatsapp_from": to_phone_id, "whatsapp_chat_id": whatsapp_chat_id,
+                     "humanize": True}, wa_creds=wa_creds)
+                if said.get("status") == "sent":
+                    self.memory.add_turn(client_id, key, "agent", reply)
             # The customer never receives an automatic budget. The structured
             # calculation goes to a separate review group for a person to check.
             review_name = (name_from_profile or self.memory.clients.get(
@@ -2557,6 +2578,8 @@ class Zero:
                     "intent": "pricing", "company": rec.get("company"),
                     "delivery": delivery, "customer_ack": customer_ack, **out}
         def repetition(candidate: str) -> bool:
+            if agent_led:
+                return False  # losetas_agent ya revisó la respuesta antes de devolverla
             # A deterministic step that sends a poll is the flow asking its next
             # question, not the model looping; flagging it would hand the chat off.
             if (candidate in (SHIPPING_COVERAGE_REPLY, SHIPPING_PRICE_REPLY) or intent == "catalog"
@@ -2568,11 +2591,13 @@ class Zero:
                              for turn in prior_turns) or
                          _asks_again_for_supplied_measurements(text, candidate, prior_turns)))
         repeated = repetition(reply)
-        unsafe_shipping = (client_id == "losetaschile" and
+        # El agente que conduce ya pasó por losetas_agent.revisar_respuesta; estas
+        # heurísticas del flujo anterior lo silenciaban por palabras sueltas.
+        unsafe_shipping = (not agent_led and client_id == "losetaschile" and
                            _unverified_shipping_claim(text, reply,
                                                       self.memory.get_client_knowledge(client_id)))
-        unsupported_review = _unverified_quote_review_claim(reply)
-        unsupported_count = (client_id == "losetaschile" and
+        unsupported_review = not agent_led and _unverified_quote_review_claim(reply)
+        unsupported_count = (not agent_led and client_id == "losetaschile" and
                              unquoted_piece_count(reply, quote))
         if ((repeated and not _simple_greeting(text)) or unsafe_shipping or unsupported_review) and intent != "handoff":
             revised = self.converse_result(
@@ -2629,7 +2654,7 @@ class Zero:
             # The company is PoolEdge; «Losetas Chile» is the old name (Diego, 2026-11-11).
             reply = _OLD_BRAND.sub("PoolEdge", reply)
             reply = format_whatsapp_reply(reply)
-        not_known = (client_id == "losetaschile" and channel == "whatsapp" and
+        not_known = (not agent_led and client_id == "losetaschile" and channel == "whatsapp" and
                      intent != "handoff" and not res.get("flow_step") and
                      _admits_not_knowing(reply))
         generic_notice = (client_id in WHATSAPP_SILENT_REVIEW_CLIENTS and channel == "whatsapp" and
