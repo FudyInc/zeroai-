@@ -259,5 +259,22 @@ class FechasTest(unittest.TestCase):
         self.assertIn("NUEVO MENSAJE DEL CLIENTE (21/11 12:20)", user)
 
 
+class PartesPropiasTest(unittest.TestCase):
+    def test_partes_de_una_respuesta_dividida_son_del_agente(self):
+        # Prueba del 2026-11-21: «Buenas tardes.» enviado en partes pausó el chat.
+        from zero.config import WHATSAPP_HUMAN_DELIVERY as cfg
+        from zero.orchestrator import _agent_sent_texts
+        from zero.whatsapp_format import format_whatsapp_reply, split_whatsapp_parts
+        texto = ("Buenas tardes.\n\nLe envío nuestro catálogo de bordes de piscina.\n\n"
+                 "¿Qué medidas tiene su piscina (largo y ancho)? Así le preparamos el presupuesto.")
+        conocidos = _agent_sent_texts([{"role": "agent", "text": texto}])
+        partes = split_whatsapp_parts(format_whatsapp_reply(texto), cfg["max_parts"], cfg["min_split_chars"])
+        self.assertEqual(len(partes), 3)
+        for parte in partes:
+            self.assertIn(" ".join(parte.split()), conocidos)
+        self.assertNotIn("Sí, se lo envío hoy", conocidos)
+        self.assertEqual(_agent_sent_texts([{"role": "lead", "text": texto}]), set())
+
+
 if __name__ == "__main__":
     unittest.main()
