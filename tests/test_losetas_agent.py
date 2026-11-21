@@ -297,6 +297,38 @@ class ExtensionYPesoTest(unittest.TestCase):
         self.assertIn("Peso estimado sin esquinas: 1.339 kg.", " ".join(res["quote"]["review_notes"]))
 
 
+class BurbujasTest(unittest.TestCase):
+    def test_saludo_va_con_la_respuesta_y_la_pregunta_aparte(self):
+        from zero.whatsapp_format import agent_bubbles
+        texto = ("Buenas noches.\n\nLe envío nuestro catálogo de bordes.\n\n"
+                 "¿Qué modelo le interesa?\n\n• Borde recto con nariz 50x50\n• Borde ballena 50x40")
+        self.assertEqual(agent_bubbles(texto), [
+            "Buenas noches.\nLe envío nuestro catálogo de bordes.",
+            "¿Qué modelo le interesa?\n\n• Borde recto con nariz 50x50\n• Borde ballena 50x40"])
+
+    def test_informacion_junta_en_el_medio(self):
+        from zero.whatsapp_format import agent_bubbles
+        texto = ("Buenas noches.\n\nSomos de Santiago.\n\nAtendemos de lunes a viernes.\n\n"
+                 + UBICACION + "\n\n¿De qué comuna es usted?")
+        partes = agent_bubbles(texto)
+        self.assertEqual(len(partes), 3)
+        self.assertEqual(partes[0], "Buenas noches.\nSomos de Santiago.")
+        self.assertIn(UBICACION, partes[1])
+        self.assertEqual(partes[2], "¿De qué comuna es usted?")
+
+    def test_burbujas_se_reconocen_como_del_agente(self):
+        from zero.orchestrator import _agent_sent_texts
+        from zero.whatsapp_format import agent_bubbles
+        texto = "Buenas noches.\n\nUno.\n\nDos.\n\nTres.\n\n¿Algo más?"
+        conocidos = _agent_sent_texts([{"role": "agent", "text": texto}])
+        for parte in agent_bubbles(texto):
+            self.assertIn(" ".join(parte.split()), conocidos)
+
+    def test_una_sola_frase_es_una_burbuja(self):
+        from zero.whatsapp_format import agent_bubbles
+        self.assertEqual(agent_bubbles("Los colores no cambian el precio."), ["Los colores no cambian el precio."])
+
+
 class FechasTest(unittest.TestCase):
     def test_el_modelo_ve_la_fecha_de_cada_mensaje(self):
         from datetime import datetime, timezone
@@ -306,7 +338,7 @@ class FechasTest(unittest.TestCase):
                   ahora=datetime(2026, 11, 21, 15, 20, tzinfo=timezone.utc))
         user = llamar.llamadas[0][1]
         self.assertIn("[18/11 21:50] CLIENTE: 7x3 gris", user)
-        self.assertIn("NUEVO MENSAJE DEL CLIENTE (21/11 12:20)", user)
+        self.assertIn("NUEVO MENSAJE DEL CLIENTE (sábado 21/11 12:20)", user)
 
 
 class PartesPropiasTest(unittest.TestCase):

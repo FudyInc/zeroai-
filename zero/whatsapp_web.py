@@ -24,7 +24,7 @@ from typing import Any, Dict, Optional
 
 from . import config
 from .config import LOSETASCHILE_WHATSAPP_CATALOG_URL, WHATSAPP_HUMAN_DELIVERY
-from .whatsapp_format import split_whatsapp_parts, typing_ms
+from .whatsapp_format import agent_bubbles, split_whatsapp_parts, typing_ms
 
 
 _bridge_stop = threading.Event()
@@ -705,7 +705,8 @@ class WhatsAppWebSender:
             payload["link_preview"] = False
         cfg = WHATSAPP_HUMAN_DELIVERY
         if msg.get("humanize") and cfg["enabled"]:
-            parts = split_whatsapp_parts(payload["text"], cfg["max_parts"], cfg["min_split_chars"])
+            parts = (agent_bubbles(payload["text"], cfg["max_parts"]) if msg.get("agent_bubbles") else
+                     split_whatsapp_parts(payload["text"], cfg["max_parts"], cfg["min_split_chars"]))
             sent_parts = []
             for number, part in enumerate(parts):
                 try:

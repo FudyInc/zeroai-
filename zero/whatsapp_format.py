@@ -58,6 +58,31 @@ def split_whatsapp_parts(text: str, max_parts: int, min_split_chars: int) -> lis
     return parts
 
 
+_BARE_GREETING = re.compile(r"^[¡\s]*(?:hola|buen[oa]s\s+(?:d[ií]as|tardes|noches))[\s,.!]*$", re.IGNORECASE)
+
+
+def agent_bubbles(text: str, max_parts: int = 3) -> list:
+    """Burbujas ordenadas para el agente de PoolEdge (Diego, 2026-11-21: «ordenaditos»).
+
+    1) el saludo junto con la respuesta, 2) la información (opciones, horario,
+    ubicación), 3) la pregunta que sigue con sus opciones. Nunca un «Buenas
+    noches.» solo ni una frase suelta. `"\n\n".join(...)` no siempre rehace el
+    texto: el saludo se une a la línea siguiente con un salto simple.
+    """
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", (text or "").strip()) if p.strip()]
+    if len(paragraphs) <= 1:
+        return paragraphs or [""]
+    if _BARE_GREETING.match(paragraphs[0]):
+        paragraphs = [paragraphs[0] + "\n" + paragraphs[1]] + paragraphs[2:]
+    asks = [i for i, p in enumerate(paragraphs) if p.rstrip().endswith("?")]
+    tail_at = asks[-1] if asks and asks[-1] > 0 else len(paragraphs)
+    head, middle, tail = paragraphs[:1], paragraphs[1:tail_at], paragraphs[tail_at:]
+    parts = head + (["\n\n".join(middle)] if middle else []) + (["\n\n".join(tail)] if tail else [])
+    if len(parts) > max_parts:
+        parts = parts[:max_parts - 1] + ["\n\n".join(parts[max_parts - 1:])]
+    return parts
+
+
 def typing_ms(part: str, cfg: dict) -> int:
     """Typing time for one part, bounded by the delivery policy."""
     raw = len(part or "") * cfg["ms_per_char"]
