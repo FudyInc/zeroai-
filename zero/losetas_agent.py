@@ -44,6 +44,14 @@ BORDES = {
     "Borde ballena nariz 50x50": "borde-ballena-nariz-50x50",
 }
 ESQUINA = "esquina-piscina-50x50"
+# El ballena 50x40 lleva su propia esquina (así cotiza Diego); los de 50x50, la de piscina.
+ESQUINA_DE = {"borde-ballena-50x40": "esquina-borde-ballena-50x40"}
+# Ancho que ocupa el borde hacia afuera de la piscina, para ubicar la extensión.
+ANCHO_BORDE = {"borde-recto-nariz-50x50": Decimal("0.5"), "borde-ballena-50x40": Decimal("0.4"),
+               "borde-ballena-nariz-50x50": Decimal("0.5")}
+EXTENSION = "extension-borde-piscina"
+# Pesos por pieza que dio Diego (2026-11-21). Sin peso conocido, no se informa total.
+PESO_KG = {"borde-recto-nariz-50x50": 15, "borde-ballena-50x40": 13, EXTENSION: 13}
 PASTELONES = sorted(LOSETASCHILE_PAVER_PRICE_IDS)
 
 ESQUEMA = {
@@ -68,6 +76,8 @@ ESQUEMA = {
                     "ancho_m": {"type": "number"},
                     "forma": {"type": "string", "enum": ["rectangular", "otra"]},
                     "m2": {"type": "number"},
+                    "corridas_extension": {"type": "integer",
+                                           "description": "Corridas de extensión alrededor del borde; 0 si solo borde"},
                     "color": {"type": "string"},
                     "entrega": {"type": "string",
                                 "description": "«retiro» o la dirección/comuna de despacho que dio el cliente"},
@@ -125,9 +135,8 @@ Cómo responde Diego a lo típico:
   cliente.
 - Extensión: si el cliente la menciona, o tiene pasto o tierra alrededor, pregunta si quiere
   solo el borde o también una corrida de extensión (con una corrida queda cerca de un metro de
-  superficie con el borde). El presupuesto con extensión lo arma el equipo: usa «derivar» con
-  medidas, modelo y corridas, y en «mensaje» sigue pidiendo lo que falte (retiro o despacho,
-  color).
+  superficie con el borde). Pon las corridas en «corridas_extension» de presupuesto_bordes; el
+  sistema calcula las piezas. Si pide una cantidad suelta de extensiones (no corridas), deriva.
 - Piden algo que no vendemos (mantas térmicas, instalación): dilo simple y cuenta qué sí
   vendemos: bordes de piscina y pastelones, con retiro en fábrica o despacho.
 - Escriben con errores («verdes de pisina», «Gtis»): entiende lo que quisieron decir.
@@ -154,6 +163,16 @@ Qué haces según lo que pide (son ejemplos, no un guion):
   para que sepa qué sigue, por ejemplo «Perfecto, con esto le preparamos el presupuesto.».
 - Si la piscina no es rectangular (romana, curva, en L): pide una foto y deriva.
 - Si falta algo para el presupuesto, pídelo de forma natural.
+- Si corrige cantidades de un presupuesto emitido, distingue cantidades finales de unidades
+  adicionales. Si es ambiguo, pregunta «¿Cuántas unidades quiere en total?». Con la aclaración,
+  deriva la enmienda del mismo pedido al equipo, sin generar otro presupuesto.
+- Si elige retiro, deja de pedir dirección de despacho. Si necesita el peso para su vehículo
+  o una transportista, usa el peso que figura en su cotización vigente. Si falta, deriva.
+- Para transporte externo distingue el traslado hasta la agencia del flete de la transportista.
+  Si el cliente ya tiene el peso y pregunta por el traslado a su agencia, pregunta qué empresa
+  eligió si falta ese dato. No extrapoles cobros de otro pedido.
+- Una fecha solicitada es una preferencia. Solo confirma una entrega si el equipo ya confirmó
+  esa fecha para ese pedido. Ante una solicitud de confirmación sin respaldo, deriva.
 - Si el cliente pide despacho y el chat no tiene su comuna, pídela en ese mismo mensaje: sin
   comuna no hay presupuesto con despacho.
 - En «modelo» usa solo un modelo que el cliente eligió con claridad. Si nombra uno que no está en
@@ -287,15 +306,52 @@ def presupuesto_bordes(accion: Dict[str, Any], pricing: Dict[str, Any]) -> Optio
         notas.append(f"Medidas {largo} × {ancho} m redondeadas a {redondeo[0]} × {redondeo[1]} m "
                      "para el cálculo: revisar cortes.")
     rectas = int(2 * (redondeo[0] + redondeo[1]) * 2)
+    corridas = accion.get("corridas_extension") or 0
+    if not isinstance(corridas, int) or not 0 <= corridas <= 3:
+        return None
+    extensiones = piezas_extension(redondeo[0], redondeo[1], ANCHO_BORDE[border_id], corridas)
     plan = {"width": redondeo[1], "length": redondeo[0], "straight": rectas, "corners": 4,
-            "border_id": border_id, "review_notes": notas}
-    quote = compute_quote(pricing, [{"id": border_id, "qty": rectas}, {"id": ESQUINA, "qty": 4}])
+            "border_id": border_id, "extension": extensiones, "review_notes": notas}
+    lineas = [{"id": border_id, "qty": rectas}, {"id": ESQUINA_DE.get(border_id, ESQUINA), "qty": 4}]
+    if extensiones:
+        lineas.append({"id": EXTENSION, "qty": extensiones})
+        notas.append(f"Extensión: {corridas} corrida(s) alrededor del borde, {extensiones} piezas "
+                     "(perímetro exterior ÷ 0,5 + 4 esquinas por corrida): revisar.")
+    peso = peso_total(lineas)
+    if peso:
+        notas.append(f"Peso estimado sin esquinas: {peso:,} kg.".replace(",", "."))
+    quote = compute_quote(pricing, lineas)
     if not quote or quote.get("unmatched") or not quote.get("total"):
         return None
     quote["shipping_pending"] = True
     quote["delivery_detail"] = _entrega(accion)
     quote["review_notes"] = notas
     return {"plan": plan, "quote": quote}
+
+
+def piezas_extension(largo: Decimal, ancho: Decimal, borde: Decimal, corridas: int) -> int:
+    """Piezas 50x50 para `corridas` anillos alrededor del borde.
+
+    Cada corrida rodea el rectángulo exterior de la anterior: perímetro ÷ 0,5 m más
+    4 esquinas. Coincide con el pedido de 8,5 × 3 m en ballena que cotizó Diego (57).
+    """
+    total = 0
+    for k in range(corridas):
+        exterior = 2 * (largo + ancho) + 8 * (borde + Decimal("0.5") * k)
+        total += int((exterior / Decimal("0.5")).to_integral_value(rounding=ROUND_CEILING)) + 4
+    return total
+
+
+def peso_total(lineas: List[Dict[str, Any]]) -> Optional[int]:
+    """Kilos del pedido, solo si se conoce el peso de todas las piezas con peso propio."""
+    total = 0
+    for linea in lineas:
+        if linea["id"].startswith("esquina"):
+            continue  # sin peso informado; se aclara en la nota
+        if linea["id"] not in PESO_KG:
+            return None
+        total += PESO_KG[linea["id"]] * linea["qty"]
+    return total
 
 
 def presupuesto_pastelones(accion: Dict[str, Any], pricing: Dict[str, Any]) -> Optional[Dict[str, Any]]:
