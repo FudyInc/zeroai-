@@ -586,6 +586,31 @@ def _asunto(msg: Dict[str, Any], company: Optional[str] = None) -> Optional[str]
         msg.get("company") or company)
 
 
+def _skip_repeated_agent_budget(memory, client_id: str, key: str,
+                                res: Dict[str, Any]) -> Dict[str, Any]:
+    """El mismo presupuesto del agente no vuelve al grupo (prueba del 2026-11-21).
+
+    Un «hola, quiero más información» días después hizo que el agente recalculara el
+    pedido anterior y dejara al cliente sin texto. Si las líneas no cambiaron, el
+    grupo ya lo tiene: sale solo la respuesta, o el mensaje queda en Atención.
+    """
+    pedido = res.get("quote") or res.get("paver_order") or {}
+    lineas = [(line.get("id"), line.get("qty")) for line in pedido.get("lines") or []]
+    firma = hashlib.sha256(json.dumps(
+        [lineas or pedido, res.get("selected_tone") or "", pedido.get("delivery_detail") or ""],
+        sort_keys=True, default=str, ensure_ascii=False).encode("utf-8")).hexdigest()
+    firmas = memory.clients.setdefault(client_id, {}).setdefault("agent_budget_signatures", {})
+    if firmas.get(key) != firma:
+        firmas[key] = firma
+        return res
+    res = {k: v for k, v in res.items() if k not in ("quote", "paver_order", "selected_tone")}
+    if (res.get("reply") or "").strip() in ("", "."):
+        return {"reply": "", "intent": "handoff", "agent_led": True,
+                "review_reason": "El cliente volvió a escribir; su presupuesto ya está en el grupo"}
+    res["intent"] = "general"
+    return res
+
+
 class Zero:
     def __init__(self, agents: Dict[str, Any], memory: Optional[SessionMemory] = None,
                  crm: Any = None, outbox: Optional[Outbox] = None,
@@ -2410,6 +2435,8 @@ class Zero:
                 if not current_event_is_latest(latest_messages):
                     return hold_for_whatsapp_review(
                         "El chat recibió otro mensaje durante la redacción.")
+        if agent_led and (res.get("quote") or res.get("paver_order")):
+            res = _skip_repeated_agent_budget(self.memory, client_id, key, res)
         replaced = None
         if client_id == "losetaschile" and channel == "whatsapp":
             replaced = record_review_change(self.memory, client_id, res)
