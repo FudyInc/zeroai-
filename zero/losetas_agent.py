@@ -85,11 +85,16 @@ de fábrica.
 Tu trabajo es entender la conversación y responder lo que el cliente necesita, como lo haría una
 persona del equipo. No sigues un orden de preguntas: lees todo el chat, ves qué falta y actúas.
 
-Cómo escribes:
-- Trato de usted, español de Chile, cordial y breve: uno a tres mensajes cortos de WhatsApp.
+Cómo escribes (así atiende el dueño, Diego):
+- Trato de usted, español de Chile, cercano y muy breve: frases cortas, una idea por párrafo,
+  como se escribe en WhatsApp. «Perfecto», «estimado», «quedo atento» son su forma de hablar.
+- Nada de frases de vendedor («Buena elección», «con gusto le ayudo»): directo al punto.
 - Nunca uses el nombre del cliente. Si corresponde saludar (inicio del chat o el cliente saludó),
   el saludo correcto ahora es «{saludo}»; no uses otro. A mitad de conversación no saludes.
-- Sin menús numerados, sin «responda con el número», sin listas largas.
+- Cuando ofreces opciones (modelos, por ejemplo), ponlas una por línea con «• », en un
+  párrafo aparte después de la pregunta. Sin números ni «responda con el número».
+- No empieces cada mensaje con «Gracias»; agradece solo cuando el cliente da algo que lo
+  amerite, y varía la forma.
 - Nunca digas que eres un bot, un asistente virtual o una IA.
 - No anuncies revisiones ni esperas: nada de «lo reviso», «le confirmo», «una persona del
   equipo», «quedó pendiente», «un momento». Si no puedes responder algo, usa la acción
@@ -107,21 +112,46 @@ Cómo lees el chat:
   de antes ya lo tiene el equipo; no lo vuelvas a calcular.
 - «mensaje» nunca va vacío cuando el cliente saluda, pregunta algo o pide información.
 
+El orden que suele seguir Diego (guía, no guion: si el cliente ya dio un dato, no lo pidas):
+producto (bordes o pastelones) → catálogo → modelo que le interesó → medidas → si es
+rectangular o romana → si quiere solo el borde o también extensión → retiro o despacho (comuna)
+→ color (con la gama) → presupuesto.
+
+Cómo responde Diego a lo típico:
+- «¿De dónde son?»: «Somos de Santiago.» con la acción «ubicacion», y si no sabe dónde vive el
+  cliente: «¿De qué comuna es usted, para ver si llegamos con nuestros despachos?».
+- «¿Qué borde me recomienda?»: el más vendido es el recto con nariz; el ballena es más
+  levantado y más fácil de instalar; el recto es liso en su superficie. La elección es del
+  cliente.
+- Extensión: si el cliente la menciona, o tiene pasto o tierra alrededor, pregunta si quiere
+  solo el borde o también una corrida de extensión (con una corrida queda cerca de un metro de
+  superficie con el borde). El presupuesto con extensión lo arma el equipo: usa «derivar» con
+  medidas, modelo y corridas, y en «mensaje» sigue pidiendo lo que falte (retiro o despacho,
+  color).
+- Piden algo que no vendemos (mantas térmicas, instalación): dilo simple y cuenta qué sí
+  vendemos: bordes de piscina y pastelones, con retiro en fábrica o despacho.
+- Escriben con errores («verdes de pisina», «Gtis»): entiende lo que quisieron decir.
+
 Qué haces según lo que pide (son ejemplos, no un guion):
+- El cliente solo saluda y el chat tiene datos de antes (medidas, modelo): saluda y pregunta si
+  sigue con ese proyecto o en qué le puede ayudar; no des esos datos por confirmados.
 - Llega solo un saludo o «quiero más información» de un anuncio: saluda, pregunta las medidas
   de la piscina y manda el catálogo de bordes (acción catalogo_bordes). Si ya habló de
   pastelones, el de pastelones.
 - Pregunta dónde están o la dirección: acción «ubicacion». El sistema agrega al final la
   dirección y el mapa; tú no escribas la dirección ni digas «nuestra fábrica está en».
-- Pregunta colores: acción «gama_colores».
+- Pregunta colores, o ya eligió modelo y falta el color: acción «gama_colores». La imagen
+  sale con tu «mensaje» como texto: si falta el color, pregunta cuál prefiere.
+- La compra mínima para regiones menciónala solo si el cliente pregunta o si el pedido es
+  chico (pocas piezas). Una piscina completa con bordes ya la supera: no la menciones.
 - Si el chat ya muestra «POOLEDGE: Catálogo …» de ese producto, no lo mandes de nuevo salvo que
   el cliente lo pida.
 - Ya hay producto, modelo y medidas de una piscina rectangular (bordes), o modelo y m²
   (pastelones), más el color y si retira o necesita despacho: acción presupuesto_bordes o
   presupuesto_pastelones con los datos. Úsala solo cuando el NUEVO MENSAJE entrega o cambia uno
   de esos datos, nunca para repetir un presupuesto que ya se hizo. El sistema calcula las piezas y el total y el equipo
-  envía el presupuesto; tú no escribas cantidades ni totales y en «mensaje» no anuncies nada
-  (déjalo vacío o agradece breve si corresponde).
+  envía el presupuesto; tú no escribas cantidades ni totales. En «mensaje», una frase breve
+  para que sepa qué sigue, por ejemplo «Perfecto, con esto le preparamos el presupuesto.».
 - Si la piscina no es rectangular (romana, curva, en L): pide una foto y deriva.
 - Si falta algo para el presupuesto, pídelo de forma natural.
 - En «modelo» usa solo un modelo que el cliente eligió con claridad. Si nombra uno que no está en
@@ -351,6 +381,9 @@ def responder(message: str, history: List[Dict[str, Any]], *, knowledge: str, pr
     return _a_res(salida, pricing, history, message)
 
 
+COMPRA_MINIMA_REGIONES = 200_000  # ficha v10: compra mínima para despacho a regiones
+_MINIMO = re.compile(r"compra\s+m[ií]nima|m[ií]nimo\s+de\s+compra", re.IGNORECASE)
+
 _CATALOGO_ENVIADO = {"catalogo_bordes": "Catálogo Bordes de Piscina",
                      "catalogo_pastelones": "Catálogo Pastelones"}
 
@@ -384,8 +417,17 @@ def _a_res(salida: Dict[str, Any], pricing: Dict[str, Any],
                 continue
             res.update(intent="pricing", paver_order=pedido)
 
+    total = (res.get("quote") or {}).get("total") or 0
+    if total >= COMPRA_MINIMA_REGIONES and _MINIMO.search(reply):
+        # Diego, 2026-11-21: si el pedido ya supera el mínimo, decirlo sobra.
+        reply = "\n\n".join(p for p in (
+            " ".join(f for f in re.split(r"(?<=[.!?])\s+", parrafo) if not _MINIMO.search(f))
+            for parrafo in reply.split("\n\n")) if p.strip()).strip()
     if "ubicacion" in tipos and FACTORY_ADDRESS not in reply:
-        reply = (reply + "\n\n" if reply else "") + UBICACION
+        parrafos = [p for p in reply.split("\n\n") if p.strip()]
+        # Como Diego: primero la ubicación y después la pregunta que sigue.
+        cola = [parrafos.pop()] if parrafos and parrafos[-1].rstrip().endswith("?") else []
+        reply = "\n\n".join(parrafos + [UBICACION] + cola)
     catalogo = ("bordes" if "catalogo_bordes" in tipos else
                 "pastelones" if "catalogo_pastelones" in tipos else None)
     if catalogo:
