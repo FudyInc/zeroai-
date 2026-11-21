@@ -154,6 +154,8 @@ Qué haces según lo que pide (son ejemplos, no un guion):
   para que sepa qué sigue, por ejemplo «Perfecto, con esto le preparamos el presupuesto.».
 - Si la piscina no es rectangular (romana, curva, en L): pide una foto y deriva.
 - Si falta algo para el presupuesto, pídelo de forma natural.
+- Si el cliente pide despacho y el chat no tiene su comuna, pídela en ese mismo mensaje: sin
+  comuna no hay presupuesto con despacho.
 - En «modelo» usa solo un modelo que el cliente eligió con claridad. Si nombra uno que no está en
   la lista o es ambiguo, pregúntale cuál de los de la lista quiere.
 
