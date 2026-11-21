@@ -247,6 +247,28 @@ class OrquestadorTest(unittest.TestCase):
         self.assertEqual(group.call_count, 2)
 
 
+class AjustesConversacionTest(unittest.TestCase):
+    def test_pedido_grande_no_menciona_compra_minima(self):
+        res = res_de({"mensaje": "Perfecto. Para regiones la compra mínima es de $200.000. "
+                                 "Con esto le preparamos el presupuesto.",
+                      "acciones": [{"tipo": "presupuesto_bordes", "modelo": "Borde recto con nariz 50x50",
+                                    "largo_m": 7.5, "ancho_m": 4.5, "forma": "rectangular",
+                                    "color": "Gris", "entrega": "despacho a Litueche"}]},
+                     mensaje="Litueche")
+        self.assertNotIn("mínima", res["reply"])
+        self.assertIn("le preparamos el presupuesto", res["reply"])
+
+    def test_pedido_chico_conserva_compra_minima(self):
+        res = res_de({"mensaje": "Para regiones la compra mínima es de $200.000.", "acciones": []},
+                     mensaje="¿despachan a Arica?")
+        self.assertIn("mínima", res["reply"])
+
+    def test_opciones_una_por_linea_pasan_la_revision(self):
+        texto = ("¿Qué modelo de borde le interesa?\n\n• Recto con nariz 50x50\n"
+                 "• Ballena 50x40\n• Ballena nariz 50x50")
+        self.assertEqual(revisar_respuesta(texto, knowledge=FICHA, pricing=PRICING, nombres=[]), [])
+
+
 class FechasTest(unittest.TestCase):
     def test_el_modelo_ve_la_fecha_de_cada_mensaje(self):
         from datetime import datetime, timezone
