@@ -601,9 +601,11 @@ def _agent_sent_texts(turns: list) -> set:
         for text in (raw, format_whatsapp_reply(raw)):
             paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text.strip()) if p.strip()]
             known.add(" ".join(text.split()))
+            # Cualquier tramo seguido de párrafos: así se reconocen las partes de
+            # split_whatsapp_parts y las burbujas del agente (agent_bubbles).
             for i in range(len(paragraphs)):
-                known.add(" ".join(paragraphs[i].split()))
-                known.add(" ".join("\n\n".join(paragraphs[i:]).split()))
+                for j in range(i + 1, len(paragraphs) + 1):
+                    known.add(" ".join("\n\n".join(paragraphs[i:j]).split()))
     known.discard("")
     return known
 
@@ -2483,7 +2485,7 @@ class Zero:
                     client_id, key, rec.get("phone") or from_contact,
                     {"channel": channel, "subject": None, "body": format_whatsapp_reply(reply),
                      "whatsapp_from": to_phone_id, "whatsapp_chat_id": whatsapp_chat_id,
-                     "humanize": True}, wa_creds=wa_creds)
+                     "humanize": True, "agent_bubbles": agent_led}, wa_creds=wa_creds)
                 if said.get("status") == "sent":
                     self.memory.add_turn(client_id, key, "agent", reply)
             # The customer never receives an automatic budget. The structured
@@ -2697,7 +2699,8 @@ class Zero:
         if client_id == "losetaschile" and channel == "whatsapp" and reply:
             # The company is PoolEdge; «Losetas Chile» is the old name (Diego, 2026-11-11).
             reply = _OLD_BRAND.sub("PoolEdge", reply)
-            reply = format_whatsapp_reply(reply)
+            if not agent_led:  # el agente ya escribe en párrafos; partirlo por frases lo desordena
+                reply = format_whatsapp_reply(reply)
         not_known = (not agent_led and client_id == "losetaschile" and channel == "whatsapp" and
                      intent != "handoff" and not res.get("flow_step") and
                      _admits_not_knowing(reply))
@@ -2796,7 +2799,7 @@ class Zero:
                                 client_id, key, rec.get("phone") or from_contact,
                                 {"channel": channel, "subject": None, "body": reply,
                                  "whatsapp_from": to_phone_id,
-                                 "whatsapp_chat_id": whatsapp_chat_id, "humanize": True}, wa_creds=wa_creds)
+                                 "whatsapp_chat_id": whatsapp_chat_id, "humanize": True, "agent_bubbles": agent_led}, wa_creds=wa_creds)
                         if res.get("media_asset"):
                             from .whatsapp_web import send_catalog_image
                             from pathlib import PurePosixPath
@@ -2814,7 +2817,7 @@ class Zero:
                                 client_id, key, rec.get("phone") or from_contact,
                                 {"channel": channel, "subject": None, "body": reply,
                                  "whatsapp_from": to_phone_id,
-                                 "whatsapp_chat_id": whatsapp_chat_id, "humanize": True}, wa_creds=wa_creds)
+                                 "whatsapp_chat_id": whatsapp_chat_id, "humanize": True, "agent_bubbles": agent_led}, wa_creds=wa_creds)
             elif client_id == "losetaschile" and channel == "whatsapp" and res.get("media_asset"):
                 if not whatsapp_chat_id or not to_phone_id:
                     delivery = {"status": "error", "error": "Falta chat Web para enviar imagen"}
@@ -2834,7 +2837,7 @@ class Zero:
                 delivery = self._deliver(client_id, key, rec.get("phone") or rec.get("email"),
                               {"channel": channel, "subject": None, "body": reply,
                                "whatsapp_from": to_phone_id,
-                               "whatsapp_chat_id": whatsapp_chat_id, "humanize": True}, wa_creds=wa_creds)
+                               "whatsapp_chat_id": whatsapp_chat_id, "humanize": True, "agent_bubbles": agent_led}, wa_creds=wa_creds)
             if delivery.get("partial"):
                 # Part of the reply is already in the chat: keep what went out and
                 # leave the case for a person, not for an automatic retry.

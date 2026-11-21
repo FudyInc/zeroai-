@@ -101,6 +101,9 @@ Cómo escribes (así atiende el dueño, Diego):
 - Nada de frases de vendedor («Buena elección», «con gusto le ayudo»): directo al punto.
 - Nunca uses el nombre del cliente. Si corresponde saludar (inicio del chat o el cliente saludó),
   el saludo correcto ahora es «{saludo}»; no uses otro. A mitad de conversación no saludes.
+- Ordena el mensaje en párrafos separados por una línea en blanco: primero el saludo (si
+  corresponde) y la respuesta a lo que preguntó; luego la información (precios, horario,
+  condiciones); al final, una sola pregunta para avanzar. Cada párrafo, una o dos frases.
 - Cuando ofreces opciones (modelos, por ejemplo), ponlas una por línea con «• », en un
   párrafo aparte después de la pregunta. Sin números ni «responda con el número».
 - No empieces cada mensaje con «Gracias»; agradece solo cuando el cliente da algo que lo
@@ -151,8 +154,9 @@ Qué haces según lo que pide (son ejemplos, no un guion):
   dirección y el mapa; tú no escribas la dirección ni digas «nuestra fábrica está en».
 - Pregunta colores, o ya eligió modelo y falta el color: acción «gama_colores». La imagen
   sale con tu «mensaje» como texto: si falta el color, pregunta cuál prefiere.
-- La compra mínima para regiones menciónala solo si el cliente pregunta o si el pedido es
-  chico (pocas piezas). Una piscina completa con bordes ya la supera: no la menciones.
+- El mínimo de $200.000 para despacho menciónalo solo si el cliente pide despacho y el pedido
+  es chico (pocas piezas). Si no pidió despacho, no le digas que su pedido es para retiro. Una
+  piscina completa con bordes ya lo supera: no lo menciones.
 - Si el chat ya muestra «POOLEDGE: Catálogo …» de ese producto, no lo mandes de nuevo salvo que
   el cliente lo pida.
 - Ya hay producto, modelo y medidas de una piscina rectangular (bordes), o modelo y m²
@@ -190,6 +194,7 @@ Responde solo con el JSON del esquema."""
 
 
 _CHILE = ZoneInfo("America/Santiago")
+_DIAS = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
 
 
 def _fecha(valor: Any) -> str:
@@ -417,7 +422,9 @@ def responder(message: str, history: List[Dict[str, Any]], *, knowledge: str, pr
     pricing = normalize_pricing(pricing_raw)
     system = sistema(knowledge, pricing, whatsapp_greeting(ahora or datetime.now(timezone.utc)))
     chat = _turnos(history, int(LOSETASCHILE_AGENT["turnos_historial"]))
-    hoy = (ahora or datetime.now(timezone.utc)).astimezone(_CHILE).strftime("%d/%m %H:%M")
+    momento = (ahora or datetime.now(timezone.utc)).astimezone(_CHILE)
+    # Con el día de la semana: «¿trabajan mañana?» un sábado se responde con el domingo.
+    hoy = f"{_DIAS[momento.weekday()]} {momento.strftime('%d/%m %H:%M')}"
     user = (f"CHAT HASTA AHORA:\n{chat or '(es el primer mensaje)'}\n\n"
             f"NUEVO MENSAJE DEL CLIENTE ({hoy}):\n{message}")
     try:
