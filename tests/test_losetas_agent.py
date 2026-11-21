@@ -274,6 +274,29 @@ class AjustesConversacionTest(unittest.TestCase):
         self.assertEqual(revisar_respuesta(texto, knowledge=FICHA, pricing=PRICING, nombres=[]), [])
 
 
+class ExtensionYPesoTest(unittest.TestCase):
+    def test_extension_como_la_cotizo_diego(self):
+        from decimal import Decimal
+        from zero.losetas_agent import piezas_extension
+        self.assertEqual(piezas_extension(Decimal("8.5"), Decimal("3"), Decimal("0.4"), 1), 57)
+        self.assertEqual(piezas_extension(Decimal("8.5"), Decimal("3"), Decimal("0.4"), 0), 0)
+
+    def test_presupuesto_ballena_con_extension_y_peso(self):
+        pricing = {**PRICING, "items": PRICING["items"] + [
+            {"id": "esquina-borde-ballena-50x40", "name": "Esquina borde ballena 50x40", "unit_price": 5500, "unit": "unidad"},
+            {"id": "extension-borde-piscina", "name": "Extensión borde piscina", "unit_price": 3800, "unit": "unidad"}]}
+        res = responder("Ballena, 8,5 x 3, una corrida, blanco, retiro", [], knowledge=FICHA,
+                        pricing_raw=pricing, nombres=[], llamar=modelo({"mensaje": "", "acciones": [{
+                            "tipo": "presupuesto_bordes", "modelo": "Borde ballena 50x40", "largo_m": 8.5,
+                            "ancho_m": 3, "forma": "rectangular", "color": "Blanco", "entrega": "retiro",
+                            "corridas_extension": 1}]}))
+        lineas = {l["id"]: l["qty"] for l in res["quote"]["lines"]}
+        self.assertEqual(lineas, {"borde-ballena-50x40": 46, "esquina-borde-ballena-50x40": 4,
+                                  "extension-borde-piscina": 57})
+        self.assertEqual(res["quote"]["total"], 46 * 5500 + 4 * 5500 + 57 * 3800)
+        self.assertIn("Peso estimado sin esquinas: 1.339 kg.", " ".join(res["quote"]["review_notes"]))
+
+
 class FechasTest(unittest.TestCase):
     def test_el_modelo_ve_la_fecha_de_cada_mensaje(self):
         from datetime import datetime, timezone
