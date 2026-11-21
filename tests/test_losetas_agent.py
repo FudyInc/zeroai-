@@ -224,6 +224,40 @@ class OrquestadorTest(unittest.TestCase):
             ["¿Qué garantía tienen?"])
         self.assertEqual(bodies, [])
 
+    def test_presupuesto_repetido_no_vuelve_al_grupo(self):
+        # Prueba del 2026-11-21: «hola, quiero más información» días después del pedido.
+        presupuesto = {"tipo": "presupuesto_bordes", "modelo": "Borde recto con nariz 50x50",
+                       "largo_m": 7, "ancho_m": 3.5, "forma": "rectangular", "color": "Gris",
+                       "entrega": "retiro"}
+        bodies, _, group, _ = self.chat(
+            [{"mensaje": "", "acciones": [presupuesto]},
+             {"mensaje": "", "acciones": [presupuesto]},
+             {"mensaje": "Buenas tardes. ¿En qué le puedo ayudar?", "acciones": [presupuesto]}],
+            ["Borde con nariz gris, 7 x 3,5, retiro", "Hola quiero más información", "Hola"])
+        self.assertEqual(group.call_count, 1)
+        self.assertEqual(bodies, ["Buenas tardes. ¿En qué le puedo ayudar?"])
+
+    def test_presupuesto_que_cambia_si_vuelve_al_grupo(self):
+        base = {"tipo": "presupuesto_bordes", "modelo": "Borde recto con nariz 50x50",
+                "forma": "rectangular", "color": "Gris", "entrega": "retiro"}
+        _, _, group, _ = self.chat(
+            [{"mensaje": "", "acciones": [{**base, "largo_m": 7, "ancho_m": 3.5}]},
+             {"mensaje": "", "acciones": [{**base, "largo_m": 8, "ancho_m": 4}]}],
+            ["7 x 3,5 gris retiro", "perdón, es 8 x 4"])
+        self.assertEqual(group.call_count, 2)
+
+
+class FechasTest(unittest.TestCase):
+    def test_el_modelo_ve_la_fecha_de_cada_mensaje(self):
+        from datetime import datetime, timezone
+        llamar = modelo({"mensaje": "Buenas tardes.", "acciones": []})
+        responder("Hola", [{"role": "lead", "text": "7x3 gris", "at": "2026-11-19T00:50:00+00:00"}],
+                  knowledge=FICHA, pricing_raw=PRICING, nombres=[], llamar=llamar,
+                  ahora=datetime(2026, 11, 21, 15, 20, tzinfo=timezone.utc))
+        user = llamar.llamadas[0][1]
+        self.assertIn("[18/11 21:50] CLIENTE: 7x3 gris", user)
+        self.assertIn("NUEVO MENSAJE DEL CLIENTE (21/11 12:20)", user)
+
 
 if __name__ == "__main__":
     unittest.main()

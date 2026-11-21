@@ -28,6 +28,7 @@ import re
 from datetime import datetime, timezone
 from decimal import ROUND_CEILING, Decimal, InvalidOperation
 from typing import Any, Callable, Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 from .config import LOSETASCHILE_AGENT, LOSETASCHILE_PAVER_PRICE_IDS
 from .losetas_color import COLOR_CATALOG_IMAGE_PATH
@@ -101,6 +102,10 @@ Cómo lees el chat:
   prometió o se dijo vale; no lo contradigas ni lo repitas.
 - Si el cliente mandó varios mensajes seguidos, respóndelos juntos.
 - Si el último mensaje de POOLEDGE ya respondió lo que el cliente pregunta, no repitas.
+- Cada mensaje trae su fecha. Si el cliente vuelve después de horas o días con un saludo o
+  «quiero más información», es una consulta nueva: respóndela como tal. Un pedido o presupuesto
+  de antes ya lo tiene el equipo; no lo vuelvas a calcular.
+- «mensaje» nunca va vacío cuando el cliente saluda, pregunta algo o pide información.
 
 Qué haces según lo que pide (son ejemplos, no un guion):
 - Llega solo un saludo o «quiero más información» de un anuncio: saluda, pregunta las medidas
@@ -113,7 +118,8 @@ Qué haces según lo que pide (son ejemplos, no un guion):
   el cliente lo pida.
 - Ya hay producto, modelo y medidas de una piscina rectangular (bordes), o modelo y m²
   (pastelones), más el color y si retira o necesita despacho: acción presupuesto_bordes o
-  presupuesto_pastelones con los datos. El sistema calcula las piezas y el total y el equipo
+  presupuesto_pastelones con los datos. Úsala solo cuando el NUEVO MENSAJE entrega o cambia uno
+  de esos datos, nunca para repetir un presupuesto que ya se hizo. El sistema calcula las piezas y el total y el equipo
   envía el presupuesto; tú no escribas cantidades ni totales y en «mensaje» no anuncies nada
   (déjalo vacío o agradece breve si corresponde).
 - Si la piscina no es rectangular (romana, curva, en L): pide una foto y deriva.
@@ -132,14 +138,30 @@ Si el cliente pide algo de eso y la ficha no lo trae, usa «derivar» con el mot
 Responde solo con el JSON del esquema."""
 
 
+_CHILE = ZoneInfo("America/Santiago")
+
+
+def _fecha(valor: Any) -> str:
+    """«20/11 22:31» en hora de Chile; vacío si el turno no trae fecha."""
+    try:
+        momento = datetime.fromisoformat(str(valor or ""))
+    except ValueError:
+        return ""
+    if momento.tzinfo is None:
+        momento = momento.replace(tzinfo=timezone.utc)
+    return momento.astimezone(_CHILE).strftime("%d/%m %H:%M")
+
+
 def _turnos(history: List[Dict[str, Any]], limite: int) -> str:
+    # Con fecha: así el modelo distingue un pedido de ayer de una consulta nueva.
     lineas = []
     for turn in history[-limite:]:
         texto = " ".join(str(turn.get("text") or "").split())
         if not texto:
             continue
         quien = "CLIENTE" if turn.get("role") == "lead" else "POOLEDGE"
-        lineas.append(f"{quien}: {texto[:1500]}")
+        fecha = _fecha(turn.get("at"))
+        lineas.append(f"[{fecha}] {quien}: {texto[:1500]}" if fecha else f"{quien}: {texto[:1500]}")
     return "\n".join(lineas)
 
 
@@ -307,8 +329,9 @@ def responder(message: str, history: List[Dict[str, Any]], *, knowledge: str, pr
     pricing = normalize_pricing(pricing_raw)
     system = sistema(knowledge, pricing, whatsapp_greeting(ahora or datetime.now(timezone.utc)))
     chat = _turnos(history, int(LOSETASCHILE_AGENT["turnos_historial"]))
+    hoy = (ahora or datetime.now(timezone.utc)).astimezone(_CHILE).strftime("%d/%m %H:%M")
     user = (f"CHAT HASTA AHORA:\n{chat or '(es el primer mensaje)'}\n\n"
-            f"NUEVO MENSAJE DEL CLIENTE:\n{message}")
+            f"NUEVO MENSAJE DEL CLIENTE ({hoy}):\n{message}")
     try:
         salida = llamar(system, user)
         problemas = revisar_respuesta(str(salida.get("mensaje") or ""), knowledge=knowledge,
