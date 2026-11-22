@@ -80,7 +80,7 @@ ESQUEMA = {
                                            "description": "Corridas de extensión alrededor del borde; 0 si solo borde"},
                     "color": {"type": "string"},
                     "entrega": {"type": "string",
-                                "description": "«retiro» o la dirección/comuna de despacho que dio el cliente"},
+                                "description": "«retiro», o la dirección o el enlace de ubicación de despacho que dio el cliente"},
                     "motivo": {"type": "string"},
                 },
             },
@@ -127,7 +127,7 @@ Cómo lees el chat:
 
 El orden que suele seguir Diego (guía, no guion: si el cliente ya dio un dato, no lo pidas):
 producto (bordes o pastelones) → catálogo → modelo que le interesó → medidas → si es
-rectangular o romana → si quiere solo el borde o también extensión → retiro o despacho (comuna)
+rectangular o romana → si quiere solo el borde o también extensión → retiro o despacho (ubicación)
 → color (con la gama) → presupuesto.
 
 Cómo responde Diego a lo típico:
@@ -177,8 +177,12 @@ Qué haces según lo que pide (son ejemplos, no un guion):
   eligió si falta ese dato. No extrapoles cobros de otro pedido.
 - Una fecha solicitada es una preferencia. Solo confirma una entrega si el equipo ya confirmó
   esa fecha para ese pedido. Ante una solicitud de confirmación sin respaldo, deriva.
-- Si el cliente pide despacho y el chat no tiene su comuna, pídela en ese mismo mensaje: sin
-  comuna no hay presupuesto con despacho.
+- Si el cliente pide despacho y el chat no tiene dónde entregar, pídele en ese mismo mensaje
+  su ubicación actual de WhatsApp o la dirección para ponerla en el GPS, como lo pide Diego:
+  «¿Me puede enviar su ubicación actual de WhatsApp o la dirección, para ponerla en el GPS?».
+  Sin eso no hay presupuesto con despacho.
+- «[location] https://www.google.com/maps?q=…» en el chat es la ubicación que compartió el
+  cliente: úsala como lugar de entrega (en «entrega», el enlace tal cual).
 - En «modelo» usa solo un modelo que el cliente eligió con claridad. Si nombra uno que no está en
   la lista o es ambiguo, pregúntale cuál de los de la lista quiere.
 
