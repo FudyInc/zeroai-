@@ -201,6 +201,8 @@ LOSETASCHILE_PAVER_PIECE_SIZES = {
 # Catálogos PDF de diseño (frontend/public/catalog/losetaschile/) con los precios
 # impresos en cada uno. Se envía el PDF solo si TODOS coinciden con la lista vigente;
 # si alguno difiere o falta, se envía el catálogo generado con los precios de la lista.
+# Precios impresos en los catálogos PDF de Diego (versión del 2026-11-21). Si la lista viva
+# no coincide, el puente genera el PDF con los precios de la lista en vez de mandar este.
 LOSETASCHILE_CATALOG_PDF_PRICES = {
     "bordes": {
         "borde-ballena-50x40": 5500,
@@ -211,7 +213,7 @@ LOSETASCHILE_CATALOG_PDF_PRICES = {
     "pastelones": {
         LOSETASCHILE_PAVER_PRICE_ID: 1600,
         LOSETASCHILE_PRICE_ID_PASTELON_50: 2600,
-        "deck-madera-50x50": 3600,
+        "deck-madera-50x50": 3800,
         "extension-borde-piscina": 3800,
     },
 }
