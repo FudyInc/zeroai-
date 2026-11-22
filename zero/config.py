@@ -175,7 +175,8 @@ LOSETASCHILE_PAVER_PRICE_IDS = {
     "Adoquín": LOSETASCHILE_PAVER_PRICE_ID,
     "Flor de lis": LOSETASCHILE_PAVER_PRICE_ID,
     "Corrugado 50×50": "pastelones-50x50",
-    "Liso 50×50": "pastelones-50x50",
+    # Hoja PRECIOS PRODUCTOS (2026-11-22): el liso vale $2.800 y el corrugado $2.600.
+    "Liso 50×50": "pastelon-liso-50x50",
     "Deck madera 50×50": "deck-madera-50x50",
     # Mismo producto que la extensión de borde (Diego, 2026-11-09).
     "Extensión piscina 50×50": "extension-borde-piscina",
