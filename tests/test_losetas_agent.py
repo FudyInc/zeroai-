@@ -324,6 +324,13 @@ class BurbujasTest(unittest.TestCase):
         for parte in agent_bubbles(texto):
             self.assertIn(" ".join(parte.split()), conocidos)
 
+    def test_perfecto_va_con_lo_que_sigue_y_la_pregunta_con_sus_opciones(self):
+        from zero.whatsapp_format import agent_bubbles
+        self.assertEqual(agent_bubbles("Perfecto.\n\n¿Lo retira en fábrica o necesita despacho?"),
+                         ["Perfecto.\n¿Lo retira en fábrica o necesita despacho?"])
+        self.assertEqual(agent_bubbles("¿Qué modelo le interesó?\n\n• Recto\n• Ballena"),
+                         ["¿Qué modelo le interesó?\n\n• Recto\n• Ballena"])
+
     def test_una_sola_frase_es_una_burbuja(self):
         from zero.whatsapp_format import agent_bubbles
         self.assertEqual(agent_bubbles("Los colores no cambian el precio."), ["Los colores no cambian el precio."])
