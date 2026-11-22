@@ -51,6 +51,14 @@ def event_phase(name):
             timings[key] = timings.get(key, 0) + round((time.monotonic()-started)*1000, 3)
 
 
+def _max_age(message) -> int:
+    """Antigüedad aceptada: más larga para clientes de las cuentas con respuesta atrasada."""
+    if (not message.get('kind') and
+            str(message.get('to_phone_id') or '') in config.WHATSAPP_LATE_REPLY_ACCOUNTS):
+        return max(config.WHATSAPP_INBOUND_MAX_AGE_SECONDS, config.WHATSAPP_LATE_REPLY_MAX_AGE_SECONDS)
+    return config.WHATSAPP_INBOUND_MAX_AGE_SECONDS
+
+
 def _event_expired(message, queued_at):
     if message.get('kind') == 'owner_message':
         return False
@@ -62,7 +70,7 @@ def _event_expired(message, queued_at):
             return True
         now = time.time()
         return (origin > now + config.WHATSAPP_INBOUND_CLOCK_SKEW_SECONDS or
-                now - min(origin, queued_at) > config.WHATSAPP_INBOUND_MAX_AGE_SECONDS)
+                now - min(origin, queued_at) > _max_age(message))
     except (ValueError, TypeError, OverflowError):
         return True
 
@@ -346,6 +354,26 @@ def inbox_stats() -> Dict[str, Any]:
     return {"counts": dict(rows), "oldest_unfinished": oldest}
 
 
+def _superseded_late(db, message, event_id) -> bool:
+    """Un mensaje de cliente atrasado que tiene otro posterior del mismo chat pendiente."""
+    if message.get('kind') or not message.get('chat_id') or _max_age(message) <= config.WHATSAPP_INBOUND_MAX_AGE_SECONDS:
+        return False
+    try:
+        if time.time() - float(message.get('timestamp')) <= config.WHATSAPP_INBOUND_MAX_AGE_SECONDS:
+            return False
+    except (TypeError, ValueError):
+        return False
+    for (payload,) in db.execute("SELECT payload FROM received WHERE status='pending' AND id<>?", (event_id,)):
+        try:
+            other = json.loads(payload)
+        except (TypeError, ValueError):
+            continue
+        if (isinstance(other, dict) and not other.get('kind') and other.get('chat_id') == message['chat_id']
+                and float(other.get('timestamp') or 0) > float(message.get('timestamp') or 0)):
+            return True
+    return False
+
+
 def _next_pending() -> Optional[Dict[str, str]]:
     with closing(_connect_events()) as db, db:
         db.execute("BEGIN IMMEDIATE")
@@ -364,6 +392,12 @@ def _next_pending() -> Optional[Dict[str, str]]:
             except (ValueError, TypeError, OverflowError):
                 db.execute("UPDATE received SET status='needs_review', error=?, updated=CURRENT_TIMESTAMP, finished_at=CURRENT_TIMESTAMP WHERE id=?",
                            ('Evento incompleto o dañado; revisar antes de responder', row[0]))
+                continue
+            if _superseded_late(db, message, row[0]):
+                # Mensaje atrasado con otro posterior del mismo chat en cola: se responden
+                # juntos en el último (el agente lee el chat completo).
+                db.execute("UPDATE received SET status='completed', error=?, updated=CURRENT_TIMESTAMP, finished_at=CURRENT_TIMESTAMP WHERE id=?",
+                           ('Atendido junto con un mensaje posterior del mismo chat', row[0]))
                 continue
             if _event_expired(message, queued_at):
                 db.execute("UPDATE received SET status='needs_review', error=?, updated=CURRENT_TIMESTAMP, finished_at=CURRENT_TIMESTAMP WHERE id=?",
@@ -496,7 +530,7 @@ def _guard_event_send(context, body, client_id):
         raise RuntimeError('El mensaje de origen no corresponde al cliente')
     return {'expected_last_id': str(messages[-1]['id']),
             'expires_at': min(float(message['timestamp']), message['_queued_at']) +
-                          config.WHATSAPP_INBOUND_MAX_AGE_SECONDS}
+                          _max_age(message)}
 
 
 def _bridge_request(path, body=None, client_id=None):
