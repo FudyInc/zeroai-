@@ -67,3 +67,32 @@ ACEPTACIÓN
 REPORTE
 Resumen corto de lo construido, capturas, lo que faltaría para que la empresa cliente lo
 use sola (rol, alcance, invitación), y hallazgos de otras secciones (repórtalos, no los arregles).
+
+---
+ACTUALIZACIÓN DE CORE (2026-11-22) — CONTRATO FINAL. Manda sobre lo de arriba.
+El backend ya está en `origin/main` (PR #31, merge `4bd412d`). Contrato documentado en
+`docs/contrato-api-agentes.md`. Diferencias con el contrato pedido:
+
+1. `POST /api/onboarding/preview` devuelve `"token": null` si hay CUALQUIER fila con error
+   (o ninguna válida). Aplicar media lista borraría de la lista de precios los productos de
+   las filas malas. → El botón "Aplicar" se habilita solo si `token` no es null (no por
+   "0 filas válidas"). Mostrar: "corrige las filas marcadas y vuelve a subir el archivo".
+2. `summary` trae una clave más: `se_eliminan` (lo vigente que el archivo ya no trae; el
+   catálogo importado REEMPLAZA al anterior). Mostrarla junto a nuevas/cambian/sin cambio.
+3. Cada ítem de `GET /api/onboarding/status` trae `obligatorio: bool`. `huecos_abiertos`
+   es informativo (`obligatorio: false`) y no bloquea `listo`.
+4. Códigos que hay que mostrar con el `detail` tal cual:
+   - apply: 404 token inexistente, de otro cliente o ya usado (es de un solo uso) · 410 la
+     vista previa expiró (30 min, config) · 409 cliente bloqueado (losetaschile) o ficha con
+     marcadores dañados.
+   - preview: 400 base64 inválido · 413 archivo o filas sobre el límite · 415 `.xls`
+     antiguo · 422 archivo ilegible.
+   En todos: "vuelve a subir el archivo" donde aplique.
+5. `rows` de la vista previa trae solo las filas VÁLIDAS; los errores vienen aparte en
+   `errors` (`fila` = número de fila como en Excel, encabezado = 1). Para "resaltar las filas
+   con error", listar `errors` en su propia tabla.
+
+Ajuste a ACEPTACIÓN: el recorrido pasa a ser subir CSV con 1 fila mala → se ve el error y
+"Aplicar" deshabilitado → corregir la fila y subir de nuevo → aplicar → status actualizado
+→ rollback desde KnowledgeHistory. Nota: el rollback de la ficha NO revierte la lista de
+precios (limitación del backend, reportada a Diego) — no lo presentes como si lo hiciera.
