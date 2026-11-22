@@ -163,6 +163,7 @@ class SaludConNubePrincipal(unittest.TestCase):
         s = self.salud
         servicios = []
         with mock.patch.object(s, "_nube_principal", return_value=nube), \
+             mock.patch.object(s, "_anthropic_principal", return_value=False), \
              mock.patch.object(s, "_servicio",
                                side_effect=lambda n, **kw: servicios.append(n) or True), \
              mock.patch.object(s, "_http", return_value=True), \
@@ -311,3 +312,23 @@ class LatidoAHealthchecks(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MotorClaude(unittest.TestCase):
+    """Con Claude como motor (2026-11-20), Ollama apagado no es una caída."""
+
+    def test_ollama_no_se_revisa_si_responde_claude(self):
+        salud = _cargar()
+        vistos = []
+        with mock.patch.object(salud, "_anthropic_principal", return_value=True), \
+                mock.patch.object(salud, "_nube_principal", return_value=False), \
+                mock.patch.object(salud, "_servicio", side_effect=lambda s, usuario=False: vistos.append(s) or True), \
+                mock.patch.object(salud, "_http", return_value=True), \
+                mock.patch.object(salud, "_ollama_responde", return_value=False) as ollama, \
+                mock.patch.object(salud, "_corrio_en_mock", return_value=[]), \
+                mock.patch.object(salud, "_prueba_diaria", return_value=[]), \
+                mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "x", "WHATSAPP_PROVIDER": "meta"}):
+            fallas = salud.revisar()
+        self.assertNotIn("ollama", vistos)
+        ollama.assert_not_called()
+        self.assertFalse([f for f in fallas if "motor local" in f or "ollama" in f])

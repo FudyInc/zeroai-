@@ -87,6 +87,14 @@ def _nube_principal() -> bool:
             and bool((os.environ.get(nube.get("key_env") or "") or "").strip()))
 
 
+def _anthropic_principal() -> bool:
+    """WhatsApp contesta con Claude (Anthropic) y el local no entra en la cadena (2026-11-20).
+
+    Entonces Ollama y la nube gratis no importan: revisarlos solo daría avisos falsos."""
+    from zero.config import WHATSAPP_ENGINE
+    return WHATSAPP_ENGINE.get("primary") == "anthropic" and not WHATSAPP_ENGINE.get("local_backup")
+
+
 def _nube_responde() -> bool:
     """GET /models: comprueba key y red sin gastar tokens ni cupo de requests de chat."""
     from zero.config import WHATSAPP_ENGINE
@@ -276,7 +284,8 @@ def _prueba_diaria() -> list:
 def revisar() -> list:
     fallas = []
     nube = _nube_principal()
-    for s in ("zero-backend", "zero-tunnel") + (() if nube else ("ollama",)):
+    claude = _anthropic_principal()
+    for s in ("zero-backend", "zero-tunnel") + (() if nube or claude else ("ollama",)):
         if not _servicio(s):
             fallas.append(f"el servicio {s} está caído")
     if not _servicio("zero-dashboard", usuario=True):
@@ -286,7 +295,10 @@ def revisar() -> list:
         fallas.append("el backend no responde en :8800")
     if TUNEL and not _http(TUNEL, (200, 401, 403, 405)):
         fallas.append("el túnel público no responde (WhatsApp entrante caído)")
-    if nube:
+    if claude:
+        if not (os.environ.get("ANTHROPIC_API_KEY") or "").strip():
+            fallas.append("falta ANTHROPIC_API_KEY: el agente de WhatsApp no puede responder")
+    elif nube:
         if not _nube_responde():
             fallas.append("la nube de WhatsApp (Groq) no responde: key o red")
     elif not _ollama_responde():
