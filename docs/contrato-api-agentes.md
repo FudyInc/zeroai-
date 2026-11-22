@@ -37,6 +37,48 @@ reales, y el **hilo de conversación** de cada lead para supervisión.
 - `POST /api/knowledge?client=<id>` — body `{"knowledge": str}` (texto libre, se
   guarda tal cual; el motor usa los primeros ~4000 chars) → `{"saved": true, "chars": n}`
 
+### Importar catálogo o preguntas frecuentes desde el dashboard
+
+Contrato de CORE para DASHBOARD, verificación local del 2026-11-22. Se importa un
+archivo por tipo (`kind` vale `catalogo` o `faq`). La carga admite CSV y la primera
+hoja de XLSX, hasta 2 MiB y 2000 filas de datos.
+
+1. `GET /api/onboarding/template?kind=catalogo` descarga el CSV con los encabezados.
+   El catálogo requiere `nombre` y `precio` en pesos chilenos enteros. También acepta
+   `sku`, `categoria`, `unidad`, `descripcion` y `stock`. La plantilla `faq` requiere
+   `pregunta` y `respuesta`.
+2. `POST /api/onboarding/preview?client=<id>` recibe JSON con `kind`, `filename` y
+   `content_base64`. Devuelve `client`, `kind`, las filas válidas en `rows`, los
+   errores por `fila`, `columna` y `motivo`, el `summary` y un `token`. Habilitar
+   **Aplicar** solo cuando exista un token. Vale `null` si hay errores o faltan filas
+   válidas. La vista previa conserva la ficha y los precios vigentes.
+3. `POST /api/onboarding/apply?client=<id>` recibe `{"token":"…","motivo":"…"}`
+   (`motivo` opcional). Devuelve `client`, `kind`, `version`, `chars`, `aplicadas`
+   y `pricing_items` (número de productos o `null` para FAQ). Regenera la sección
+   correspondiente de la ficha y conserva el texto manual. El catálogo reemplaza
+   además la lista completa de precios del cotizador. El rollback de la ficha
+   restaura su texto. Para recuperar los precios anteriores hay que volver a
+   importar ese catálogo.
+4. `GET /api/onboarding/status?client=<id>` devuelve `client`, `listo` e `items`.
+   Cada ítem trae `clave`, `ok`, `detalle`, `accion` y `obligatorio`. Para que
+   `listo` sea verdadero se requieren ficha manual, catálogo, FAQ y credenciales
+   de WhatsApp configuradas. Los huecos abiertos se muestran para seguimiento.
+
+**Resumen de la vista previa.** Mostrar `validas`, `con_error`, `nuevas`,
+`cambian`, `sin_cambio` y `se_eliminan`. Esta última cifra cuenta las entradas
+vigentes ausentes del archivo y permite avisar antes de reemplazarlas. En catálogo,
+la comparación con el cotizador usa el identificador del producto, nombre, precio
+y unidad. Un cambio limitado a categoría, descripción o stock puede aparecer como
+`sin_cambio` y aun así actualizar el texto de la ficha.
+
+**Errores y reintentos.** Un 413 indica exceso de tamaño o filas, un 415 indica
+formato XLS antiguo y un 422 indica archivo ilegible. Si la ficha tiene marcadores
+dañados, preview y apply devuelven 409. PoolEdge (`losetaschile`) admite vista
+previa y devuelve 409 al aplicar. Cada token pertenece a un cliente, dura
+30 minutos y sirve para una aplicación. Se conservan hasta 8 por cliente y 200
+por proceso. Ante 404 por token ausente o 410 por expiración, volver a crear la
+vista previa. Apply y status también devuelven 404 para un cliente desconocido.
+
 ### ICP (perfil del cliente ideal — ya existía el GET, ahora también se guarda)
 
 - `GET /api/icp?client=<id>` → `{"client", "icp": {...}}`

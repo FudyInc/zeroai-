@@ -790,6 +790,47 @@ MAX_KNOWLEDGE_VERSIONS = 20
 MAX_TEST_CASES_PER_CLIENT = 50
 
 
+# --- Onboarding por archivo (catálogo + preguntas frecuentes) ------------------
+# Una empresa nueva deja lista la base de su agente de WhatsApp subiendo un CSV o
+# XLSX. La lógica vive en zero/onboarding.py; acá solo la política.
+#
+# Techo del archivo subido (bytes ya decodificados). Un catálogo de miles de
+# productos en CSV pesa unos cientos de KB; 2 MB deja margen sin que un archivo
+# equivocado (un PDF, un respaldo entero) llegue al parser.
+ONBOARDING_MAX_BYTES = 2 * 1024 * 1024
+# Un XLSX es un zip: lo que pesa descomprimido puede ser cien veces lo subido.
+# Este techo corta el archivo antes de leerlo entero en memoria.
+ONBOARDING_XLSX_MAX_EXPANDED_BYTES = 40 * 1024 * 1024
+# Filas de datos por archivo. Cada fila termina como una línea de la ficha y
+# todas las versiones guardan la ficha completa (MAX_KNOWLEDGE_VERSIONS).
+ONBOARDING_MAX_ROWS = 2000
+# Columnas que se leen de un XLSX: las plantillas tienen 7 como máximo. Una celda
+# con referencia «ZZZZZ1» no puede hacer crecer una fila a millones de elementos.
+ONBOARDING_MAX_COLUMNS = 50
+# Cuánto vive una vista previa antes de tener que subir el archivo otra vez. Lo
+# aplicado es lo que la persona vio, no un archivo que cambió entre medio.
+ONBOARDING_PREVIEW_TTL_S = 30 * 60
+ONBOARDING_MAX_PREVIEWS_PER_CLIENT = 8
+ONBOARDING_MAX_PREVIEWS = 200
+# Columnas de cada plantilla, en orden, y cuáles son obligatorias.
+ONBOARDING_COLUMNS = {
+    "catalogo": ("sku", "nombre", "categoria", "precio", "unidad", "descripcion", "stock"),
+    "faq": ("pregunta", "respuesta"),
+}
+ONBOARDING_REQUIRED_COLUMNS = {
+    "catalogo": ("nombre", "precio"),
+    "faq": ("pregunta", "respuesta"),
+}
+# Ítems de la lista de chequeo que deben estar ok para salir a producción.
+# `huecos_abiertos` se muestra pero no bloquea: un agente en marcha siempre
+# acumula preguntas nuevas, y eso no lo vuelve no apto.
+ONBOARDING_CHECKLIST_REQUIRED = ("ficha", "catalogo", "faq", "whatsapp_conectado")
+# Clientes con un agente afinado a mano: la vista previa funciona, aplicar no.
+# PoolEdge (losetaschile) tiene precios y pesos en código (zero/losetas_*.py);
+# una importación pisaría lo que su flujo lee.
+ONBOARDING_LOCKED_CLIENTS = frozenset({"losetaschile"})
+
+
 # --- Formularios públicos de la landing (zeroai.cl) ----------------------------
 # Quien deja sus datos en la landing es un lead NUESTRO, no de un cliente: entra
 # al CRM bajo este client_id. Hoy vale lo mismo que DEFAULT_INBOUND_CLIENT_ID —
