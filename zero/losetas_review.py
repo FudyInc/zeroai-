@@ -16,6 +16,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from .attention import fixed_answer
+from . import config as _config
 from .config import (LOSETASCHILE_DEPOSIT_CLP, LOSETASCHILE_PAVER_REVIEW_STATE_HOURS, REVIEW_DATE_ROLLOVER_DAYS, REVIEW_DRAFTS_KEPT,
                      REVIEW_MIN_SHIPPING_CLP, WHATSAPP_TIME_ZONE)
 from .losetas_budget import format_customer_budget
@@ -398,6 +399,16 @@ def read_owner_reply(text: str, draft: dict[str, Any],
         fields["shipping"] = 0
     if not fields["map_url"] and shared:
         fields["map_url"] = shared.group(1)
+    told = re.match(r"Despacho:\s*(.+)$", detail)
+    if not fields["pickup"] and not fields["address"] and told:
+        # Lo que el cliente dio en el chat: dirección escrita o su ubicación de WhatsApp.
+        place = told.group(1).strip()
+        link = _URL.search(place)
+        if link:
+            fields["map_url"] = fields["map_url"] or link.group(0)
+            fields["address"] = _URL.sub(" ", place).strip(" ,;") or "Ubicación compartida por el cliente"
+        else:
+            fields["address"] = place
     if not fields["place"] and fields["address"]:
         fields["place"] = _place_from_address(fields["address"])
     missing = []
@@ -499,6 +510,36 @@ def approval_hint(reading: dict[str, Any]) -> str:
 
 # --- the one entry point that touches memory and the bridge ------------------
 
+def _send_to_customer(memory: Any, client_id: str, draft: dict[str, Any],
+                      texts: list[str]) -> int:
+    """Send the reviewed budget (and payment message) to the customer's chat.
+
+    Returns how many messages went out, in order; stops at the first failure so the
+    payment message never leaves without its budget."""
+    from . import whatsapp_web
+    phone = re.sub(r"\D", "", draft.get("phone") or "")
+    chat_id = str(draft.get("chat_id") or "")
+    if not (8 <= len(phone) <= 15 and re.fullmatch(r"\d{8,20}@(c\.us|lid)", chat_id)):
+        return 0
+    sent = 0
+    for text in texts:
+        try:
+            result = whatsapp_web.bridge_request(
+                "/send", {"to": phone, "text": text, "chat_id": chat_id, "typing_ms": 1500},
+                client_id=client_id)
+        except (RuntimeError, ValueError) as exc:
+            memory.log("reviewed_budget_send_failed", client=client_id, lead=draft.get("lead"),
+                       error=str(exc)[:300])
+            break
+        if not result.get("id") or result.get("ack") == -1:
+            break
+        sent += 1
+        if draft.get("lead"):
+            memory.add_turn(client_id, draft["lead"], "agent", text)
+    return sent
+
+
+
 def handle_review_message(memory: Any, message: dict[str, str]) -> dict[str, Any]:
     """Act on one message from a review group; silent unless it quotes a known draft."""
     from . import whatsapp_web
@@ -562,6 +603,24 @@ def handle_review_message(memory: Any, message: dict[str, str]) -> dict[str, Any
         if not plan["messages"]:
             return out
         draft["partial"] = reading["partial"]
+        if _config.LOSETASCHILE_AUTO_SEND_REVIEWED_BUDGET and plan["budget"] and draft.get("chat_id"):
+            # Diego respondió con los datos: esa es la revisión. Sale al cliente, y en el
+            # grupo queda el aviso; si algo falla, los mensajes quedan aquí para él.
+            delivered = _send_to_customer(memory, client_id, draft, plan["messages"])
+            total = draft["quote"]["total"] + (reading["fields"]["shipping"] or 0)
+            if delivered == len(plan["messages"]):
+                notice = (f"✅ Enviado al cliente +{draft.get('phone')}: presupuesto final por "
+                          f"{_money(total)}" + (" y datos de abono." if plan["payment"] else "."))
+                plan = {"messages": [notice], "budget": False, "payment": False,
+                        "delivered_budget": True, "delivered_payment": plan["payment"]}
+            else:
+                lead_in = ("⚠️ No se pudo enviar al cliente; revisa su chat antes de mandarlo tú."
+                           if not delivered else
+                           f"⚠️ Al cliente le llegó solo el presupuesto; falta el mensaje de abono:")
+                plan = dict(plan, messages=[lead_in, *plan["messages"][delivered:]],
+                            delivered_budget=delivered >= 1, delivered_payment=False)
+                if delivered:
+                    plan["budget"] = False
         sent = 0
         for position, text in enumerate(plan["messages"]):
             try:
@@ -574,13 +633,14 @@ def handle_review_message(memory: Any, message: dict[str, str]) -> dict[str, Any
                            lead=draft.get("lead"), error=str(exc)[:300])
                 break
             sent += 1
-            if plan["budget"] and position == 0:
+            if (plan["budget"] and position == 0) or (plan.get("delivered_budget") and position == 0):
                 draft["final_message_id"] = result.get("id")
             if not (plan["budget"] and position == 0) and not (
                     plan["payment"] and position == 1):
                 link_followup(memory, client_id, draft_id, text, result)
-        budget_out = plan["budget"] and sent >= 1
-        payment_out = plan["payment"] and sent == len(plan["messages"])
+        budget_out = (plan["budget"] and sent >= 1) or plan.get("delivered_budget", False)
+        payment_out = (plan["payment"] and sent == len(plan["messages"])) or \
+            plan.get("delivered_payment", False)
         if budget_out:
             draft["reviewed_total"] = draft["quote"]["total"] + (reading["fields"]["shipping"] or 0)
         if payment_out:

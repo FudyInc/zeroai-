@@ -2540,6 +2540,7 @@ class Zero:
                             name_from_profile or self.memory.clients.get(client_id, {}).get(
                                 "whatsapp_display_names", {}).get(key) or "").split())[:80],
                         "phone": re.sub(r"\D", "", from_contact or ""),
+                        "chat_id": whatsapp_chat_id or "",
                         "color": res.get("selected_tone") or (paver_order or {}).get("color"),
                         "paver_order": paver_order,
                         **{k: replaced[k] for k in ("deposit_reported", "confirmed_deposit")
