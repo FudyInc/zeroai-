@@ -213,6 +213,7 @@ LOSETASCHILE_CATALOG_PDF_PRICES = {
     "pastelones": {
         LOSETASCHILE_PAVER_PRICE_ID: 1600,
         LOSETASCHILE_PRICE_ID_PASTELON_50: 2600,
+        "pastelon-liso-50x50": 2600,  # impreso $2.600; la hoja PRECIOS PRODUCTOS dice $2.800
         "deck-madera-50x50": 3800,
         "extension-borde-piscina": 3800,
     },
