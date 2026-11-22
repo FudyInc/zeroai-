@@ -294,7 +294,7 @@ class ExtensionYPesoTest(unittest.TestCase):
         self.assertEqual(lineas, {"borde-ballena-50x40": 46, "esquina-borde-ballena-50x40": 4,
                                   "extension-borde-piscina": 57})
         self.assertEqual(res["quote"]["total"], 46 * 5500 + 4 * 5500 + 57 * 3800)
-        self.assertIn("Peso estimado sin esquinas: 1.339 kg.", " ".join(res["quote"]["review_notes"]))
+        self.assertIn("Peso estimado: 1.387 kg.", " ".join(res["quote"]["review_notes"]))
 
 
 class BurbujasTest(unittest.TestCase):

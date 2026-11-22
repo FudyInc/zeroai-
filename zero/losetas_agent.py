@@ -45,13 +45,17 @@ BORDES = {
 }
 ESQUINA = "esquina-piscina-50x50"
 # El ballena 50x40 lleva su propia esquina (así cotiza Diego); los de 50x50, la de piscina.
-ESQUINA_DE = {"borde-ballena-50x40": "esquina-borde-ballena-50x40"}
+ESQUINA_DE = {"borde-ballena-50x40": "esquina-borde-ballena-50x40",
+              "borde-ballena-nariz-50x50": "esquina-ballena-nariz-50x50"}
 # Ancho que ocupa el borde hacia afuera de la piscina, para ubicar la extensión.
 ANCHO_BORDE = {"borde-recto-nariz-50x50": Decimal("0.5"), "borde-ballena-50x40": Decimal("0.4"),
                "borde-ballena-nariz-50x50": Decimal("0.5")}
 EXTENSION = "extension-borde-piscina"
-# Pesos por pieza que dio Diego (2026-11-21). Sin peso conocido, no se informa total.
-PESO_KG = {"borde-recto-nariz-50x50": 15, "borde-ballena-50x40": 13, EXTENSION: 13}
+# Kg por pieza de la hoja PRECIOS PRODUCTOS del Excel de Diego (2026-11-22). Sin peso de
+# alguna pieza del pedido, no se informa el total.
+PESO_KG = {"borde-recto-nariz-50x50": 15, "borde-ballena-50x40": 13,
+           "borde-ballena-nariz-50x50": 15, "esquina-piscina-50x50": 13,
+           "esquina-borde-ballena-50x40": 12, EXTENSION: 13}
 PASTELONES = sorted(LOSETASCHILE_PAVER_PRICE_IDS)
 
 ESQUEMA = {
@@ -328,7 +332,7 @@ def presupuesto_bordes(accion: Dict[str, Any], pricing: Dict[str, Any]) -> Optio
                      "(perímetro exterior ÷ 0,5 + 4 esquinas por corrida): revisar.")
     peso = peso_total(lineas)
     if peso:
-        notas.append(f"Peso estimado sin esquinas: {peso:,} kg.".replace(",", "."))
+        notas.append(f"Peso estimado: {peso:,} kg.".replace(",", "."))
     quote = compute_quote(pricing, lineas)
     if not quote or quote.get("unmatched") or not quote.get("total"):
         return None
@@ -355,8 +359,6 @@ def peso_total(lineas: List[Dict[str, Any]]) -> Optional[int]:
     """Kilos del pedido, solo si se conoce el peso de todas las piezas con peso propio."""
     total = 0
     for linea in lineas:
-        if linea["id"].startswith("esquina"):
-            continue  # sin peso informado; se aclara en la nota
         if linea["id"] not in PESO_KG:
             return None
         total += PESO_KG[linea["id"]] * linea["qty"]
