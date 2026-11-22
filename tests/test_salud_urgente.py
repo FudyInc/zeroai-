@@ -148,6 +148,7 @@ class PruebaDiariaDelAgente(unittest.TestCase):
              mock.patch.object(s, "_ollama_responde", return_value=True), \
              mock.patch.object(s, "_nube_responde", return_value=True), \
              mock.patch.object(s, "_corrio_en_mock", return_value=[]), \
+             mock.patch.object(s, "_anthropic_principal", return_value=False), \
              mock.patch.object(s, "_prueba_diaria", return_value=["CENTINELA"]):
             self.assertIn("CENTINELA", s.revisar())
 
@@ -332,3 +333,15 @@ class MotorClaude(unittest.TestCase):
         self.assertNotIn("ollama", vistos)
         ollama.assert_not_called()
         self.assertFalse([f for f in fallas if "motor local" in f or "ollama" in f])
+
+    def test_con_claude_no_corre_la_prueba_diaria_del_modelo_local(self):
+        salud = _cargar()
+        with mock.patch.object(salud, "_anthropic_principal", return_value=True), \
+                mock.patch.object(salud, "_nube_principal", return_value=False), \
+                mock.patch.object(salud, "_servicio", return_value=True), \
+                mock.patch.object(salud, "_http", return_value=True), \
+                mock.patch.object(salud, "_corrio_en_mock", return_value=[]), \
+                mock.patch.object(salud, "_prueba_diaria", return_value=["x"]) as diaria, \
+                mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "x", "WHATSAPP_PROVIDER": "meta"}):
+            salud.revisar()
+        diaria.assert_not_called()

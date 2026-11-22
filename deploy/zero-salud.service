@@ -4,6 +4,11 @@ After=network-online.target
 
 [Service]
 Type=oneshot
+# Corre como diego: así ve sus servicios de usuario (dashboard, prueba diaria) con
+# systemctl --user. Como root fallaba con «Failed to connect to bus» y avisaba caídas falsas.
+User=diego
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
 WorkingDirectory=/home/diego/zeroai
 ExecStart=/usr/bin/python3 /home/diego/zeroai/scripts/revisar-salud.py
 # Devuelve 1 cuando hay fallas: eso es información, no un error del timer.

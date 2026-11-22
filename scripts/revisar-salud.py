@@ -322,7 +322,10 @@ def revisar() -> list:
         except Exception as e:
             fallas.append(f"no se pudo verificar el puente WhatsApp Web: {e}")
     fallas.extend(_corrio_en_mock())
-    fallas.extend(_prueba_diaria())
+    if not claude:
+        # probar-agente.py prueba el modelo local; con Claude como motor no aplica y,
+        # con Ollama apagado, nunca completa: avisaría todos los días por nada.
+        fallas.extend(_prueba_diaria())
     return fallas
 
 
