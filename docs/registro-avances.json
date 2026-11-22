@@ -2,6 +2,18 @@
   "version": 1,
   "entries": [
     {
+      "id": "2026-11-22-onboarding-datos-por-archivo",
+      "date": "2026-11-22",
+      "type": "change",
+      "title": "Importación de catálogo y preguntas frecuentes por empresa",
+      "origin": "Pedido de Diego a CORE, retomado desde la sesión de Claude del 22 de noviembre.",
+      "summary": "La API permite descargar plantillas, revisar filas y bajas, aplicar una importación versionada y consultar qué falta para preparar el agente. PoolEdge está protegido frente a la aplicación de archivos.",
+      "status": "Implementado en rama local",
+      "scope": "Backend de onboarding y contrato para el dashboard",
+      "evidence": "1942 pruebas locales aprobadas, incluidas 39 de onboarding. Con curl y un cliente temporal, catálogo y FAQ crearon las versiones 2 y 3, y el rollback de la ficha creó la 4. Contrato en docs/contrato-api-agentes.md.",
+      "pending": "Integrar el flujo en el dashboard y verificar el despliegue en producción."
+    },
+    {
       "id": "2026-11-20-historial-excel-pooledge",
       "date": "2026-11-20",
       "type": "change",

@@ -10,6 +10,8 @@ Then the frontend (or http://localhost:8800/docs) talks to it.
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import logging
 import re
@@ -37,6 +39,7 @@ from zero.config import (AGENCY_CLIENT_ID, CLIENT_DISPLAY_NAMES, CRM_OPEN_STAGES
                          MAX_CORRIDAS_RECORDADAS,
                          DEFAULT_INBOUND_CLIENT_ID, DEFAULT_INBOUND_WHATSAPP_NUMBER,
                          DEFAULT_VENDOR_ID, LEAD_ADS_MAX_FORMS, MAX_INBOUND_MESSAGE_CHARS,
+                         ONBOARDING_LOCKED_CLIENTS, ONBOARDING_MAX_BYTES,
                          PUBLIC_FORM_MAX_PER_HOUR_PER_IP,
                          PUBLIC_FORM_MAX_PER_HOUR_TOTAL, PUBLIC_FORM_SOURCES,
                          QUOTE_REVIEW_REQUIRED_CLIENT_IDS, TIERS)
@@ -44,6 +47,7 @@ from zero.channels import make_outbox
 from zero.icp import normalize_icp
 from zero.orchestrator import Zero
 from zero.quotes import client_pricing, compute_quote, format_quote, normalize_pricing
+from zero import onboarding
 from zero import runs, tasks, telemetry, progress_log
 from zero.store import make_crm, make_memory
 from zero.vendors import clients_count_for
@@ -153,6 +157,8 @@ _ROLE_ALLOWED: dict = {
         ("POST", "/api/vendor"),          # asignar/desplegar personalidad
         ("GET", "/api/knowledge"),        # ficha de la empresa (WhatsApp) + /versions
         ("POST", "/api/knowledge"),       # + /rollback (el match es por prefijo)
+        ("GET", "/api/onboarding"),       # plantillas y lista de chequeo (mismas reglas que la ficha)
+        ("POST", "/api/onboarding"),      # vista previa y aplicar catálogo/FAQ
         ("GET", "/api/cases"),            # banco de casos de prueba de la ficha
         ("POST", "/api/cases"),
         ("GET", "/api/pricing"),          # precios que cita el agente (WhatsApp)
@@ -3004,6 +3010,104 @@ def knowledge_rollback(client: str, version: int):
     memory.save()
     return {"client": client, "restored_from": version, "version": entrada["version"],
             "chars": entrada["chars"], "knowledge": entrada["knowledge"]}
+
+
+# --- onboarding por archivo (la lógica vive en zero/onboarding.py) --------------
+# JSON + base64 a propósito: UploadFile exige python-multipart y el núcleo es
+# solo stdlib. Política (techos, columnas, clientes bloqueados) en config.py.
+
+def _onboarding_http(e: "onboarding.OnboardingError") -> HTTPException:
+    return HTTPException(status_code=e.status, detail=e.motivo)
+
+
+@app.get("/api/onboarding/template")
+def onboarding_template(kind: str):
+    """La plantilla CSV (solo encabezados) que la empresa completa."""
+    try:
+        body = onboarding.template_csv(kind)
+    except onboarding.OnboardingError as e:
+        raise _onboarding_http(e)
+    return PlainTextResponse(body, media_type="text/csv; charset=utf-8", headers={
+        "Content-Disposition": f'attachment; filename="plantilla-{kind}.csv"'})
+
+
+class OnboardingPreviewBody(BaseModel):
+    kind: str
+    filename: str = ""
+    content_base64: str
+
+
+@app.post("/api/onboarding/preview")
+def onboarding_preview(request: Request, client: str, body: OnboardingPreviewBody):
+    """Lee el archivo y muestra qué quedaría, sin escribir nada. El token solo
+    sale si TODAS las filas son válidas: aplicar media lista borraría precios."""
+    _require_client(request, client)
+    # Techo antes de decodificar: el base64 de un archivo enorme ya es enorme.
+    if len(body.content_base64) > (ONBOARDING_MAX_BYTES * 4) // 3 + 8:
+        raise HTTPException(413, detail=f"el archivo supera {ONBOARDING_MAX_BYTES // 1024} KB")
+    try:
+        content = base64.b64decode(body.content_base64, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(400, detail="content_base64 no es base64 válido")
+    if len(content) > ONBOARDING_MAX_BYTES:
+        raise HTTPException(413, detail=f"el archivo supera {ONBOARDING_MAX_BYTES // 1024} KB")
+    memory = make_memory(STATE_PATH)
+    try:
+        result = onboarding.preview(body.kind, body.filename, content,
+                                    memory.get_client_knowledge(client),
+                                    memory.get_client_pricing(client))
+    except onboarding.OnboardingError as e:
+        raise _onboarding_http(e)
+    token = None
+    if result["rows"] and not result["errors"]:
+        token = onboarding.PREVIEWS.put({"client": client, "kind": body.kind,
+                                         "filename": body.filename, "rows": result["rows"]})
+    return {"client": client, "kind": body.kind, **result, "token": token}
+
+
+class OnboardingApplyBody(BaseModel):
+    token: str
+    motivo: str = ""
+
+
+_onboarding_apply_lock = threading.Lock()
+
+
+@app.post("/api/onboarding/apply")
+def onboarding_apply(request: Request, client: str, body: OnboardingApplyBody):
+    """Aplica la vista previa de ese token: regenera SOLO su sección de la ficha
+    (versión nueva, sirve el rollback de siempre) y, si es catálogo, la lista
+    de precios."""
+    _require_client(request, client)
+    if client in ONBOARDING_LOCKED_CLIENTS:
+        raise HTTPException(409, detail=("este cliente tiene un agente afinado a mano; "
+                                         "la importación no puede pisar sus datos"))
+    if client not in _all_client_ids():
+        raise HTTPException(404, detail=_CLIENT_NOT_FOUND)
+    with _onboarding_apply_lock:
+        try:
+            payload = onboarding.PREVIEWS.get(body.token, client)
+            memory = make_memory(STATE_PATH)
+            motivo = f"importación {payload['filename'] or payload['kind']}"
+            if body.motivo.strip():
+                motivo += f" — {body.motivo.strip()}"
+            result = onboarding.apply_rows(memory, client, payload["kind"], payload["rows"], motivo,
+                                           price_normalizer=lambda p: client_pricing(client, p))
+        except onboarding.OnboardingError as e:
+            raise _onboarding_http(e)
+        memory.save()
+        onboarding.PREVIEWS.discard(body.token)
+    return {"client": client, "kind": payload["kind"], **result}
+
+
+@app.get("/api/onboarding/status")
+def onboarding_status(request: Request, client: str):
+    """La lista de chequeo: ¿el agente de esta empresa puede salir a producción?"""
+    _require_client(request, client)
+    if client not in _all_client_ids():
+        raise HTTPException(404, detail=_CLIENT_NOT_FOUND)
+    from zero.client_integrations import configured
+    return onboarding.checklist(make_memory(STATE_PATH), client, configured(client, "whatsapp"))
 
 
 # --- banco de casos de prueba (por cliente) -----------------------------------
