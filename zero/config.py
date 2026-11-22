@@ -55,6 +55,12 @@ WHATSAPP_AFTERNOON_START_HOUR = 12
 WHATSAPP_EVENING_START_HOUR = 20
 WHATSAPP_INBOUND_MAX_AGE_SECONDS = 300
 WHATSAPP_INBOUND_CLOCK_SKEW_SECONDS = 60
+# Diego, 2026-11-22: con el PC apagado, los mensajes de clientes llegaban horas tarde y se
+# descartaban por antiguos. En las cuentas con el agente que conduce, un mensaje de cliente se
+# responde hasta 12 horas después, solo el último de cada chat y solo si nadie del equipo
+# escribió después (lo verifica _guard_event_send leyendo el chat).
+WHATSAPP_LATE_REPLY_ACCOUNTS = ("56964537891",)  # WhatsApp público de PoolEdge
+WHATSAPP_LATE_REPLY_MAX_AGE_SECONDS = 12 * 3600
 
 # Entrega "humana" de las respuestas AUTOMÁTICAS del agente por WhatsApp Web: un
 # bloque único y instantáneo delata a un bot. Se parte en pocos mensajes y se

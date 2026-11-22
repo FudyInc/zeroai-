@@ -72,6 +72,26 @@ class EventQueueTest(unittest.TestCase):
             self.assertEqual(self.row(event_id)['status'], 'needs_review')
             self.assertTrue(self.row(event_id)['finished_at'])
 
+    def test_late_customer_message_is_answered_within_twelve_hours(self):
+        # PC apagado (2026-11-22): el cliente escribió hace 3 horas a la cuenta de PoolEdge.
+        self.queue('late', timestamp=time.time()-3*3600, to_phone_id='56964537891', chat_id='111@lid')
+        self.assertEqual(web._next_pending()['id'], 'late')
+
+    def test_late_reply_only_for_listed_accounts_and_within_limit(self):
+        self.queue('other', timestamp=time.time()-3*3600, to_phone_id='56900000099', chat_id='111@lid')
+        self.queue('ancient', timestamp=time.time()-13*3600, to_phone_id='56964537891', chat_id='222@lid')
+        self.assertIsNone(web._next_pending())
+        self.assertEqual(self.row('other')['status'], 'needs_review')
+        self.assertEqual(self.row('ancient')['status'], 'needs_review')
+
+    def test_late_burst_is_answered_once_in_the_last_message(self):
+        now = time.time()
+        self.queue('first', timestamp=now-3*3600, to_phone_id='56964537891', chat_id='111@lid')
+        self.queue('second', timestamp=now-3*3600+20, to_phone_id='56964537891', chat_id='111@lid')
+        self.assertEqual(web._next_pending()['id'], 'second')
+        self.assertEqual(self.row('first')['status'], 'completed')
+        self.assertIn('posterior', self.row('first')['error'])
+
     def test_old_review_command_is_held_while_fresh_command_proceeds(self):
         self.queue('old-ok', kind='review_group', timestamp=time.time()-3600)
         self.queue('fresh-ok', kind='review_group')
