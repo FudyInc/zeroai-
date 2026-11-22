@@ -58,7 +58,9 @@ def split_whatsapp_parts(text: str, max_parts: int, min_split_chars: int) -> lis
     return parts
 
 
-_BARE_GREETING = re.compile(r"^[¡\s]*(?:hola|buen[oa]s\s+(?:d[ií]as|tardes|noches))[\s,.!]*$", re.IGNORECASE)
+_BARE_GREETING = re.compile(
+    r"^[¡\s]*(?:hola|buen[oa]s\s+(?:d[ií]as|tardes|noches)|perfecto|muy bien|listo|gracias|"
+    r"disculpe la demora)[\s,.!]*$", re.IGNORECASE)
 
 
 def agent_bubbles(text: str, max_parts: int = 3) -> list:
@@ -75,6 +77,8 @@ def agent_bubbles(text: str, max_parts: int = 3) -> list:
     if _BARE_GREETING.match(paragraphs[0]):
         paragraphs = [paragraphs[0] + "\n" + paragraphs[1]] + paragraphs[2:]
     asks = [i for i, p in enumerate(paragraphs) if p.rstrip().endswith("?")]
+    if asks == [0]:
+        return ["\n\n".join(paragraphs)]  # una pregunta con sus opciones: una sola burbuja
     tail_at = asks[-1] if asks and asks[-1] > 0 else len(paragraphs)
     head, middle, tail = paragraphs[:1], paragraphs[1:tail_at], paragraphs[tail_at:]
     parts = head + (["\n\n".join(middle)] if middle else []) + (["\n\n".join(tail)] if tail else [])
