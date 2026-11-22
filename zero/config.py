@@ -224,6 +224,10 @@ LOSETASCHILE_CHAT_OPEN_HOURS = 12
 # Abono que se pide para confirmar un pedido de LosetasChile (el resto va contra
 # entrega). Lo usa el presupuesto final que se publica en el grupo de revisión.
 LOSETASCHILE_DEPOSIT_CLP = 10000
+# Diego, 2026-11-22: cuando responde el borrador en el grupo con la fecha y el despacho
+# (o la fecha de retiro), el presupuesto final y los datos de abono se le envían al cliente.
+# Su respuesta es la revisión humana; sin ella no sale nada. False = se publican en el grupo.
+LOSETASCHILE_AUTO_SEND_REVIEWED_BUDGET = True
 # Cuántos borradores de revisión (por cliente) se recuerdan para leer la respuesta
 # del dueño que los cita.
 REVIEW_DRAFTS_KEPT = 50

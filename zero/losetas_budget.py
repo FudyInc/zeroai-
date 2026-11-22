@@ -7,6 +7,7 @@ from datetime import date as Date
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from . import config as _config
 from .config import LOSETASCHILE_PAVER_PIECES_PER_M2
 from .losetas_polls import FACTORY_ADDRESS, FACTORY_MAP_URL
 
@@ -21,6 +22,21 @@ def paver_pieces(area_m2: Any, price_id: str | None) -> int | None:
     if not rate or not area.is_finite() or area <= 0:
         return None
     return math.ceil(area * rate)
+
+
+def review_question(delivery: str) -> list[str]:
+    """Lo que el borrador le pregunta a Diego; con su respuesta el presupuesto sale al cliente."""
+    if delivery.startswith("Retiro en fábrica"):
+        ask = ["*¿Fecha de retiro?*", "Responde citando este mensaje, por ejemplo: «Fecha: 3/12»."]
+    else:
+        ask = ["*¿Costo y fecha de despacho?*",
+               "Responde citando este mensaje, por ejemplo: «Despacho $20.000» y «Fecha: 3/12»"
+               " (o «Retiro» si lo retira en fábrica)."]
+    if _config.LOSETASCHILE_AUTO_SEND_REVIEWED_BUDGET:
+        ask.append("Con tu respuesta, el presupuesto final y los datos de abono le llegan al cliente.")
+    else:
+        ask.append("Borrador interno. Revisar y enviar manualmente al cliente.")
+    return ["", *ask]
 
 
 def format_internal_budget(quote: dict[str, Any], *, profile_name: str | None,
@@ -61,7 +77,7 @@ def format_internal_budget(quote: dict[str, Any], *, profile_name: str | None,
     lines.append("Fecha de entrega: pendiente de confirmación del equipo.")
     for note in quote.get("review_notes") or ():
         lines.append("Nota: " + " ".join(str(note).split())[:300])
-    lines.append("Borrador interno. Revisar y enviar manualmente al cliente.")
+    lines.extend(review_question(delivery))
     return "\n".join(lines)
 
 
@@ -149,7 +165,7 @@ def format_paver_order_draft(order: dict[str, Any], *, profile_name: str | None,
         lines.append("Costo de envío: pendiente de confirmación del equipo.")
     if not (pieces and unit):
         lines.append("Cantidad de piezas y total: pendientes de calcular por el equipo.")
-    lines.append("Borrador interno. Revisar y enviar manualmente al cliente.")
+    lines.extend(review_question(delivery))
     return "\n".join(lines)
 
 

@@ -31,3 +31,10 @@ os.environ.setdefault(
 from zero.config import LOSETASCHILE_AGENT as _AGENTE  # noqa: E402
 
 _AGENTE["modo"] = "flujo"
+
+# El envío automático del presupuesto revisado (zero/losetas_review.py) se prueba en
+# tests/test_grupo_envia_presupuesto.py; el resto de la suite ejercita la publicación en el
+# grupo, que sigue siendo el respaldo cuando el envío al cliente falla.
+import zero.config as _config  # noqa: E402
+
+_config.LOSETASCHILE_AUTO_SEND_REVIEWED_BUDGET = False
