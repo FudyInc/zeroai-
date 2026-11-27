@@ -970,3 +970,16 @@ LOGIN_MAX_USERNAME_LEN = 64   # más largo = credencial inválida, sin registrar
 CRM_BREAKER_DOWN_S = 60.0
 CRM_BREAKER_OK_S = 30.0
 CRM_PROBE_TIMEOUT_S = 4.0
+
+# --- Respaldo diario fuera del PC (scripts/respaldo_diario.py) -----------------
+# Qué se respalda (rutas relativas a la raíz del repo de producción). La sqlite se
+# copia con la API de backup de sqlite3 (copia consistente aunque esté en uso).
+# Destino y clave NO viven aquí: son de la máquina (RESPALDO_DESTINO y
+# RESPALDO_CLAVE_ARCHIVO en el .env); rutas extra fuera del repo en RESPALDO_EXTRA
+# (separadas por ':'). El archivo va cifrado (AES-256, openssl, PBKDF2).
+RESPALDO_ARCHIVOS = (".env", "state.json", "crm.json", "users.json",
+                     "agent_activity.json")
+RESPALDO_DIRECTORIOS = (".runtime",)
+RESPALDO_SQLITE = ("whatsapp-web-events.sqlite3",)
+RESPALDO_RETENER = 14          # cuántos respaldos diarios se conservan en el destino
+RESPALDO_PBKDF2_ITER = 200_000
