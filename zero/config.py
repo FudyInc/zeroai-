@@ -983,3 +983,5 @@ RESPALDO_DIRECTORIOS = (".runtime",)
 RESPALDO_SQLITE = ("whatsapp-web-events.sqlite3",)
 RESPALDO_RETENER = 14          # cuántos respaldos diarios se conservan en el destino
 RESPALDO_PBKDF2_ITER = 200_000
+RESPALDO_CLAVE_MIN_BYTES = 32  # clave más corta = respaldo rechazado (crear: openssl rand -base64 48)
+RESPALDO_SQLITE_TIMEOUT_S = 30.0
