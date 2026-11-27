@@ -495,9 +495,11 @@ def bridge_request(path: str, body: Optional[Dict[str, Any]] = None,
 
 def _guard_event_send(context, body, client_id):
     """Releer toma manual y chat por cada parte; solo aceptar nuestros IDs confirmados."""
+    from . import estado_retenido
     from .store import make_memory, _supabase_on
-    if _supabase_on():
-        # Una caída de la nube no autoriza consultar una copia local desactualizada.
+    if _supabase_on() and not estado_retenido.activo():
+        # Una caída de la nube no autoriza consultar una copia local desactualizada;
+        # con el estado retenido el local ES la fuente y make_memory lo respeta.
         from .memory_supabase import SupabaseMemory
         memory = SupabaseMemory(fresh=True)
     else:

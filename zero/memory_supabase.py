@@ -28,6 +28,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
+from . import estado_retenido
 from ._env import load_env
 from ._supabase import SupabaseError, sb_request
 from .config import MEMORY_CLOUD_CACHE_TTL_S, MEMORY_CLOUD_VALIDATE_TIMEOUT_S
@@ -71,12 +72,20 @@ class SupabaseMemory(SessionMemory):
         key = os.environ.get("SUPABASE_KEY")
         if not (url and key):
             raise CloudStateUnavailable("faltan SUPABASE_URL / SUPABASE_KEY")
+        if estado_retenido.activo():
+            # Todo constructor respeta el interruptor, no solo make_memory.
+            estado_retenido.avisar()
+            raise CloudStateUnavailable("estado retenido en local hasta reconciliar")
         self.url = url.rstrip("/")
         self.key = key
         self._version: Optional[str] = None
         self._from_cache = False
         super().__init__(path=None)     # empty in-memory fields, no file
-        self._load_cloud(force=fresh)   # may raise CloudStateUnavailable
+        try:
+            self._load_cloud(force=fresh)   # may raise CloudStateUnavailable
+        except (SupabaseError, OSError, ValueError) as e:
+            estado_retenido.marcar(str(e))   # desde acá lo local diverge: no volver solo
+            raise
 
     def _req(self, method: str, path: str, body=None, prefer=None, timeout: float = 20):
         # SupabaseError (incl. table-missing) propagates → make_memory falls back to local.

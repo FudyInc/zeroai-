@@ -978,3 +978,14 @@ CRM_PROBE_TIMEOUT_S = 4.0
 # El TTL acota cuánto tarda en verse una escritura de OTRO proceso (scripts, timers).
 MEMORY_CLOUD_CACHE_TTL_S = 10.0
 MEMORY_CLOUD_VALIDATE_TIMEOUT_S = 4.0   # revalidar con la caché llena no debe colgar el request
+
+# --- Modo "estado local retenido" (zero/estado_retenido.py) ----------------------
+# Cuando la nube del estado cae y el backend sigue en state.json local, ese archivo pasa
+# a divergir de Supabase. Al volver la nube NO se le devuelve el estado solo: queda este
+# marcador hasta que scripts/reconciliar_estado.py fusione ambos lados.
+ESTADO_RETENIDO_ARCHIVO = ".runtime/estado-local-retenido.json"   # relativo a la raíz del repo
+ESTADO_RETENIDO_AVISO_VENTANA_S = 600.0   # el aviso a stderr se repite como máximo cada tanto
+ESTADO_RECONCILIAR_COMANDO = "scripts/reconciliar_estado.py"
+ESTADO_RESPALDOS_DIR = "~/respaldos"                  # donde --aplicar guarda nube.json y local.json
+ESTADO_RESPALDO_PREFIJO = "estado-reconciliacion-"
+ESTADO_CONFIRMACION = "SI"                            # lo que hay que escribir para aplicar sin --si
