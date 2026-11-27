@@ -946,3 +946,11 @@ def project_funnel(contacted: int, rates: Dict[str, Any], deal_value: float) -> 
         "expected_pipeline_clp": round(wins * deal_value, 2),
         "_rates_used": {"reply_rate": reply, "meeting_rate": meeting, "win_rate": win},
     }
+
+
+# --- Login local de emergencia (users.json, ver zero/auth.py) -----------------
+# Roles que acepta scripts/crear-usuario-local.py. Debe coincidir con
+# {"admin", *api._ROLE_ALLOWED} (lo verifica un test). "operador" exige clientes.
+LOCAL_LOGIN_ROLES = ("admin", "cro", "cto", "cco", "operador")
+LOCAL_LOGIN_SCOPED_ROLES = ("operador",)
+LOCAL_LOGIN_MIN_PASSWORD_LEN = 12
