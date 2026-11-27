@@ -78,14 +78,13 @@ def _result(status: str, *, to: Optional[str] = None, reason: str = "",
 
 
 def _owner_email() -> str:
-    """A qué correo avisar: `OWNER_EMAIL_TO`, o el propio remitente SMTP.
+    """A qué correo avisar: SOLO `OWNER_EMAIL_TO`, puesto a propósito.
 
-    Caer al remitente es deliberado: un aviso que se manda a sí mismo llega igual a
-    la bandeja del dueño y no exige configurar nada nuevo. Sin SMTP tampoco hay
-    respaldo, y eso se reporta en vez de fallar en silencio."""
-    return ((os.environ.get("OWNER_EMAIL_TO") or "").strip()
-            or (os.environ.get("SMTP_FROM") or "").strip()
-            or (os.environ.get("SMTP_USER") or "").strip())
+    Antes caía al remitente SMTP si no había destinatario. Eso convirtió la casilla
+    de envío del negocio (la que escribe a clientes) en el basurero de los avisos
+    internos: salud, tandas, workspaces. Esa casilla no es para eso. Sin
+    `OWNER_EMAIL_TO`, el canal email queda "sin destinatario" y no sale nada."""
+    return (os.environ.get("OWNER_EMAIL_TO") or "").strip()
 
 
 def reset_throttle() -> None:
