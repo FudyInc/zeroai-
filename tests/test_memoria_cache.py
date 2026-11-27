@@ -64,17 +64,28 @@ def _mismo_instante(a: str, b: str) -> bool:
 
 
 class FakeSupabase:
-    """Reemplaza a `sb_request` para la fila `app_state`: cuenta lecturas y bytes."""
+    """Reemplaza a `sb_request` para la fila `app_state`: cuenta lecturas y bytes.
 
-    def __init__(self, data: dict):
+    `trigger=True` imita el trigger de supabase_schema.sql: la DB pone `updated`
+    (monótono) en cada escritura y lo devuelve con `return=representation`."""
+
+    def __init__(self, data: dict, trigger: bool = False):
         self.row = {"data": copy.deepcopy(data), "updated": "2026-11-01T00:00:00+00:00"}
+        self.trigger = trigger
+        self.ticks = 0
         self.down = False
+        self.after_assign = None   # hook: se llama tras asignar versión, antes de responder
         self.full_reads = self.version_reads = self.writes = self.bytes = 0
+
+    def _sello(self) -> str:
+        if not self.trigger:
+            return datetime.now(timezone.utc).isoformat()
+        self.ticks += 1
+        return (datetime(2026, 11, 2, tzinfo=timezone.utc) + timedelta(seconds=self.ticks)).isoformat()
 
     def external_write(self, data: dict) -> None:
         """Otro proceso (script, timer) escribe la fila por su cuenta."""
-        self.row = {"data": copy.deepcopy(data),
-                    "updated": datetime.now(timezone.utc).isoformat()}
+        self.row = {"data": copy.deepcopy(data), "updated": self._sello()}
 
     def __call__(self, base_url, key, method, path, body=None, prefer=None, timeout=20):
         if self.down:
@@ -83,16 +94,24 @@ class FakeSupabase:
             select = path.split("select=")[1]
             if select == "updated":
                 self.version_reads += 1
-                out = [{"updated": self.row["updated"]}]
             else:
                 self.full_reads += 1
+            if self.row is None:
+                out = []
+            elif select == "updated":
+                out = [{"updated": self.row["updated"]}]
+            else:
                 out = [dict(self.row)] if select == "data,updated" else [{"data": self.row["data"]}]
             self.bytes += len(json.dumps(out))
             return out
         self.writes += 1
         fila = body[0]
-        self.row = {"data": copy.deepcopy(fila["data"]),
-                    "updated": fila.get("updated", self.row["updated"])}
+        version = self._sello() if self.trigger else fila.get("updated", self._sello())
+        self.row = {"data": copy.deepcopy(fila["data"]), "updated": version}
+        if self.after_assign:
+            self.after_assign()
+        if self.trigger and "return=representation" in (prefer or ""):
+            return [{"updated": version}]
         return None
 
     @property
@@ -301,18 +320,61 @@ class TestCacheMemoria(unittest.TestCase):
 
     def test_fila_inexistente_se_cachea(self):
         self.fake.row = None
-        fake = self.fake
-        original = fake.__call__
+        memory_supabase.SupabaseMemory()
+        self.reloj[0] += MEMORY_CLOUD_CACHE_TTL_S + 0.1
+        memory_supabase.SupabaseMemory()
+        self.assertEqual((self.fake.full_reads, self.fake.version_reads), (1, 1))
 
-        def sin_fila(base_url, key, method, path, body=None, **kw):
-            if method == "GET":
-                fake.full_reads += 1
-                return []
-            return original(base_url, key, method, path, body=body, **kw)
-        with mock.patch("zero.memory_supabase.sb_request", sin_fila):
-            memory_supabase.SupabaseMemory()
-            memory_supabase.SupabaseMemory()
-        self.assertEqual(fake.full_reads, 1)
+    def test_save_guarda_la_version_real_que_pone_la_db(self):
+        self.fake.trigger = True
+        a = memory_supabase.SupabaseMemory()
+        a.add_used_email("a@x.cl")
+        a.save()
+        self.assertEqual(memory_supabase._cache["version"], self.fake.row["updated"])
+        self.reloj[0] += MEMORY_CLOUD_CACHE_TTL_S + 0.1
+        memory_supabase.SupabaseMemory()
+        self.assertEqual((self.fake.full_reads, self.fake.version_reads), (1, 1))
+
+    def test_sin_trigger_se_conserva_el_sello_local(self):
+        a = memory_supabase.SupabaseMemory()
+        a.save()                                   # el fake no devuelve representación
+        self.assertEqual(memory_supabase._cache["version"], self.fake.row["updated"])
+
+    def test_dos_save_cruzados_convergen_sin_rebajar_cada_vez(self):
+        self.fake.trigger = True
+        a = memory_supabase.SupabaseMemory()
+        b = memory_supabase.SupabaseMemory()
+        a.add_used_email("a@x.cl")
+        b.add_used_email("b@x.cl")
+
+        def guardar_b():
+            self.fake.after_assign = None
+            b.save()                               # b se asigna y responde ANTES de que a responda
+        self.fake.after_assign = guardar_b
+        a.save()
+        # La DB quedó con la escritura de b (la última); la caché no retrocedió a la de a.
+        self.assertEqual(self.fake.row["data"]["used_emails"], ["b@x.cl"])
+        self.assertEqual(memory_supabase._cache["version"], self.fake.row["updated"])
+        full = self.fake.full_reads
+        for _ in range(3):
+            self.reloj[0] += MEMORY_CLOUD_CACHE_TTL_S + 0.1
+            m = memory_supabase.SupabaseMemory()
+        self.assertEqual(m.used_emails, ["b@x.cl"])
+        self.assertEqual(self.fake.full_reads, full)
+
+    def test_una_bajada_manda_aunque_la_version_sea_mas_vieja(self):
+        self.fake.trigger = True
+        a = memory_supabase.SupabaseMemory()
+        a.save()                                   # caché con versión de save
+        restaurada = copy.deepcopy(self.fake.row["data"])
+        restaurada["used_emails"] = ["restaurada@x.cl"]
+        self.fake.row = {"data": restaurada, "updated": "2020-01-01T00:00:00+00:00"}
+        self.reloj[0] += MEMORY_CLOUD_CACHE_TTL_S + 0.1
+        self.assertEqual(memory_supabase.SupabaseMemory().used_emails, ["restaurada@x.cl"])
+        full = self.fake.full_reads
+        self.reloj[0] += MEMORY_CLOUD_CACHE_TTL_S + 0.1
+        memory_supabase.SupabaseMemory()
+        self.assertEqual(self.fake.full_reads, full)
 
 
 class TestVersion(unittest.TestCase):

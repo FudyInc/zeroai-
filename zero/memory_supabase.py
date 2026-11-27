@@ -76,10 +76,11 @@ def _cache_read():
         return _cache["data"], _cache["version"], _cache["at"]
 
 
-def _cache_store(data, version, now: float) -> None:
-    """Guarda en la caché salvo que ya haya algo más nuevo (un save() concurrente)."""
+def _cache_store(data, version, now: float, from_save: bool = False) -> None:
+    """Una bajada manda siempre (es lo que hay en la DB). Un save() no retrocede la
+    caché si otro save() concurrente ya dejó una versión más nueva."""
     with _lock:
-        if _cache["data"] is None or not _is_newer(_cache["version"], version):
+        if not from_save or _cache["data"] is None or not _is_newer(_cache["version"], version):
             _cache.update(data=data, version=version, at=now)
 
 
@@ -161,7 +162,10 @@ class SupabaseMemory(SessionMemory):
     def save(self) -> None:
         snap = self.snapshot()
         version = datetime.now(timezone.utc).isoformat()
-        self._req("POST", f"{self.TABLE}?on_conflict=id",
-                  body=[{"id": self.ROW_ID, "data": snap, "updated": version}],
-                  prefer="resolution=merge-duplicates,return=minimal")
-        _cache_store(copy.deepcopy(snap), version, time.monotonic())
+        rows = self._req("POST", f"{self.TABLE}?on_conflict=id&select=updated",
+                         body=[{"id": self.ROW_ID, "data": snap, "updated": version}],
+                         prefer="resolution=merge-duplicates,return=representation")
+        # La versión real la pone el trigger de la DB (supabase_schema.sql); sin trigger
+        # (o sin `updated` en la respuesta) queda el sello local, como antes.
+        real = rows[0].get("updated") if rows and isinstance(rows, list) else None
+        _cache_store(copy.deepcopy(snap), real or version, time.monotonic(), from_save=True)
