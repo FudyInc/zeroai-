@@ -70,3 +70,10 @@ análisis legal mínimo (Ley 19.628 / 21.719 y uso de WhatsApp), equipo y partic
 | Agentes de llamada | hay saldo para voz/número y un cliente que lo pida |
 | Leads como extra del paquete (B2C) | fase 2 cerrada |
 | Supabase Pro | hay ingreso que lo pague |
+
+---
+## Estado — 2026-11-27 20:50
+- ✅ 0.1 tests aislados (PR #34) · 0.2 CRM respaldo solo lectura (#36) · 0.3 login local (#37; usuario `diego` creado) · 0.7 crm.json de workspaces movidos a `~/respaldos/crm-workspaces-2026-11-27/` · 0.8 avisos (#38) · 0.9 misión (#35). Prod en `main` 3b30b48, suite 1988 OK con `.env` real, backend reiniciado.
+- ⏸️ 0.6 privacidad: rama `fix/privacidad-landing` lista, SIN PR — falta un correo de contacto real (zeroai.cl no está registrado; Diego creará un Gmail más adelante).
+- ⏳ 0.4 egress de Supabase: en curso (rama `fix/egress-supabase`).
+- ⏳ 0.5 respaldo diario fuera del PC: pendiente.
