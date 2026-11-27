@@ -970,3 +970,11 @@ LOGIN_MAX_USERNAME_LEN = 64   # más largo = credencial inválida, sin registrar
 CRM_BREAKER_DOWN_S = 60.0
 CRM_BREAKER_OK_S = 30.0
 CRM_PROBE_TIMEOUT_S = 4.0
+
+# --- Caché en proceso de la fila `app_state` (zero/memory_supabase.py) ----------
+# Cada make_memory() bajaba la fila entera (~100 KB) y el dashboard pollea cada 5-30 s:
+# así se agotó el egress del plan gratis. Dentro del TTL no hay red; vencido, se pide
+# solo la versión (`updated`, ~100 B) y la fila completa únicamente si otro la cambió.
+# El TTL acota cuánto tarda en verse una escritura de OTRO proceso (scripts, timers).
+MEMORY_CLOUD_CACHE_TTL_S = 10.0
+MEMORY_CLOUD_VALIDATE_TIMEOUT_S = 4.0   # revalidar con la caché llena no debe colgar el request
