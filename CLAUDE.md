@@ -4,13 +4,17 @@ Orientación para trabajar en este repo. Léelo antes de tocar código.
 
 ## Qué es
 
-ZERO es un orquestador multi-agente de **generación de leads B2B**. Su misión, y la
-vara con la que se decide todo:
+ZeroAI (ZERO) vende **agentes de WhatsApp plug-and-play para pymes**: el negocio que
+contratamos tiene su agente respondiendo, cotizando y derivando a una persona lo antes
+posible. Su misión, y la vara con la que se decide todo:
 
-> **Entregar a un cliente leads B2B calificados y confiables, listos para contactar.**
+> **Que un negocio nuevo tenga su agente de WhatsApp respondiendo bien en horas, no días.**
 
-Cadena del pipeline: `discover → qualify → validate → outreach → follow-up → forecast`,
-y cada lead queda registrado en un CRM.
+Decisión de Diego, 2026-11-27. Después del agente de WhatsApp vienen, en ese orden, el
+contenido de marketing por empresa (campañas, reels, videos) y los agentes de llamada.
+Los leads pasan a ser un **extra del paquete** (más B2C que B2B: clientes para el negocio
+del cliente). El pipeline histórico de leads (`discover → qualify → validate → outreach →
+follow-up → forecast`, con CRM) sigue en el código y no se borra, pero ya no es el centro.
 
 ## Cómo correr
 
@@ -31,7 +35,12 @@ python3 demo.py
 ```
 
 Backends del CLI: `--local` (modelo local OpenAI-compatible, p.ej. Ollama) · `--live`
-(API Anthropic) · mock si no se pide ninguno. Producción corre **local**.
+(API Anthropic) · mock si no se pide ninguno.
+
+**Motores en producción (2026-11-27):** WhatsApp responde con Claude — el agente de PoolEdge
+usa **Opus 5.5** directo (`LOSETASCHILE_AGENT`, decisión de Diego: "Sonnet no es lo
+suficientemente poderoso para negocios"); el agente general usa `WHATSAPP_ENGINE` (Sonnet 5.5
+con Groq de respaldo). Ollama está apagado desde el 2026-11-08.
 
 **El backend HTTP (`api.py`) no tiene esa tercera opción**: sin `LOCAL_MODEL` ni
 `ANTHROPIC_API_KEY` responde 503. El `mock` por defecto del CLI es una comodidad de
@@ -40,7 +49,11 @@ desarrollo y no llega al producto — ver el principio 1.
 ## Mapa del código
 
 - `main.py` — CLI, puerta de entrada.
-- `zero/orchestrator.py` — **ZERO**: reparte tareas, aplica el gate, ensambla la entrega.
+- `zero/orchestrator.py` — **ZERO**: reparte tareas, aplica el gate, ensambla la entrega;
+  `converse_result`/`handle_inbound` son el motor del agente de WhatsApp.
+- `zero/losetas_*.py`, `zero/pool_border.py` — agente a medida de PoolEdge (cliente
+  `losetaschile`). Lo que es dato del negocio debe migrar a la puerta única de datos.
+- `zero/onboarding.py` — importación de catálogo y FAQ por archivo (CSV/XLSX) por empresa.
 - `zero/agents/` — sub-agentes: PROSPECTOR, QUALIFIER, OUTREACH, TRACKER, ANALYST.
   Cada uno: una clase con `_mock_result` (offline) y el camino real vía backend.
 - `zero/config.py` — **la política**: tiers, reglas del gate, cadencia, forecast. Los
