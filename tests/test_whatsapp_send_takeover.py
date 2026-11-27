@@ -34,7 +34,8 @@ class SplitTakeoverTest(unittest.TestCase):
                               '_queued_at': time.time(), 'chat_id': '56900000001@c.us'}, 'timings': {}}
         token = _event_context.set(context)
         try:
-            with mock.patch('zero.store.make_memory', return_value=self.memory), \
+            with mock.patch('zero.store._supabase_on', return_value=False), \
+                    mock.patch('zero.store.make_memory', return_value=self.memory), \
                     mock.patch('zero.whatsapp_web.read_chat_messages', side_effect=lambda *a, **kw: {'messages': list(self.messages)}), \
                     mock.patch('zero.whatsapp_web._bridge_request', side_effect=transport):
                 return WhatsAppWebSender().send({
