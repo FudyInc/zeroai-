@@ -230,9 +230,14 @@ class OwnerAlertTest(unittest.TestCase):
 class TheCageTest(unittest.TestCase):
     """Lo que hace que esto siga siendo una jaula y no una convención."""
 
+    # Sin motores ni modelo del entorno real: estos tests miden la cadena sin keys.
+    SIN_MOTORES = {"GROQ_API_KEY": "", "ANTHROPIC_API_KEY": "", "OPENAI_API_KEY": "",
+                   "WHATSAPP_MODEL": "", "LOCAL_MODEL": "", "LOCAL_MODEL_URL": ""}
+
     def test_whatsapp_builds_a_local_backend(self):
         import api
-        agents, mode = api._agents_whatsapp()
+        with mock.patch.dict(os.environ, self.SIN_MOTORES, clear=False):
+            agents, mode = api._agents_whatsapp()
         self.assertEqual(mode, "local")
         backend = agents["CONCIERGE"].backend
         self.assertIsInstance(backend, FallbackBackend)
@@ -240,10 +245,8 @@ class TheCageTest(unittest.TestCase):
 
     def test_whatsapp_model_override_does_not_change_other_local_agents(self):
         import api
-        with mock.patch.dict(os.environ, {"WHATSAPP_MODEL": "qwen3:14b",
-                                       "LOCAL_MODEL": "qwen2.5:14b",
-                                       "ANTHROPIC_API_KEY": "", "OPENAI_API_KEY": ""},
-                             clear=False):
+        with mock.patch.dict(os.environ, {**self.SIN_MOTORES, "WHATSAPP_MODEL": "qwen3:14b",
+                                          "LOCAL_MODEL": "qwen2.5:14b"}, clear=False):
             agents, _ = api._agents_whatsapp()
             other_agents, _ = api._agents_best()
         self.assertEqual(agents["CONCIERGE"].backend.primary.model, "qwen3:14b")
