@@ -316,7 +316,8 @@ class RutasDelDashboard(unittest.TestCase):
                    CRM_PATH=os.path.join(tmp, "crm.json"), SUPABASE_URL="", SUPABASE_KEY="",
                    AUTH_PASSWORD="", SUPABASE_JWT_SECRET="", LOCAL_MODEL="",
                    ANTHROPIC_API_KEY="", OPENAI_API_KEY="", ZERO_PIPELINE_MOCK_OK="1",
-                   AUTH_USERS_PATH=os.path.join(tempfile.mkdtemp(), "users.json"))
+                   AUTH_USERS_PATH=os.path.join(tempfile.mkdtemp(), "users.json"),
+                   WHATSAPP_WEB_EVENT_DB=os.path.join(tmp, "events.sqlite3"))
         memory = SessionMemory(env["STATE_PATH"])
         memory.register_client("losetaschile", "STARTER")
         for q in ("¿Hacen boleta o factura?", "los de la orilla", "ok"):

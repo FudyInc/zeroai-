@@ -19,6 +19,10 @@ from zero.whatsapp_inbound import parse_inbound as parse_meta
 
 class CompanyContextTest(unittest.TestCase):
     def setUp(self):
+        # Los tests asumen el cliente por defecto de config, no el del .env real.
+        patcher = mock.patch("zero.config.DEFAULT_INBOUND_CLIENT_ID", "zeroai")
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.memory = SessionMemory(None)
         self.crm = CRM(None)
         self.zero = Zero(build_agents(mock=True), memory=self.memory, crm=self.crm)

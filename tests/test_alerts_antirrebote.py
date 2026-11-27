@@ -139,3 +139,15 @@ class AntirreboteEntreProcesos(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AvisoNoUsaElRemitenteSMTP(unittest.TestCase):
+    """La casilla SMTP del negocio no recibe avisos internos si nadie pidió correo."""
+
+    def test_sin_owner_email_to_no_cae_al_remitente(self):
+        from unittest import mock
+        from zero import alerts
+        with mock.patch.dict(os.environ, {"OWNER_EMAIL_TO": "",
+                                          "SMTP_FROM": "negocio@example.com",
+                                          "SMTP_USER": "negocio@example.com"}):
+            self.assertEqual(alerts._owner_email(), "")

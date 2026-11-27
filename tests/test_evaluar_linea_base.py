@@ -271,6 +271,14 @@ class LoQueLeyoElCliente(unittest.TestCase):
 
 
 class LeerFicha(unittest.TestCase):
+    def setUp(self):
+        # Frontera de Supabase: ningún test lee la memoria real de producción.
+        from unittest import mock
+        from zero.memory import SessionMemory
+        parche = mock.patch("zero.store.make_memory", return_value=SessionMemory(None))
+        parche.start()
+        self.addCleanup(parche.stop)
+
     def test_lee_desde_la_raiz_sin_cambiar_el_codigo_que_se_evalua(self):
         import os
         import sys

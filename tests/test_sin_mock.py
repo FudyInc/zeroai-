@@ -173,7 +173,8 @@ class SinMotorNoHayRespuestaTest(unittest.TestCase):
         with self._sin_motor(), \
              mock.patch.object(api, "_agents_best", return_value=(object(), "live")):
             with self.assertRaises(RuntimeError):
-                api._agent_op(lambda z: (_ for _ in ()).throw(RuntimeError("Ollama caído")))
+                api._agent_op(lambda z: (_ for _ in ()).throw(RuntimeError("Ollama caído")),
+                              memory=SessionMemory(None))
 
     def test_la_escotilla_es_solo_de_la_suite(self):
         """Existe para probar plomería HTTP sin motor. Solo el valor exacto "1" abre —

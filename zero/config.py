@@ -962,3 +962,11 @@ LOGIN_MAX_FAILS_PER_IP = 20
 LOGIN_WINDOW_SECONDS = 900
 LOGIN_MAX_TRACKED_KEYS = 2000   # tope de claves en memoria (usuarios inventados no la inflan)
 LOGIN_MAX_USERNAME_LEN = 64   # más largo = credencial inválida, sin registrar el fallo
+
+# --- Respaldo del CRM cuando Supabase no responde (zero/store.py) ---------------
+# Breaker en memoria: tras una sonda fallida no se vuelve a sondear durante
+# CRM_BREAKER_DOWN_S (se sirve el respaldo local de solo lectura); tras una sonda
+# buena se confía CRM_BREAKER_OK_S sin sondear. La sonda corta rápido a propósito.
+CRM_BREAKER_DOWN_S = 60.0
+CRM_BREAKER_OK_S = 30.0
+CRM_PROBE_TIMEOUT_S = 4.0

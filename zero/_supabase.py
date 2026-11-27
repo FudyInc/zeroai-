@@ -20,7 +20,7 @@ class SupabaseError(RuntimeError):
 
 
 def sb_request(base_url: str, key: str, method: str, path: str,
-               body: Any = None, prefer: Optional[str] = None) -> Any:
+               body: Any = None, prefer: Optional[str] = None, timeout: float = 20) -> Any:
     """Call `{base_url}/rest/v1/{path}` and return parsed JSON (or None if empty)."""
     headers = {"apikey": key, "Authorization": f"Bearer {key}",
                "Content-Type": "application/json"}
@@ -29,7 +29,7 @@ def sb_request(base_url: str, key: str, method: str, path: str,
     data = json.dumps(body).encode("utf-8") if body is not None else None
     req = urllib.request.Request(f"{base_url}/rest/v1/{path}", data=data, method=method, headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=20) as r:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             raw = r.read().decode("utf-8")
             return json.loads(raw) if raw.strip() else None
     except urllib.error.HTTPError as e:
