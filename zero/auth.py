@@ -76,6 +76,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from zero.config import LOCAL_LOGIN_MIN_PASSWORD_LEN
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -90,7 +91,10 @@ _USERNAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 def _users_path() -> Path:
-    return Path(os.environ.get("AUTH_USERS_PATH") or "users.json")
+    """Ruta relativa = relativa a la raíz del repo (no al cwd), así servidor y
+    scripts apuntan siempre al mismo archivo."""
+    p = Path(os.environ.get("AUTH_USERS_PATH") or "users.json")
+    return p if p.is_absolute() else Path(__file__).resolve().parents[1] / p
 
 
 def _read_users() -> Dict[str, Dict[str, Any]]:
@@ -141,11 +145,10 @@ def _save_users(users: Dict[str, Dict[str, Any]]) -> None:
 
 
 def auth_enabled() -> bool:
-    """Auth activa si hay cuentas locales, SUPABASE_JWT_SECRET, o un users.json
-    que existe pero está corrupto (fail closed: un archivo roto no abre la
-    app). Sin nada de eso -> abierta (modo dev/mock)."""
-    return (bool(_load_users()) or bool(os.environ.get("SUPABASE_JWT_SECRET"))
-            or users_file_broken())
+    """Auth activa si EXISTE users.json (aunque esté vacío o corrupto: fail
+    closed — quitar al último usuario no puede dejar la app abierta) o hay
+    SUPABASE_JWT_SECRET. Sin ninguno de los dos -> abierta (modo dev/mock)."""
+    return _users_path().exists() or bool(os.environ.get("SUPABASE_JWT_SECRET"))
 
 
 def _hash_password(password: str, salt: bytes, iterations: int = PBKDF2_ITERATIONS) -> str:
@@ -167,8 +170,8 @@ def add_user(username: str, password: str, iterations: int = PBKDF2_ITERATIONS,
         raise ValueError(
             f"username inválido: {username!r} — solo letras, números, guion y guion bajo"
         )
-    if not password:
-        raise ValueError("password vacío")
+    if not password or len(password) < LOCAL_LOGIN_MIN_PASSWORD_LEN:
+        raise ValueError(f"la contraseña debe tener al menos {LOCAL_LOGIN_MIN_PASSWORD_LEN} caracteres")
     if not (role or "").strip():
         raise ValueError("rol vacío")
     users = _read_users()
@@ -203,20 +206,31 @@ def list_users() -> list:
 
 
 # --- login/session -------------------------------------------------------------
+# Registro ficticio para que un usuario inexistente cueste el mismo PBKDF2 que
+# uno real (sin esto, responder al instante delata qué usuarios existen).
+_DUMMY_SALT = bytes(16)
+_DUMMY_HASH = "00" * 32
+
+
+def _same(a: object, b: object) -> bool:
+    """compare_digest en bytes: con str no-ASCII lanzaría TypeError (500)."""
+    if not isinstance(a, str) or not isinstance(b, str):
+        return False
+    return hmac.compare_digest(a.encode("utf-8"), b.encode("utf-8"))
+
+
 def verify_password(username: str, password: str) -> bool:
     rec = _load_users().get((username or "").strip())
-    if not rec:
-        return False
-    try:
-        salt = bytes.fromhex(rec.get("salt", ""))
-    except ValueError:
-        return False
-    try:
-        iterations = int(rec.get("iterations") or PBKDF2_ITERATIONS)
-    except (TypeError, ValueError):
-        return False
+    salt, iterations, stored, known = _DUMMY_SALT, PBKDF2_ITERATIONS, _DUMMY_HASH, False
+    if isinstance(rec, dict):
+        try:
+            salt = bytes.fromhex(rec.get("salt", ""))
+            iterations = int(rec.get("iterations") or PBKDF2_ITERATIONS)
+            stored, known = rec.get("hash", ""), True
+        except (TypeError, ValueError):
+            salt, iterations, stored = _DUMMY_SALT, PBKDF2_ITERATIONS, _DUMMY_HASH
     expected = _hash_password(password, salt, iterations)
-    return hmac.compare_digest(expected, rec.get("hash", ""))
+    return _same(expected, stored) and known
 
 
 def _user_secret(username: str) -> Optional[bytes]:
@@ -254,7 +268,7 @@ def token_username(token: str) -> Optional[str]:
     if secret is None:
         return None
     good = hmac.new(secret, f"{username}.{exp}".encode("utf-8"), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(sig, good):
+    if not _same(sig, good):
         return None
     try:
         if int(exp) <= time.time():

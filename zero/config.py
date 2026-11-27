@@ -954,3 +954,10 @@ def project_funnel(contacted: int, rates: Dict[str, Any], deal_value: float) -> 
 LOCAL_LOGIN_ROLES = ("admin", "cro", "cto", "cco", "operador")
 LOCAL_LOGIN_SCOPED_ROLES = ("operador",)
 LOCAL_LOGIN_MIN_PASSWORD_LEN = 12
+
+# Límite de intentos FALLIDOS de POST /api/login (ventana deslizante). El tope por
+# usuario es el control real; el de IP es secundario (X-Forwarded-For es falsificable).
+LOGIN_MAX_FAILS_PER_USER = 5
+LOGIN_MAX_FAILS_PER_IP = 20
+LOGIN_WINDOW_SECONDS = 900
+LOGIN_MAX_TRACKED_KEYS = 2000   # tope de claves en memoria (usuarios inventados no la inflan)

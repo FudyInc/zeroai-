@@ -1985,7 +1985,7 @@ class AuthTest(unittest.TestCase):
         self._prev_jwt_secret = os.environ.get("SUPABASE_JWT_SECRET")
         os.environ["SUPABASE_JWT_SECRET"] = ""
         self.auth = auth
-        self.auth.add_user("diego", "s3cret")
+        self.auth.add_user("diego", "s3cret-de-prueba-1")
 
     def tearDown(self):
         import os
@@ -2003,7 +2003,7 @@ class AuthTest(unittest.TestCase):
     def test_password_and_token_roundtrip(self):
         auth = self.auth
         self.assertTrue(auth.auth_enabled())
-        self.assertTrue(auth.verify_password("diego", "s3cret"))
+        self.assertTrue(auth.verify_password("diego", "s3cret-de-prueba-1"))
         self.assertFalse(auth.verify_password("diego", "nope"))
         tok = auth.make_token("diego")
         self.assertTrue(auth.valid_token(tok))
@@ -2024,7 +2024,7 @@ class AuthTest(unittest.TestCase):
         # el corazón del modelo por-persona: un token firmado para "lucas"
         # nunca debe validar como si fuera de "diego", y viceversa.
         auth = self.auth
-        auth.add_user("lucas", "otra-clave")
+        auth.add_user("lucas", "otra-clave-de-prueba")
         tok_diego = auth.make_token("diego")
         tok_lucas = auth.make_token("lucas")
         self.assertEqual(auth.token_username(tok_diego), "diego")
@@ -2044,7 +2044,7 @@ class AuthTest(unittest.TestCase):
         # borrar/cambiar la cuenta de UNA persona invalida SU token — sin
         # tocar los tokens de las demás cuentas ya emitidos.
         auth = self.auth
-        auth.add_user("lucas", "otra-clave")
+        auth.add_user("lucas", "otra-clave-de-prueba")
         tok_diego = auth.make_token("diego")
         tok_lucas = auth.make_token("lucas")
 
@@ -2055,10 +2055,10 @@ class AuthTest(unittest.TestCase):
     def test_changing_password_invalidates_old_token(self):
         auth = self.auth
         old_tok = auth.make_token("diego")
-        auth.add_user("diego", "clave-nueva")   # mismo username = reset
+        auth.add_user("diego", "clave-nueva-de-prueba")   # mismo username = reset
         self.assertFalse(auth.valid_token(old_tok))
-        self.assertTrue(auth.verify_password("diego", "clave-nueva"))
-        self.assertFalse(auth.verify_password("diego", "s3cret"))
+        self.assertTrue(auth.verify_password("diego", "clave-nueva-de-prueba"))
+        self.assertFalse(auth.verify_password("diego", "s3cret-de-prueba-1"))
 
     def test_invalid_username_rejected(self):
         auth = self.auth
@@ -2067,16 +2067,16 @@ class AuthTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             auth.add_user("", "x")
 
-    def test_disabled_when_no_users(self):
+    def test_removing_last_user_does_not_open_the_app(self):
         auth = self.auth
         auth.remove_user("diego")
-        self.assertFalse(auth.auth_enabled())
+        self.assertTrue(auth.auth_enabled())   # users.json existe (vacío) -> sigue cerrada
         self.assertIsNone(auth.make_token("diego"))
         self.assertEqual(auth.list_users(), [])
 
     def test_list_users_never_exposes_hash(self):
         auth = self.auth
-        auth.add_user("lucas", "otra-clave")
+        auth.add_user("lucas", "otra-clave-de-prueba")
         names = auth.list_users()
         self.assertEqual(names, ["diego", "lucas"])
 
@@ -2237,7 +2237,7 @@ class SupabaseJWTAuthTest(unittest.TestCase):
         prev = os.environ.get("AUTH_USERS_PATH")
         os.environ["AUTH_USERS_PATH"] = os.path.join(tmpdir, "users.json")
         try:
-            auth.add_user("diego", "clave-local")
+            auth.add_user("diego", "clave-local-de-prueba")
             tok = auth.make_token("diego")
             identity = auth.token_identity(tok)
             self.assertEqual(identity["role"], "admin")

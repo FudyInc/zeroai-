@@ -35,7 +35,8 @@ load_env()   # secrets locales (.env) — los de Render env ya están en os.envi
 from zero.cloud_env import backed_up_keys, load_into_environ, save_secret
 load_into_environ()   # + secretos guardados en la nube (sobreviven a redeploys)
 from zero.agents import build_agents
-from zero.config import (AGENCY_CLIENT_ID, CLIENT_DISPLAY_NAMES, CRM_OPEN_STAGES, CRM_STAGES,
+from zero.config import (LOGIN_MAX_FAILS_PER_IP, LOGIN_MAX_FAILS_PER_USER,
+                         LOGIN_MAX_TRACKED_KEYS, LOGIN_WINDOW_SECONDS, AGENCY_CLIENT_ID, CLIENT_DISPLAY_NAMES, CRM_OPEN_STAGES, CRM_STAGES,
                          MAX_CORRIDAS_RECORDADAS,
                          DEFAULT_INBOUND_CLIENT_ID, DEFAULT_INBOUND_WHATSAPP_NUMBER,
                          DEFAULT_VENDOR_ID, LEAD_ADS_MAX_FORMS, MAX_INBOUND_MESSAGE_CHARS,
@@ -320,14 +321,47 @@ class Login(BaseModel):
     password: str
 
 
+_login_fails: dict = {}   # "u:<usuario>" / "ip:<ip>" -> [timestamps de intentos fallidos]
+_login_lock = threading.Lock()
+
+
+def _login_recent(key: str, ahora: float) -> list:
+    return [t for t in _login_fails.get(key, []) if ahora - t < LOGIN_WINDOW_SECONDS]
+
+
+def _login_blocked(user_key: str, ip_key: str) -> bool:
+    ahora = time.time()
+    with _login_lock:
+        return (len(_login_recent(user_key, ahora)) >= LOGIN_MAX_FAILS_PER_USER
+                or len(_login_recent(ip_key, ahora)) >= LOGIN_MAX_FAILS_PER_IP)
+
+
+def _login_register_fail(user_key: str, ip_key: str) -> None:
+    ahora = time.time()
+    with _login_lock:
+        if len(_login_fails) >= LOGIN_MAX_TRACKED_KEYS:   # poda por antigüedad
+            for k in [k for k in _login_fails if not _login_recent(k, ahora)]:
+                _login_fails.pop(k, None)
+        for k in (user_key, ip_key):
+            if k in _login_fails or len(_login_fails) < LOGIN_MAX_TRACKED_KEYS:
+                _login_fails[k] = _login_recent(k, ahora) + [ahora]
+
+
 @app.post("/api/login")
-def login(body: Login):
+def login(body: Login, request: Request):
+    """Cuenta solo intentos fallidos, por usuario (control real) y por IP
+    (secundario). No hay tope global: un atacante no puede bloquear a todos."""
     from zero.auth import make_token, verify_password
-    if not verify_password(body.username, body.password):
+    user_key = "u:" + body.username.strip().lower()
+    ip_key = "ip:" + _client_ip(request)
+    if _login_blocked(user_key, ip_key):
+        raise HTTPException(status_code=429, detail="Demasiados intentos, espera unos minutos")
+    token = make_token(body.username) if verify_password(body.username, body.password) else None
+    if not token:
+        _login_register_fail(user_key, ip_key)
         raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
-    token = make_token(body.username)
-    if not token:   # carrera rarísima: el usuario se borró justo entremedio
-        raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
+    with _login_lock:
+        _login_fails.pop(user_key, None)
     return {"token": token}
 
 

@@ -121,6 +121,34 @@ class LocalUsersFileTest(unittest.TestCase):
             auth.add_user("diego", "contrasena-larga-1")
         self.assertEqual(Path(self.path).read_text("utf-8"), "{no es json")
 
+    def test_existing_empty_file_keeps_auth_on_and_remove_user_cannot_open_app(self):
+        Path(self.path).write_text("{}", "utf-8")
+        self.assertTrue(auth.auth_enabled())
+        os.unlink(self.path)
+        auth.add_user("diego", "contrasena-larga-1")
+        self.assertTrue(auth.remove_user("diego"))
+        self.assertTrue(auth.auth_enabled())
+
+    def test_add_user_enforces_min_password_length(self):
+        for bad in ("", "corta"):
+            with self.assertRaises(ValueError):
+                auth.add_user("diego", bad)
+        self.assertFalse(os.path.exists(self.path))
+
+    def test_unknown_user_costs_a_pbkdf2_too(self):
+        from unittest import mock
+        with mock.patch.object(auth.hashlib, "pbkdf2_hmac", wraps=auth.hashlib.pbkdf2_hmac) as m:
+            self.assertFalse(auth.verify_password("nadie", "x"))
+        self.assertEqual(m.call_count, 1)
+
+    def test_non_ascii_hash_or_signature_is_invalid_not_500(self):
+        auth.add_user("diego", "contrasena-larga-1")
+        data = json.loads(Path(self.path).read_text("utf-8"))
+        data["diego"]["hash"] = "ñandú"
+        Path(self.path).write_text(json.dumps(data), "utf-8")
+        self.assertFalse(auth.verify_password("diego", "contrasena-larga-1"))
+        self.assertIsNone(auth.token_username("diego.9999999999.ñññ"))
+
     def test_script_roles_match_api_roles(self):
         try:
             import api
@@ -162,6 +190,7 @@ class LocalLoginSupabaseDownTest(unittest.TestCase):
         with _UsersEnv(cls.users_path):
             auth.add_user(cls.USERNAME, cls.PASSWORD, role="admin")
             auth.add_user("lucas", cls.PASSWORD, role="cro")
+            auth.add_user("analista", cls.PASSWORD, role="cro")
         cls.base, cls.proc = cls._start(cls.users_path)
         cls.base_nofile, cls.proc_nofile = cls._start(os.path.join(tmp, "no-existe.json"))
 
@@ -212,9 +241,36 @@ class LocalLoginSupabaseDownTest(unittest.TestCase):
         self.assertEqual(self._status(self.base, "/api/clients", "diego.9999999999.abc"), 401)
 
     def test_role_is_enforced_for_local_users(self):
-        token = self._login("lucas", self.PASSWORD)   # cro: sin acceso a rutas admin
+        token = self._login("analista", self.PASSWORD)   # cro: sin acceso a rutas admin
         self.assertEqual(self._status(self.base, "/api/vendors", token), 403)
         self.assertNotIn(self._status(self.base, "/api/clients", token), (401, 403))
+
+    def _login_raw(self, user, pw, xff):
+        req = urllib.request.Request(
+            self.base + "/api/login", method="POST",
+            data=json.dumps({"username": user, "password": pw}).encode(),
+            headers={"Content-Type": "application/json", "X-Forwarded-For": xff})
+        try:
+            with urllib.request.urlopen(req, timeout=15) as r:
+                return r.status
+        except urllib.error.HTTPError as e:
+            return e.code
+
+    def test_per_user_lockout_does_not_block_other_users(self):
+        from zero.config import LOGIN_MAX_FAILS_PER_USER
+        for i in range(LOGIN_MAX_FAILS_PER_USER):
+            self.assertEqual(self._login_raw("lucas", "mala", f"10.0.0.{i}"), 401)
+        # bloqueado aunque la contraseña sea buena y la IP sea otra...
+        self.assertEqual(self._login_raw("lucas", self.PASSWORD, "10.9.9.9"), 429)
+        # ...pero otro usuario sigue entrando: no hay tope global.
+        self.assertEqual(self._login_raw(self.USERNAME, self.PASSWORD, "10.8.8.8"), 200)
+
+    def test_per_ip_lockout_is_secondary_and_scoped_to_that_ip(self):
+        from zero.config import LOGIN_MAX_FAILS_PER_IP
+        for i in range(LOGIN_MAX_FAILS_PER_IP):
+            self.assertEqual(self._login_raw(f"inventado{i}", "x", "172.16.0.1"), 401)
+        self.assertEqual(self._login_raw(self.USERNAME, self.PASSWORD, "172.16.0.1"), 429)
+        self.assertEqual(self._login_raw(self.USERNAME, self.PASSWORD, "172.16.0.2"), 200)
 
     def test_missing_users_file_with_jwt_secret_rejects_login_and_routes(self):
         self.assertEqual(self._status(self.base_nofile, "/api/login",
