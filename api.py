@@ -36,7 +36,7 @@ from zero.cloud_env import backed_up_keys, load_into_environ, save_secret
 load_into_environ()   # + secretos guardados en la nube (sobreviven a redeploys)
 from zero.agents import build_agents
 from zero.config import (LOGIN_MAX_FAILS_PER_IP, LOGIN_MAX_FAILS_PER_USER,
-                         LOGIN_MAX_TRACKED_KEYS, LOGIN_WINDOW_SECONDS, AGENCY_CLIENT_ID, CLIENT_DISPLAY_NAMES, CRM_OPEN_STAGES, CRM_STAGES,
+                         LOGIN_MAX_TRACKED_KEYS, LOGIN_MAX_USERNAME_LEN, LOGIN_WINDOW_SECONDS, AGENCY_CLIENT_ID, CLIENT_DISPLAY_NAMES, CRM_OPEN_STAGES, CRM_STAGES,
                          MAX_CORRIDAS_RECORDADAS,
                          DEFAULT_INBOUND_CLIENT_ID, DEFAULT_INBOUND_WHATSAPP_NUMBER,
                          DEFAULT_VENDOR_ID, LEAD_ADS_MAX_FORMS, MAX_INBOUND_MESSAGE_CHARS,
@@ -336,13 +336,32 @@ def _login_blocked(user_key: str, ip_key: str) -> bool:
                 or len(_login_recent(ip_key, ahora)) >= LOGIN_MAX_FAILS_PER_IP)
 
 
+def _login_evict_oldest(prefijo: str) -> bool:
+    """Saca la clave con el fallo más antiguo que empiece con `prefijo`.
+    False si no hay ninguna."""
+    candidatas = [k for k in _login_fails if k.startswith(prefijo)]
+    if not candidatas:
+        return False
+    _login_fails.pop(min(candidatas, key=lambda k: _login_fails[k][-1]))
+    return True
+
+
 def _login_register_fail(user_key: str, ip_key: str) -> None:
+    """Registra un fallo. Con la tabla llena se EXPULSA lo más antiguo en vez de
+    ignorar lo nuevo (ignorarlo deja a un atacante llenar la tabla con claves
+    inventadas y luego forzar un usuario real sin límite). La clave de usuario
+    es la que cuenta: tiene prioridad y desaloja IPs antes que usuarios; la de
+    IP es secundaria y nunca desaloja una clave de usuario."""
     ahora = time.time()
     with _login_lock:
-        if len(_login_fails) >= LOGIN_MAX_TRACKED_KEYS:   # poda por antigüedad
+        if len(_login_fails) >= LOGIN_MAX_TRACKED_KEYS:   # primero, lo vencido
             for k in [k for k in _login_fails if not _login_recent(k, ahora)]:
                 _login_fails.pop(k, None)
-        for k in (user_key, ip_key):
+        for k, prefijos in ((user_key, ("ip:", "u:")), (ip_key, ("ip:",))):
+            if k not in _login_fails:
+                while len(_login_fails) >= LOGIN_MAX_TRACKED_KEYS:
+                    if not any(_login_evict_oldest(pf) for pf in prefijos):
+                        break
             if k in _login_fails or len(_login_fails) < LOGIN_MAX_TRACKED_KEYS:
                 _login_fails[k] = _login_recent(k, ahora) + [ahora]
 
@@ -352,6 +371,8 @@ def login(body: Login, request: Request):
     """Cuenta solo intentos fallidos, por usuario (control real) y por IP
     (secundario). No hay tope global: un atacante no puede bloquear a todos."""
     from zero.auth import make_token, verify_password
+    if len(body.username) > LOGIN_MAX_USERNAME_LEN:   # no inflar la tabla con claves enormes
+        raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
     user_key = "u:" + body.username.strip().lower()
     ip_key = "ip:" + _client_ip(request)
     if _login_blocked(user_key, ip_key):

@@ -157,6 +157,53 @@ class LocalUsersFileTest(unittest.TestCase):
         self.assertEqual(set(LOCAL_LOGIN_ROLES), {"admin", *api._ROLE_ALLOWED})
 
 
+class LoginTableFullTest(unittest.TestCase):
+    """Con la tabla de intentos llena, el usuario real debe seguir limitado."""
+
+    def setUp(self):
+        try:
+            import api
+        except ImportError:
+            self.skipTest("fastapi no instalado")
+        from unittest import mock
+        self.api = api
+        api._login_fails.clear()
+        p = mock.patch.object(api, "LOGIN_MAX_TRACKED_KEYS", 50)
+        p.start()
+        self.addCleanup(p.stop)
+        self.addCleanup(api._login_fails.clear)
+
+    def _fill(self, prefijo):
+        for i in range(200):   # 4x el tope
+            self.api._login_register_fail(f"u:falso{i}", f"ip:9.9.{i}.1") if prefijo == "both" \
+                else self.api._login_register_fail("u:falso", f"ip:8.8.{i}.1")
+            self.assertLessEqual(len(self.api._login_fails), 50)
+
+    def test_user_still_limited_after_flooding_with_fake_keys(self):
+        from zero.config import LOGIN_MAX_FAILS_PER_USER
+        self._fill("both")
+        for _ in range(LOGIN_MAX_FAILS_PER_USER):
+            self.api._login_register_fail("u:diego", "ip:7.7.7.7")
+        self.assertTrue(self.api._login_blocked("u:diego", "ip:1.1.1.1"))
+
+    def test_ip_key_never_evicts_a_user_key(self):
+        from zero.config import LOGIN_MAX_FAILS_PER_USER
+        for _ in range(LOGIN_MAX_FAILS_PER_USER):
+            self.api._login_register_fail("u:diego", "ip:7.7.7.7")
+        self._fill("ips")
+        self.assertTrue(self.api._login_blocked("u:diego", "ip:1.1.1.1"))
+
+    def test_overlong_username_is_rejected_without_growing_table(self):
+        from fastapi import HTTPException
+        from starlette.requests import Request
+        req = Request({"type": "http", "headers": [], "client": ("1.2.3.4", 1)})
+        body = self.api.Login(username="a" * 5000, password="x")
+        with self.assertRaises(HTTPException) as ctx:
+            self.api.login(body, req)
+        self.assertEqual(ctx.exception.status_code, 401)
+        self.assertEqual(self.api._login_fails, {})
+
+
 @unittest.skipUnless(_UVICORN_AVAILABLE, "uvicorn no instalado — este test es opcional, no núcleo")
 class LocalLoginSupabaseDownTest(unittest.TestCase):
     USERNAME = "diego"

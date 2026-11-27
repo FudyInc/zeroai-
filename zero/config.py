@@ -961,3 +961,4 @@ LOGIN_MAX_FAILS_PER_USER = 5
 LOGIN_MAX_FAILS_PER_IP = 20
 LOGIN_WINDOW_SECONDS = 900
 LOGIN_MAX_TRACKED_KEYS = 2000   # tope de claves en memoria (usuarios inventados no la inflan)
+LOGIN_MAX_USERNAME_LEN = 64   # más largo = credencial inválida, sin registrar el fallo
