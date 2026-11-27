@@ -32,20 +32,27 @@ borra (mover a `~/respaldos/` en vez de borrar).
 
 ## Fase 1 — WhatsApp plug-and-play (semanas 2–4)
 
+Revisada tras la auditoría del cómo (`FudyInc/AUDIT:docs/auditoria/2026-11-27-como.md`).
+
 | # | Qué | Quién | Hecho cuando |
 |---|---|---|---|
-| 1.1 | **Puerta única "fuente de datos del cliente"**: todo lo que el agente consulta del negocio (catálogo, precios, stock, FAQ, horarios) pasa por una interfaz; la importación por archivo de PR #31 es la primera implementación, con mock | CORE | el motor no lee la ficha ni los precios por otro camino (grep lo demuestra) |
-| 1.2 | Inventario de `zero/losetas_*.py`, `pool_border.py`, `pooledge_credit.py`: qué es DATO del negocio (va a la fuente) y qué es LÓGICA reutilizable (cotizador genérico) | MOTOR | lista escrita; sin mover código todavía |
-| 1.3 | Pantalla de onboarding del dashboard (pedido DASHBOARD-2 del 22-11, aún no en main) | DASHBOARD | un negocio sube su archivo y ve la lista de chequeo |
-| 1.4 | Ensayo de punta a punta con un negocio ficticio nuevo, cronometrado | QA | número de horas registrado = la vara |
-| 1.5 | Canal oficial: estado del WABA en Meta; plan si se banea el número de whatsapp-web.js | Diego | decisión escrita |
+| 1.0 | Meter al repo el sync ventas→Excel que corre fuera de git (`~/.local/lib/pooledge-excel/`) | CORE | vive en `scripts/` con tests; el servicio apunta al repo |
+| 1.0b | Medir el costo real del agente de PoolEdge (Opus 5.5 directo, `config.py:323`) y decidir si sigue en Opus | CORE + Diego | costo por conversación medido; decisión escrita |
+| 1.1 | **Puerta única** `zero/client_data.py`: `knowledge() faq() catalog() price() stock() rules()`; `MemoryClientData` envuelve lo de hoy + mock. Cambiar SOLO las lecturas (~12 puntos en `orchestrator.py`) | CORE | suite verde sin cambio de comportamiento; grep: el motor no lee ficha/precios por otro camino |
+| 1.1-b | **MCP como fuente de datos**: cliente MCP HTTP stdlib, solo lectura, detrás de `stock()`/`price()`, con la herramienta del cliente mapeada en config (el modelo NO elige herramientas). Servidor MCP falso en tests; URL validada (https, sin IPs privadas, sin redirecciones); secretos en `client_integrations`; interruptores por herramienta en `memory.clients[cid]`; registro `memory.log("mcp_tool_call")`; los guardias aceptan el dato de la herramienta como evidencia | CORE | un cliente de prueba responde stock real desde un MCP falso, de punta a punta |
+| 1.2 | Pasar constantes de PoolEdge (`config.py:167-232`, `losetas_*.py`) a `rules()`/`catalog()`, de a una | MOTOR | baja el conteo de `"losetaschile"` en `orchestrator.py` (hoy 42) |
+| 1.3 | Grupo de revisión POR CLIENTE (hoy cableado a PoolEdge, `orchestrator.py:2501`) — es la superficie del dueño | CORE | un cliente nuevo recibe sus avisos en su grupo |
+| 1.4 | "Demanda real": `knowledge_gaps` cuenta clientes distintos y no pierde historial al resolver; se ve en el dashboard | CORE + DASHBOARD | la tarjeta dice "N clientes distintos" |
+| 1.5 | Pantalla de onboarding (DASHBOARD-2 del 22-11) | DASHBOARD | un negocio sube su archivo y ve la lista de chequeo |
+| 1.6 | Ensayo cronometrado con un negocio ficticio nuevo | QA | horas registradas = la vara |
+| 1.7 | Canal oficial: estado del WABA; plan si se banea el número | Diego | decisión escrita |
 
 ## Fase 2 — Vender (en paralelo desde la semana 2)
 
 | # | Qué | Quién | Hecho cuando |
 |---|---|---|---|
 | 2.1 | Landing reescrita alrededor del agente de WhatsApp; fuera "12 reuniones", "4 canales" y la FAQ de precio por consumo | LANDING | ningún claim sin dato que lo respalde |
-| 2.2 | Calendly: `booking_url` en el perfil de `zeroai` + botón "Agenda 15 min" | CORE + LANDING | **requiere el link de Diego** |
+| 2.2 | Calendly: `booking_url` en el perfil de `zeroai` (ojo: `set_agent_profile` reemplaza el perfil entero, `api.py:2850`) + botón "Agenda 15 min" | CORE + LANDING | **requiere el link de Diego** |
 | 2.3 | Primer cliente externo que pague (piloto con precio, fecha y monto registrados) | Diego | ingreso registrado |
 | 2.4 | Métricas antes/después de ese cliente (tiempo de respuesta, conversaciones, ventas atribuidas) | CORE/DASHBOARD | vista con dato crudo |
 
@@ -56,7 +63,9 @@ análisis legal mínimo (Ley 19.628 / 21.719 y uso de WhatsApp), equipo y partic
 ## Aparcado, con condición de activación
 | Idea | Se activa cuando |
 |---|---|
-| Conectores MCP (segunda implementación de la puerta 1.1; solo lectura, lista blanca por cliente, escrituras con aprobación humana) | un cliente real necesita un dato en vivo que el archivo no cubre (stock, estado de pedido) |
+| Agente que ELIGE herramientas MCP (bucle tool_use) y escrituras en sistemas del cliente | un cliente necesita algo que el mapeo fijo de 1.1-b no cubre; hay saldo de Claude |
+| Recordatorio proactivo de presupuesto (pedido 05-11) | hay aprobación humana en el grupo; riesgo de baneo evaluado con whatsapp-web.js |
+| Instagram comentario → DM | App Review de Meta aprobado |
 | Contenido de marketing por empresa (campañas, reels, videos) | un cliente de WhatsApp pagando lo pide, o fase 1 cerrada |
 | Agentes de llamada | hay saldo para voz/número y un cliente que lo pida |
 | Leads como extra del paquete (B2C) | fase 2 cerrada |
