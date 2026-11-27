@@ -76,6 +76,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from zero.config import LOCAL_LOGIN_MIN_PASSWORD_LEN
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -90,30 +91,64 @@ _USERNAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 def _users_path() -> Path:
-    return Path(os.environ.get("AUTH_USERS_PATH") or "users.json")
+    """Ruta relativa = relativa a la raíz del repo (no al cwd), así servidor y
+    scripts apuntan siempre al mismo archivo."""
+    p = Path(os.environ.get("AUTH_USERS_PATH") or "users.json")
+    return p if p.is_absolute() else Path(__file__).resolve().parents[1] / p
 
 
-def _load_users() -> Dict[str, Dict[str, Any]]:
-    """{username: {"salt": hex, "hash": hex, "iterations": int}}. Missing,
-    empty, or unreadable file -> {} (app abierta) — misma disciplina de
-    "nunca crashear, degradar a modo dev" que el resto de la capa de
-    persistencia (ver zero/persistence.py)."""
+def _read_users() -> Dict[str, Dict[str, Any]]:
+    """{username: {"salt","hash","iterations", opcional "role","clients"}}.
+    Archivo ausente -> {}. Archivo que existe pero no se puede leer como un
+    objeto JSON -> ValueError: quien lo va a reescribir (add_user/remove_user)
+    NUNCA debe pisar un users.json corrupto a ciegas."""
     path = _users_path()
     if not path.exists():
         return {}
     try:
         data = json.loads(path.read_text("utf-8"))
-    except Exception:
+    except Exception as exc:
+        raise ValueError(f"{path} está corrupto o ilegible ({exc.__class__.__name__}) — arréglalo a mano, no se sobrescribe") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"{path} no es un objeto JSON — arréglalo a mano, no se sobrescribe")
+    return data
+
+
+def _load_users() -> Dict[str, Dict[str, Any]]:
+    """Versión que nunca lanza, para el camino de cada request: archivo
+    ausente o corrupto -> {} (nadie puede entrar por el modelo local). Si la
+    app queda abierta o no lo decide `auth_enabled()`, no esta función."""
+    try:
+        return _read_users()
+    except ValueError:
         return {}
-    return data if isinstance(data, dict) else {}
+
+
+def users_file_broken() -> bool:
+    """True si users.json existe pero está corrupto/ilegible."""
+    try:
+        _read_users()
+    except ValueError:
+        return True
+    return False
 
 
 def _save_users(users: Dict[str, Dict[str, Any]]) -> None:
-    _users_path().write_text(json.dumps(users, indent=2, ensure_ascii=False), encoding="utf-8")
+    """Escritura atómica con permisos 600 (el archivo trae hashes de login)."""
+    path = _users_path()
+    tmp = path.with_name(path.name + ".tmp")
+    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(json.dumps(users, indent=2, ensure_ascii=False))
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
 
 
 def auth_enabled() -> bool:
-    return bool(_load_users()) or bool(os.environ.get("SUPABASE_JWT_SECRET"))
+    """Auth activa si EXISTE users.json (aunque esté vacío o corrupto: fail
+    closed — quitar al último usuario no puede dejar la app abierta) o hay
+    SUPABASE_JWT_SECRET. Sin ninguno de los dos -> abierta (modo dev/mock)."""
+    return _users_path().exists() or bool(os.environ.get("SUPABASE_JWT_SECRET"))
 
 
 def _hash_password(password: str, salt: bytes, iterations: int = PBKDF2_ITERATIONS) -> str:
@@ -121,7 +156,8 @@ def _hash_password(password: str, salt: bytes, iterations: int = PBKDF2_ITERATIO
 
 
 # --- account management (manual — Diego runs this, no HTTP endpoint) ---------
-def add_user(username: str, password: str, iterations: int = PBKDF2_ITERATIONS) -> None:
+def add_user(username: str, password: str, iterations: int = PBKDF2_ITERATIONS,
+             role: str = "admin", clients: Optional[List[str]] = None) -> None:
     """Crea o actualiza una cuenta (mismo username = resetea su password, lo
     que además invalida sus tokens viejos de un saque — nuevo salt+hash).
 
@@ -134,15 +170,21 @@ def add_user(username: str, password: str, iterations: int = PBKDF2_ITERATIONS) 
         raise ValueError(
             f"username inválido: {username!r} — solo letras, números, guion y guion bajo"
         )
-    if not password:
-        raise ValueError("password vacío")
-    users = _load_users()
+    if not password or len(password) < LOCAL_LOGIN_MIN_PASSWORD_LEN:
+        raise ValueError(f"la contraseña debe tener al menos {LOCAL_LOGIN_MIN_PASSWORD_LEN} caracteres")
+    if not (role or "").strip():
+        raise ValueError("rol vacío")
+    users = _read_users()
     salt = secrets.token_bytes(16)
     users[username] = {
         "salt": salt.hex(),
         "hash": _hash_password(password, salt, iterations),
         "iterations": iterations,
+        "role": role.strip(),
     }
+    limpios = [c for c in (clients or []) if isinstance(c, str) and c]
+    if limpios:
+        users[username]["clients"] = limpios
     _save_users(users)
 
 
@@ -150,7 +192,7 @@ def remove_user(username: str) -> bool:
     """Da de baja una cuenta. True si existía. Sus tokens vigentes quedan
     inválidos de inmediato — la firma se verifica contra el hash guardado,
     que deja de existir."""
-    users = _load_users()
+    users = _read_users()
     if username not in users:
         return False
     del users[username]
@@ -164,17 +206,31 @@ def list_users() -> list:
 
 
 # --- login/session -------------------------------------------------------------
+# Registro ficticio para que un usuario inexistente cueste el mismo PBKDF2 que
+# uno real (sin esto, responder al instante delata qué usuarios existen).
+_DUMMY_SALT = bytes(16)
+_DUMMY_HASH = "00" * 32
+
+
+def _same(a: object, b: object) -> bool:
+    """compare_digest en bytes: con str no-ASCII lanzaría TypeError (500)."""
+    if not isinstance(a, str) or not isinstance(b, str):
+        return False
+    return hmac.compare_digest(a.encode("utf-8"), b.encode("utf-8"))
+
+
 def verify_password(username: str, password: str) -> bool:
     rec = _load_users().get((username or "").strip())
-    if not rec:
-        return False
-    try:
-        salt = bytes.fromhex(rec.get("salt", ""))
-    except ValueError:
-        return False
-    iterations = int(rec.get("iterations") or PBKDF2_ITERATIONS)
+    salt, iterations, stored, known = _DUMMY_SALT, PBKDF2_ITERATIONS, _DUMMY_HASH, False
+    if isinstance(rec, dict):
+        try:
+            salt = bytes.fromhex(rec.get("salt", ""))
+            iterations = int(rec.get("iterations") or PBKDF2_ITERATIONS)
+            stored, known = rec.get("hash", ""), True
+        except (TypeError, ValueError):
+            salt, iterations, stored = _DUMMY_SALT, PBKDF2_ITERATIONS, _DUMMY_HASH
     expected = _hash_password(password, salt, iterations)
-    return hmac.compare_digest(expected, rec.get("hash", ""))
+    return _same(expected, stored) and known
 
 
 def _user_secret(username: str) -> Optional[bytes]:
@@ -212,7 +268,7 @@ def token_username(token: str) -> Optional[str]:
     if secret is None:
         return None
     good = hmac.new(secret, f"{username}.{exp}".encode("utf-8"), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(sig, good):
+    if not _same(sig, good):
         return None
     try:
         if int(exp) <= time.time():
@@ -416,7 +472,8 @@ def token_identity(token: str) -> Optional[Dict[str, Any]]:
     Prueba primero Supabase (el camino real, con roles); si el token no es
     un JWT de Supabase válido, cae al modelo local por-persona (users.json)
     como fallback transicional — ese modelo no tiene roles, así que se le
-    asigna "admin" (ve todo). Es un hueco a propósito, documentado: mientras
+    asigna "admin" (ve todo) salvo que el registro traiga "role" (y "clients" para
+    "operador"; ver scripts/crear-usuario-local.py). Es un hueco a propósito, documentado: mientras
     dure la transición, cualquier cuenta local dada de alta con add_user()
     tiene acceso total, sin restricción de "cro" — no uses el modelo local
     para alguien a quien de verdad quieras limitar a un rol acotado; dale
@@ -429,8 +486,15 @@ def token_identity(token: str) -> Optional[Dict[str, Any]]:
                 "clients": supabase_clients(payload), "source": "supabase"}
     username = token_username(token)
     if username is not None:
-        return {"email": None, "username": username, "role": "admin",
-                "full_name": None, "clients": [], "source": "local"}
+        rec = _load_users().get(username) or {}
+        # Registros viejos sin "role" = admin (compatibilidad). Un "role" que
+        # no sea string o esté vacío -> None -> 403 (fail closed).
+        role = rec.get("role", "admin")
+        role = role if isinstance(role, str) and role else None
+        raw = rec.get("clients")
+        clients = [c for c in raw if isinstance(c, str) and c] if isinstance(raw, list) else []
+        return {"email": None, "username": username, "role": role,
+                "full_name": None, "clients": clients, "source": "local"}
     return None
 
 

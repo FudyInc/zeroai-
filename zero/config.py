@@ -948,6 +948,21 @@ def project_funnel(contacted: int, rates: Dict[str, Any], deal_value: float) -> 
     }
 
 
+# --- Login local de emergencia (users.json, ver zero/auth.py) -----------------
+# Roles que acepta scripts/crear-usuario-local.py. Debe coincidir con
+# {"admin", *api._ROLE_ALLOWED} (lo verifica un test). "operador" exige clientes.
+LOCAL_LOGIN_ROLES = ("admin", "cro", "cto", "cco", "operador")
+LOCAL_LOGIN_SCOPED_ROLES = ("operador",)
+LOCAL_LOGIN_MIN_PASSWORD_LEN = 12
+
+# Límite de intentos FALLIDOS de POST /api/login (ventana deslizante). El tope por
+# usuario es el control real; el de IP es secundario (X-Forwarded-For es falsificable).
+LOGIN_MAX_FAILS_PER_USER = 5
+LOGIN_MAX_FAILS_PER_IP = 20
+LOGIN_WINDOW_SECONDS = 900
+LOGIN_MAX_TRACKED_KEYS = 2000   # tope de claves en memoria (usuarios inventados no la inflan)
+LOGIN_MAX_USERNAME_LEN = 64   # más largo = credencial inválida, sin registrar el fallo
+
 # --- Respaldo del CRM cuando Supabase no responde (zero/store.py) ---------------
 # Breaker en memoria: tras una sonda fallida no se vuelve a sondear durante
 # CRM_BREAKER_DOWN_S (se sirve el respaldo local de solo lectura); tras una sonda
