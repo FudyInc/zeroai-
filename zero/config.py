@@ -946,3 +946,12 @@ def project_funnel(contacted: int, rates: Dict[str, Any], deal_value: float) -> 
         "expected_pipeline_clp": round(wins * deal_value, 2),
         "_rates_used": {"reply_rate": reply, "meeting_rate": meeting, "win_rate": win},
     }
+
+
+# --- Respaldo del CRM cuando Supabase no responde (zero/store.py) ---------------
+# Breaker en memoria: tras una sonda fallida no se vuelve a sondear durante
+# CRM_BREAKER_DOWN_S (se sirve el respaldo local de solo lectura); tras una sonda
+# buena se confía CRM_BREAKER_OK_S sin sondear. La sonda corta rápido a propósito.
+CRM_BREAKER_DOWN_S = 60.0
+CRM_BREAKER_OK_S = 30.0
+CRM_PROBE_TIMEOUT_S = 4.0
