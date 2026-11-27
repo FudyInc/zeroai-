@@ -51,11 +51,13 @@
               <li>Cuando te sumas a la <strong>waitlist</strong>: nombre, correo, empresa, qu&eacute; vendes y tu segmento objetivo.</li>
             </ul>
             <p>
-              El correo es el &uacute;nico dato obligatorio; el resto se env&iacute;a solo
-              si lo completaste. Junto con tus datos queda registrado por qu&eacute;
-              formulario llegaron (chat o waitlist). Para limitar abusos, el servidor
-              cuenta los env&iacute;os por direcci&oacute;n IP, pero solo en memoria y
-              por una hora: no la guardamos junto a tus datos.
+              En el formulario de waitlist todos los campos son obligatorios. En el
+              chat son obligatorios nombre, apellido, correo y tel&eacute;fono. Junto
+              con tus datos queda registrado por qu&eacute; formulario llegaron (chat o
+              waitlist). Para limitar abusos, el servidor cuenta los env&iacute;os por
+              direcci&oacute;n IP en memoria, sin guardarla junto a tus datos. Adem&aacute;s,
+              tu conexi&oacute;n pasa por proveedores de infraestructura (t&uacute;nel y
+              hosting) que pueden registrar la IP en sus propios logs.
             </p>
             <p>No pedimos datos sensibles (salud, datos bancarios, etc.) en ning&uacute;n formulario de este sitio.</p>
 
@@ -71,7 +73,7 @@
             <p>
               Al enviar cualquiera de los dos formularios, tus datos se env&iacute;an al
               servidor de ZeroAI y quedan registrados en el sistema de gesti&oacute;n de
-              clientes (CRM) propio de ZeroAI, como un contacto interesado. Seg&uacute;n
+              clientes (CRM) propio de ZeroAI, como un contacto interesado, visible para el equipo de ZeroAI seg&uacute;n su rol. Seg&uacute;n
               c&oacute;mo est&eacute; configurado el servidor, ese registro vive en una
               base de datos en la nube (Supabase) o en un archivo local del equipo de
               ZeroAI. Si escribes dos veces con el mismo correo, se actualiza el mismo
@@ -97,22 +99,28 @@
             <p>
               Este sitio usa <code>localStorage</code> del navegador (no cookies de
               rastreo de terceros ni pixeles publicitarios) para guardar la copia de
-              respaldo de tus env&iacute;os (ver arriba) y para no repetirte el mismo
-              mensaje dos veces. Puedes borrar esta informaci&oacute;n en cualquier
+              respaldo de tus env&iacute;os (ver arriba), y <code>sessionStorage</code>
+              (<code>zeroai_chat_seen</code>) para no repetirte el mismo mensaje del
+              chat durante la sesi&oacute;n. Puedes borrar esta informaci&oacute;n en cualquier
               momento desde la configuraci&oacute;n de tu navegador.
             </p>
 
             <h2>Tus derechos y c&oacute;mo ejercerlos</h2>
             <p>
-              La Ley N&deg; 19.628 sobre protecci&oacute;n de la vida privada (Chile) te
-              reconoce derechos sobre tus datos personales, entre ellos pedir acceso,
-              rectificaci&oacute;n o eliminaci&oacute;n. Para ejercerlos, escr&iacute;benos
-              por el <a href="./index.html">chat de Fernanda</a> en la p&aacute;gina
-              principal indicando el correo que usaste; revisamos cada solicitud y
+              La Ley N&deg; 19.628 sobre protecci&oacute;n de la vida privada (Chile),
+              vigente hoy, te reconoce derechos sobre tus datos personales, entre ellos
+              pedir acceso, rectificaci&oacute;n o eliminaci&oacute;n. La Ley N&deg; 21.719,
+              la nueva ley de protecci&oacute;n de datos personales, entrar&aacute; en
+              vigencia pr&oacute;ximamente; no afirmamos aqu&iacute; que hoy cumplamos
+              todas sus exigencias.
+            </p>
+            <p>
+              Para pedir acceso, rectificaci&oacute;n o eliminaci&oacute;n de tus datos,
+              escr&iacute;benos a <strong>CORREO_DE_CONTACTO_PENDIENTE</strong> indicando
+              el correo que usaste en el formulario. Revisamos cada solicitud y
               modificamos o eliminamos el registro del CRM manualmente, mientras el sitio
-              es chico. No tenemos hoy un plazo de respuesta formal ni un canal
-              automatizado para estas solicitudes. Recuerda que la copia en tu navegador
-              solo la puedes borrar t&uacute;.
+              es chico. No tenemos hoy un plazo de respuesta formal. Recuerda que la
+              copia en tu navegador solo la puedes borrar t&uacute;.
             </p>
 
             <h2>Cambios a esta pol&iacute;tica</h2>
