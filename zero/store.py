@@ -10,6 +10,7 @@ import os
 import sys
 
 from ._env import load_env
+from ._supabase import SupabaseError
 from .crm import CRM
 from .memory import SessionMemory
 
@@ -21,9 +22,20 @@ def _supabase_on() -> bool:
 
 
 def make_crm(file_path: str = "crm.json"):
+    """CRM en la nube si Supabase está configurado Y responde; si no, el archivo local.
+    `SupabaseCRM` carga perezoso (el fallo real llegaría en la primera operación,
+    ya dentro del endpoint), así que acá se hace una sonda mínima al construirlo:
+    es el único punto donde aún se puede elegir otro backend. Mientras dure la caída
+    lo que se escriba queda en `file_path`; no se sincroniza de vuelta a Supabase."""
     if _supabase_on():
         from .crm_supabase import SupabaseCRM
-        return SupabaseCRM()
+        try:
+            crm = SupabaseCRM()
+            crm._req("GET", f"{crm.TABLE}?select=client_id&limit=1")
+            return crm
+        except SupabaseError as e:   # cuota (402) / red / tabla — degradar a local con aviso
+            print(f"[zero] CRM en la nube no disponible ({e}); uso {file_path} local",
+                  file=sys.stderr)
     return CRM(file_path)
 
 
