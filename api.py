@@ -49,7 +49,7 @@ from zero.orchestrator import Zero
 from zero.quotes import client_pricing, compute_quote, format_quote, normalize_pricing
 from zero import onboarding
 from zero import runs, tasks, telemetry, progress_log
-from zero.store import make_crm, make_memory
+from zero.store import crm_status, make_crm, make_memory
 from zero.vendors import clients_count_for
 from zero._supabase import SupabaseError
 
@@ -469,7 +469,7 @@ def favicon():
 # --- read ---------------------------------------------------------------------
 @app.get("/api/health")
 def health():
-    return {"ok": True, "service": "zero", "version": "0.1.0"}
+    return {"ok": True, "service": "zero", "version": "0.1.0", **crm_status(CRM_PATH)}
 
 
 def _all_client_ids() -> list:
