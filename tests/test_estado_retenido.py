@@ -74,9 +74,20 @@ class TestInterruptor(Base):
             mem = self.make()
             self.assertIsInstance(mem, SessionMemory)
             self.assertNotIsInstance(mem, SupabaseMemory)
-            self.assertEqual(self.nube.reads, 0)          # ni siquiera consulta la nube
+            self.assertEqual(self.nube.reads + self.nube.writes, 0)   # ni la petición de versión
         self.assertIn("estado retenido en local desde", self.err.getvalue())
         self.assertIn("reconciliar_estado.py", self.err.getvalue())
+
+    def test_con_cache_llena_y_vencida_el_marcador_corta_hasta_la_peticion_de_version(self):
+        from zero import memory_supabase
+        with _nube(self.nube):
+            self.make()                                   # llena la caché
+            memory_supabase._cache["at"] = 0.0            # vencida: pediría select=updated
+            antes = self.nube.reads
+            estado_retenido.marcar("x")
+            mem = self.make()
+            self.assertNotIsInstance(mem, SupabaseMemory)
+            self.assertEqual(self.nube.reads, antes)
 
     def test_sin_marcador_y_nube_sana_usa_nube(self):
         with _nube(self.nube):

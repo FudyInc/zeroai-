@@ -461,6 +461,7 @@ def _pedir(method: str, path: str, body: Any = None, prefer: Optional[str] = Non
 
 
 def leer_nube() -> Tuple[Dict[str, Any], Optional[str]]:
+    """Lectura fresca: va directo a la fila por HTTP, sin pasar por la caché de SupabaseMemory."""
     filas = _pedir("GET", f"{TABLE}?id=eq.{ROW_ID}&select=data,updated") or []
     if not filas:
         return {}, None
@@ -473,9 +474,11 @@ def escribir_nube(data: Dict[str, Any], version_leida: Optional[str]) -> None:
     actual = filas[0].get("updated") if filas else None
     if actual != version_leida:
         raise RuntimeError("la fila de la nube cambió mientras se calculaba la fusión; reintenta")
-    _pedir("POST", f"{TABLE}?on_conflict=id",
+    # Igual que SupabaseMemory.save(): el trigger de supabase_schema.sql pone el `updated`
+    # real; el sello local solo cuenta si no hay trigger.
+    _pedir("POST", f"{TABLE}?on_conflict=id&select=updated",
            body=[{"id": ROW_ID, "data": data, "updated": datetime.now(timezone.utc).isoformat()}],
-           prefer="resolution=merge-duplicates,return=minimal")
+           prefer="resolution=merge-duplicates,return=representation")
     releida, _ = leer_nube()
     if _c(releida) != _c(data):
         raise RuntimeError("la nube no quedó igual a la fusión después de escribir")

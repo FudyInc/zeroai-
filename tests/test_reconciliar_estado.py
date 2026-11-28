@@ -310,6 +310,18 @@ class Base(unittest.TestCase):
 
 
 class TestScript(Base):
+    def test_aplicar_con_trigger_y_lectura_fresca_ignora_la_cache(self):
+        from zero import memory_supabase
+        self.nube = FakeSupabase(self.nube_inicial, trigger=True)
+        memory_supabase._cache.update(data={"clients": {"viejo": {}}}, version="x", at=1e12)
+        self.addCleanup(memory_supabase.invalidate_cache)
+        with mock.patch.object(rec, "sb_request", self.nube):
+            codigo, _, _ = self.correr("--aplicar", "--si")
+        self.assertEqual(codigo, 0)
+        self.assertNotIn("viejo", self.nube.row["data"]["clients"])
+        self.assertIn("beta", self.nube.row["data"]["clients"])
+        self.assertFalse(self.marca.exists())
+
     def test_dry_run_no_escribe_nada(self):
         antes_state = self.state.read_text("utf-8")
         antes_nube = copy.deepcopy(self.nube.row)
