@@ -38,3 +38,8 @@ _AGENTE["modo"] = "flujo"
 import zero.config as _config  # noqa: E402
 
 _config.LOSETASCHILE_AUTO_SEND_REVIEWED_BUDGET = False
+
+# El marcador de "estado local retenido" (zero/estado_retenido.py) se escribe cuando la
+# nube del estado falla y bloquearía a cualquier test posterior en el mismo proceso. "-"
+# = interruptor desactivado en silencio; los tests del interruptor lo activan con un archivo temporal.
+os.environ.setdefault("ZERO_ESTADO_RETENIDO_PATH", "-")

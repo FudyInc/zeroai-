@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 
 from ._env import load_env
 from ._supabase import SupabaseError, sb_request
+from . import estado_retenido
 from .config import CRM_BREAKER_DOWN_S, CRM_BREAKER_OK_S, CRM_PROBE_TIMEOUT_S
 from .crm import CRM
 from .memory import SessionMemory
@@ -89,12 +90,30 @@ def crm_status(file_path: str = "crm.json") -> dict:
 
 def make_memory(file_path: str = "state.json") -> SessionMemory:
     """Cloud state (ICP, secuencias) if Supabase está configurado — si la tabla
-    app_state aún no existe, cae al archivo local sin romper nada."""
+    app_state aún no existe, cae al archivo local sin romper nada. Esa primera caída
+    deja el marcador de "estado local retenido": mientras exista, se usa el archivo
+    local aunque Supabase responda, hasta reconciliar (zero/estado_retenido.py)."""
     if _supabase_on():
+        if estado_retenido.activo():
+            estado_retenido.avisar()
+            return SessionMemory(file_path)
         try:
             from .memory_supabase import SupabaseMemory
             return SupabaseMemory()
         except Exception as e:   # tabla ausente / red — degradar a local con aviso
+            estado_retenido.marcar(str(e))
             print(f"[zero] estado en la nube no disponible ({e}); uso {file_path} local",
                   file=sys.stderr)
+            estado_retenido.avisar()
     return SessionMemory(file_path)
+
+
+def estado_status() -> dict:
+    """Estado de la memoria para /api/health: "nube", "local" (sin Supabase) o
+    "local_retenido" (con `retenido_desde`). No sondea la nube: sería egress en cada poll."""
+    if not _supabase_on():
+        return {"estado": "local", "retenido_desde": None}
+    marca = estado_retenido.leer()
+    if marca is None:
+        return {"estado": "nube", "retenido_desde": None}
+    return {"estado": "local_retenido", "retenido_desde": marca.get("desde")}

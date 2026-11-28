@@ -63,3 +63,6 @@ whatsapp-web-events.sqlite3*
 .claude/launch.json
 
 /.runtime/pooledge-billing.json
+
+# Marcador del modo "estado local retenido" (zero/estado_retenido.py): dato local.
+/.runtime/estado-local-retenido.json*

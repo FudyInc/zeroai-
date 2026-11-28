@@ -495,9 +495,14 @@ def bridge_request(path: str, body: Optional[Dict[str, Any]] = None,
 
 def _guard_event_send(context, body, client_id):
     """Releer toma manual y chat por cada parte; solo aceptar nuestros IDs confirmados."""
+    from . import estado_retenido
+    from .config import GUARD_USA_LOCAL_RETENIDO
     from .store import make_memory, _supabase_on
-    if _supabase_on():
+    if _supabase_on() and not (estado_retenido.activo() and GUARD_USA_LOCAL_RETENIDO):
         # Una caída de la nube no autoriza consultar una copia local desactualizada.
+        # Con el estado retenido pasa lo mismo (SupabaseMemory levanta y el envío queda
+        # bloqueado, fail-closed) salvo que GUARD_USA_LOCAL_RETENIDO (config.py) lo
+        # cambie: política que decide el dueño, no el código.
         from .memory_supabase import SupabaseMemory
         memory = SupabaseMemory(fresh=True)
     else:

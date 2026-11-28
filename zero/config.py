@@ -993,3 +993,21 @@ RESPALDO_SQLITE_TIMEOUT_S = 30.0
 # ráfagas dentro de un mismo request (sin red); no sirve datos de hace más que eso.
 MEMORY_CLOUD_CACHE_TTL_S = 1.0
 MEMORY_CLOUD_VALIDATE_TIMEOUT_S = 4.0   # revalidar con la caché llena no debe colgar el request
+
+# --- Modo "estado local retenido" (zero/estado_retenido.py) ----------------------
+# Cuando la nube del estado cae y el backend sigue en state.json local, ese archivo pasa
+# a divergir de Supabase. Al volver la nube NO se le devuelve el estado solo: queda este
+# marcador hasta que scripts/reconciliar_estado.py fusione ambos lados.
+ESTADO_RETENIDO_ARCHIVO = ".runtime/estado-local-retenido.json"   # relativo a la raíz del repo
+ESTADO_RETENIDO_AVISO_VENTANA_S = 600.0   # el aviso a stderr se repite como máximo cada tanto
+ESTADO_RECONCILIAR_COMANDO = "scripts/reconciliar_estado.py"
+ESTADO_RESPALDOS_DIR = "~/respaldos"                  # donde --aplicar guarda nube.json y local.json
+ESTADO_RESPALDO_PREFIJO = "estado-reconciliacion-"
+ESTADO_CONFIRMACION = "SI"                            # lo que hay que escribir para aplicar sin --si
+
+# Guard de envío de WhatsApp (zero/whatsapp_web.py) con el estado retenido en local.
+# False = fail-closed: con el marcador puesto el envío automático queda bloqueado, igual
+# que con la nube caída (no se decide con un state.json que quizá no tiene lo último).
+# True = el guard lee el state.json local, que durante la retención es la fuente viva.
+# Política pendiente de decidir; cambiarla es cambiar esta constante.
+GUARD_USA_LOCAL_RETENIDO = False
