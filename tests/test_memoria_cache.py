@@ -17,6 +17,7 @@ import copy
 import io
 import json
 import os
+import threading
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
@@ -63,17 +64,28 @@ def _mismo_instante(a: str, b: str) -> bool:
 
 
 class FakeSupabase:
-    """Reemplaza a `sb_request` para la fila `app_state`: cuenta lecturas y bytes."""
+    """Reemplaza a `sb_request` para la fila `app_state`: cuenta lecturas y bytes.
 
-    def __init__(self, data: dict):
+    `trigger=True` imita el trigger de supabase_schema.sql: la DB pone `updated`
+    (monótono) en cada escritura y lo devuelve con `return=representation`."""
+
+    def __init__(self, data: dict, trigger: bool = False):
         self.row = {"data": copy.deepcopy(data), "updated": "2026-11-01T00:00:00+00:00"}
+        self.trigger = trigger
+        self.ticks = 0
         self.down = False
+        self.after_assign = None   # hook: se llama tras asignar versión, antes de responder
         self.full_reads = self.version_reads = self.writes = self.bytes = 0
+
+    def _sello(self) -> str:
+        if not self.trigger:
+            return datetime.now(timezone.utc).isoformat()
+        self.ticks += 1
+        return (datetime(2026, 11, 2, tzinfo=timezone.utc) + timedelta(seconds=self.ticks)).isoformat()
 
     def external_write(self, data: dict) -> None:
         """Otro proceso (script, timer) escribe la fila por su cuenta."""
-        self.row = {"data": copy.deepcopy(data),
-                    "updated": datetime.now(timezone.utc).isoformat()}
+        self.row = {"data": copy.deepcopy(data), "updated": self._sello()}
 
     def __call__(self, base_url, key, method, path, body=None, prefer=None, timeout=20):
         if self.down:
@@ -82,16 +94,24 @@ class FakeSupabase:
             select = path.split("select=")[1]
             if select == "updated":
                 self.version_reads += 1
-                out = [{"updated": self.row["updated"]}]
             else:
                 self.full_reads += 1
+            if self.row is None:
+                out = []
+            elif select == "updated":
+                out = [{"updated": self.row["updated"]}]
+            else:
                 out = [dict(self.row)] if select == "data,updated" else [{"data": self.row["data"]}]
             self.bytes += len(json.dumps(out))
             return out
         self.writes += 1
         fila = body[0]
-        self.row = {"data": copy.deepcopy(fila["data"]),
-                    "updated": fila.get("updated", self.row["updated"])}
+        version = self._sello() if self.trigger else fila.get("updated", self._sello())
+        self.row = {"data": copy.deepcopy(fila["data"]), "updated": version}
+        if self.after_assign:
+            self.after_assign()
+        if self.trigger and "return=representation" in (prefer or ""):
+            return [{"updated": version}]
         return None
 
     @property
@@ -155,7 +175,7 @@ class TestEgressPolling(unittest.TestCase):
         self.assertEqual(r["completas"], 1)
         self.assertLess(r["bytes"], 2 * tam)
 
-    def test_escrituras_ajenas_se_ven_dentro_del_ttl(self):
+    def test_escrituras_ajenas_se_ven_en_la_siguiente_carga(self):
         estado = _estado_tipico()
         fake = FakeSupabase(estado)
         with _nube(fake):
@@ -167,7 +187,7 @@ class TestEgressPolling(unittest.TestCase):
             cambiado = copy.deepcopy(estado)
             cambiado["clients"][CLIENT]["agent_profile"]["whatsapp_number"] = "999"
             fake.external_write(cambiado)
-            reloj[0] += MEMORY_CLOUD_CACHE_TTL_S + 1
+            reloj[0] += MEMORY_CLOUD_CACHE_TTL_S + 0.1
             m = memory_supabase.SupabaseMemory()
             self.assertEqual(m.get_client_agent_profile(CLIENT)["whatsapp_number"], "999")
 
@@ -183,17 +203,80 @@ class TestCacheMemoria(unittest.TestCase):
         p.start()
         self.addCleanup(p.stop)
 
-    def test_dentro_del_ttl_no_hay_red(self):
+    def test_rafaga_dentro_del_micro_ttl_no_hace_red(self):
         memory_supabase.SupabaseMemory()
         self.reloj[0] += MEMORY_CLOUD_CACHE_TTL_S / 2
         memory_supabase.SupabaseMemory()
         self.assertEqual((self.fake.full_reads, self.fake.version_reads), (1, 0))
 
-    def test_vencido_y_sin_cambios_solo_pide_la_version(self):
+    def test_cada_carga_valida_la_version_y_si_es_igual_no_baja_la_fila(self):
         memory_supabase.SupabaseMemory()
-        self.reloj[0] += MEMORY_CLOUD_CACHE_TTL_S + 1
+        for _ in range(5):
+            self.reloj[0] += MEMORY_CLOUD_CACHE_TTL_S + 0.1
+            memory_supabase.SupabaseMemory()
+        self.assertEqual((self.fake.full_reads, self.fake.version_reads), (1, 5))
+
+    def test_version_distinta_baja_la_fila_una_vez(self):
         memory_supabase.SupabaseMemory()
-        self.assertEqual((self.fake.full_reads, self.fake.version_reads), (1, 1))
+        ajeno = copy.deepcopy(self.fake.row["data"])
+        ajeno["used_emails"] = ["otro@x.cl"]
+        self.fake.external_write(ajeno)
+        self.reloj[0] += MEMORY_CLOUD_CACHE_TTL_S + 0.1
+        m = memory_supabase.SupabaseMemory()
+        self.assertEqual(m.used_emails, ["otro@x.cl"])
+        self.assertEqual((self.fake.full_reads, self.fake.version_reads), (2, 1))
+        self.reloj[0] += MEMORY_CLOUD_CACHE_TTL_S + 0.1
+        memory_supabase.SupabaseMemory()
+        self.assertEqual(self.fake.full_reads, 2)
+
+    def test_reload_y_fresh_bajan_la_fila_completa(self):
+        a = memory_supabase.SupabaseMemory()
+        ajeno = copy.deepcopy(self.fake.row["data"])
+        ajeno["used_emails"] = ["otro@x.cl"]
+        self.fake.external_write(ajeno)
+        a.reload()                                     # sin avanzar el reloj: ignora el micro-TTL
+        self.assertEqual(a.used_emails, ["otro@x.cl"])
+        self.fake.external_write(_estado_tipico())
+        self.assertEqual(memory_supabase.SupabaseMemory(fresh=True).used_emails, [])
+        self.assertEqual(self.fake.full_reads, 3)
+
+    def test_save_es_el_ultimo_que_escribe_gana(self):
+        memory_supabase.SupabaseMemory()
+        a = memory_supabase.SupabaseMemory()
+        ajeno = copy.deepcopy(self.fake.row["data"])
+        ajeno["used_emails"] = ["otro@x.cl"]
+        self.fake.external_write(ajeno)
+        a.add_used_email("mio@x.cl")
+        a.save()                                       # sin 409: comportamiento previo
+        self.assertEqual(self.fake.row["data"]["used_emails"], ["mio@x.cl"])
+        self.assertEqual(self.fake.writes, 1)
+
+    def test_el_lock_no_se_toma_durante_la_red(self):
+        memory_supabase.SupabaseMemory()
+        self.reloj[0] += MEMORY_CLOUD_CACHE_TTL_S + 0.1
+        ambos_en_la_red = threading.Barrier(2, timeout=5)
+        original = self.fake.__call__
+
+        def lenta(base_url, key, method, path, body=None, **kw):
+            if method == "GET" and path.endswith("select=updated"):
+                ambos_en_la_red.wait()      # si el lock serializara, el 2.º nunca llega
+            return original(base_url, key, method, path, body=body, **kw)
+        errores = []
+
+        def cargar():
+            try:
+                memory_supabase.SupabaseMemory()
+            except Exception as e:   # noqa: BLE001 — se reporta abajo
+                errores.append(e)
+        with mock.patch("zero.memory_supabase.sb_request", lenta):
+            hilos = [threading.Thread(target=cargar) for _ in range(2)]
+            for h in hilos:
+                h.start()
+            for h in hilos:
+                h.join(10)
+        self.assertEqual(errores, [])
+        self.assertTrue(memory_supabase._lock.acquire(timeout=1))
+        memory_supabase._lock.release()
 
     def test_instancias_no_comparten_estructuras(self):
         a = memory_supabase.SupabaseMemory()
@@ -211,65 +294,18 @@ class TestCacheMemoria(unittest.TestCase):
         self.assertEqual(self.fake.row["data"]["clients"][CLIENT]["agent_profile"]
                          ["whatsapp_number"], "nuevo")
 
-    def test_save_con_copia_vieja_no_pisa_escritura_ajena(self):
-        memory_supabase.SupabaseMemory()              # llena la caché
-        a = memory_supabase.SupabaseMemory()          # copia cacheada
-        ajeno = copy.deepcopy(self.fake.row["data"])
-        ajeno["used_emails"] = ["otro@x.cl"]
-        self.fake.external_write(ajeno)                # otro proceso escribe después
-        a.add_used_email("mio@x.cl")
-        with self.assertRaises(SupabaseError) as cm:
-            a.save()
-        self.assertEqual(cm.exception.code, 409)
-        self.assertEqual(self.fake.writes, 0)
-        self.assertEqual(self.fake.row["data"]["used_emails"], ["otro@x.cl"])
-        # y el conflicto invalida la caché: el reintento parte del estado real
-        c = memory_supabase.SupabaseMemory()
-        self.assertEqual(c.used_emails, ["otro@x.cl"])
-        c.add_used_email("mio@x.cl")
-        c.save()
-        self.assertEqual(self.fake.row["data"]["used_emails"], ["otro@x.cl", "mio@x.cl"])
-
-    def test_dos_instancias_de_la_caja_la_segunda_en_guardar_no_pisa_a_la_primera(self):
-        a = memory_supabase.SupabaseMemory()
-        b = memory_supabase.SupabaseMemory()
-        a.add_used_email("a@x.cl")
-        a.save()
-        b.add_used_email("b@x.cl")
-        with self.assertRaises(SupabaseError):
-            b.save()
-        self.assertEqual(self.fake.row["data"]["used_emails"], ["a@x.cl"])
-
-    def test_reload_y_fresh_ignoran_la_caja(self):
-        a = memory_supabase.SupabaseMemory()
-        ajeno = copy.deepcopy(self.fake.row["data"])
-        ajeno["used_emails"] = ["otro@x.cl"]
-        self.fake.external_write(ajeno)
-        a.reload()
-        self.assertEqual(a.used_emails, ["otro@x.cl"])
-        a.add_used_email("mio@x.cl")
-        a.save()                                      # tras reload ya no es copia vieja
-        self.assertEqual(self.fake.row["data"]["used_emails"], ["otro@x.cl", "mio@x.cl"])
-        self.fake.external_write(_estado_tipico())
-        self.assertEqual(memory_supabase.SupabaseMemory(fresh=True).used_emails, [])
-
-    def test_supabase_caido_con_cache_llena_sirve_la_ultima_copia(self):
+    def test_supabase_caido_con_cache_llena_sirve_la_ultima_copia_y_loguea_antiguedad(self):
         memory_supabase.SupabaseMemory()
-        self.reloj[0] += MEMORY_CLOUD_CACHE_TTL_S + 1
+        self.reloj[0] += 42
         self.fake.down = True
-        with contextlib.redirect_stderr(io.StringIO()):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
             m = memory_supabase.SupabaseMemory()
         self.assertEqual(m.get_client_agent_profile(CLIENT)["whatsapp_number"], NUMERO)
-
-    def test_supabase_caido_no_deja_guardar_desde_copia_vieja(self):
-        a = memory_supabase.SupabaseMemory()
-        self.reloj[0] += MEMORY_CLOUD_CACHE_TTL_S + 1
-        self.fake.down = True
-        with contextlib.redirect_stderr(io.StringIO()):
-            a = memory_supabase.SupabaseMemory()
-        a.add_used_email("x@x.cl")
-        with self.assertRaises(SupabaseError):
-            a.save()
+        self.assertIn("hace 42s", err.getvalue())
+        m.add_used_email("x@x.cl")
+        with self.assertRaises(SupabaseError):          # save() falla como antes mientras siga caído
+            m.save()
 
     def test_supabase_caido_con_cache_vacia_falla_como_antes(self):
         self.fake.down = True
@@ -284,18 +320,61 @@ class TestCacheMemoria(unittest.TestCase):
 
     def test_fila_inexistente_se_cachea(self):
         self.fake.row = None
-        fake = self.fake
-        original = fake.__call__
+        memory_supabase.SupabaseMemory()
+        self.reloj[0] += MEMORY_CLOUD_CACHE_TTL_S + 0.1
+        memory_supabase.SupabaseMemory()
+        self.assertEqual((self.fake.full_reads, self.fake.version_reads), (1, 1))
 
-        def sin_fila(base_url, key, method, path, body=None, **kw):
-            if method == "GET":
-                fake.full_reads += 1
-                return []
-            return original(base_url, key, method, path, body=body, **kw)
-        with mock.patch("zero.memory_supabase.sb_request", sin_fila):
-            memory_supabase.SupabaseMemory()
-            memory_supabase.SupabaseMemory()
-        self.assertEqual(fake.full_reads, 1)
+    def test_save_guarda_la_version_real_que_pone_la_db(self):
+        self.fake.trigger = True
+        a = memory_supabase.SupabaseMemory()
+        a.add_used_email("a@x.cl")
+        a.save()
+        self.assertEqual(memory_supabase._cache["version"], self.fake.row["updated"])
+        self.reloj[0] += MEMORY_CLOUD_CACHE_TTL_S + 0.1
+        memory_supabase.SupabaseMemory()
+        self.assertEqual((self.fake.full_reads, self.fake.version_reads), (1, 1))
+
+    def test_sin_trigger_se_conserva_el_sello_local(self):
+        a = memory_supabase.SupabaseMemory()
+        a.save()                                   # el fake no devuelve representación
+        self.assertEqual(memory_supabase._cache["version"], self.fake.row["updated"])
+
+    def test_dos_save_cruzados_convergen_sin_rebajar_cada_vez(self):
+        self.fake.trigger = True
+        a = memory_supabase.SupabaseMemory()
+        b = memory_supabase.SupabaseMemory()
+        a.add_used_email("a@x.cl")
+        b.add_used_email("b@x.cl")
+
+        def guardar_b():
+            self.fake.after_assign = None
+            b.save()                               # b se asigna y responde ANTES de que a responda
+        self.fake.after_assign = guardar_b
+        a.save()
+        # La DB quedó con la escritura de b (la última); la caché no retrocedió a la de a.
+        self.assertEqual(self.fake.row["data"]["used_emails"], ["b@x.cl"])
+        self.assertEqual(memory_supabase._cache["version"], self.fake.row["updated"])
+        full = self.fake.full_reads
+        for _ in range(3):
+            self.reloj[0] += MEMORY_CLOUD_CACHE_TTL_S + 0.1
+            m = memory_supabase.SupabaseMemory()
+        self.assertEqual(m.used_emails, ["b@x.cl"])
+        self.assertEqual(self.fake.full_reads, full)
+
+    def test_una_bajada_manda_aunque_la_version_sea_mas_vieja(self):
+        self.fake.trigger = True
+        a = memory_supabase.SupabaseMemory()
+        a.save()                                   # caché con versión de save
+        restaurada = copy.deepcopy(self.fake.row["data"])
+        restaurada["used_emails"] = ["restaurada@x.cl"]
+        self.fake.row = {"data": restaurada, "updated": "2020-01-01T00:00:00+00:00"}
+        self.reloj[0] += MEMORY_CLOUD_CACHE_TTL_S + 0.1
+        self.assertEqual(memory_supabase.SupabaseMemory().used_emails, ["restaurada@x.cl"])
+        full = self.fake.full_reads
+        self.reloj[0] += MEMORY_CLOUD_CACHE_TTL_S + 0.1
+        memory_supabase.SupabaseMemory()
+        self.assertEqual(self.fake.full_reads, full)
 
 
 class TestVersion(unittest.TestCase):

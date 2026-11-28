@@ -14,9 +14,9 @@ Needs a table (run once in Supabase SQL editor):
 
 If the table is missing, `make_memory` falls back to the local file (nothing breaks).
 
-Egress: la fila se cachea en el proceso (ver `MEMORY_CLOUD_CACHE_TTL_S` en config.py).
-`save()` escribe la fila ENTERA, así que una copia cacheada nunca se guarda a ciegas:
-si otro proceso cambió la fila desde que se leyó, `save()` falla con 409 en vez de pisarlo.
+Egress: la fila se cachea en el proceso y CADA carga valida la versión (`updated`, ~100 B)
+antes de usarla; la fila completa se baja solo si otro la cambió. `save()` sigue siendo
+"el último que escribe gana" (como siempre) y deja la caché al día.
 """
 from __future__ import annotations
 
@@ -37,8 +37,11 @@ from .memory import SessionMemory
 load_env()
 
 # Caché por proceso de la fila `app_state`. `data` None = vacía (nunca leída o invalidada).
+# `_lock` protege SOLO el diccionario (nunca se sostiene durante E/S de red);
+# `_refresh_lock` evita que varios hilos bajen la fila completa a la vez.
 _cache: Dict[str, Any] = {"data": None, "version": None, "at": 0.0}
 _lock = threading.Lock()
+_refresh_lock = threading.Lock()
 
 
 def invalidate_cache() -> None:
@@ -55,6 +58,31 @@ def _same_version(a: Optional[str], b: Optional[str]) -> bool:
         return datetime.fromisoformat(a) == datetime.fromisoformat(b)
     except ValueError:
         return a == b
+
+
+def _is_newer(a: Optional[str], b: Optional[str]) -> bool:
+    """¿`a` es estrictamente posterior a `b`? (sin versión = más viejo)."""
+    if a is None:
+        return False
+    if b is None:
+        return True
+    try:
+        return datetime.fromisoformat(a) > datetime.fromisoformat(b)
+    except ValueError:
+        return False
+
+
+def _cache_read():
+    with _lock:
+        return _cache["data"], _cache["version"], _cache["at"]
+
+
+def _cache_store(data, version, now: float, from_save: bool = False) -> None:
+    """Una bajada manda siempre (es lo que hay en la DB). Un save() no retrocede la
+    caché si otro save() concurrente ya dejó una versión más nueva."""
+    with _lock:
+        if not from_save or _cache["data"] is None or not _is_newer(_cache["version"], version):
+            _cache.update(data=data, version=version, at=now)
 
 
 class CloudStateUnavailable(SupabaseError):
@@ -78,8 +106,6 @@ class SupabaseMemory(SessionMemory):
             raise CloudStateUnavailable("estado retenido en local hasta reconciliar")
         self.url = url.rstrip("/")
         self.key = key
-        self._version: Optional[str] = None
-        self._from_cache = False
         super().__init__(path=None)     # empty in-memory fields, no file
         try:
             self._load_cloud(force=fresh)   # may raise CloudStateUnavailable
@@ -100,53 +126,55 @@ class SupabaseMemory(SessionMemory):
                          timeout=MEMORY_CLOUD_VALIDATE_TIMEOUT_S) or []
         return rows[0].get("updated") if rows else None
 
-    def _load_cloud(self, force: bool = False) -> None:
-        with _lock:
-            now = time.monotonic()
-            hay = _cache["data"] is not None
-            if hay and not force and now - _cache["at"] < MEMORY_CLOUD_CACHE_TTL_S:
-                self._adopt(_cache["data"], _cache["version"], True)
-                return
-            try:
-                if hay and not force and _same_version(self._remote_version(), _cache["version"]):
-                    _cache["at"] = now
-                    self._adopt(_cache["data"], _cache["version"], True)
-                    return
-                rows = self._req("GET", self._row_url("data,updated")) or []
-            except (SupabaseError, OSError, ValueError) as e:
-                if not hay or force:
-                    raise
-                # Nube caída con copia previa: se sirve la última (mejor que state.json
-                # viejo). save() desde esta copia revalida y falla mientras siga caída.
-                print(f"[zero] estado en la nube no responde ({e}); sirvo la última copia",
-                      file=sys.stderr)
-                _cache["at"] = now
-                self._adopt(_cache["data"], _cache["version"], True)
-                return
-            data = (rows[0].get("data") if rows else None) or {}
-            version = rows[0].get("updated") if rows else None
-            _cache.update(data=data, version=version, at=now)
-            self._adopt(data, version, False)
+    def _download(self):
+        rows = self._req("GET", self._row_url("data,updated")) or []
+        data = (rows[0].get("data") if rows else None) or {}
+        return data, (rows[0].get("updated") if rows else None)
 
-    def _adopt(self, data: Dict[str, Any], version: Optional[str], from_cache: bool) -> None:
+    def _load_cloud(self, force: bool = False) -> None:
+        data, version, at = _cache_read()
+        hay = data is not None
+        now = time.monotonic()
+        if hay and not force and now - at < MEMORY_CLOUD_CACHE_TTL_S:
+            self._adopt(data)           # ráfaga dentro del mismo request: sin red
+            return
+        try:
+            if hay and not force:
+                remote = self._remote_version()
+                if _same_version(remote, version):
+                    _cache_store(data, version, now)
+                    self._adopt(data)
+                    return
+            with _refresh_lock:
+                if hay and not force:   # otro hilo pudo refrescar mientras esperaba
+                    data2, version2, _ = _cache_read()
+                    if _same_version(version2, remote):
+                        self._adopt(data2)
+                        return
+                data, version = self._download()
+                _cache_store(data, version, time.monotonic())
+        except (SupabaseError, OSError, ValueError) as e:
+            if not hay or force:
+                raise
+            # Nube caída con copia previa: se sirve la última (mejor que un state.json
+            # viejo). save() sigue intentando la nube y falla mientras siga caída.
+            print(f"[zero] estado en la nube no responde ({e}); sirvo la copia de hace "
+                  f"{now - at:.0f}s", file=sys.stderr)
+        self._adopt(data)
+
+    def _adopt(self, data: Dict[str, Any]) -> None:
         self._restore(copy.deepcopy(data))   # la caché no se comparte: cada instancia muta la suya
-        self._version = version
-        self._from_cache = from_cache
 
     def reload(self) -> None:
         self._load_cloud(force=True)
 
     def save(self) -> None:
-        if self._from_cache and not _same_version(self._remote_version(), self._version):
-            invalidate_cache()
-            raise SupabaseError(
-                "el estado en la nube cambió desde que se leyó; no se guarda para no "
-                "pisar ese cambio, reintenta", code=409)
         snap = self.snapshot()
         version = datetime.now(timezone.utc).isoformat()
-        self._req("POST", f"{self.TABLE}?on_conflict=id",
-                  body=[{"id": self.ROW_ID, "data": snap, "updated": version}],
-                  prefer="resolution=merge-duplicates,return=minimal")
-        with _lock:
-            _cache.update(data=copy.deepcopy(snap), version=version, at=time.monotonic())
-        self._version = version
+        rows = self._req("POST", f"{self.TABLE}?on_conflict=id&select=updated",
+                         body=[{"id": self.ROW_ID, "data": snap, "updated": version}],
+                         prefer="resolution=merge-duplicates,return=representation")
+        # La versión real la pone el trigger de la DB (supabase_schema.sql); sin trigger
+        # (o sin `updated` en la respuesta) queda el sello local, como antes.
+        real = rows[0].get("updated") if rows and isinstance(rows, list) else None
+        _cache_store(copy.deepcopy(snap), real or version, time.monotonic(), from_save=True)
