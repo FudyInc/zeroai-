@@ -77,3 +77,11 @@ análisis legal mínimo (Ley 19.628 / 21.719 y uso de WhatsApp), equipo y partic
 - ⏸️ 0.6 privacidad: rama `fix/privacidad-landing` lista, SIN PR — falta un correo de contacto real (zeroai.cl no está registrado; Diego creará un Gmail más adelante).
 - ⏳ 0.4 egress de Supabase: en curso (rama `fix/egress-supabase`).
 - ⏳ 0.5 respaldo diario fuera del PC: pendiente.
+
+## Estado — 2026-11-28 00:10
+- ✅ 0.4 egress (PR #39: ~8,5 GB/día → ~3 MB/día) · 0.5 respaldo diario cifrado a OneDrive (PR #40; timer de usuario `zero-respaldo.timer` 03:30, primer respaldo verificado) · interruptor de estado retenido + `scripts/reconciliar_estado.py` (PR #41). Prod en `main` 60618d2; marcador creado con desde=2026-11-25T21:55-03:00.
+- Falta (Diego): reiniciar el backend; copiar `~/.config/zero-respaldo/clave` y la contraseña del login a un gestor de contraseñas.
+- Cuando vuelva la cuota de Supabase: 1) ejecutar el trigger de `supabase_schema.sql` en el SQL editor; 2) `python3 scripts/reconciliar_estado.py` (dry-run) y revisar conflictos y la sección REVISAR; 3) `--aplicar`.
+- Decisión pendiente: `GUARD_USA_LOCAL_RETENIDO` (hoy False = envío automático de eventos de WhatsApp bloqueado mientras el estado esté retenido, igual que con la nube caída).
+- Pendiente técnico: un test intermitente en la suite (falla ~1 de 4 corridas, distinto test/tipo); identificarlo.
+- ⏸️ 0.6 privacidad: espera el Gmail de contacto.
