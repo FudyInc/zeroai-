@@ -73,9 +73,10 @@ def _copia_sqlite(origen: Path) -> bytes:
         src.close()
 
 
-def _agregar_bytes(tar: tarfile.TarFile, nombre: str, datos: bytes) -> None:
+def _agregar_bytes(tar: tarfile.TarFile, nombre: str, datos: bytes,
+                   modo: int = 0o600, mtime: Optional[float] = None) -> None:
     info = tarfile.TarInfo(nombre)
-    info.size, info.mtime, info.mode = len(datos), int(time.time()), 0o600
+    info.size, info.mtime, info.mode = len(datos), int(mtime or time.time()), modo
     tar.addfile(info, io.BytesIO(datos))
 
 
@@ -83,14 +84,17 @@ def _agregar_archivo(tar: tarfile.TarFile, ruta: Path, nombre: str) -> bool:
     """Lee el archivo entero a memoria y lo agrega: si cambia mientras se lee,
     el tar no queda cortado (sigue el symlink; uno roto se omite)."""
     try:
+        st = ruta.stat()
         datos = ruta.read_bytes()
     except FileNotFoundError:
         return False
-    _agregar_bytes(tar, nombre, datos)
+    _agregar_bytes(tar, nombre, datos, modo=st.st_mode & 0o777, mtime=st.st_mtime)
     return True
 
 
 def _agregar_arbol(tar: tarfile.TarFile, raiz: Path, prefijo: str) -> int:
+    # rglob no sigue symlinks a carpetas (sin bucles); esas carpetas NO se respaldan:
+    # si hace falta una, ponla explícita en RESPALDO_EXTRA.
     n = 0
     for ruta in sorted(raiz.rglob("*")):
         if ruta.is_file():
@@ -149,9 +153,13 @@ def cifrar(datos: bytes, clave: Path, salida: Path) -> None:
     _openssl(["-salt", "-pass", f"file:{clave}", "-out", str(salida)], datos)
 
 
-def verificar(archivo: Path, clave: Path, esperados: int) -> None:
-    """Descifra y lee el tar completo: un archivo con nombre válido debe restaurarse."""
+def verificar(archivo: Path, clave: Path, esperados: int,
+              original: Optional[bytes] = None) -> None:
+    """Descifra y lee el tar completo: un archivo con nombre válido debe restaurarse.
+    Con `original`, exige además que lo descifrado sea idéntico byte a byte."""
     plano = _openssl(["-d", "-pass", f"file:{clave}", "-in", str(archivo)])
+    if original is not None and plano != original:
+        raise RespaldoError("lo descifrado no coincide con lo respaldado")
     try:
         with tarfile.open(fileobj=io.BytesIO(plano), mode="r:gz") as tar:
             miembros = tar.getmembers()
@@ -164,14 +172,30 @@ def verificar(archivo: Path, clave: Path, esperados: int) -> None:
         raise RespaldoError("el respaldo verificado tiene menos archivos de los esperados")
 
 
-def podar(destino: Path, retener: int, ahora: float) -> Tuple[List[str], List[str]]:
+def podar(destino: Path, retener: int, ahora: float,
+          proteger: Optional[Path] = None) -> Tuple[List[str], List[str]]:
     """Borra los respaldos sobrantes (solo nombres exactos de este script) y los
-    .parcial huérfanos de más de un día. Nunca lanza: devuelve (borrados, errores)."""
+    .parcial huérfanos de más de un día. Nunca borra `proteger` (el recién creado).
+    Nunca lanza: devuelve (borrados, errores)."""
     borrados, errores = [], []
-    propios = sorted(p for p in destino.iterdir() if p.is_file() and NOMBRE_VALIDO.match(p.name))
-    huerfanos = [p for p in destino.iterdir()
-                 if p.is_file() and PARCIAL.match(p.name) and ahora - p.stat().st_mtime > 86400]
-    for p in (propios[:-retener] if retener > 0 else []) + huerfanos:
+    try:
+        entradas = list(destino.iterdir())
+    except OSError as e:
+        return [], [f"no se pudo listar {destino}: {e}"]
+    propios, huerfanos = [], []
+    for p in entradas:
+        try:
+            if not p.is_file() or (proteger is not None and p.name == proteger.name):
+                continue
+            if NOMBRE_VALIDO.match(p.name):
+                propios.append(p)
+            elif PARCIAL.match(p.name) and ahora - p.stat().st_mtime > 86400:
+                huerfanos.append(p)
+        except OSError as e:
+            errores.append(f"{p.name}: {e}")
+    propios.sort()
+    sobran = max(0, len(propios) + (1 if proteger is not None else 0) - retener) if retener > 0 else 0
+    for p in propios[:sobran] + huerfanos:
         try:
             p.unlink()
             borrados.append(p.name)
@@ -195,14 +219,17 @@ def respaldar(raiz: Path, destino: Path, clave: Path, extra: List[Path],
     parcial = destino / f".{final.name}.parcial"
     try:
         cifrar(datos, clave, parcial)
-        with open(parcial, "rb") as f:
-            os.fsync(f.fileno())
-        verificar(parcial, clave, esperados=1)
+        try:
+            with open(parcial, "rb") as f:
+                os.fsync(f.fileno())
+        except OSError:
+            pass                        # algunos montajes (drvfs) no soportan fsync
+        verificar(parcial, clave, esperados=len(incluidos), original=datos)
         os.replace(parcial, final)      # nunca queda un respaldo a medias con nombre válido
     finally:
         if parcial.exists():
             parcial.unlink()
-    borrados, errores_poda = podar(destino, retener, ahora)
+    borrados, errores_poda = podar(destino, retener, ahora, proteger=final)
     return {"archivo": str(final), "bytes": final.stat().st_size, "incluidos": incluidos,
             "podados": borrados, "errores_poda": errores_poda}
 
@@ -228,9 +255,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     extra = [Path(p).expanduser() for p in os.environ.get("RESPALDO_EXTRA", "").split(":") if p.strip()]
     sqlites = [raiz / n for n in RESPALDO_SQLITE]
     evento = os.environ.get("WHATSAPP_WEB_EVENT_DB", "").strip()
-    if evento:
-        sqlites = [Path(evento) if Path(evento).is_absolute() else raiz / evento]
     try:
+        if evento:
+            sqlites = [Path(evento) if Path(evento).is_absolute() else raiz / evento]
+            if not sqlites[0].is_file():
+                raise RespaldoError(f"WHATSAPP_WEB_EVENT_DB apunta a algo que no existe: {sqlites[0]}")
         if not destino:
             raise RespaldoError("RESPALDO_DESTINO no está definido en el .env")
         r = respaldar(raiz, Path(destino).expanduser(), Path(clave).expanduser(), extra,

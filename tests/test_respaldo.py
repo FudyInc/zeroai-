@@ -165,6 +165,34 @@ class RespaldoTest(unittest.TestCase):
         with _descifrar(archivo, self.clave) as tar:
             self.assertIn("repo/eventos.sqlite3", tar.getnames())
 
+    def test_el_recien_creado_no_se_poda_aunque_haya_fechas_futuras(self):
+        for d in ("20991230", "20991231"):
+            (self.destino / f"zeroai-{d}-0330.tar.gz.enc").write_text("futuro")
+        r = rd.respaldar(self.raiz, self.destino, self.clave, extra=[], retener=2)
+        self.assertTrue(Path(r["archivo"]).exists())
+
+    def test_conserva_permisos_y_fecha(self):
+        extra = Path(self.tmp.name) / "fuera"; extra.mkdir()
+        script = extra / "correr.sh"; script.write_text("echo hola")
+        os.chmod(script, 0o755); os.utime(script, (1_600_000_000, 1_600_000_000))
+        r = rd.respaldar(self.raiz, self.destino, self.clave, extra=[extra])
+        with _descifrar(Path(r["archivo"]), self.clave) as tar:
+            m = next(m for m in tar.getmembers() if m.name.endswith("correr.sh"))
+        self.assertEqual(m.mode, 0o755)
+        self.assertEqual(int(m.mtime), 1_600_000_000)
+
+    def test_poda_no_lanza_si_no_puede_listar(self):
+        borrados, errores = rd.podar(Path(self.tmp.name) / "no-existe", 3, time.time())
+        self.assertEqual(borrados, [])
+        self.assertTrue(errores)
+
+    def test_bandeja_explicita_inexistente_falla(self):
+        env = {"RESPALDO_DESTINO": str(self.destino), "RESPALDO_CLAVE_ARCHIVO": str(self.clave),
+               "RESPALDO_EXTRA": "", "WHATSAPP_WEB_EVENT_DB": "/no/existe.sqlite3"}
+        with mock.patch.dict(os.environ, env), mock.patch("zero.alerts.notify_owner") as aviso:
+            self.assertEqual(rd.main(["--raiz", str(self.raiz)]), 1)
+        self.assertIn("WHATSAPP_WEB_EVENT_DB", aviso.call_args[0][0])
+
 
 if __name__ == "__main__":
     unittest.main()
