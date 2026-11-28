@@ -8,7 +8,8 @@ constructor del estado usa el archivo local aunque Supabase responda. Solo
 `scripts/reconciliar_estado.py --aplicar` lo borra, después de fusionar nube + local.
 
 `ZERO_ESTADO_RETENIDO_PATH` cambia la ruta del marcador; vacío desactiva el interruptor
-(la suite lo usa para no escribir en `.runtime/` real).
+(con aviso a stderr) y "-" lo desactiva en silencio (la suite lo usa para no escribir en
+`.runtime/` real).
 """
 from __future__ import annotations
 
@@ -27,11 +28,20 @@ _RAIZ = Path(__file__).resolve().parents[1]
 _ultimo_aviso = {"at": None}
 
 
+_avisado_desactivado = {"ya": False}
+
+
 def ruta() -> Optional[Path]:
     valor = os.environ.get("ZERO_ESTADO_RETENIDO_PATH")
-    if valor is not None:
-        return Path(valor) if valor else None
-    return _RAIZ / ESTADO_RETENIDO_ARCHIVO
+    if valor is None:
+        return _RAIZ / ESTADO_RETENIDO_ARCHIVO
+    if valor == "":
+        if not _avisado_desactivado["ya"]:
+            _avisado_desactivado["ya"] = True
+            print("[zero] interruptor de estado retenido DESACTIVADO "
+                  "(ZERO_ESTADO_RETENIDO_PATH vacío): la nube podría volver sola", file=sys.stderr)
+        return None
+    return None if valor == "-" else Path(valor)
 
 
 def leer() -> Optional[Dict[str, Any]]:
@@ -51,21 +61,30 @@ def activo() -> bool:
     return leer() is not None
 
 
-def marcar(motivo: str) -> bool:
+def marcar(motivo: str, desde: Optional[str] = None, notificar: bool = True) -> bool:
     """Crea el marcador si no existe (nunca pisa el `desde` original). Devuelve True si
-    lo creó. No levanta: no poder escribirlo no debe tumbar la petición que ya degradó."""
+    lo creó. No levanta: no poder escribirlo no debe tumbar la petición que ya degradó.
+    Al crearlo avisa al dueño (`kind="estado_retenido"`; un aviso que falla no levanta)."""
     p = ruta()
     if p is None or p.exists():
         return False
+    desde = desde or datetime.now(timezone.utc).isoformat()
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
         tmp = p.with_name(p.name + ".tmp")
-        tmp.write_text(json.dumps({"desde": datetime.now(timezone.utc).isoformat(),
-                                   "motivo": str(motivo)[:300]}, ensure_ascii=False), "utf-8")
+        tmp.write_text(json.dumps({"desde": desde, "motivo": str(motivo)[:300]},
+                                  ensure_ascii=False), "utf-8")
         os.replace(tmp, p)
     except OSError as e:
         print(f"[zero] no pude escribir el marcador de estado retenido ({e})", file=sys.stderr)
         return False
+    if notificar:
+        try:
+            from .alerts import notify_owner
+            notify_owner(f"Estado retenido en local desde {desde}: {str(motivo)[:120]}. "
+                         f"Correr {ESTADO_RECONCILIAR_COMANDO}", kind="estado_retenido")
+        except Exception as e:   # noqa: BLE001 — avisar nunca debe tumbar al que avisa
+            print(f"[zero] no pude avisar del estado retenido ({e})", file=sys.stderr)
     return True
 
 

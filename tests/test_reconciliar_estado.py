@@ -300,7 +300,10 @@ class Base(unittest.TestCase):
                   mock.patch.object(rec, "ESTADO_RESPALDOS_DIR", str(self.respaldos))):
             p.start()
             self.addCleanup(p.stop)
-        estado_retenido.marcar("402")
+        pn = mock.patch("zero.alerts.notify_owner")      # la suite no manda avisos reales
+        pn.start()
+        self.addCleanup(pn.stop)
+        estado_retenido.marcar("402", desde=CORTE)
 
     def correr(self, *args):
         out, err = io.StringIO(), io.StringIO()
@@ -309,7 +312,156 @@ class Base(unittest.TestCase):
         return codigo, out.getvalue(), err.getvalue()
 
 
+class TestFichasSinMarca(unittest.TestCase):
+    """Sin `guardada` que desempate, gana la NUBE (conflicto registrado); --local invierte."""
+
+    def _sin_marca(self, n, texto):
+        return {"version": n, "knowledge": texto, "chars": len(texto), "guardada": "", "motivo": ""}
+
+    def test_caso_A_mismo_numero_distinto_texto_sin_fechas(self):
+        nube = {"clients": {"a": {"knowledge": "de la nube", "knowledge_version": 2,
+                                  "knowledge_versions": [self._sin_marca(1, "base"),
+                                                         self._sin_marca(2, "de la nube")]}}}
+        local = {"clients": {"a": {"knowledge": "de local", "knowledge_version": 2,
+                                   "knowledge_versions": [self._sin_marca(1, "base"),
+                                                          self._sin_marca(2, "de local")]}}}
+        out, f = fusionar(nube, local)
+        ficha = out["clients"]["a"]
+        self.assertEqual(ficha["knowledge"], "de la nube")
+        self.assertEqual(ficha["knowledge_version"], max(v["version"] for v in ficha["knowledge_versions"]))
+        self.assertEqual({v["knowledge"] for v in ficha["knowledge_versions"]},
+                         {"base", "de la nube", "de local"})          # nada se pierde
+        self.assertIn("clients.a.knowledge", rutas(f))
+        self.assertEqual(rutas(f)["clients.a.knowledge"]["resolucion"], "nube")
+        out, f = fusionar(nube, local, locales=("clients.a.knowledge",))
+        ficha = out["clients"]["a"]
+        self.assertEqual(ficha["knowledge"], "de local")
+        self.assertEqual(ficha["knowledge_version"], max(v["version"] for v in ficha["knowledge_versions"]))
+        self.assertEqual(rutas(f)["clients.a.knowledge"]["resolucion"], "local (forzado)")
+
+    def test_caso_B_fichas_antiguas_sin_historial_ni_fechas(self):
+        nube = {"clients": {"a": {"knowledge": "ficha nube"}}}
+        local = {"clients": {"a": {"knowledge": "ficha local"}}}
+        out, f = fusionar(nube, local)
+        ficha = out["clients"]["a"]
+        self.assertEqual(ficha["knowledge"], "ficha nube")
+        self.assertEqual(ficha["knowledge_version"], max(v["version"] for v in ficha["knowledge_versions"]))
+        # ambas quedan en el historial (la local renumerada) + la vigente de la nube como nueva
+        self.assertEqual([v["knowledge"] for v in ficha["knowledge_versions"]],
+                         ["ficha nube", "ficha local", "ficha nube"])
+        self.assertEqual(rutas(f)["clients.a.knowledge"]["resolucion"], "nube")
+        out, _ = fusionar(nube, local, locales=("clients.a.knowledge",))
+        self.assertEqual(out["clients"]["a"]["knowledge"], "ficha local")
+
+    def test_el_desempate_no_altera_numeros_ya_existentes_de_la_nube(self):
+        nube = {"clients": {"a": {"knowledge": "n2", "knowledge_version": 2,
+                                  "knowledge_versions": [self._sin_marca(1, "b"), self._sin_marca(2, "n2")]}}}
+        local = {"clients": {"a": {"knowledge": "l2", "knowledge_version": 2,
+                                   "knowledge_versions": [self._sin_marca(1, "b"), self._sin_marca(2, "l2")]}}}
+        out, _ = fusionar(nube, local)
+        por_numero = {v["version"]: v["knowledge"] for v in out["clients"]["a"]["knowledge_versions"]}
+        self.assertEqual((por_numero[1], por_numero[2]), ("b", "n2"))
+
+
+class TestARevisar(unittest.TestCase):
+    def test_solo_nube_y_anterior_al_corte(self):
+        nube = {"clients": {"a": {"whatsapp_handoffs": {
+            "1": {"at": T0}, "2": {"at": T0}, "3": {"at": T2}}}},
+            "pending_offers": {"a|x": {"kind": "k", "ts": T0}, "a|y": {"kind": "k", "ts": T0},
+                               "a|z": {"kind": "k", "ts": T2}}}
+        local = {"clients": {"a": {"whatsapp_handoffs": {"2": {"at": T0}}}},
+                 "pending_offers": {"a|y": {"kind": "k", "ts": T0}}}
+        filas = rec.a_revisar(nube, local, CORTE)
+        self.assertEqual(len(filas), 2)
+        self.assertTrue(any("whatsapp_handoffs.1" in x for x in filas))
+        self.assertTrue(any("pending_offers.a|x" in x for x in filas))
+
+
 class TestScript(Base):
+    def test_dry_run_imprime_rutas_y_seccion_revisar(self):
+        self.nube.row["data"]["pending_offers"] = {"acme|x": {"kind": "k", "ts": T0}}
+        codigo, salida, _ = self.correr()
+        self.assertEqual(codigo, 0)
+        self.assertIn(str(self.marca.resolve()), salida)
+        self.assertIn(str(self.state.resolve()), salida)
+        self.assertIn("REVISAR (1)", salida)
+        self.assertIn("pending_offers.acme|x", salida)
+
+    def test_aplicar_sin_marcador_aborta_salvo_forzar(self):
+        self.marca.unlink()
+        codigo, _, err = self.correr("--aplicar", "--si")
+        self.assertEqual(codigo, 1)
+        self.assertIn("--forzar", err)
+        self.assertEqual(self.nube.writes, 0)
+        codigo, _, _ = self.correr("--aplicar", "--si", "--forzar")
+        self.assertEqual(codigo, 0)
+        self.assertEqual(self.nube.writes, 1)
+
+    def test_state_cambia_antes_de_escribir_la_nube_aborta_sin_escribir(self):
+        original = rec._firma
+        llamadas = {"n": 0}
+
+        def firma_que_cambia(path):
+            llamadas["n"] += 1
+            if llamadas["n"] == 2:    # el chequeo previo a la nube: el backend escribió state.json
+                self.state.write_text(json.dumps({"clients": {"nuevo": {}}}), "utf-8")
+            return original(path)
+
+        with mock.patch.object(rec, "_firma", firma_que_cambia):
+            codigo, _, err = self.correr("--aplicar", "--si")
+        self.assertEqual(codigo, 1)
+        self.assertIn("reintenta", err)
+        self.assertEqual(self.nube.writes, 0)
+        self.assertTrue(self.marca.exists())
+        self.assertIn("nuevo", self.state.read_text("utf-8"))      # lo del backend no se pisó
+
+    def test_state_cambia_despues_de_la_nube_no_se_pisa_y_conserva_marcador(self):
+        original = rec._firma
+        llamadas = {"n": 0}
+
+        def firma_que_cambia(path):
+            llamadas["n"] += 1
+            if llamadas["n"] == 3:    # el chequeo previo a save_json
+                self.state.write_text(json.dumps({"clients": {"nuevo": {}}}), "utf-8")
+            return original(path)
+
+        with mock.patch.object(rec, "_firma", firma_que_cambia):
+            codigo, _, err = self.correr("--aplicar", "--si")
+        self.assertEqual(codigo, 1)
+        self.assertTrue(self.marca.exists())
+        self.assertIn("nuevo", self.state.read_text("utf-8"))
+
+    def test_si_no_se_puede_liberar_el_marcador_sale_con_error(self):
+        with mock.patch.object(rec.estado_retenido, "liberar", side_effect=OSError("permiso")):
+            codigo, _, err = self.correr("--aplicar", "--si")
+        self.assertEqual(codigo, 1)
+        self.assertIn("permiso", err)
+
+    def test_retener_desde_crea_el_marcador_sin_tocar_nada(self):
+        self.marca.unlink()
+        antes = self.state.read_text("utf-8")
+        codigo, salida, _ = self.correr("--retener-desde", CORTE)
+        self.assertEqual(codigo, 0)
+        self.assertEqual(json.loads(self.marca.read_text())["desde"], CORTE)
+        self.assertEqual(self.state.read_text("utf-8"), antes)
+        self.assertEqual(self.nube.reads + self.nube.writes, 0)
+
+    def test_retener_desde_es_idempotente_y_no_pisa_salvo_forzar(self):
+        self.correr("--retener-desde", "2026-11-26T00:00:00+00:00")
+        self.assertEqual(json.loads(self.marca.read_text())["desde"], CORTE)   # el de setUp sigue
+        codigo, salida, _ = self.correr("--retener-desde", "2026-11-26T00:00:00+00:00")
+        self.assertEqual(codigo, 0)
+        self.assertIn("no se pisa", salida)
+        self.correr("--retener-desde", "2026-11-26T00:00:00+00:00", "--forzar")
+        self.assertEqual(json.loads(self.marca.read_text())["desde"], "2026-11-26T00:00:00+00:00")
+
+    def test_retener_desde_fecha_invalida(self):
+        self.marca.unlink()
+        codigo, _, err = self.correr("--retener-desde", "ayer")
+        self.assertEqual(codigo, 1)
+        self.assertFalse(self.marca.exists())
+
+
     def test_aplicar_con_trigger_y_lectura_fresca_ignora_la_cache(self):
         from zero import memory_supabase
         self.nube = FakeSupabase(self.nube_inicial, trigger=True)

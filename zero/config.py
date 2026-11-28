@@ -989,3 +989,10 @@ ESTADO_RECONCILIAR_COMANDO = "scripts/reconciliar_estado.py"
 ESTADO_RESPALDOS_DIR = "~/respaldos"                  # donde --aplicar guarda nube.json y local.json
 ESTADO_RESPALDO_PREFIJO = "estado-reconciliacion-"
 ESTADO_CONFIRMACION = "SI"                            # lo que hay que escribir para aplicar sin --si
+
+# Guard de envío de WhatsApp (zero/whatsapp_web.py) con el estado retenido en local.
+# False = fail-closed: con el marcador puesto el envío automático queda bloqueado, igual
+# que con la nube caída (no se decide con un state.json que quizá no tiene lo último).
+# True = el guard lee el state.json local, que durante la retención es la fuente viva.
+# Política pendiente de decidir; cambiarla es cambiar esta constante.
+GUARD_USA_LOCAL_RETENIDO = False

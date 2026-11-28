@@ -281,8 +281,22 @@ def _prueba_diaria() -> list:
     return fallas + [NO_URGENTE + f"prueba diaria del agente {desde} ({horas_txt}); {accion}"]
 
 
+def _estado_retenido() -> list:
+    """El estado vive solo en state.json hasta reconciliar: que no se olvide. Texto estable
+    (el `desde` no cambia) para que el antirrebote lo avise cada ventana, no cada corrida."""
+    try:
+        from zero import estado_retenido
+        marca = estado_retenido.leer()
+    except Exception as e:                       # noqa: BLE001
+        return [f"no se pudo leer el marcador de estado retenido: {e}"]
+    if marca is None:
+        return []
+    return [f"estado retenido en local desde {marca.get('desde') or 'fecha desconocida'}; "
+            "correr scripts/reconciliar_estado.py"]
+
+
 def revisar() -> list:
-    fallas = []
+    fallas = list(_estado_retenido())
     nube = _nube_principal()
     claude = _anthropic_principal()
     for s in ("zero-backend", "zero-tunnel") + (() if nube or claude else ("ollama",)):

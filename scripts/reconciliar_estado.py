@@ -9,6 +9,7 @@ la nube antes del corte, y la nube no tiene lo escrito durante la caída. Hay qu
     python3 scripts/reconciliar_estado.py              # DRY-RUN: muestra, no escribe nada
     python3 scripts/reconciliar_estado.py --aplicar    # respalda, escribe nube + local, libera el marcador
     python3 scripts/reconciliar_estado.py --aplicar --si
+    python3 scripts/reconciliar_estado.py --retener-desde 2026-11-25T21:55:00-03:00   # solo crea el marcador
     python3 scripts/reconciliar_estado.py --local clients.acme.icp   # fuerza LOCAL en ese conflicto
 
 Códigos de salida: 0 ok · 1 error o cancelado (nada a medias: el marcador sigue) ·
@@ -71,6 +72,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import json
 import os
 import sys
@@ -369,6 +371,8 @@ def _conocimiento(f: Fusion, clave: str, ruta: str, n: Dict[str, Any],
     f.contar(clave, "solo_nube", len(en_n - en_l))
     f.contar(clave, "de_local", len(en_l - en_n))
     todas = vn + [v for v in vl if (v.get("version"), v.get("knowledge")) not in en_n]
+    origen = {id(v): ("nl" if (v.get("version"), v.get("knowledge")) in en_l else "n") for v in vn}
+    origen.update({id(v): "l" for v in vl if id(v) not in origen})
     minimo = datetime.min.replace(tzinfo=timezone.utc)
     todas.sort(key=lambda v: (_t(v.get("guardada")) or minimo, int(v.get("version") or 0)))
     previo = 0
@@ -381,6 +385,23 @@ def _conocimiento(f: Fusion, clave: str, ruta: str, n: Dict[str, Any],
             numero = previo + 1
         previo = numero
     vigente = todas[-1]
+    # Sin marca de tiempo que desempate (o igual en ambos lados) con textos distintos de
+    # cada lado: no hay forma de saber cuál es la vigente. Gana la NUBE; `--local` invierte.
+    tope = _t(vigente.get("guardada"))
+    empatadas = [v for v in todas if _t(v.get("guardada")) == tope]
+    if len({v.get("knowledge") for v in empatadas}) > 1 and \
+            any(origen[id(v)] == "n" for v in empatadas) and any(origen[id(v)] == "l" for v in empatadas):
+        ruta_k = f"{ruta}.knowledge"
+        lado = "l" if ruta_k in f.locales else "n"
+        ganadora = max((v for v in empatadas if lado in origen[id(v)]), key=lambda v: v["version"])
+        f.nota(ruta_k, next(v["knowledge"] for v in empatadas if origen[id(v)] == "n"),
+               next(v["knowledge"] for v in empatadas if origen[id(v)] == "l"),
+               "local (forzado)" if lado == "l" else "nube")
+        f.contar(clave, "fusionados")
+        if ganadora is not vigente:   # queda vigente como versión nueva; el resto sigue en el historial
+            vigente = {**ganadora, "version": vigente["version"] + 1,
+                       "motivo": f"fusión: se conserva la vigente de {'local' if lado == 'l' else 'nube'}"}
+            todas.append(vigente)
     sobran = len(todas) - max(1, MAX_KNOWLEDGE_VERSIONS)
     if sobran > 0:
         del todas[:sobran]
@@ -513,6 +534,60 @@ def resumen(f: Fusion) -> str:
     return "\n".join(lineas)
 
 
+def a_revisar(nube: Dict[str, Any], local: Dict[str, Any], desde: Optional[str]) -> List[str]:
+    """Pausas de WhatsApp y ofertas pendientes que están SOLO en la nube y son anteriores al
+    corte: pudieron liberarse o cumplirse en local durante la caída (la fusión no distingue
+    un borrado de una ausencia, así que se conservan y se piden a ojo)."""
+    corte = _t(desde)
+
+    def previo(ts: Any) -> bool:
+        t = _t(ts)
+        return True if corte is None or t is None else t < corte
+
+    filas = []
+    for cid, ficha in (nube.get("clients") or {}).items():
+        locales = ((local.get("clients") or {}).get(cid) or {}).get("whatsapp_handoffs") or {}
+        for lead, pausa in ((ficha or {}).get("whatsapp_handoffs") or {}).items():
+            if lead not in locales and previo((pausa or {}).get("at")):
+                filas.append(f"pausa de WhatsApp  clients.{cid}.whatsapp_handoffs.{lead}  "
+                             f"(at {(pausa or {}).get('at')}): {_corto(pausa)}")
+    locales = local.get("pending_offers") or {}
+    for clave, oferta in (nube.get("pending_offers") or {}).items():
+        if clave not in locales and previo((oferta or {}).get("ts")):
+            filas.append(f"oferta pendiente   pending_offers.{clave}  (ts {(oferta or {}).get('ts')}): "
+                         f"{_corto(oferta)}")
+    return filas
+
+
+def _firma(path: Path) -> Tuple[str, int]:
+    """(hash, mtime_ns) de state.json: detecta que el backend lo escribió mientras tanto."""
+    st = path.stat()
+    return hashlib.sha256(path.read_bytes()).hexdigest(), st.st_mtime_ns
+
+
+def _retener_desde(valor: str, forzar: bool) -> int:
+    if _t(valor) is None:
+        print(f"--retener-desde: '{valor}' no es una fecha ISO válida.", file=sys.stderr)
+        return 1
+    destino = estado_retenido.ruta()
+    if destino is None:
+        print("El interruptor está desactivado (ZERO_ESTADO_RETENIDO_PATH vacío).", file=sys.stderr)
+        return 1
+    previo = estado_retenido.leer()
+    if previo is not None and not forzar:
+        print(f"Ya hay marcador en {destino.resolve()} desde {previo.get('desde')}; no se pisa "
+              "(usa --forzar para reemplazarlo).")
+        return 0
+    if previo is not None:
+        estado_retenido.liberar()
+    if not estado_retenido.marcar("retención inicial manual (--retener-desde)", desde=valor,
+                                  notificar=False):
+        print(f"No pude escribir el marcador en {destino}.", file=sys.stderr)
+        return 1
+    print(f"Marcador creado en {destino.resolve()} con desde={valor}. No se tocó nada más.")
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="Fusiona el estado de la nube con state.json local.")
     ap.add_argument("--aplicar", action="store_true", help="escribe la fusión (por defecto, dry-run)")
@@ -520,27 +595,48 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--state", default=os.environ.get("STATE_PATH", "state.json"))
     ap.add_argument("--local", action="append", default=[], metavar="RUTA",
                     help="en un conflicto de esa ruta (p. ej. clients.acme.icp) conservar el LOCAL")
+    ap.add_argument("--retener-desde", metavar="ISO",
+                    help="solo crea el marcador con ese `desde` (idempotente) y sale")
+    ap.add_argument("--forzar", action="store_true",
+                    help="reemplaza un marcador existente (--retener-desde) o aplica sin marcador")
     args = ap.parse_args(argv)
 
+    if args.retener_desde:
+        return _retener_desde(args.retener_desde, args.forzar)
+
+    estado = Path(args.state)
+    print(f"Marcador : {estado_retenido.ruta() and estado_retenido.ruta().resolve()}\n"
+          f"state.json: {estado.resolve()}\n")
     try:
         nube, version = leer_nube()
     except NubeNoDisponible as e:
         print(f"La nube aún no responde ({e}). No se tocó nada.", file=sys.stderr)
         return 2
-    estado = Path(args.state)
     if not estado.exists():
         print(f"No existe {estado}: no hay nada local que fusionar.", file=sys.stderr)
         return 1
     try:
+        firma = _firma(estado)
         local = load_json(estado)
-    except RuntimeError as e:
+    except (RuntimeError, OSError) as e:
         print(f"{estado} ilegible ({e}); no se toca nada.", file=sys.stderr)
         return 1
 
-    marca = estado_retenido.leer() or {}
-    fusion, f = fusionar(nube, local, marca.get("desde"), tuple(args.local))
-    print(f"Estado retenido desde: {marca.get('desde') or '(sin marcador)'}\n")
+    marca = estado_retenido.leer()
+    if args.aplicar and marca is None and not args.forzar:
+        print("No hay marcador de estado retenido: no hay nada que reconciliar. "
+              "Si de verdad quieres fusionar igual, usa --forzar.", file=sys.stderr)
+        return 1
+    desde = (marca or {}).get("desde")
+    fusion, f = fusionar(nube, local, desde, tuple(args.local))
+    print(f"Estado retenido desde: {desde or '(sin marcador)'}\n")
     print(resumen(f))
+    revisar = a_revisar(nube, local, desde)
+    if revisar:
+        print(f"\nREVISAR ({len(revisar)}): solo existen en la nube y son anteriores al corte; "
+              "podrían haberse liberado/cumplido en local durante la caída:")
+        for fila in revisar:
+            print(f"  {fila}")
     if not args.aplicar:
         print("\nDRY-RUN: no se escribió nada. Para aplicar: --aplicar")
         return 0
@@ -554,11 +650,19 @@ def main(argv: Optional[List[str]] = None) -> int:
             print("Cancelado: no se escribió nada.", file=sys.stderr)
             return 1
 
+    def local_intacto() -> None:
+        if _firma(estado) != firma:
+            raise RuntimeError(f"{estado} cambió mientras se calculaba la fusión (el backend "
+                               "escribió); reintenta, la fusión es idempotente")
+
     try:
         carpeta = respaldar(nube, local)
         print(f"\nRespaldo de ambas fuentes en {carpeta}")
+        local_intacto()
         escribir_nube(fusion, version)
+        local_intacto()
         save_json(estado, fusion)
+        estado_retenido.liberar()
     except NubeNoDisponible as e:
         print(f"La nube dejó de responder ({e}). Marcador intacto.", file=sys.stderr)
         return 2
@@ -566,7 +670,6 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"Falló la aplicación ({e}). Marcador intacto; el respaldo sigue en disco.",
               file=sys.stderr)
         return 1
-    estado_retenido.liberar()
     print(f"Listo: nube y {estado} fusionados; marcador liberado.")
     return 0
 
