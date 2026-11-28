@@ -985,3 +985,11 @@ RESPALDO_RETENER = 14          # cuántos respaldos diarios se conservan en el d
 RESPALDO_PBKDF2_ITER = 200_000
 RESPALDO_CLAVE_MIN_BYTES = 32  # clave más corta = respaldo rechazado (crear: openssl rand -base64 48)
 RESPALDO_SQLITE_TIMEOUT_S = 30.0
+
+# --- Caché en proceso de la fila `app_state` (zero/memory_supabase.py) ----------
+# Cada make_memory() bajaba la fila entera (~100 KB) y el dashboard pollea cada 5-30 s:
+# así se agotó el egress del plan gratis. Cada carga valida la versión (`updated`, ~100 B)
+# y baja la fila completa solo si otro proceso la cambió. El TTL es un micro-margen para
+# ráfagas dentro de un mismo request (sin red); no sirve datos de hace más que eso.
+MEMORY_CLOUD_CACHE_TTL_S = 1.0
+MEMORY_CLOUD_VALIDATE_TIMEOUT_S = 4.0   # revalidar con la caché llena no debe colgar el request

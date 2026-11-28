@@ -499,7 +499,7 @@ def _guard_event_send(context, body, client_id):
     if _supabase_on():
         # Una caída de la nube no autoriza consultar una copia local desactualizada.
         from .memory_supabase import SupabaseMemory
-        memory = SupabaseMemory()
+        memory = SupabaseMemory(fresh=True)
     else:
         memory = make_memory(os.environ.get('STATE_PATH', 'state.json'))
     chat_id = str(body['chat_id'])
