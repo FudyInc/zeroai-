@@ -1,0 +1,8 @@
+[Unit]
+Description=ZeroAI — respaldo diario cifrado fuera del PC (oneshot, disparado por zero-respaldo.timer)
+
+[Service]
+Type=oneshot
+User=diego
+WorkingDirectory=/home/diego/zeroai
+ExecStart=/usr/bin/python3 scripts/respaldo_diario.py
